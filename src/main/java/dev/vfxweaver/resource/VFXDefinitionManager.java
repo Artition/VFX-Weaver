@@ -289,7 +289,8 @@ public class VFXDefinitionManager extends SimplePreparableReloadListener<Map<Ide
 					"color_r", VFXDefinition.ParamSpec.constant(0.2F),
 					"color_g", VFXDefinition.ParamSpec.constant(0.6F),
 					"color_b", VFXDefinition.ParamSpec.constant(1.0F),
-					"alpha", VFXDefinition.ParamSpec.constant(0.35F)
+					"alpha", VFXDefinition.ParamSpec.constant(0.35F),
+					"through_blocks", VFXDefinition.ParamSpec.constant(1.0F)
 				),
 				false, false, 10, List.of(), List.of(), null
 			)
@@ -306,7 +307,8 @@ public class VFXDefinitionManager extends SimplePreparableReloadListener<Map<Ide
 					"color_g", VFXDefinition.ParamSpec.constant(0.85F),
 					"color_b", VFXDefinition.ParamSpec.constant(0.2F),
 					"alpha", VFXDefinition.ParamSpec.constant(0.9F),
-					"width", VFXDefinition.ParamSpec.constant(0.05F)
+					"width", VFXDefinition.ParamSpec.constant(0.05F),
+					"through_blocks", VFXDefinition.ParamSpec.constant(1.0F)
 				),
 				false, false, 10, List.of(), List.of(), null
 			)
@@ -323,7 +325,8 @@ public class VFXDefinitionManager extends SimplePreparableReloadListener<Map<Ide
 					"color_g", VFXDefinition.ParamSpec.constant(0.6F),
 					"color_b", VFXDefinition.ParamSpec.constant(1.0F),
 					"alpha", VFXDefinition.ParamSpec.constant(0.5F),
-					"texture", VFXDefinition.ParamSpec.constant(1.0F)
+					"texture", VFXDefinition.ParamSpec.constant(1.0F),
+					"through_blocks", VFXDefinition.ParamSpec.constant(1.0F)
 				),
 				false, false, 10, List.of(), List.of(), null
 			)
@@ -340,7 +343,8 @@ public class VFXDefinitionManager extends SimplePreparableReloadListener<Map<Ide
 					"color_g", VFXDefinition.ParamSpec.constant(0.85F),
 					"color_b", VFXDefinition.ParamSpec.constant(0.2F),
 					"alpha", VFXDefinition.ParamSpec.constant(1.0F),
-					"width", VFXDefinition.ParamSpec.constant(0.05F)
+					"width", VFXDefinition.ParamSpec.constant(0.05F),
+					"through_blocks", VFXDefinition.ParamSpec.constant(0.0F)
 				),
 				false, false, 10, List.of(), List.of(), null
 			)

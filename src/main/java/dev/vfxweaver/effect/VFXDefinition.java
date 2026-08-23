@@ -408,6 +408,12 @@ public class VFXDefinition {
 				multipliers.put(name, spec.multiply());
 			}
 		}
+		// Overrides for parameters the definition does not declare (e.g. through_blocks on the
+		// built-in entity/block effects) must still land in the timeline — renderers read them
+		// with getParam(name, fallback), so silently dropping them made such parameters inert.
+		for (Map.Entry<String, Float> entry : overrides.entrySet()) {
+			values.putIfAbsent(entry.getKey(), AnimatedValue.constant(entry.getValue()));
+		}
 		return new VFXTimeline(duration, values, bindings, multipliers, expressions);
 	}
 
