@@ -76,14 +76,11 @@ public abstract class GameRendererMixin {
 	 * Layer 0 screen effects run right before the first-person hand is rendered, so they affect
 	 * only the world frame and stay under the hand and the GUI.
 	 */
-	@Inject(
-		method = "render(Lnet/minecraft/client/DeltaTracker;Z)V",
-		at = @At(
-			value = "INVOKE",
-			target = "Lnet/minecraft/client/renderer/GameRenderer;renderItemInHand(Lnet/minecraft/client/renderer/state/level/CameraRenderState;FLorg/joml/Matrix4fc;)V"
-		)
-	)
-	private void vfxweaver$renderLayer0(final DeltaTracker deltaTracker, final boolean advanceGameTime, final CallbackInfo ci) {
+	@Inject(method = "renderLevel(Lnet/minecraft/client/DeltaTracker;)V", at = @At(
+		value = "INVOKE",
+		target = "Lnet/minecraft/client/renderer/GameRenderer;renderItemInHand(Lnet/minecraft/client/renderer/state/level/CameraRenderState;FLorg/joml/Matrix4fc;)V"
+	))
+	private void vfxweaver$renderLayer0(final DeltaTracker deltaTracker, final CallbackInfo ci) {
 		Minecraft minecraft = Minecraft.getInstance();
 		if (minecraft.level == null) {
 			return;
