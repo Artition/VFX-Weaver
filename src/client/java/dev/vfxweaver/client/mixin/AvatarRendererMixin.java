@@ -2,13 +2,11 @@ package dev.vfxweaver.client.mixin;
 
 import com.mojang.blaze3d.vertex.PoseStack;
 import dev.vfxweaver.client.render.VFXEntityEffectRenderer;
-import net.minecraft.client.model.EntityModel;
 import net.minecraft.client.model.player.PlayerModel;
 import net.minecraft.client.renderer.SubmitNodeCollector;
 import net.minecraft.client.renderer.entity.player.AvatarRenderer;
 import net.minecraft.resources.Identifier;
 import org.spongepowered.asm.mixin.Mixin;
-import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
@@ -20,9 +18,6 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
  */
 @Mixin(AvatarRenderer.class)
 public abstract class AvatarRendererMixin {
-	@Shadow
-	public abstract EntityModel<?> getModel();
-
 	@Inject(method = "renderRightHand", at = @At("TAIL"))
 	private void vfxweaver$effectsOnRightHand(
 		final PoseStack poseStack,
@@ -32,7 +27,8 @@ public abstract class AvatarRendererMixin {
 		final boolean hasSleeve,
 		final CallbackInfo ci
 	) {
-		VFXEntityEffectRenderer.renderHandEffects((PlayerModel) this.getModel(), true, poseStack, submitNodeCollector, lightCoords, skinTexture);
+		PlayerModel model = (PlayerModel) (Object) this;
+		VFXEntityEffectRenderer.renderHandEffects(model, true, poseStack, submitNodeCollector, lightCoords, skinTexture);
 	}
 
 	@Inject(method = "renderLeftHand", at = @At("TAIL"))
@@ -44,6 +40,7 @@ public abstract class AvatarRendererMixin {
 		final boolean hasSleeve,
 		final CallbackInfo ci
 	) {
-		VFXEntityEffectRenderer.renderHandEffects((PlayerModel) this.getModel(), false, poseStack, submitNodeCollector, lightCoords, skinTexture);
+		PlayerModel model = (PlayerModel) (Object) this;
+		VFXEntityEffectRenderer.renderHandEffects(model, false, poseStack, submitNodeCollector, lightCoords, skinTexture);
 	}
 }
