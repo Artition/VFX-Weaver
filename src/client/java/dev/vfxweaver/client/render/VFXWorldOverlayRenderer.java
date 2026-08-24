@@ -149,8 +149,8 @@ public final class VFXWorldOverlayRenderer {
 		).createRenderSetup()
 	);
 
-	/** Tint quads are inset towards the block centre by this fraction to avoid coplanar fighting. */
-	private static final float TINT_INSET = 0.002F;
+	/** Tint geometry is pushed outwards from the block centre by this fraction (coplanar fix). */
+	private static final float TINT_OUTSET = 0.002F;
 
 	private static @Nullable TextureTarget depthScratch;
 	private static int depthScratchWidth = -1;
@@ -197,7 +197,7 @@ public final class VFXWorldOverlayRenderer {
 				if (effect.getType() == VFXEffectType.BLOCK_TINT) {
 					boolean through = effect.getParam("through_blocks", 1.0F) >= 0.5F;
 					RenderType type = through ? TINT_VISIBLE : TINT_OCCLUDED;
-					if (renderEffect(buffers, camera, effect, minecraft, type, 0.5F, 0.0F, false, TINT_INSET)) {
+					if (renderEffect(buffers, camera, effect, minecraft, type, 0.5F, 0.0F, false, TINT_OUTSET)) {
 						drawn.add(type);
 					}
 				} else if (effect.getType() == VFXEffectType.BLOCK_OUTLINE) {
@@ -242,7 +242,7 @@ public final class VFXWorldOverlayRenderer {
 		final float defaultAlpha,
 		final float amount,
 		final boolean shell,
-		final float inset
+		final float outset
 	) {
 		float alpha = clamp01(effect.getParam("alpha", defaultAlpha)) * effect.getWeight();
 		if (alpha <= 0.0F) {
@@ -270,9 +270,9 @@ public final class VFXWorldOverlayRenderer {
 				if (amount > 0.0F) {
 					if (shell) {
 						if (quads.isEmpty()) {
-							emitCubeFill(buffer, pose, color, true, inset);
+							emitCubeFill(buffer, pose, color, true, outset);
 						} else {
-							emitQuads(buffer, pose, quads, color, true, inset);
+							emitQuads(buffer, pose, quads, color, true, outset);
 						}
 					} else {
 						if (quads.isEmpty()) {
@@ -283,9 +283,9 @@ public final class VFXWorldOverlayRenderer {
 					}
 				} else {
 					if (quads.isEmpty()) {
-						emitCubeFill(buffer, pose, color, false, inset);
+						emitCubeFill(buffer, pose, color, false, outset);
 					} else {
-						emitQuads(buffer, pose, quads, color, false, inset);
+						emitQuads(buffer, pose, quads, color, false, outset);
 					}
 				}
 			} finally {
@@ -387,29 +387,29 @@ public final class VFXWorldOverlayRenderer {
 		final List<BakedQuad> quads,
 		final int color,
 		final boolean reverse,
-		final float inset
+		final float outset
 	) {
 		for (BakedQuad quad : quads) {
 			if (reverse) {
 				for (int i = 3; i >= 0; i--) {
-					var p = inset(quad.position(i), inset);
+					var p = outset(quad.position(i), outset);
 					buffer.addVertex(pose, p.x(), p.y(), p.z()).setColor(color);
 				}
 			} else {
 				for (int i = 0; i < 4; i++) {
-					var p = inset(quad.position(i), inset);
+					var p = outset(quad.position(i), outset);
 					buffer.addVertex(pose, p.x(), p.y(), p.z()).setColor(color);
 				}
 			}
 		}
 	}
 
-	/** Pulls a block-local vertex towards the block centre by {@code inset} (coplanar fix). */
-	private static Vector3fc inset(final Vector3fc v, final float inset) {
-		if (inset <= 0.0F) {
+	/** Pushes a block-local vertex outwards from the block centre (coplanar depth fix). */
+	private static Vector3fc outset(final Vector3fc v, final float outset) {
+		if (outset <= 0.0F) {
 			return v;
 		}
-		return new Vector3f(v).lerp(new Vector3f(0.5F, 0.5F, 0.5F), inset);
+		return new Vector3f(v).sub(0.5F, 0.5F, 0.5F).mul(1.0F + outset).add(0.5F, 0.5F, 0.5F);
 	}
 
 	/**
@@ -449,22 +449,22 @@ public final class VFXWorldOverlayRenderer {
 		}
 	}
 
-	private static void emitCubeFill(final VertexConsumer buffer, final PoseStack.Pose pose, final int color, final boolean reverse, final float inset) {
+	private static void emitCubeFill(final VertexConsumer buffer, final PoseStack.Pose pose, final int color, final boolean reverse, final float outset) {
 		for (float[] face : CUBE_FACES) {
 			if (reverse) {
 				for (int i = 3; i >= 0; i--) {
-					buffer.addVertex(pose, inset(face[i * 3], inset), inset(face[i * 3 + 1], inset), inset(face[i * 3 + 2], inset)).setColor(color);
+					buffer.addVertex(pose, outset(face[i * 3], outset), outset(face[i * 3 + 1], outset), outset(face[i * 3 + 2], outset)).setColor(color);
 				}
 			} else {
 				for (int i = 0; i < 4; i++) {
-					buffer.addVertex(pose, inset(face[i * 3], inset), inset(face[i * 3 + 1], inset), inset(face[i * 3 + 2], inset)).setColor(color);
+					buffer.addVertex(pose, outset(face[i * 3], outset), outset(face[i * 3 + 1], outset), outset(face[i * 3 + 2], outset)).setColor(color);
 				}
 			}
 		}
 	}
 
-	private static float inset(final float c, final float inset) {
-		return c + (0.5F - c) * inset;
+	private static float outset(final float c, final float f) {
+		return 0.5F + (c - 0.5F) * (1.0F + f);
 	}
 
 	private static void emitCubeWalls(final VertexConsumer buffer, final PoseStack.Pose pose, final int color, final float extrude) {
