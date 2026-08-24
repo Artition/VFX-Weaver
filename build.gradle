@@ -74,11 +74,11 @@ publishing {
 		}
 	}
 
-	// See https://docs.gradle.org/current/userguide/publishing_maven.html for information on how to set up publishing.
 	repositories {
-		// Add repositories to publish to here.
-		// Notice: This block does NOT have the same function as the block in the top level.
-		// The repositories here will be used for publishing your artifact, not for
-		// retrieving dependencies.
+		// Publishes into build/maven; push this folder to the "maven" branch so other mods can
+		// consume the API via raw.githubusercontent.com/Artition/VFX-Weaver/maven.
+		maven { url = uri(layout.buildDirectory.dir("maven")) }
 	}
+
+	// See https://docs.gradle.org/current/userguide/publishing_maven.html for information on how to set up publishing.
 }
