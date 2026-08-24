@@ -2,6 +2,16 @@
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). The versions below are guide/feature-set versions of the mod (as they progressed historically, see `docs/GUIDE.md`), plus git release tags where applicable (`v1.0.x`, `gradle.properties` → `mod_version`). Add new entries at the top, in the same PR as the behavior change.
 
+## Unreleased / Guide v20
+### Added
+- **First-person hand effects.** `entity_tint`/`entity_outline` active on the local player now render on the first-person arm as well (the arm bypasses the normal entity submit path, so it needed its own hook). `through_blocks` is ignored there - the hand always draws on top of the world.
+- **`camera_shake` `frequency` parameter** - noise oscillations per second, default 7 (previous fixed value).
+- **`screen_layer` parameter for all screen effects** - where the effect applies: `0` = below the first-person hand and the GUI, `1` = above the hand below the GUI (default, previous behaviour), `2` = above everything including the GUI.
+
+### Fixed
+- **Parameter overrides for names not declared in the definition were silently dropped.** Setting `through_blocks` via `/vfx playentity` on the built-in entity/block effects did nothing because `createTimeline` only applied overrides for declared params. Undeclared overrides now land as constants; `through_blocks` is also declared on the four built-ins (tab-completion).
+- **Outlines now always render under their target.** Entity outline with `through_blocks:1` used to cover the entity with the shell colour; it is now drawn as an opaque shell before the body pass at a lower submit order, so only the rim around the silhouette survives while staying visible through walls. Block outlines ignore `through_blocks` entirely (always occluded) for the same reason.
+
 ## v1.0.4
 
 ### Added

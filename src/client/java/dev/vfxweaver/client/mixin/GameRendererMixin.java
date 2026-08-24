@@ -68,6 +68,39 @@ public abstract class GameRendererMixin {
 		manager.advance(deltaTicks);
 		manager.update();
 
-		VFXPostProcessingManager.get().process(manager, minecraft.getMainRenderTarget());
+		// Layer 1: above the world and the first-person hand, below the GUI (default).
+		VFXPostProcessingManager.get().process(manager, minecraft.getMainRenderTarget(), 1);
+	}
+
+	/**
+	 * Layer 0 screen effects run right before the first-person hand is rendered, so they affect
+	 * only the world frame and stay under the hand and the GUI.
+	 */
+	@Inject(
+		method = "render(Lnet/minecraft/client/DeltaTracker;Z)V",
+		at = @At(
+			value = "INVOKE",
+			target = "Lnet/minecraft/client/renderer/GameRenderer;renderItemInHand(Lnet/minecraft/client/renderer/state/level/CameraRenderState;FLorg/joml/Matrix4fc;)V"
+		)
+	)
+	private void vfxweaver$renderLayer0(final DeltaTracker deltaTracker, final boolean advanceGameTime, final CallbackInfo ci) {
+		Minecraft minecraft = Minecraft.getInstance();
+		if (minecraft.level == null) {
+			return;
+		}
+		VFXPostProcessingManager.get().process(VFXEffectManager.get(), minecraft.getMainRenderTarget(), 0);
+	}
+
+	/**
+	 * Layer 2 screen effects run at the very end of the frame, after the GUI, so they cover
+	 * everything on screen.
+	 */
+	@Inject(method = "render(Lnet/minecraft/client/DeltaTracker;Z)V", at = @At("TAIL"))
+	private void vfxweaver$renderLayer2(final DeltaTracker deltaTracker, final boolean advanceGameTime, final CallbackInfo ci) {
+		Minecraft minecraft = Minecraft.getInstance();
+		if (minecraft.level == null) {
+			return;
+		}
+		VFXPostProcessingManager.get().process(VFXEffectManager.get(), minecraft.getMainRenderTarget(), 2);
 	}
 }

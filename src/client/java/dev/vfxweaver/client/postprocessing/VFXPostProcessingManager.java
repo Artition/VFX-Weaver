@@ -24,6 +24,7 @@ import net.minecraft.client.renderer.MappableRingBuffer;
 import net.minecraft.client.renderer.Projection;
 import net.minecraft.client.renderer.ProjectionMatrixBuffer;
 import net.minecraft.resources.Identifier;
+import net.minecraft.util.Mth;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -57,10 +58,20 @@ public final class VFXPostProcessingManager {
 	}
 
 	/**
-	 * Runs the chain of active effects. Called on the render thread every frame before the GUI.
+	 * Runs the chain of active screen effects assigned to layer {@code layer} (see
+	 * {@code screen_layer}). Called on the render thread every frame; may be called several times
+	 * per frame with different layers.
+	 *
+	 * @param layer 0 = below the first-person hand, 1 = above the hand below the GUI (default),
+	 *              2 = above everything including the GUI
 	 */
-	public void process(final VFXEffectManager effects, final RenderTarget mainTarget) {
-		List<VFXActiveEffect> active = effects.getActivePostEffects();
+	public void process(final VFXEffectManager effects, final RenderTarget mainTarget, final int layer) {
+		List<VFXActiveEffect> active = new ArrayList<>();
+		for (VFXActiveEffect effect : effects.getActivePostEffects()) {
+			if (Math.round(Mth.clamp(effect.getParam("screen_layer", 1.0F), 0.0F, 2.0F)) == layer) {
+				active.add(effect);
+			}
+		}
 		if (active.isEmpty() || mainTarget == null) {
 			return;
 		}
