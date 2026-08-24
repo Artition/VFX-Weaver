@@ -78,7 +78,7 @@ public abstract class GameRendererMixin {
 	 */
 	@Inject(method = "renderLevel(Lnet/minecraft/client/DeltaTracker;)V", at = @At(
 		value = "INVOKE",
-		target = "Lnet/minecraft/client/renderer/GameRenderer;renderItemInHand(Lnet/minecraft/client/renderer/state/level/CameraRenderState;FLorg/joml/Matrix4fc;)V"
+		target = "Lcom/mojang/blaze3d/systems/CommandEncoder;clearDepthTexture(Lcom/mojang/blaze3d/textures/GpuTexture;D)V"
 	))
 	private void vfxweaver$renderLayer0(final DeltaTracker deltaTracker, final CallbackInfo ci) {
 		Minecraft minecraft = Minecraft.getInstance();

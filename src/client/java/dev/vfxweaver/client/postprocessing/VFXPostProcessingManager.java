@@ -50,6 +50,17 @@ public final class VFXPostProcessingManager {
 	private int lastWidth;
 	private int lastHeight;
 
+	/** Frees GPU buffers and cached passes on client shutdown. */
+	public void freeGpuResources() {
+		for (TextureTarget target : this.pingPong) {
+			if (target != null) {
+				target.destroyBuffers();
+			}
+		}
+		this.passes.clear();
+		this.projectionMatrixBuffer = null;
+	}
+
 	private VFXPostProcessingManager() {
 	}
 

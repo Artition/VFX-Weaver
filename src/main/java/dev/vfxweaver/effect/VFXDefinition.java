@@ -231,15 +231,45 @@ public class VFXDefinition {
 		throw new IllegalArgumentException("'easing' must be a name string or an object with a 'curve' array: " + element);
 	}
 
+	/** Safety cap on parsed positions per effect (external input, see AGENTS.md). */
+	private static final int MAX_POSITIONS = 4096;
+
 	private static List<BlockPos> parsePositions(final JsonObject json, final Map<String, ParamSpec> params) {
 		List<BlockPos> positions = new ArrayList<>();
 		if (json.has("positions")) {
 			for (JsonElement entry : GsonHelper.getAsJsonArray(json, "positions")) {
+				if (positions.size() >= MAX_POSITIONS) {
+					LOGGER.warn("Effect declares more than {} positions; the rest are ignored", MAX_POSITIONS);
+					break;
+				}
 				JsonArray array = GsonHelper.convertToJsonArray(entry, "position");
 				if (array.size() != 3) {
 					throw new IllegalArgumentException("Position must be an array of [x, y, z]: " + entry);
 				}
 				positions.add(new BlockPos(array.get(0).getAsInt(), array.get(1).getAsInt(), array.get(2).getAsInt()));
+			}
+		}
+		if (json.has("region")) {
+			JsonArray region = GsonHelper.getAsJsonArray(json, "region");
+			if (region.size() != 6) {
+				throw new IllegalArgumentException("Region must be an array of [x0, y0, z0, x1, y1, z1]");
+			}
+			BlockPos min = new BlockPos(
+				Math.min(region.get(0).getAsInt(), region.get(3).getAsInt()),
+				Math.min(region.get(1).getAsInt(), region.get(4).getAsInt()),
+				Math.min(region.get(2).getAsInt(), region.get(5).getAsInt())
+			);
+			BlockPos max = new BlockPos(
+				Math.max(region.get(0).getAsInt(), region.get(3).getAsInt()),
+				Math.max(region.get(1).getAsInt(), region.get(4).getAsInt()),
+				Math.max(region.get(2).getAsInt(), region.get(5).getAsInt())
+			);
+			for (BlockPos pos : BlockPos.betweenClosed(min, max)) {
+				if (positions.size() >= MAX_POSITIONS) {
+					LOGGER.warn("Effect region exceeds {} blocks; the rest are ignored", MAX_POSITIONS);
+					break;
+				}
+				positions.add(pos.immutable());
 			}
 		}
 		if (positions.isEmpty()) {
@@ -411,8 +441,12 @@ public class VFXDefinition {
 		// Overrides for parameters the definition does not declare (e.g. through_blocks on the
 		// built-in entity/block effects) must still land in the timeline — renderers read them
 		// with getParam(name, fallback), so silently dropping them made such parameters inert.
+		// Logged once per play so map-makers notice typos like "through_bloks".
 		for (Map.Entry<String, Float> entry : overrides.entrySet()) {
-			values.putIfAbsent(entry.getKey(), AnimatedValue.constant(entry.getValue()));
+			if (!values.containsKey(entry.getKey())) {
+				values.put(entry.getKey(), AnimatedValue.constant(entry.getValue()));
+				LOGGER.info("Effect '{}' received an override for undeclared parameter '{}' (applied as a constant)", this.getId(), entry.getKey());
+			}
 		}
 		return new VFXTimeline(duration, values, bindings, multipliers, expressions);
 	}

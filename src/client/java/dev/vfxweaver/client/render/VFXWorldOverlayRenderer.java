@@ -168,6 +168,14 @@ public final class VFXWorldOverlayRenderer {
 		return depthScratch;
 	}
 
+	/** Frees lazily allocated GPU resources (depth scratch target) on client shutdown. */
+	public static void freeGpuResources() {
+		if (depthScratch != null) {
+			depthScratch.destroyBuffers();
+			depthScratch = null;
+		}
+	}
+
 	private VFXWorldOverlayRenderer() {
 	}
 

@@ -36,8 +36,12 @@ public final class MathExpression {
 	 * @param seed per-instance seed used to vary {@code random()} between instances
 	 * @param expr the expression source
 	 */
+	/** Hard cap on expression source length - the recursive descent parser has no depth limit of
+	 * its own, and a pathological nest of parentheses would otherwise overflow the stack. */
+	private static final int MAX_SOURCE_LENGTH = 4096;
+
 	public static @org.jspecify.annotations.Nullable MathExpression compile(final long seed, final String expr) {
-		if (expr == null || expr.isBlank()) {
+		if (expr == null || expr.isBlank() || expr.length() > MAX_SOURCE_LENGTH) {
 			return null;
 		}
 		try {
@@ -47,6 +51,9 @@ public final class MathExpression {
 				throw new IllegalArgumentException("Unexpected trailing input at position " + parser.pos());
 			}
 			return new MathExpression(seed, node);
+		} catch (StackOverflowError e) {
+			// A deeply nested expression blew the parser stack - treat as invalid input, not a crash.
+			return null;
 		} catch (Exception e) {
 			return null;
 		}

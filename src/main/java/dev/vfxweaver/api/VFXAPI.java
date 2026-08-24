@@ -6,6 +6,7 @@ import dev.vfxweaver.effect.VFXDefinition;
 import dev.vfxweaver.effect.VFXServerEffects;
 import dev.vfxweaver.network.VFXTriggerPayload;
 import dev.vfxweaver.resource.VFXDefinitionManager;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -275,5 +276,73 @@ public final class VFXAPI {
 	public static void sendKeyframe(final ServerPlayer player, final Identifier effectId, final String param, final int time, final float value, final String easing) {
 		ServerPlayNetworking.send(player, VFXTriggerPayload.keyframe(effectId, param, time, value, easing));
 		VFXServerEffects.get().recordKeyframe(player, effectId, param, time, value, easing);
+	}
+
+	/**
+	 * Fluent request for playing or sending an effect without growing positional overloads.
+	 * Example:
+	 * <pre>{@code
+	 * VFXAPI.sendEffect(player, id, EffectRequest.of()
+	 *     .duration(100)
+	 *     .param("alpha", 0.8F)
+	 *     .target(entityUuid)
+	 *     .easing(EasingType.EASE_OUT));
+	 * }</pre>
+	 */
+	public static final class EffectRequest {
+		private int durationTicks;
+		private final Map<String, Float> params = new HashMap<>();
+		private final List<UUID> entityUuids = new ArrayList<>();
+		private @Nullable EasingType easing;
+
+		private EffectRequest() {
+		}
+
+		public static EffectRequest of() {
+			return new EffectRequest();
+		}
+
+		/** Duration in ticks; {@code 0} uses the definition default (the default state). */
+		public EffectRequest duration(final int ticks) {
+			this.durationTicks = ticks;
+			return this;
+		}
+
+		public EffectRequest param(final String name, final float value) {
+			this.params.put(name, value);
+			return this;
+		}
+
+		public EffectRequest params(final Map<String, Float> values) {
+			this.params.putAll(values);
+			return this;
+		}
+
+		public EffectRequest easing(final @Nullable EasingType easing) {
+			this.easing = easing;
+			return this;
+		}
+
+		/** Adds an entity target (for entity tint/outline effects). */
+		public EffectRequest target(final UUID uuid) {
+			this.entityUuids.add(uuid);
+			return this;
+		}
+	}
+
+	/**
+	 * Plays an effect locally with a fluent request. Only duration, params and easing apply to
+	 * local playback - use {@link #sendEffect(ServerPlayer, Identifier, EffectRequest)} for
+	 * entity targets.
+	 */
+	public static boolean playEffect(final Identifier effectId, final EffectRequest request) {
+		return playEffect(effectId, request.durationTicks, request.params, request.easing);
+	}
+
+	/**
+	 * Triggers an effect for a player with a fluent request (entity targets included).
+	 */
+	public static boolean sendEffect(final ServerPlayer player, final Identifier effectId, final EffectRequest request) {
+		return sendEffect(player, effectId, 0L, null, request.entityUuids, request.params, request.easing);
 	}
 }

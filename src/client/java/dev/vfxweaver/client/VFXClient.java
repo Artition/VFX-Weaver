@@ -3,6 +3,7 @@ package dev.vfxweaver.client;
 import dev.vfxweaver.api.VFXAPI;
 import dev.vfxweaver.client.effect.VFXEffectManager;
 import dev.vfxweaver.client.flashback.FlashbackCompat;
+import dev.vfxweaver.client.postprocessing.VFXPostProcessingManager;
 import dev.vfxweaver.client.postprocessing.VFXShaderPrograms;
 import dev.vfxweaver.client.render.VFXEntityEffectRenderer;
 import dev.vfxweaver.client.render.VFXWorldOverlayRenderer;
@@ -14,6 +15,7 @@ import dev.vfxweaver.network.VFXTriggerPayload;
 import dev.vfxweaver.resource.VFXDefinitionManager;
 import java.util.Map;
 import net.fabricmc.api.ClientModInitializer;
+import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientLifecycleEvents;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import net.minecraft.client.Minecraft;
 import org.slf4j.Logger;
@@ -35,6 +37,10 @@ public class VFXClient implements ClientModInitializer {
 		FlashbackCompat.init();
 		ClientPlayNetworking.registerGlobalReceiver(VFXTriggerPayload.TYPE, this::handleTrigger);
 		ClientPlayNetworking.registerGlobalReceiver(VFXSyncPayload.TYPE, this::handleSync);
+		ClientLifecycleEvents.CLIENT_STOPPING.register(client -> {
+			VFXWorldOverlayRenderer.freeGpuResources();
+			VFXPostProcessingManager.get().freeGpuResources();
+		});
 		LOGGER.info("VFX Weaver client initialized");
 	}
 
