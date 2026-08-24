@@ -319,7 +319,14 @@ public final class VFXEntityEffectRenderer {
 		}
 		boolean multiply = effect.getParam("texture", 1.0F) >= 0.5F;
 		FxType fx = multiply ? TINT_MULTIPLY_VISIBLE : TINT_MASK_VISIBLE;
-		submitNodeCollector.submitModelPart(arm, poseStack, fx.forTexture(texture), lightCoords, OverlayTexture.NO_OVERLAY, null, argb(effect, alpha), null);
+		int color = argb(effect, alpha);
+		// Emit the arm cubes manually instead of submitModelPart: custom geometry is the path
+		// proven to render in the hand stage (the outline uses it), landing after the vanilla arm.
+		submitNodeCollector.submitCustomGeometry(poseStack, fx.forTexture(texture), (pose, buffer) -> {
+			PoseStack stack = new PoseStack();
+			stack.last().set(pose);
+			arm.visit(stack, (partPose, path, cubeIndex, cube) -> emitOutlineCube(partPose, buffer, cube, 0.0F, color, lightCoords));
+		});
 	}
 
 	private static void renderOutlinePart(
@@ -336,7 +343,10 @@ public final class VFXEntityEffectRenderer {
 		}
 		float width = Mth.clamp(effect.getParam("width", 0.05F), 0.0F, 1.0F);
 		int color = argb(effect, alpha);
-		submitNodeCollector.submitCustomGeometry(poseStack, OUTLINE_VISIBLE.forTexture(texture), (pose, buffer) -> {
+		// Always the occluded (LEQUAL) variant: the vanilla hand writes depth, which clips the
+		// inflated shell to the rim around the silhouette — an always-pass shell would cover the
+		// whole hand. The hand sits on top of the world anyway, so through_blocks is meaningless here.
+		submitNodeCollector.submitCustomGeometry(poseStack, OUTLINE_OCCLUDED.forTexture(texture), (pose, buffer) -> {
 			PoseStack stack = new PoseStack();
 			stack.last().set(pose);
 			// Visit only the arm subtree — the outline must wrap the hand, not the whole body.
