@@ -6,6 +6,8 @@
 		"GameRendererMixin",
 		"CameraMixin",
 		"AvatarRendererMixin",
+		"ItemFrameRendererMixin",
+		"ItemFrameRenderStateMixin",
 		"LivingEntityRenderStateMixin",
 		"LivingEntityRendererMixin"
 	],
