@@ -27,7 +27,7 @@ public abstract class AvatarRendererMixin {
 		final boolean hasSleeve,
 		final CallbackInfo ci
 	) {
-		PlayerModel model = (PlayerModel) (Object) this;
+		PlayerModel model = ((AvatarRenderer) (Object) this).getModel();
 		VFXEntityEffectRenderer.renderHandEffects(model, true, poseStack, submitNodeCollector, lightCoords, skinTexture);
 	}
 
@@ -40,7 +40,7 @@ public abstract class AvatarRendererMixin {
 		final boolean hasSleeve,
 		final CallbackInfo ci
 	) {
-		PlayerModel model = (PlayerModel) (Object) this;
+		PlayerModel model = ((AvatarRenderer) (Object) this).getModel();
 		VFXEntityEffectRenderer.renderHandEffects(model, false, poseStack, submitNodeCollector, lightCoords, skinTexture);
 	}
 }
