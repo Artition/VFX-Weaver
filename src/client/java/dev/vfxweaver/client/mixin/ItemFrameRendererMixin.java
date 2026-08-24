@@ -49,14 +49,16 @@ public abstract class ItemFrameRendererMixin {
 		if (effects.isEmpty()) {
 			return;
 		}
-		PoseStack local = frameLocalPose(state.direction);
+		PoseStack local = frameLocalPose(poseStack, state.direction);
 		VFXFrameOverlays.renderEffects(state.lightCoords, local.last(), submitNodeCollector, effects);
 	}
 
-	/** Replicates the vanilla frame transform: render offset, 0.46875 push-off the wall, rotations. */
-	private static PoseStack frameLocalPose(final Direction direction) {
-		Vec3 offset = new Vec3(direction.getStepX() * 0.3F, -0.25, direction.getStepZ() * 0.3F);
+	/** Mirrors the vanilla frame transform on top of the entity's world pose (from the head of
+	 * {@code submit}): render offset, 0.46875 push-off the wall, rotations. */
+	private static PoseStack frameLocalPose(final PoseStack base, final Direction direction) {
 		PoseStack poseStack = new PoseStack();
+		poseStack.last().set(base.last());
+		Vec3 offset = new Vec3(direction.getStepX() * 0.3F, -0.25, direction.getStepZ() * 0.3F);
 		poseStack.translate(-offset.x(), -offset.y(), -offset.z());
 		poseStack.translate(direction.getStepX() * 0.46875F, direction.getStepY() * 0.46875F, direction.getStepZ() * 0.46875F);
 		float xRot;
