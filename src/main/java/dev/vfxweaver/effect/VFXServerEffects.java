@@ -208,12 +208,13 @@ public final class VFXServerEffects {
 		Iterator<Map.Entry<Identifier, ActiveEffect>> it = effects.entrySet().iterator();
 		while (it.hasNext()) {
 			ActiveEffect active = it.next().getValue();
+			boolean persistent = active.durationTicks() < 0;
 			int remaining = remainingTicks(active, now);
-			if (remaining < 0) {
+			if (!persistent && remaining < 0) {
 				it.remove();
 				continue;
 			}
-			int elapsed = active.durationTicks() < 0 ? 0 : Math.max(0, (int) Math.min(Integer.MAX_VALUE, now - active.startTick()));
+			int elapsed = persistent ? 0 : Math.max(0, (int) Math.min(Integer.MAX_VALUE, now - active.startTick()));
 			ServerPlayNetworking.send(player, VFXTriggerPayload.play(
 				active.effectId(), remaining, elapsed, active.instanceId(), active.worldPos(), active.entityUuids(), active.params(), active.easing()
 			));

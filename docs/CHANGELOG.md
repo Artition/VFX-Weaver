@@ -9,6 +9,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). The versions bel
 - **`screen_layer` parameter for all screen effects** - where the effect applies: `0` = below the first-person hand and the GUI, `1` = above the hand below the GUI (default, previous behaviour), `2` = above everything including the GUI.
 
 ### Fixed
+- **Persistent effects were dropped from reconnect memory instead of re-applied.** `applyTo` treated the `-1` duration of persistent effects as "expired" and deleted them when their viewer rejoined - a permanent entity tint disappeared forever after one relog. Persistent plays are now re-sent as-is on every join.
 - **Parameter overrides for names not declared in the definition were silently dropped.** Setting `through_blocks` via `/vfx playentity` on the built-in entity/block effects did nothing because `createTimeline` only applied overrides for declared params. Undeclared overrides now land as constants; `through_blocks` is also declared on the four built-ins (tab-completion).
 - **Outlines now always render under their target.** Entity outline with `through_blocks:1` used to cover the entity with the shell colour; it is now drawn as an opaque shell before the body pass at a lower submit order, so only the rim around the silhouette survives while staying visible through walls. Block outlines ignore `through_blocks` entirely (always occluded) for the same reason.
 
