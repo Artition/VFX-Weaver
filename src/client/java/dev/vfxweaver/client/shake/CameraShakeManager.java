@@ -12,7 +12,8 @@ import net.minecraft.util.Mth;
  * both modulated by a simplex noise sample and a smooth fade-out envelope.
  */
 public final class CameraShakeManager {
-	private static final double FREQUENCY = 7.0;
+	/** Default noise frequency when the {@code frequency} parameter is not set. */
+	private static final float DEFAULT_FREQUENCY = 7.0F;
 
 	private CameraShakeManager() {
 	}
@@ -54,12 +55,16 @@ public final class CameraShakeManager {
 		// to exactly zero, which silently kills the shake.
 		double phase = effect.getStartTime() + (effect.getInstanceSeed() & 0xFFFFFFFFL) * 0.0001;
 
-		double n1 = SimplexNoise.noise(timeSeconds * FREQUENCY, phase, 0.0);
-		double n2 = SimplexNoise.noise(0.0, timeSeconds * FREQUENCY, phase);
-		double n3 = SimplexNoise.noise(phase, 0.0, timeSeconds * FREQUENCY);
-		double n4 = SimplexNoise.noise(timeSeconds * FREQUENCY + 1000.0, phase, 0.0);
-		double n5 = SimplexNoise.noise(0.0, timeSeconds * FREQUENCY + 1000.0, phase);
-		double n6 = SimplexNoise.noise(phase, 0.0, timeSeconds * FREQUENCY + 1000.0);
+		// Noise frequency (oscillations per second); clamped to a small positive value so a zero
+		// frequency cannot freeze every sample onto one noise point.
+		double frequency = Math.max(effect.getParam("frequency", DEFAULT_FREQUENCY), 0.01F);
+
+		double n1 = SimplexNoise.noise(timeSeconds * frequency, phase, 0.0);
+		double n2 = SimplexNoise.noise(0.0, timeSeconds * frequency, phase);
+		double n3 = SimplexNoise.noise(phase, 0.0, timeSeconds * frequency);
+		double n4 = SimplexNoise.noise(timeSeconds * frequency + 1000.0, phase, 0.0);
+		double n5 = SimplexNoise.noise(0.0, timeSeconds * frequency + 1000.0, phase);
+		double n6 = SimplexNoise.noise(phase, 0.0, timeSeconds * frequency + 1000.0);
 
 		float amplitudeX = effect.getParam("amplitude_x", 0.0F);
 		float amplitudeY = effect.getParam("amplitude_y", 0.0F);

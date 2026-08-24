@@ -153,11 +153,11 @@ public final class VFXWorldOverlayRenderer {
 						drawn.add(type);
 					}
 				} else if (effect.getType() == VFXEffectType.BLOCK_OUTLINE) {
-					boolean through = effect.getParam("through_blocks", 0.0F) >= 0.5F;
+					// Outlines must always sit UNDER their target: the world overlay stage draws
+					// after terrain, so an always-pass outline would cover the block's own faces.
+					// Only occluded variants are used here; through_blocks is ignored.
 					boolean shell = effect.getParam("shell", 0.0F) >= 0.5F;
-					RenderType type = shell
-						? (through ? OUTLINE_SHELL_VISIBLE : OUTLINE_SHELL_OCCLUDED)
-						: (through ? OUTLINE_WALLS_VISIBLE : OUTLINE_WALLS_OCCLUDED);
+					RenderType type = shell ? OUTLINE_SHELL_OCCLUDED : OUTLINE_WALLS_OCCLUDED;
 					float width = Mth.clamp(effect.getParam("width", 0.05F), 0.0F, 1.0F);
 					if (renderEffect(buffers, camera, effect, minecraft, type, 1.0F, shell ? width : width * 0.5F, shell)) {
 						drawn.add(type);
