@@ -4,8 +4,12 @@ import com.mojang.blaze3d.pipeline.BlendFunction;
 import com.mojang.blaze3d.pipeline.ColorTargetState;
 import com.mojang.blaze3d.pipeline.DepthStencilState;
 import com.mojang.blaze3d.pipeline.RenderPipeline;
+import com.mojang.blaze3d.pipeline.RenderTarget;
+import com.mojang.blaze3d.pipeline.TextureTarget;
 import com.mojang.blaze3d.platform.CompareOp;
 import com.mojang.blaze3d.shaders.UniformType;
+import com.mojang.blaze3d.systems.CommandEncoder;
+import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.vertex.DefaultVertexFormat;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
@@ -15,6 +19,7 @@ import dev.vfxweaver.effect.VFXActiveEffect;
 import dev.vfxweaver.effect.VFXEffectType;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import net.fabricmc.fabric.api.client.rendering.v1.level.LevelRenderContext;
 import net.fabricmc.fabric.api.client.rendering.v1.level.LevelRenderEvents;
 import net.minecraft.client.Minecraft;
@@ -32,6 +37,7 @@ import net.minecraft.util.Mth;
 import net.minecraft.util.RandomSource;
 import org.joml.Vector3f;
 import org.joml.Vector3fc;
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -120,6 +126,48 @@ public final class VFXWorldOverlayRenderer {
 		RenderSetup.builder(blockPipeline(CompareOp.LESS_THAN_OR_EQUAL, true, "outline_shell_occluded")).createRenderSetup()
 	);
 
+	/**
+	 * Writes depth only (colour write disabled). Used to stamp the target block's volume into a
+	 * cleared depth buffer before a through-walls outline, so the outline passes other blocks'
+	 * depth (which was cleared away) but is still clipped by its own target.
+	 */
+	private static final RenderType BLOCK_DEPTH_MASK = RenderType.create(
+		"vfxweaver_block_depth_mask",
+		RenderSetup.builder(
+			RenderPipelines.register(
+				RenderPipeline.builder()
+					.withLocation(Identifier.fromNamespaceAndPath("vfxweaver", "world/block_depth_mask"))
+					.withVertexShader("core/position_color")
+					.withFragmentShader("core/position_color")
+					.withUniform("DynamicTransforms", UniformType.UNIFORM_BUFFER)
+					.withUniform("Projection", UniformType.UNIFORM_BUFFER)
+					.withVertexFormat(DefaultVertexFormat.POSITION_COLOR, VertexFormat.Mode.QUADS)
+					.withDepthStencilState(new DepthStencilState(CompareOp.ALWAYS_PASS, true))
+					.withColorTargetState(new ColorTargetState(Optional.empty(), ColorTargetState.WRITE_NONE))
+					.build()
+			)
+		).createRenderSetup()
+	);
+
+	/** Tint quads are inset towards the block centre by this fraction to avoid coplanar fighting. */
+	private static final float TINT_INSET = 0.002F;
+
+	private static @Nullable TextureTarget depthScratch;
+	private static int depthScratchWidth = -1;
+	private static int depthScratchHeight = -1;
+
+	private static @Nullable TextureTarget ensureDepthScratch(final int width, final int height) {
+		if (depthScratch == null || depthScratchWidth != width || depthScratchHeight != height) {
+			if (depthScratch != null) {
+				depthScratch.destroyBuffers();
+			}
+			depthScratch = new TextureTarget("vfxweaver depth scratch", width, height, true);
+			depthScratchWidth = width;
+			depthScratchHeight = height;
+		}
+		return depthScratch;
+	}
+
 	private VFXWorldOverlayRenderer() {
 	}
 
@@ -149,18 +197,19 @@ public final class VFXWorldOverlayRenderer {
 				if (effect.getType() == VFXEffectType.BLOCK_TINT) {
 					boolean through = effect.getParam("through_blocks", 1.0F) >= 0.5F;
 					RenderType type = through ? TINT_VISIBLE : TINT_OCCLUDED;
-					if (renderEffect(buffers, camera, effect, minecraft, type, 0.5F, 0.0F, false)) {
+					if (renderEffect(buffers, camera, effect, minecraft, type, 0.5F, 0.0F, false, TINT_INSET)) {
 						drawn.add(type);
 					}
 				} else if (effect.getType() == VFXEffectType.BLOCK_OUTLINE) {
-					// Outlines must always sit UNDER their target: the world overlay stage draws
-					// after terrain, so an always-pass outline would cover the block's own faces.
-					// Only occluded variants are used here; through_blocks is ignored.
+					boolean through = effect.getParam("through_blocks", 0.0F) >= 0.5F;
 					boolean shell = effect.getParam("shell", 0.0F) >= 0.5F;
-					RenderType type = shell ? OUTLINE_SHELL_OCCLUDED : OUTLINE_WALLS_OCCLUDED;
 					float width = Mth.clamp(effect.getParam("width", 0.05F), 0.0F, 1.0F);
-					if (renderEffect(buffers, camera, effect, minecraft, type, 1.0F, shell ? width : width * 0.5F, shell)) {
-						drawn.add(type);
+					float amount = shell ? width : width * 0.5F;
+					RenderType outlineType = shell ? OUTLINE_SHELL_OCCLUDED : OUTLINE_WALLS_OCCLUDED;
+					if (through) {
+						renderThroughOutline(buffers, camera, effect, minecraft, outlineType, amount, shell);
+					} else if (renderEffect(buffers, camera, effect, minecraft, outlineType, 1.0F, amount, shell, 0.0F)) {
+						drawn.add(outlineType);
 					}
 				}
 			} catch (Exception e) {
@@ -192,7 +241,8 @@ public final class VFXWorldOverlayRenderer {
 		final RenderType renderType,
 		final float defaultAlpha,
 		final float amount,
-		final boolean shell
+		final boolean shell,
+		final float inset
 	) {
 		float alpha = clamp01(effect.getParam("alpha", defaultAlpha)) * effect.getWeight();
 		if (alpha <= 0.0F) {
@@ -220,9 +270,9 @@ public final class VFXWorldOverlayRenderer {
 				if (amount > 0.0F) {
 					if (shell) {
 						if (quads.isEmpty()) {
-							emitCubeFill(buffer, pose, color, true);
+							emitCubeFill(buffer, pose, color, true, inset);
 						} else {
-							emitQuads(buffer, pose, quads, color, true);
+							emitQuads(buffer, pose, quads, color, true, inset);
 						}
 					} else {
 						if (quads.isEmpty()) {
@@ -233,9 +283,9 @@ public final class VFXWorldOverlayRenderer {
 					}
 				} else {
 					if (quads.isEmpty()) {
-						emitCubeFill(buffer, pose, color, false);
+						emitCubeFill(buffer, pose, color, false, inset);
 					} else {
-						emitQuads(buffer, pose, quads, color, false);
+						emitQuads(buffer, pose, quads, color, false, inset);
 					}
 				}
 			} finally {
@@ -245,6 +295,57 @@ public final class VFXWorldOverlayRenderer {
 		}
 		poseStack.popPose();
 		return drew;
+	}
+
+	/**
+	 * Through-walls block outline that still sits under its own target block. The world depth
+	 * buffer is swapped for a cleared one, the target blocks are stamped back into it as a depth
+	 * mask, and the outline is drawn occluded against that - so it passes other blocks (their
+	 * depth was cleared) but never covers its own target. The original depth is restored after.
+	 */
+	private static void renderThroughOutline(
+		final MultiBufferSource.BufferSource buffers,
+		final CameraRenderState camera,
+		final VFXActiveEffect effect,
+		final Minecraft minecraft,
+		final RenderType outlineType,
+		final float amount,
+		final boolean shell
+	) {
+		RenderTarget main = minecraft.getMainRenderTarget();
+		TextureTarget scratch = ensureDepthScratch(main.width, main.height);
+		if (scratch == null) {
+			return;
+		}
+		try {
+			scratch.copyDepthFrom(main);
+			CommandEncoder encoder = RenderSystem.getDevice().createCommandEncoder();
+			encoder.clearDepthTexture(main.getDepthTexture(), 1.0);
+
+			// Stamp the target blocks' volume into the fresh depth buffer.
+			VertexConsumer maskBuffer = buffers.getBuffer(BLOCK_DEPTH_MASK);
+			PoseStack poseStack = new PoseStack();
+			poseStack.pushPose();
+			poseStack.translate(-camera.pos.x, -camera.pos.y, -camera.pos.z);
+			for (BlockPos pos : effectPositions(effect)) {
+				poseStack.pushPose();
+				try {
+					poseStack.translate(pos.getX(), pos.getY(), pos.getZ());
+					emitCubeFill(maskBuffer, poseStack.last(), 0, false, 0.0F);
+				} finally {
+					poseStack.popPose();
+				}
+			}
+			poseStack.popPose();
+			buffers.endBatch(BLOCK_DEPTH_MASK);
+
+			// Outline now only hides behind its own target's depth.
+			if (renderEffect(buffers, camera, effect, minecraft, outlineType, 1.0F, amount, shell, 0.0F)) {
+				buffers.endBatch(outlineType);
+			}
+		} finally {
+			main.copyDepthFrom(scratch);
+		}
 	}
 
 	private static List<BlockPos> effectPositions(final VFXActiveEffect effect) {
@@ -280,20 +381,35 @@ public final class VFXWorldOverlayRenderer {
 		}
 	}
 
-	private static void emitQuads(final VertexConsumer buffer, final PoseStack.Pose pose, final List<BakedQuad> quads, final int color, final boolean reverse) {
+	private static void emitQuads(
+		final VertexConsumer buffer,
+		final PoseStack.Pose pose,
+		final List<BakedQuad> quads,
+		final int color,
+		final boolean reverse,
+		final float inset
+	) {
 		for (BakedQuad quad : quads) {
 			if (reverse) {
 				for (int i = 3; i >= 0; i--) {
-					var p = quad.position(i);
+					var p = inset(quad.position(i), inset);
 					buffer.addVertex(pose, p.x(), p.y(), p.z()).setColor(color);
 				}
 			} else {
 				for (int i = 0; i < 4; i++) {
-					var p = quad.position(i);
+					var p = inset(quad.position(i), inset);
 					buffer.addVertex(pose, p.x(), p.y(), p.z()).setColor(color);
 				}
 			}
 		}
+	}
+
+	/** Pulls a block-local vertex towards the block centre by {@code inset} (coplanar fix). */
+	private static Vector3fc inset(final Vector3fc v, final float inset) {
+		if (inset <= 0.0F) {
+			return v;
+		}
+		return new Vector3f(v).lerp(new Vector3f(0.5F, 0.5F, 0.5F), inset);
 	}
 
 	/**
@@ -333,18 +449,22 @@ public final class VFXWorldOverlayRenderer {
 		}
 	}
 
-	private static void emitCubeFill(final VertexConsumer buffer, final PoseStack.Pose pose, final int color, final boolean reverse) {
+	private static void emitCubeFill(final VertexConsumer buffer, final PoseStack.Pose pose, final int color, final boolean reverse, final float inset) {
 		for (float[] face : CUBE_FACES) {
 			if (reverse) {
 				for (int i = 3; i >= 0; i--) {
-					buffer.addVertex(pose, face[i * 3], face[i * 3 + 1], face[i * 3 + 2]).setColor(color);
+					buffer.addVertex(pose, inset(face[i * 3], inset), inset(face[i * 3 + 1], inset), inset(face[i * 3 + 2], inset)).setColor(color);
 				}
 			} else {
 				for (int i = 0; i < 4; i++) {
-					buffer.addVertex(pose, face[i * 3], face[i * 3 + 1], face[i * 3 + 2]).setColor(color);
+					buffer.addVertex(pose, inset(face[i * 3], inset), inset(face[i * 3 + 1], inset), inset(face[i * 3 + 2], inset)).setColor(color);
 				}
 			}
 		}
+	}
+
+	private static float inset(final float c, final float inset) {
+		return c + (0.5F - c) * inset;
 	}
 
 	private static void emitCubeWalls(final VertexConsumer buffer, final PoseStack.Pose pose, final int color, final float extrude) {
