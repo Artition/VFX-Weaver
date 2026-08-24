@@ -79,18 +79,18 @@ public final class VFXFrameOverlays {
 				RenderType type = through ? QUAD_VISIBLE : QUAD_OCCLUDED;
 				PoseStack local = new PoseStack();
 				local.last().set(pose);
-				// Model 0..1 space: the frame board's front face sits at z = 0.5, so overlays
-				// draw just in front of it. The passed pose already includes the -0.5 centring.
+				// Model 0..1 space: the frame is a flat plane at z = 0 (entitySolidZOffsetForward),
+				// so overlays draw just in front of it. The passed pose already includes -0.5 centring.
 				if (tint) {
 					submitNodeCollector.submitCustomGeometry(local, type, (captured, buffer) ->
-						emitRect(buffer, captured, 0.0F, 0.0F, 1.0F, 1.0F, 0.52F, color, lightCoords));
+						emitRect(buffer, captured, 0.0F, 0.0F, 1.0F, 1.0F, 0.02F, color, lightCoords));
 				} else {
 					float w = Math.min(Mth.clamp(effect.getParam("width", 0.05F), 0.01F, 0.2F) * 2.0F, 0.49F);
 					submitNodeCollector.submitCustomGeometry(local, type, (captured, buffer) -> {
-						emitRect(buffer, captured, 0.0F, 1.0F - w, 1.0F, 1.0F, 0.53F, color, lightCoords);  // top
-						emitRect(buffer, captured, 0.0F, 0.0F, 1.0F, w, 0.53F, color, lightCoords);         // bottom
-						emitRect(buffer, captured, 0.0F, w, w, 1.0F - w, 0.53F, color, lightCoords);       // left
-						emitRect(buffer, captured, 1.0F - w, w, 1.0F, 1.0F - w, 0.53F, color, lightCoords); // right
+						emitRect(buffer, captured, 0.0F, 1.0F - w, 1.0F, 1.0F, 0.03F, color, lightCoords);  // top
+						emitRect(buffer, captured, 0.0F, 0.0F, 1.0F, w, 0.03F, color, lightCoords);         // bottom
+						emitRect(buffer, captured, 0.0F, w, w, 1.0F - w, 0.03F, color, lightCoords);       // left
+						emitRect(buffer, captured, 1.0F - w, w, 1.0F, 1.0F - w, 0.03F, color, lightCoords); // right
 					});
 				}
 			} catch (Exception ignored) {
