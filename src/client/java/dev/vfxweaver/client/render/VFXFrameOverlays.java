@@ -19,7 +19,7 @@ import net.minecraft.client.renderer.RenderPipelines;
 import net.minecraft.client.renderer.SubmitNodeCollector;
 import net.minecraft.client.renderer.rendertype.RenderSetup;
 import net.minecraft.client.renderer.rendertype.RenderType;
-import net.minecraft.core.Direction;
+
 import net.minecraft.resources.Identifier;
 import net.minecraft.util.Mth;
 import org.joml.Vector3f;
@@ -62,7 +62,6 @@ public final class VFXFrameOverlays {
 	}
 
 	public static void renderEffects(
-		final Direction direction,
 		final int lightCoords,
 		final PoseStack.Pose pose,
 		final SubmitNodeCollector submitNodeCollector,
