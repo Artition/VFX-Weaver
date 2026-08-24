@@ -9,11 +9,17 @@ import com.mojang.blaze3d.vertex.DefaultVertexFormat;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
 import com.mojang.blaze3d.vertex.VertexFormat;
+import dev.vfxweaver.client.effect.VFXEffectManager;
 import dev.vfxweaver.effect.VFXActiveEffect;
+import dev.vfxweaver.effect.VFXEffectType;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+import net.minecraft.client.Minecraft;
 import net.minecraft.client.model.Model;
 import net.minecraft.client.model.geom.ModelPart;
+import net.minecraft.client.model.player.PlayerModel;
+import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.client.renderer.RenderPipelines;
 import net.minecraft.client.renderer.SubmitNodeCollector;
 import net.minecraft.client.renderer.entity.state.LivingEntityRenderState;
@@ -23,6 +29,9 @@ import net.minecraft.client.renderer.texture.OverlayTexture;
 import net.minecraft.resources.Identifier;
 import net.minecraft.util.Mth;
 import org.joml.Vector3f;
+import org.jspecify.annotations.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Second-pass renderer for {@code entity_tint} and {@code entity_outline} effects. Both effects
@@ -57,6 +66,8 @@ import org.joml.Vector3f;
  * // also handles arbitrary rotation would need a per-draw UBO.
  */
 public final class VFXEntityEffectRenderer {
+	private static final Logger LOGGER = LoggerFactory.getLogger("vfxweaver/entity-fx-render");
+
 	private static RenderPipeline entityFxPipeline(final String suffix, final CompareOp depthOp, final String define) {
 		return RenderPipelines.register(
 			RenderPipeline.builder(RenderPipelines.MATRICES_FOG_LIGHT_DIR_SNIPPET)
@@ -248,5 +259,88 @@ public final class VFXEntityEffectRenderer {
 
 	private static float clamp01(final float value) {
 		return Mth.clamp(value, 0.0F, 1.0F);
+	}
+
+	/**
+	 * Renders active entity tint/outline effects on the first-person hand. The hand bypasses
+	 * {@code LivingEntityRenderer.submit} entirely ({@code ItemInHandRenderer} submits the arm
+	 * {@link ModelPart} directly), so the avatar renderer mixin calls this from
+	 * {@code renderRightHand}/{@code renderLeftHand}. Only the local player's own effects apply —
+	 * the hand always belongs to them. The hand renders in its own stage on top of the world, so
+	 * {@code through_blocks} is ignored here and the visible (always-pass) pipeline variants are used.
+	 *
+	 * @param model      the player model (arm parts are taken from it)
+	 * @param rightArm   true for the main-hand arm, false for the off-hand arm
+	 * @param poseStack  the pose stack the vanilla hand pass used
+	 * @param lightCoords the hand's packed light coords
+	 * @param texture    the skin texture the vanilla hand pass renders with
+	 */
+	public static void renderHandEffects(
+		final PlayerModel model,
+		final boolean rightArm,
+		final PoseStack poseStack,
+		final SubmitNodeCollector submitNodeCollector,
+		final int lightCoords,
+		final Identifier texture
+	) {
+		LocalPlayer player = Minecraft.getInstance().player;
+		if (player == null) {
+			return;
+		}
+		List<VFXActiveEffect> effects = VFXEffectManager.get().getActiveEntityEffects(player.getUUID());
+		if (effects.isEmpty()) {
+			return;
+		}
+		ModelPart arm = rightArm ? model.rightArm : model.leftArm;
+		for (VFXActiveEffect effect : effects) {
+			try {
+				if (effect.getType() == VFXEffectType.ENTITY_TINT) {
+					renderTintPart(effect, arm, poseStack, submitNodeCollector, lightCoords, texture);
+				} else if (effect.getType() == VFXEffectType.ENTITY_OUTLINE) {
+					renderOutlinePart(effect, arm, poseStack, submitNodeCollector, lightCoords, texture);
+				}
+			} catch (Exception e) {
+				LOGGER.warn("Failed to apply entity effect on hand '{}'", effect.getId(), e);
+			}
+		}
+	}
+
+	private static void renderTintPart(
+		final VFXActiveEffect effect,
+		final ModelPart arm,
+		final PoseStack poseStack,
+		final SubmitNodeCollector submitNodeCollector,
+		final int lightCoords,
+		final Identifier texture
+	) {
+		float alpha = clamp01(effect.getParam("alpha", 0.5F)) * effect.getWeight();
+		if (alpha <= 0.0F) {
+			return;
+		}
+		boolean multiply = effect.getParam("texture", 1.0F) >= 0.5F;
+		FxType fx = multiply ? TINT_MULTIPLY_VISIBLE : TINT_MASK_VISIBLE;
+		submitNodeCollector.submitModelPart(arm, poseStack, fx.forTexture(texture), lightCoords, OverlayTexture.NO_OVERLAY, null, argb(effect, alpha), null);
+	}
+
+	private static void renderOutlinePart(
+		final VFXActiveEffect effect,
+		final ModelPart arm,
+		final PoseStack poseStack,
+		final SubmitNodeCollector submitNodeCollector,
+		final int lightCoords,
+		final Identifier texture
+	) {
+		float alpha = clamp01(effect.getParam("alpha", 1.0F)) * effect.getWeight();
+		if (alpha <= 0.0F) {
+			return;
+		}
+		float width = Mth.clamp(effect.getParam("width", 0.05F), 0.0F, 1.0F);
+		int color = argb(effect, alpha);
+		submitNodeCollector.submitCustomGeometry(poseStack, OUTLINE_VISIBLE.forTexture(texture), (pose, buffer) -> {
+			PoseStack stack = new PoseStack();
+			stack.last().set(pose);
+			// Visit only the arm subtree — the outline must wrap the hand, not the whole body.
+			arm.visit(stack, (partPose, path, cubeIndex, cube) -> emitOutlineCube(partPose, buffer, cube, width, color, lightCoords));
+		});
 	}
 }
