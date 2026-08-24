@@ -22,6 +22,7 @@ import net.minecraft.client.model.player.PlayerModel;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.client.renderer.RenderPipelines;
 import net.minecraft.client.renderer.SubmitNodeCollector;
+import net.minecraft.client.renderer.SubmitNodeStorage;
 import net.minecraft.client.renderer.entity.state.LivingEntityRenderState;
 import net.minecraft.client.renderer.rendertype.RenderSetup;
 import net.minecraft.client.renderer.rendertype.RenderType;
@@ -89,8 +90,27 @@ public final class VFXEntityEffectRenderer {
 	private static final RenderPipeline TINT_MULTIPLY_OCCLUDED_P = entityFxPipeline("tint_multiply_occluded", CompareOp.LESS_THAN_OR_EQUAL, "TINT_MULTIPLY");
 	private static final RenderPipeline TINT_MASK_VISIBLE_P = entityFxPipeline("tint_mask_visible", CompareOp.ALWAYS_PASS, "TINT_MASK");
 	private static final RenderPipeline TINT_MASK_OCCLUDED_P = entityFxPipeline("tint_mask_occluded", CompareOp.LESS_THAN_OR_EQUAL, "TINT_MASK");
-	private static final RenderPipeline OUTLINE_VISIBLE_P = entityFxPipeline("outline_visible", CompareOp.ALWAYS_PASS, "OUTLINE");
 	private static final RenderPipeline OUTLINE_OCCLUDED_P = entityFxPipeline("outline_occluded", CompareOp.LESS_THAN_OR_EQUAL, "OUTLINE");
+
+	/**
+	 * Through-walls outline variant: opaque (no blending) so it routes into the solid feature
+	 * phase, submitted at submit order {@code -1} — before the entity's own order-0 pass. The
+	 * entity body then paints over the shell interior while the rim around the silhouette survives
+	 * on top of terrain: the outline is under its target yet still visible through walls.
+	 */
+	private static final RenderPipeline OUTLINE_THROUGH_P = RenderPipelines.register(
+		RenderPipeline.builder(RenderPipelines.MATRICES_FOG_LIGHT_DIR_SNIPPET)
+			.withLocation(Identifier.fromNamespaceAndPath("vfxweaver", "world/entity_outline_through"))
+			.withVertexShader(Identifier.fromNamespaceAndPath("vfxweaver", "core/entity_fx"))
+			.withFragmentShader(Identifier.fromNamespaceAndPath("vfxweaver", "core/entity_fx"))
+			.withSampler("Sampler0")
+			.withShaderDefine("OUTLINE")
+			.withVertexFormat(DefaultVertexFormat.ENTITY, VertexFormat.Mode.QUADS)
+			.withDepthStencilState(new DepthStencilState(CompareOp.ALWAYS_PASS, false))
+			.withColorTargetState(ColorTargetState.DEFAULT)
+			.withCull(false)
+			.build()
+	);
 
 	/**
 	 * One concrete render variant: its pipeline, the base render-type name and the memoized
@@ -110,8 +130,8 @@ public final class VFXEntityEffectRenderer {
 	private static final FxType TINT_MULTIPLY_OCCLUDED = new FxType(TINT_MULTIPLY_OCCLUDED_P, "vfxweaver_entity_tint_multiply_occluded", new HashMap<>());
 	private static final FxType TINT_MASK_VISIBLE = new FxType(TINT_MASK_VISIBLE_P, "vfxweaver_entity_tint_mask_visible", new HashMap<>());
 	private static final FxType TINT_MASK_OCCLUDED = new FxType(TINT_MASK_OCCLUDED_P, "vfxweaver_entity_tint_mask_occluded", new HashMap<>());
-	private static final FxType OUTLINE_VISIBLE = new FxType(OUTLINE_VISIBLE_P, "vfxweaver_entity_outline_visible", new HashMap<>());
 	private static final FxType OUTLINE_OCCLUDED = new FxType(OUTLINE_OCCLUDED_P, "vfxweaver_entity_outline_occluded", new HashMap<>());
+	private static final FxType OUTLINE_THROUGH = new FxType(OUTLINE_THROUGH_P, "vfxweaver_entity_outline_through", new HashMap<>());
 
 	private VFXEntityEffectRenderer() {
 	}
@@ -181,7 +201,7 @@ public final class VFXEntityEffectRenderer {
 		boolean through = effect.getParam("through_blocks", 0.0F) >= 0.5F;
 		float width = Mth.clamp(effect.getParam("width", 0.05F), 0.0F, 1.0F);
 		int color = argb(effect, alpha);
-		FxType fx = through ? OUTLINE_VISIBLE : OUTLINE_OCCLUDED;
+		FxType fx = through ? OUTLINE_THROUGH : OUTLINE_OCCLUDED;
 		RenderType renderType = fx.forTexture(texture);
 		// Thickness in world units: each cube face grows outwards by `width`, independent of the
 		// cube's own size (see emitOutlineCube).
@@ -192,6 +212,24 @@ public final class VFXEntityEffectRenderer {
 		// (which would mutate shared model state while drawing). Vanilla's own body pass later
 		// sets the same pose for the same state, so this is idempotent.
 		model.setupAnim(state);
+		// Through-walls outlines must sit UNDER their target: submit at order -1 with the opaque
+		// pipeline so the solid feature phase flushes the shell before the entity's own body pass,
+		// letting the body paint over the shell interior. Alpha is forced opaque there.
+		if (through) {
+			if (submitNodeCollector instanceof SubmitNodeStorage storage) {
+				int throughColor = argb(effect, 1.0F);
+				storage.order(-1).submitCustomGeometry(poseStack, renderType, (pose, buffer) -> {
+					PoseStack stack = new PoseStack();
+					stack.last().set(pose);
+					model.root().visit(stack, (partPose, path, cubeIndex, cube) ->
+						emitOutlineCube(partPose, buffer, cube, thickness, throughColor, state.lightCoords));
+				});
+				return;
+			}
+			// Fallback (unexpected collector type): translucent rim hugging the entity.
+			FxType fallback = OUTLINE_OCCLUDED;
+			renderType = fallback.forTexture(texture);
+		}
 		submitNodeCollector.submitCustomGeometry(poseStack, renderType, (pose, buffer) -> {
 			PoseStack stack = new PoseStack();
 			stack.last().set(pose);
