@@ -1,4 +1,4 @@
-﻿# TOM Post Effects (vfxweaver) вЂ” Usage Guide
+# TOM Post Effects (vfxweaver) вЂ” Usage Guide
 
 A client-side VFX library for Minecraft 26.1вЂ“26.1.2 (Fabric). Screen post-processing (ping-pong FBO), camera shake, world overlays (block tint/outline), entity effects (tint/outline by UUID), keyframe animation, world/camera/player bindings, datapacks, network triggers and a public Java API.
 
@@ -232,7 +232,8 @@ Without `sound_pos` the sound plays directly to the player (no coordinate anchor
 | `screen_x` / `screen_y` | UV 0..1 (в€’scale if the point is behind the camera) | Screen position of the world point `pos: [x,y,z]` вЂ” the effect "follows" the point |
 | `proximity` | 0..1 (Г—scale) | 1 near `pos`, smoothly to 0 at distance `range` (default 16). `invert: true` вЂ” the opposite (0 near, 1 far). Behind the camera = 0 (if not `invert`). |
 | `look` | 0..1 (Г—scale) | 1 when the camera looks exactly in the `yaw`/`pitch` direction (degrees), smoothly to 0 at angular deviation `range` (default 90В°). `invert: true` вЂ” the opposite. |
-| `distance` | blocks (Г—scale) | Raw Euclidean distance from the camera to `pos: [x,y,z]` (unlike `proximity` вЂ” not 0..1, but real blocks) |
+ | `look_at` | 0..1 (Г—scale) | Same as `look`, but the target direction is derived from a world `pos: [x,y,z]` anchor instead of explicit yaw/pitch. |
+ | `distance` | blocks (Г—scale) | Raw Euclidean distance from the camera to `pos: [x,y,z]` (unlike `proximity` вЂ” not 0..1, but real blocks) |
 | `look_x` / `look_y` / `look_z` | в€’1..1 (Г—scale) | Components of the camera's look unit vector (for "are we looking that way" / offset along the look direction) |
 | `player_x` / `player_y` / `player_z` | world coords (Г—scale) | The local player's position along the X/Y/Z axes |
 | `camera_yaw_delta` | degrees/tick (Г—scale) | Camera yaw change between frames |
@@ -255,7 +256,7 @@ Example вЂ” blur while sprinting:
 "radius": { "bind": "speed", "range": 6, "scale": 8 }
 ```
 
-Options: `pos` (for screen_x/y, proximity, distance), `yaw`, `pitch` (for look), `range`, `scale` (default 1), `invert`.
+Options: `pos` (for screen_x/y, proximity, distance, look_at), `yaw`, `pitch` (for look), `range`, `scale` (default 1), `invert`.
 
 Example вЂ” a dent-line stuck to two world points (a dent "cuts" the screen between them):
 

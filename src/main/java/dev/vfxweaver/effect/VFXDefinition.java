@@ -384,7 +384,7 @@ public class VFXDefinition {
 			z = pos.get(2).getAsDouble();
 		}
 		float defaultRange = switch (kind) {
-			case LOOK -> 90.0F;
+			case LOOK, LOOK_AT -> 90.0F;
 			case SPEED -> 5.0F;
 			default -> 16.0F;
 		};

@@ -108,7 +108,7 @@ public final class VFXWorldBindings {
 			return fallback;
 		}
 		return switch (binding.kind()) {
-			case SCREEN_X, SCREEN_Y, PROXIMITY, LOOK, DISTANCE -> evaluateSpatial(binding, current, fallback);
+			case SCREEN_X, SCREEN_Y, PROXIMITY, LOOK, LOOK_AT, DISTANCE -> evaluateSpatial(binding, current, fallback);
 			case CAMERA_YAW_DELTA -> smoothedYawDelta * binding.scale();
 			case CAMERA_PITCH_DELTA -> smoothedPitchDelta * binding.scale();
 			case LOOK_X, LOOK_Y, LOOK_Z -> evaluateLookDirection(binding, current, fallback);
@@ -193,15 +193,25 @@ public final class VFXWorldBindings {
 				float t = Math.min(distance / Math.max(binding.range(), 1.0e-4F), 1.0F);
 				yield (binding.invert() ? t : 1.0F - t) * binding.scale();
 			}
-			case LOOK -> {
+			case LOOK, LOOK_AT -> {
 				// Angle between the camera forward vector and the target direction (degrees).
 				float camYawRad = (float) Math.toRadians(current.yaw());
 				float camPitchRad = (float) Math.toRadians(current.pitch());
-				float tgtYawRad = (float) Math.toRadians(binding.yaw());
-				float tgtPitchRad = (float) Math.toRadians(binding.pitch());
-				float dot = forwardY(camYawRad, camPitchRad) * forwardY(tgtYawRad, tgtPitchRad)
-					+ forwardX(camYawRad, camPitchRad) * forwardX(tgtYawRad, tgtPitchRad)
-					+ forwardZ(camYawRad, camPitchRad) * forwardZ(tgtYawRad, tgtPitchRad);
+				float dot;
+				if (binding.kind() == BoundParam.Kind.LOOK_AT) {
+					// Target direction derived from the world anchor position (pos) relative to the camera.
+					float inv = 1.0F / Math.max((float) Math.sqrt(dx * dx + dy * dy + dz * dz), 1.0e-4F);
+					float tx = (float) dx * inv;
+					float ty = (float) dy * inv;
+					float tz = (float) dz * inv;
+					dot = forwardX(camYawRad, camPitchRad) * tx + forwardY(camYawRad, camPitchRad) * ty + forwardZ(camYawRad, camPitchRad) * tz;
+				} else {
+					float tgtYawRad = (float) Math.toRadians(binding.yaw());
+					float tgtPitchRad = (float) Math.toRadians(binding.pitch());
+					dot = forwardY(camYawRad, camPitchRad) * forwardY(tgtYawRad, tgtPitchRad)
+						+ forwardX(camYawRad, camPitchRad) * forwardX(tgtYawRad, tgtPitchRad)
+						+ forwardZ(camYawRad, camPitchRad) * forwardZ(tgtYawRad, tgtPitchRad);
+				}
 				float angle = (float) Math.toDegrees(Math.acos(Math.max(-1.0F, Math.min(1.0F, dot))));
 				float t = Math.min(angle / Math.max(binding.range(), 1.0e-4F), 1.0F);
 				yield (binding.invert() ? t : 1.0F - t) * binding.scale();
