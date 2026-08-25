@@ -3,8 +3,6 @@
 #   https://raw.githubusercontent.com/Artition/VFX-Weaver/maven
 #
 # Usage: run `gradlew publish` first, then this script.
-$ErrorActionPreference = "Stop"
-
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $mavenOut = Join-Path $repoRoot "build\maven"
 if (-not (Test-Path (Join-Path $mavenOut "dev"))) {
@@ -18,18 +16,27 @@ New-Item -ItemType Directory -Path $tmp | Out-Null
 
 Push-Location $tmp
 try {
-	git init | Out-Null
+	git init > $null 2>&1
 	git remote add origin "https://github.com/Artition/VFX-Weaver.git"
-	git fetch origin maven 2>$null
+	git fetch origin maven > $null 2>&1
 	if ($LASTEXITCODE -eq 0) {
-		git checkout maven | Out-Null
+		git checkout -B maven origin/maven > $null 2>&1
 	} else {
-		git checkout --orphan maven | Out-Null
+		git checkout --orphan maven > $null 2>&1
+	}
+	if ($LASTEXITCODE -ne 0) {
+		Write-Error "could not prepare the maven branch"
+		exit 1
 	}
 	Copy-Item -Path (Join-Path $mavenOut "*") -Destination $tmp -Recurse -Force
 	git add -A
-	git commit -m "publish artifacts"
-	git push origin maven
+	git commit -m "publish artifacts" > $null 2>&1
+	git push origin maven 2>&1 | ForEach-Object { "$_" }
+	if ($LASTEXITCODE -ne 0) {
+		Write-Error "push to origin/maven failed"
+		exit 1
+	}
+	Write-Host "maven branch updated."
 } finally {
 	Pop-Location
 	Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
