@@ -1,0 +1,96 @@
+{
+  "formatVersion": "1.1",
+  "component": {
+    "group": "dev.vfxweaver",
+    "module": "vfxweaver",
+    "version": "1.0.6",
+    "attributes": {
+      "org.gradle.status": "release"
+    }
+  },
+  "createdBy": {
+    "gradle": {
+      "version": "9.5.1"
+    }
+  },
+  "variants": [
+    {
+      "name": "apiElements",
+      "attributes": {
+        "org.gradle.category": "library",
+        "org.gradle.dependency.bundling": "external",
+        "org.gradle.jvm.version": 25,
+        "org.gradle.libraryelements": "jar",
+        "org.gradle.usage": "java-api"
+      },
+      "files": [
+        {
+          "name": "vfxweaver-1.0.6.jar",
+          "url": "vfxweaver-1.0.6.jar",
+          "size": 241934,
+          "sha512": "e1a121847f660490b1cca9c6ae032f5f42f80bcaf5aaafc00ff0d5820893f1d59dd1b6f778113b1c551205bbbadcee6202b6847c6d828dfa1de1401df051af0f",
+          "sha256": "474b331ff1fb27cd90633da8b969ca4fdb03fc5959dd3924658e8e27017fdbcb",
+          "sha1": "6d023f7a49668d6dbeac56e2f4cd859eddfa6142",
+          "md5": "f61554a1de00425ebf07e9dcb7185375"
+        }
+      ]
+    },
+    {
+      "name": "runtimeElements",
+      "attributes": {
+        "org.gradle.category": "library",
+        "org.gradle.dependency.bundling": "external",
+        "org.gradle.jvm.version": 25,
+        "org.gradle.libraryelements": "jar",
+        "org.gradle.usage": "java-runtime"
+      },
+      "dependencies": [
+        {
+          "group": "net.fabricmc",
+          "module": "fabric-loader",
+          "version": {
+            "requires": "0.19.3"
+          }
+        },
+        {
+          "group": "net.fabricmc.fabric-api",
+          "module": "fabric-api",
+          "version": {
+            "requires": "0.154.0+26.1.2"
+          }
+        }
+      ],
+      "files": [
+        {
+          "name": "vfxweaver-1.0.6.jar",
+          "url": "vfxweaver-1.0.6.jar",
+          "size": 241934,
+          "sha512": "e1a121847f660490b1cca9c6ae032f5f42f80bcaf5aaafc00ff0d5820893f1d59dd1b6f778113b1c551205bbbadcee6202b6847c6d828dfa1de1401df051af0f",
+          "sha256": "474b331ff1fb27cd90633da8b969ca4fdb03fc5959dd3924658e8e27017fdbcb",
+          "sha1": "6d023f7a49668d6dbeac56e2f4cd859eddfa6142",
+          "md5": "f61554a1de00425ebf07e9dcb7185375"
+        }
+      ]
+    },
+    {
+      "name": "sourcesElements",
+      "attributes": {
+        "org.gradle.category": "documentation",
+        "org.gradle.dependency.bundling": "external",
+        "org.gradle.docstype": "sources",
+        "org.gradle.usage": "java-runtime"
+      },
+      "files": [
+        {
+          "name": "vfxweaver-1.0.6-sources.jar",
+          "url": "vfxweaver-1.0.6-sources.jar",
+          "size": 154761,
+          "sha512": "f12abec2009e8953e3cadc2954607f5aca66616a951cc967fb9b67ebb361c21b55b07319afeb92e01e72e6d84c0a373391c1fc27492f8e1b216185fd1a309cd1",
+          "sha256": "5aab761823f53afcdd34c5464c00f3d4080c4e489f0622ce7a1eabca96cc4da1",
+          "sha1": "c614b6c9d0e607306ee0277d82e37cb2cd1e4a29",
+          "md5": "be6e5cdb8e159cb07e20604d57736258"
+        }
+      ]
+    }
+  ]
+}
