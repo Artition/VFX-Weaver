@@ -3,6 +3,9 @@
 Format follows [Keep a Changelog](https://keepachangelog.com/). The versions below are guide/feature-set versions of the mod (as they progressed historically, see `docs/GUIDE.md`), plus git release tags where applicable (`v1.0.x`, `gradle.properties` → `mod_version`). Add new entries at the top, in the same PR as the behavior change.
 
 ## v1.0.6 / Guide v21
+### Docs
+- **Documentation rewritten.** Every effect now has a per-parameter reference (type, default, what it actually does) and copy-pasteable command/JSON examples.
+
 ### Added
 - **Item frames as entity effect targets.** `entity_tint`/`entity_outline` now also apply to item frames (non-living entities): the UUID is captured from the frame renderer and a flat tint quad / rectangular outline is drawn on the frame plane, aligned with the frame model.
 - **`look_at` world binding.** Like `look`, but the target direction is derived from a world `pos: [x,y,z]` anchor instead of explicit yaw/pitch (`range` default 90, supports `invert`/`scale`).

@@ -2,7 +2,7 @@
 
 A client-side VFX library for Minecraft 26.1вЂ“26.1.2 (Fabric). Screen post-processing (ping-pong FBO), camera shake, world overlays (block tint/outline), entity effects (tint/outline by UUID), keyframe animation, world/camera/player bindings, datapacks, network triggers and a public Java API.
 
-- Guide version: 20 (see [docs/CHANGELOG.md](CHANGELOG.md) for history)
+- Guide version: 21 (see [docs/CHANGELOG.md](CHANGELOG.md) for history)
 - Mod: `vfxweaver-1.0.4.jar`, requires Fabric API
 
 Files: `data/<namespace>/vfx/<name>.json` and `data/<namespace>/vfx_curves/<name>.json`. After edits вЂ” `/reload`. The effect id = `<namespace>:<name>`. On a dedicated server, definitions and curves are automatically synced to clients on player join and after `/reload`, so custom (datapack) effects work for all players, not just on the server.
@@ -45,77 +45,371 @@ Repeated `/vfx play` of the same effect **does not replace** the playing instanc
 
 ## 2. Effect types
 
+How to read this section:
+
+- Every parameter is a float. Most "intensity-like" parameters are `0..1`, where `0` = off.
+- **Built-in animation:** many built-in effects animate their main parameter from the listed value **down to 0** over the effect duration (so the effect fades out on its own). When you override such a parameter (command param-map / `value` / API), it becomes a **constant** - no auto-fade - unless you animate it yourself (keyframes / `start`+`end` / `expr`).
+- Every effect also accepts `screen_layer` (screen effects only): `0` = under the first-person hand and GUI, `1` = above the hand, below the GUI (default), `2` = above everything including the GUI.
+- Examples are copy-pasteable commands. For datapack files, put the params into `"params": { ... }` (see [3. Datapack format](#3-datapack-format)).
+
 ### 2.1 Screen post-processing (shaders)
 
-| Type | Params | Description |
+#### `chromatic_aberration`
+Splits the RGB channels towards the screen edges (RGB fringing).
+
+| Param | Default | Description |
 |---|---|---|
-| `chromatic_aberration` | `intensity` (0=off), `radius` (pixels) | Splits the RGB channels towards the screen edges |
-| `color_grade` | `saturation`, `contrast`, `brightness` (neutral = 1), `tint_r/g/b` (neutral = 1) | Color grading + tint |
-| `distortion` | `amount`, `radius` | Barrel (`amount > 0`) / pincushion (`amount < 0`) distortion of the whole screen |
-| `dent` | `strength` (+pull in / в€’push out), `radius` (screen fractions), `center_x`, `center_y` (UV 0..1) | Local "dent" around a point. Line mode: `line_mode` (0/1) + `x0`,`y0`,`x1`,`y1` (UV 0..1) вЂ” a dent along a segment; ends can be bound to the world via `bind: screen_x`/`screen_y`. |
-| `gradient_map` | `from_r/g/b`, `to_r/g/b`, `intensity`, `mode` (0/1, default 0), `pos` (0..1, default 0.5) | Maps luminance into a two-colour gradient. `mode: 0` вЂ” smooth linear gradient (`pos` shifts the transition centre; 0.5 = no shift); `mode: 1` вЂ” hard threshold (`step`): everything brighter than `pos` вЂ” colour `to`, darker вЂ” `from` (for masks/stylized shadows) |
-| `posterize` | `strength` (0..1) | Posterization: reduce the number of colours on screen (255 в†’ 2 levels), clean quantization without dithering |
-| `blur` | `radius` (pixels) | Two-pass adaptive Gaussian blur |
-| `pixelate` | `cell_size` (screen fraction) | Pixelation |
-| `hue_isolation` | `hue` (0..1), `tolerance`, `intensity` | Keeps the chosen hue, the rest goes grayscale |
-| `vignette` | `intensity` (0..1), `color_r/g/b` (0..1) | Darkens/colors the screen edges |
-| `screen_flash` | `alpha` (0..1), `color_r/g/b` (0..1) | Fullscreen colour overlay |
-| `motion_blur` | `intensity` (0..1), `yaw_delta`, `pitch_delta` | Directional blur from camera rotation speed |
-| `bloom` | `intensity` (0..1), `threshold` (0..1), `radius` (pixels) | Glow around bright screen areas |
-| `film_grain` | `intensity` (0..1), `size` (grain px) | Animated film grain |
-| `scanlines` | `intensity` (0..1), `line_count` (bands per 100px), `speed` (drift) | CRT bands drifting across the screen |
-| `depth_of_field` | `intensity` (0..1), `focus_center` (UV Y), `focus_range` (focus half-width) | Screen tilt-shift: a sharp band, blur away from it |
-| `letterbox` | `height` (0..0.5), `color_r/g/b` | Cinematic bars at the top and bottom of the screen |
-| `invert` | `intensity` (0..1) | Inverts the screen colours |
-| `vortex` | `strength` (radians, В± = direction), `radius`, `center_x`, `center_y` (UV) | Swirls pixels into a funnel around a point |
-All screen effects also accept `screen_layer` - where the effect applies in the frame: `0` = below the first-person hand and the GUI (world only), `1` = above the hand, below the GUI (default), `2` = above everything including the GUI.
-| `speed_lines` | `center_x/y` (UV, default 0.5), `count` (10..200, default 50), `length` (0..1, default 0.5), `length_rand` (0..1, default 0.7), `width` (0..1, default 0.5), `seed` (0..1000, default 0), `color_r/g/b`, `intensity` | "Speed lines" emanating from the screen borders and pointing to the centre (or a given point) вЂ” a sense of speed. `length` is the fraction of the ray to the border each line covers; `length_rand` controls how much the per-line length varies (0 = all equal, 1 = full random). Animate `seed` via `expr` (e.g. `"t * 2.0"`) to make the lines swap chaotically. |
-| `fov_modifier` | `fov_delta` (degrees) | Changes the player's field of view (FOV) |
+| `intensity` | 0.8 (fades to 0) | Fringing strength; 0 = off |
+| `radius` | 4 | Effect radius in pixels from the screen border |
 
-#### Gradient map: modes and colour coordinate
+```
+/vfx play vfxweaver:chromatic_aberration
+```
 
-`gradient_map` maps pixel luminance (`luma = 0.299В·R + 0.587В·G + 0.114В·B`) into a two-colour gradient `from в†’ to`. Two params control the build:
+#### `color_grade`
+Colour grading: saturation, contrast, brightness and a colour tint.
 
-- **`mode` (0/1, default 0):**
-  - `0` (**linear**) вЂ” smooth gradient: `t = clamp(luma + (pos в€’ 0.5), 0, 1)`, then `mix(from, to, t)`. The `pos` param shifts the **transition centre**: `pos = 0.5` вЂ” no shift, `pos = 0` вЂ” dark areas faster become colour `to`, `pos = 1` вЂ” the opposite.
-  - `1` (**constant / stepped**) вЂ” hard threshold: `t = step(pos, luma)`. A pixel **brighter** than `pos` в†’ colour `to`; **darker** в†’ colour `from`. No smooth transition вЂ” great for masks and stylized shadows.
-- **`pos` (0..1, default 0.5)** вЂ” colour coordinate/threshold (see above). In linear вЂ” the transition centre; in constant вЂ” the luminance threshold.
+| Param | Default | Description |
+|---|---|---|
+| `saturation` | 0.7 (fades to 1) | 0 = grayscale, 1 = neutral, >1 = oversaturated |
+| `contrast` | 1.05 (fades to 1) | 1 = neutral; <1 = flatter, >1 = harsher |
+| `brightness` | 1 | 1 = neutral; 0 = black |
+| `tint_r/g/b` | 1 / 0.9 / 1 (fade to 1) | Per-channel multiplier; 1 = neutral |
 
-**True grayscale filter:** to get real grayscale, use `mode: 0` (linear), `from = black`, `to = white`, `pos = 0.5`:
+```
+/vfx play vfxweaver:color_grade
+```
+
+#### `distortion`
+Barrel (`amount > 0`) / pincushion (`amount < 0`) distortion of the whole screen.
+
+| Param | Default | Description |
+|---|---|---|
+| `amount` | 0.2 (fades to 0) | Distortion strength; sign picks the direction |
+| `radius` | 0.8 | Screen fraction affected from the centre (0..1) |
+
+```
+/vfx play vfxweaver:distortion
+```
+
+#### `dent`
+A local "dent" (lens warp) around a point, or along a segment in line mode.
+
+| Param | Default | Description |
+|---|---|---|
+| `strength` | 0.6 (fades to 0) | Warp strength; positive pulls in, negative pushes out |
+| `radius` | 0.25 | Dent size as a fraction of the screen |
+| `center_x`, `center_y` | 0.5, 0.5 | Dent centre in UV (0..1) |
+| `line_mode` | 0 | 1 = segment mode (below) |
+| `x0`, `y0`, `x1`, `y1` | 0..1 UV | Segment ends for line mode; bind them to the world via `bind: screen_x` / `screen_y` |
+
+```
+/vfx play vfxweaver:dent {[strength:0.8],[radius:0.3]}
+```
+
+#### `gradient_map`
+Maps pixel luminance into a two-colour gradient `from -> to`. See the detailed subsection below the table.
+
+| Param | Default | Description |
+|---|---|---|
+| `from_r/g/b` | 0.1 / 0 / 0.2 | Gradient colour for the dark end |
+| `to_r/g/b` | 1 / 0.2 / 0.1 | Gradient colour for the bright end |
+| `intensity` | 1 (fades to 0) | Mix strength: 0 = original, 1 = fully graded |
+| `mode` | 0 | 0 = smooth linear gradient, 1 = hard threshold |
+| `pos` | 0.5 | Transition centre (linear) / luminance threshold (threshold mode) |
+
 ```json
 { "type": "gradient_map", "from_r": 0, "from_g": 0, "from_b": 0,
   "to_r": 1, "to_g": 1, "to_b": 1, "intensity": 1, "mode": 0, "pos": 0.5 }
 ```
-Then `t = luma` and `mix(black, white, luma)` вЂ” exactly the luminance в†’ smooth grayscale.
 
-**Hard black/white mask** (`mode: 1`, `from = black`, `to = white`, `pos = 0.5`): everything darker than 0.5 в†’ black, everything brighter в†’ white. "0 вЂ” black, 0.5+ вЂ” white".
+`mode: 0` (**linear**): `t = clamp(luma + (pos - 0.5), 0, 1)`, then `mix(from, to, t)`. `pos = 0.5` - no shift; `pos = 0` - dark areas turn into `to` sooner.
+`mode: 1` (**threshold**): pixels brighter than `pos` -> `to`, darker -> `from`. No smooth transition.
 
-### 2.2 World overlays (block model geometry)
+**True grayscale:** linear mode, `from` = black, `to` = white, `pos = 0.5`, `intensity = 1`.
+**Hard black/white mask:** threshold mode, `from` = black, `to` = white, `pos = 0.5`.
 
-| Type | Params | Description |
+#### `posterize`
+Posterization: reduces the number of colours on screen, clean quantization without dithering.
+
+| Param | Default | Description |
 |---|---|---|
-| `block_tint` | `color_r/g/b` (0..1), `alpha` (0..1), `through_blocks` (0/1, default 1) | Translucent fill of the block model's visible faces; `through_blocks: 1` вЂ” visible through other blocks, `0` вЂ” occluded by them |
-| `block_outline` | `color_r/g/b` (0..1), `alpha` (0..1), `width` (0..1), `shell` (0/1, default 0), `through_blocks` (0/1, default 0) | Block outline in two modes: `shell: 0` вЂ” each model face is extruded outwards along its normal by `width/2` (the outline cannot cover the block); `shell: 1` вЂ” a classic scaled shell with back faces, clipped by the block's own depth (`width` = expansion). `through_blocks`: 1 вЂ” visible through other blocks, 0 вЂ” occluded by them |
+| `strength` | 0.25 (fades to 0) | 0 = off, 1 = only 2 levels per channel |
 
-Both types support a list of coordinates via the `positions` field (see В§3.1). If the list is not set, a single position from `params.pos_x/y/z` is used вЂ” it can be a constant, an animation or a world binding.
+```
+/vfx play vfxweaver:posterize {[strength:0.6]}
+```
+
+#### `blur`
+Two-pass adaptive Gaussian blur.
+
+| Param | Default | Description |
+|---|---|---|
+| `radius` | 4 (fades to 0) | Blur radius in pixels |
+
+```
+/vfx play vfxweaver:blur {[radius:10]}
+```
+
+#### `pixelate`
+Pixelation.
+
+| Param | Default | Description |
+|---|---|---|
+| `cell_size` | 0.012 (fades to 0.0005) | Cell size as a fraction of the screen (0.012 ~= 23px on 1080p) |
+
+```
+/vfx play vfxweaver:pixelate {[cell_size:0.03]}
+```
+
+#### `hue_isolation`
+Keeps the chosen hue, everything else goes grayscale.
+
+| Param | Default | Description |
+|---|---|---|
+| `hue` | 0 | Target hue on the colour wheel: 0 = red, 0.33 = green, 0.66 = blue, 0.5 = cyan/magenta boundary... (full circle 0..1) |
+| `tolerance` | 0.2 | Hue match width: how far from `hue` (on the 0..1 wheel) a pixel may be and still keep its colour |
+| `intensity` | 1 (fades to 0) | Strength of the grayscale conversion outside the tolerance |
+
+```
+/vfx play vfxweaver:hue_isolation {[hue:0.33],[tolerance:0.1]}
+```
+
+#### `vignette`
+Darkens/colours the screen edges.
+
+| Param | Default | Description |
+|---|---|---|
+| `intensity` | 0.7 (fades to 0) | Edge darkening strength |
+| `color_r/g/b` | 0 / 0 / 0 | Edge colour (black by default) |
+
+```
+/vfx play vfxweaver:vignette {[intensity:1]}
+```
+
+#### `screen_flash`
+Fullscreen colour overlay (flash).
+
+| Param | Default | Description |
+|---|---|---|
+| `alpha` | 0.8 (fades to 0) | Overlay opacity |
+| `color_r/g/b` | 1 / 1 / 1 | Flash colour (white by default) |
+
+```
+/vfx play vfxweaver:screen_flash {[color_r:1],[color_g:0],[color_b:0],[alpha:1]}
+```
+
+#### `motion_blur`
+Directional blur from camera rotation speed. The built-in tracks the camera itself.
+
+| Param | Default | Description |
+|---|---|---|
+| `intensity` | 0.35 (fades to 0) | Blur strength |
+| `yaw_delta` | bound to camera | Yaw change between frames (deg/tick) - drives horizontal blur |
+| `pitch_delta` | bound to camera | Pitch change between frames - drives vertical blur |
+
+```
+/vfx play vfxweaver:motion_blur
+```
+
+#### `bloom`
+Glow around bright screen areas.
+
+| Param | Default | Description |
+|---|---|---|
+| `intensity` | 0.6 (fades to 0) | Glow strength |
+| `threshold` | 0.7 | Luminance above which pixels glow (0..1) |
+| `radius` | 3 | Glow spread in pixels |
+
+```
+/vfx play vfxweaver:bloom {[threshold:0.5],[intensity:1]}
+```
+
+#### `film_grain`
+Animated film grain.
+
+| Param | Default | Description |
+|---|---|---|
+| `intensity` | 0.08 (fades to 0) | Grain strength |
+| `size` | 2 | Grain size in pixels |
+
+```
+/vfx play vfxweaver:film_grain
+```
+
+#### `scanlines`
+CRT bands drifting across the screen.
+
+| Param | Default | Description |
+|---|---|---|
+| `intensity` | 0.3 (fades to 0) | Band visibility |
+| `line_count` | 3 | Bands per 100 screen pixels |
+| `speed` | 0.5 | Downward drift speed |
+
+```
+/vfx play vfxweaver:scanlines {[line_count:6]}
+```
+
+#### `depth_of_field`
+Screen tilt-shift: a sharp band, blur away from it.
+
+| Param | Default | Description |
+|---|---|---|
+| `intensity` | 0.5 (fades to 0) | Blur strength outside the sharp band |
+| `focus_center` | 0.5 | Sharp band centre, UV Y (0.5 = screen middle) |
+| `focus_range` | 0.15 | Sharp band half-width in UV |
+
+```
+/vfx play vfxweaver:depth_of_field
+```
+
+#### `letterbox`
+Cinematic bars at the top and bottom of the screen.
+
+| Param | Default | Description |
+|---|---|---|
+| `height` | 0.12 (fades to 0) | Bar height as a fraction of the screen half-height (max 0.5) |
+| `color_r/g/b` | 0 / 0 / 0 | Bar colour (black by default) |
+
+```
+/vfx play vfxweaver:letterbox {[height:0.2]}
+```
+
+#### `invert`
+Inverts the screen colours.
+
+| Param | Default | Description |
+|---|---|---|
+| `intensity` | 1 (fades to 0) | 1 = fully inverted, 0.5 = halfway (washed out), 0 = off |
+
+```
+/vfx play vfxweaver:invert
+```
+
+#### `vortex`
+Swirls pixels into a funnel around a point.
+
+| Param | Default | Description |
+|---|---|---|
+| `strength` | 2.5 (fades to 0) | Max swirl angle in radians; sign = direction |
+| `radius` | 0.5 | Funnel radius as a screen fraction |
+| `center_x`, `center_y` | 0.5, 0.5 | Funnel centre in UV |
+
+```
+/vfx play vfxweaver:vortex {[strength:4]}
+```
+
+#### `speed_lines`
+"Speed lines" emanating from the screen borders and pointing to the centre (or a given point).
+
+| Param | Default | Description |
+|---|---|---|
+| `center_x/y` | 0.5, 0.5 | Point the lines converge to (UV) |
+| `count` | 50 | Number of lines (10..200) |
+| `length` | 0.5 | Fraction of the ray to the border each line covers |
+| `length_rand` | 0.7 | Per-line length variance: 0 = all equal, 1 = fully random |
+| `width` | 0.5 | Line thickness |
+| `seed` | 0 | Line layout seed; animate via `expr` (e.g. `"t * 2.0"`) to make lines swap chaotically |
+| `color_r/g/b` | 1 / 1 / 1 | Line colour |
+| `intensity` | 1 (fades to 0) | Visibility |
+
+```
+/vfx play vfxweaver:speed_lines {[count:120],[length:0.8]}
+```
+
+### 2.2 World overlays (block geometry)
+
+#### `block_tint`
+Translucent fill of the block model's visible faces.
+
+| Param | Default | Description |
+|---|---|---|
+| `color_r/g/b` | 0.2 / 0.6 / 1.0 | Fill colour |
+| `alpha` | 0.35 | Fill opacity (0..1) |
+| `through_blocks` | 1 | 1 = visible through other blocks, 0 = occluded by them |
+
+```
+/vfx play vfxweaver:block_tint {[alpha:0.6],[color_r:1]}
+```
+
+#### `block_outline`
+Block outline, two modes.
+
+| Param | Default | Description |
+|---|---|---|
+| `color_r/g/b` | 1 / 0.85 / 0.2 | Outline colour |
+| `alpha` | 0.9 | Opacity |
+| `width` | 0.05 | Outline thickness in blocks |
+| `shell` | 0 | 0 = each model face extruded outwards along its normal by `width/2` (cannot cover the block); 1 = scaled shell clipped by the block's own depth |
+| `through_blocks` | 0 | 1 = visible through other blocks, 0 = occluded (the outline never covers its own target block) |
+
+```
+/vfx play vfxweaver:block_outline {[width:0.08],[shell:1]}
+```
+
+Both support a list of coordinates via `positions` (see [3.1](#31-definition-fields)) or `region: [x0,y0,z0,x1,y1,z1]`. Without them a single position from `params.pos_x/y/z` is used - it can be a constant, an animation or a world binding.
 
 ### 2.3 Entity effects (second model pass)
 
-These types target living entities by UUID: the client stores the target's UUID on the render state and, in a second pass, redraws the entity model with its own render type over the original (the vanilla texture and shader are not touched).
+These target entities by UUID: the client stores the target's UUID on the render state and, in a second pass, redraws the entity with its own render type over the original (the vanilla texture and shader are not touched). Item frames are supported too (flat overlay on the frame plane).
 
-| Type | Params | Description |
+#### `entity_tint`
+Fills the entity with the effect colour **accounting for its texture** (the texture is the alpha mask, so the effect follows the silhouette).
+
+| Param | Default | Description |
 |---|---|---|
-| `entity_tint` | `color_r/g/b` (0..1), `alpha` (0..1), `texture` (0/1, default 1), `through_blocks` (0/1, default 1) | Fills the entity model with the effect colour **accounting for its texture** (the texture is used as an alpha mask, so the effect follows the silhouette, not a box around the model). `texture: 1` вЂ” recolour the texture (texture Г— colour, the pattern is visible); `texture: 0` вЂ” flat colour with the texture only as a mask. `through_blocks: 1` вЂ” visible through walls, `0` вЂ” occluded by them |
-| `entity_outline` | `color_r/g/b` (0..1), `alpha` (0..1), `width` (0..1, default 0.05), `through_blocks` (0/1, default 0) | Silhouette outline of the "inverted hull" type: the model is expanded by `width` around its vertical centre, only back faces remain вЂ” a thin rim sticks out. The texture is used as a mask, so the outline follows the texture contour (no flat rectangle). `through_blocks: 1` вЂ” the glow is visible through walls (full silhouette), `0` вЂ” occluded by walls |
+| `color_r/g/b` | 0.2 / 0.6 / 1.0 | Tint colour |
+| `alpha` | 0.5 | Opacity |
+| `texture` | 1 | 1 = recolour the texture (texture x colour, the pattern stays visible); 0 = flat colour, texture only as a mask |
+| `through_blocks` | 1 | 1 = visible through walls, 0 = occluded |
 
-Targets are set via `/vfx playentity <effect> <selector>`, via the Java API (see В§7) or via the `entity_selector` field in the effect definition (then `/vfx play <effect>` is enough вЂ” the server finds the targets itself). The `vfxweaver:vfx_trigger` packet carries the UUID list (up to 16). One effect can target several entities at once; several effects can hang on one entity at the same time. If the selector picks more than 16 entities, the effect applies only to the first 16 (packet cap); up to 64 effects play at once in total (`MAX_ACTIVE_EFFECTS`).
+```
+/vfx playentity vfxweaver:entity_tint @e[type=pig,limit=1] {[alpha:0.8],[color_r:1]}
+```
+
+#### `entity_outline`
+Silhouette outline of the "inverted hull" type: the model is expanded by `width`, only back faces remain - a thin rim sticks out. Follows the texture contour (no flat rectangle).
+
+| Param | Default | Description |
+|---|---|---|
+| `color_r/g/b` | 1 / 0.85 / 0.2 | Outline colour |
+| `alpha` | 1 | Opacity |
+| `width` | 0.05 | Rim thickness in blocks |
+| `through_blocks` | 0 | 1 = the glow is visible through walls, 0 = occluded by them |
+
+```
+/vfx playentity vfxweaver:entity_outline @e[type=pig,limit=1] {[width:0.1]}
+```
+
+Targets are set via `/vfx playentity <effect> <selector>`, via the Java API (see [7](#7-java-api-for-other-mods)) or via the `entity_selector` field in the definition (then `/vfx play <effect>` is enough - the server finds the targets itself). One effect can target up to 16 entities; several effects can hang on one entity. On the first-person hand the local player's own effects are rendered too (`through_blocks` is ignored there - the hand always draws on top).
 
 ### 2.4 Misc
 
-| Type | Params | Description |
+#### `camera_shake`
+Camera shake with simplex noise and a smooth fade-out envelope.
+
+| Param | Default | Description |
 |---|---|---|
-| `camera_shake` | `amplitude_x/y/z`, `yaw`, `pitch`, `roll`, `frequency` (default 7) | Camera shake with simplex noise and a smooth envelope; `frequency` sets oscillations per second |
-| `collection` | вЂ” (see В§5) | Not an effect: a scenario of several effects with delays |
+| `amplitude_x/y/z` | 0.12 / 0.12 / 0.04 | Position shake amplitude per axis (blocks) |
+| `yaw` | 0.8 | Rotation shake amplitude (degrees) |
+| `pitch` | 0.6 | Rotation shake amplitude (degrees) |
+| `roll` | 0.4 | Rotation shake amplitude (degrees) |
+| `frequency` | 7 | Noise oscillations per second |
+
+```
+/vfx play vfxweaver:camera_shake {[amplitude_y:0.3],[frequency:20]}
+```
+
+#### `fov_modifier`
+Changes the player's field of view.
+
+| Param | Default | Description |
+|---|---|---|
+| `fov_delta` | 10 (fades to 0) | FOV change in degrees (positive = zoom out) |
+
+```
+/vfx play vfxweaver:fov_modifier {[fov_delta:-20]}
+```
 
 ---
 
@@ -430,7 +724,7 @@ Post-processing pipeline, world overlays, effect clock, load limits and fault to
 
 Versioned feature history вЂ” **[docs/CHANGELOG.md](CHANGELOG.md)**.
 
-Guide version: 20 вЂ” see changelog below.
+Guide version: 21 вЂ” see changelog below.
 
 ### v20
 - Parameter overrides whose name the effect definition does not declare (e.g. `through_blocks` on the built-in effects) now apply as constant values instead of being silently dropped; `through_blocks` is declared on the built-in entity/block tint/outline.
