@@ -152,14 +152,14 @@ sequences.
 
 ---
 
-## Effect 3: `vertex_displace` (World + Entity)
+## Effect 3: `entity_displace` (Entity)
 
 ### Description
 
 All vertices of the target's model are randomly displaced, making the model look unstable and
-glitchy. Works on **both entities (by UUID)** and **blocks (by positions/region)**. The random
-source is a `seed` parameter: because any parameter can be animated, bound or driven by an
-expression, the developer fully controls the motion:
+glitchy. Targets entities by UUID. The random source is a `seed` parameter: because any
+parameter can be animated, bound or driven by an expression, the developer fully controls the
+motion:
 
 - `seed` animated smoothly (`expr: "t"`) -> vertices morph fluidly.
 - `seed` animated in steps (`expr: "floor(t * 8)"`, or a step keyframe) -> vertices snap
@@ -181,14 +181,45 @@ underneath) - visually it reads as the model jittering out of place.
 
 - Displacement happens in a dedicated **vertex shader** `vfxweaver/core/displace`:
   `offset = valueNoise(vertexLocalPos * scale, seed) * amplitude`, applied per vertex.
-- **World flavour** (`vertex_displace` for blocks, targeted via positions/region): the block's
-  baked model quads are re-emitted into a custom POSITION_COLOR pipeline whose vertex shader
-  applies the displacement. Pipelines: ALWAYS / LEQUAL variants like the other block overlays.
-- **Entity flavour** (`entity_displace`, targeted by UUID): a second pass over the model with an
-  ENTITY-format pipeline with the same vertex shader. The normal body render stays underneath,
-  so the displaced copy reads as the model glitching out of place.
+- Displacement happens in the vertex shader of a dedicated pipeline: the entity flavour shares
+  the same math, only the vertex format differs (ENTITY vs POSITION_COLOR).
 - Fade-out: `amplitude` animated to 0 restores the intact model - the built-in convention.
 - The seed is a float, so `expr`/bindings/keyframes work with it like with any parameter.
+
+### Examples
+
+```
+/vfx playentity vfxweaver:entity_displace @e[type=zombie,limit=1] {[amplitude:0.2],[scale:6],[seed:0]}
+```
+
+---
+
+## Effect 4: `block_displace` (World)
+
+### Description
+
+Same displacement as the entity flavour, but applied to the baked model of blocks targeted by
+positions/region: the block's quads are re-emitted into a custom POSITION_COLOR pipeline whose
+vertex shader displaces them. Reads as the block(s) glitching apart and reassembling.
+
+### Parameters
+
+Same table as the entity flavour (`amplitude` 0.1, `scale` 4, `seed` 0) - identical semantics.
+
+### Implementation notes
+
+- World flavour: the block's baked model quads are re-emitted into a custom POSITION_COLOR
+  pipeline whose vertex shader applies the displacement. Pipelines: ALWAYS / LEQUAL variants
+  like the other block overlays (through_blocks applies here too).
+- Shares the displacement vertex shader and noise helper with the entity flavour.
+- Built-in definition: `vfxweaver:block_displace`, duration 40, amplitude animated to 0.
+
+### Examples
+
+```json
+{ "type": "block_displace", "region": [10, 70, 10, 12, 70, 12],
+  "params": { "amplitude": 0.25, "seed": { "expr": "floor(t * 8) * 0.1" } } }
+```
 
 ### Examples
 
