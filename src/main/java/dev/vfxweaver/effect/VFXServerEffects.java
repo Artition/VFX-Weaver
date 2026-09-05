@@ -83,10 +83,13 @@ public final class VFXServerEffects {
 	}
 
 	/**
-	 * A recorded effect play: everything needed to re-send it later, plus the server tick it
-	 * started on so the remaining duration can be computed. {@code keys} carries the keyframes
-	 * added after the play (via {@code /vfx key}) so a reconnect resumes the same animation
-	 * instead of restarting from the definition defaults.
+	 * A recorded effect play: everything needed to re-send it later, plus the wall-clock time it
+	 * started at so the remaining duration can be computed. Wall clock (not the server tick
+	 * counter) is used because the static memory outlives the server instance in singleplayer -
+	 * the tick counter resets on every world reload, which made elapsed time collapse to zero and
+	 * replayed effects never expire. {@code keys} carries the keyframes added after the play (via
+	 * {@code /vfx key}) so a reconnect resumes the same animation instead of restarting from the
+	 * definition defaults.
 	 */
 	private record ActiveEffect(
 		Identifier effectId,
@@ -96,7 +99,7 @@ public final class VFXServerEffects {
 		List<UUID> entityUuids,
 		Map<String, Float> params,
 		String easing,
-		long startTick,
+		long startMillis,
 		List<RecordedKey> keys
 	) {
 	}
@@ -132,7 +135,7 @@ public final class VFXServerEffects {
 				it.remove();
 			}
 		}
-		effects.put(effectId, new ActiveEffect(effectId, durationTicks, instanceId, worldPos, List.copyOf(entityUuids), Map.copyOf(params), easing, player.level().getServer().getTickCount(), List.of()));
+		effects.put(effectId, new ActiveEffect(effectId, durationTicks, instanceId, worldPos, List.copyOf(entityUuids), Map.copyOf(params), easing, System.currentTimeMillis(), List.of()));
 	}
 
 	/**
@@ -156,7 +159,7 @@ public final class VFXServerEffects {
 			keys.remove(0);
 		}
 		keys.add(new RecordedKey(param, time, value, easing));
-		effects.put(effectId, new ActiveEffect(active.effectId(), active.durationTicks(), active.instanceId(), active.worldPos(), active.entityUuids(), active.params(), active.easing(), active.startTick(), List.copyOf(keys)));
+		effects.put(effectId, new ActiveEffect(active.effectId(), active.durationTicks(), active.instanceId(), active.worldPos(), active.entityUuids(), active.params(), active.easing(), active.startMillis(), List.copyOf(keys)));
 	}
 
 	/**
@@ -204,7 +207,7 @@ public final class VFXServerEffects {
 		if (effects == null || effects.isEmpty()) {
 			return;
 		}
-		long now = player.level().getServer().getTickCount();
+		long now = System.currentTimeMillis();
 		Iterator<Map.Entry<Identifier, ActiveEffect>> it = effects.entrySet().iterator();
 		while (it.hasNext()) {
 			ActiveEffect active = it.next().getValue();
@@ -214,7 +217,7 @@ public final class VFXServerEffects {
 				it.remove();
 				continue;
 			}
-			int elapsed = persistent ? 0 : Math.max(0, (int) Math.min(Integer.MAX_VALUE, now - active.startTick()));
+			int elapsed = persistent ? 0 : (int) Math.min(Integer.MAX_VALUE, Math.max(0L, (now - active.startMillis()) / 50L));
 			ServerPlayNetworking.send(player, VFXTriggerPayload.play(
 				active.effectId(), remaining, elapsed, active.instanceId(), active.worldPos(), active.entityUuids(), active.params(), active.easing()
 			));
@@ -242,8 +245,9 @@ public final class VFXServerEffects {
 		for (RecordedKey key : active.keys()) {
 			effectiveDuration = Math.max(effectiveDuration, key.time());
 		}
-		long elapsed = Math.max(0L, now - active.startTick());
-		long remaining = (long) effectiveDuration - elapsed;
+		// `now` is wall-clock millis; convert elapsed time to ticks (1 tick = 50 ms).
+		long elapsedTicks = Math.max(0L, (now - active.startMillis()) / 50L);
+		long remaining = (long) effectiveDuration - elapsedTicks;
 		if (remaining <= 0L) {
 			return -1;
 		}
