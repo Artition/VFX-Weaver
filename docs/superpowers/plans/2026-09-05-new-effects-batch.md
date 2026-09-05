@@ -227,29 +227,255 @@ private static final RenderType DISPLACE_OCCLUDED = RenderType.create(
 
 - [ ] **Step 6: Commit** — `feat(render): block_displace effect`.
 
-### Task 5: docs + changelog + release notes
+### Task 5: `hud_fade` (Misc)
 
 **Files:**
-- Modify: `docs/GUIDE.md` — add §2.1 entries for `slice_shift`/`noise_warp` (param tables + examples), §2.2 `block_displace`, §2.3 `entity_displace` (with the "displaced copy over the normal render" caveat), options line update
-- Modify: `docs/CHANGELOG.md` — v1.0.8/unreleased Added entries
+- Create: `src/client/java/dev/vfxweaver/client/hud/HudFadeState.java` — static float `opacity` (1..0) + `chatOpacity`, updated from the active effect each frame via `VFXEffectManager`
+- Create: `src/client/java/dev/vfxweaver/client/mixin/GuiFadeMixin.java` — targets `Gui`, injects at `render` HEAD: `RenderSystem.setShaderColor(1, 1, 1, hudOpacity)` ... or applies a global alpha via the dispatcher available in 26.1 (inspect how chat/chat opacity is already implemented by the game and mirror it)
+- Modify: `src/client/java/dev/vfxweaver/client/VFXClient.java` or the effect update path — writes `opacity`/`chat` values from the active `hud_fade` effect every frame
 
-- [ ] **Step 1:** GUIDE §2.1 — insert after `hue_isolation`:
-```markdown
-#### `slice_shift`
-... (table + example from the spec: docs/superpowers/specs/2026-09-05-new-effects-batch.md)
-```
-```markdown
-#### `noise_warp`
-... (table + example from the spec)
-```
-- [ ] **Step 2:** GUIDE §2.2 — add `block_displace` (params `amplitude`/`scale`/`seed`, both through modes).
-- [ ] **Step 3:** GUIDE §2.3 — add `entity_displace` (note: the displaced copy is drawn over the normal body; `through_blocks` swaps occluded/always pipelines).
-- [ ] **Step 4:** CHANGELOG — Added entries for all three effects.
-- [ ] **Step 5: Commit** — `docs: document slice_shift, noise_warp, entity/block_displace`.
+**Interfaces:**
+- Produces: `HudFadeState.getOpacity()` and `getChatOpacity()` floats consumed by the mixin.
+
+- [ ] **Step 1:** implement `HudFadeState` + the effect→state sync (mirror the camera_shake update path).
+- [ ] **Step 2:** implement the mixin; the exact injection point must be verified against `Gui.render` in the mapped sources (the alpha mechanism depends on 26.1 internals - inspect `Gui`/`GuiRenderer` and pick the hook that covers hotbar/hears/xbar/chat).
+- [ ] **Step 3:** built-in `vfxweaver:hud_fade` (duration 40, `opacity 0 (animated 1 → 0)`, `chat 1`); register in `VFXEffectType` as a non-post type like `CAMERA_SHAKE`.
+- [ ] **Step 4: build + visual test + Commit** — `feat(hud): hud_fade effect`.
+
+### Task 6: `camera_roll` (Misc)
+
+**Files:**
+- Modify: `src/client/java/dev/vfxweaver/client/mixin/CameraMixin.java` (or the camera shake application point) — after the existing shake application, apply roll: rotate the view around the camera forward axis
+- Modify: `src/client/java/dev/vfxweaver/client/shake/CameraShakeManager.java` or a new `VFXCameraOverlays` helper — computes roll from `camera_roll` effects (`angle * weight + sin(t * wobble_speed * 6.28) * wobble * weight`)
+
+**Interfaces:**
+- Produces: roll angle in degrees applied as `poseStack.mulPose(Axis.ZP.rotationDegrees(roll))` (or the 26.1 equivalent in the camera state) at the same hook where `camera_shake` rotates the camera.
+
+- [ ] **Step 1:** implement the roll calculation next to the shake calculation.
+- [ ] **Step 2:** apply it at the same transform point the shake uses.
+- [ ] **Step 3:** built-in `vfxweaver:camera_roll` (duration 40, `angle 15 → 0`, `wobble 0`, `wobble_speed 0.2`).
+- [ ] **Step 4: build + visual test (tilt visible, screen stays interactive) + Commit** — `feat(render): camera_roll effect`.
+
+### Task 7: `god_rays` (Entity - dragon-death beams)
+
+**Files:**
+- Create: `src/client/java/dev/vfxweaver/client/render/VFXBeamsRenderer.java` — N additive vertical quads rising from the entity body, billboarded to the camera, alpha fading along the rise; spread over the body radius; sway by sin(t)
+- Modify: `src/client/java/dev/vfxweaver/client/mixin/ItemFrameRendererMixin.java` pattern -> new `EntityBeamsMixin`... (no: beams are drawn from the same `LivingEntityRendererMixin` effect loop - add a `VFXEffectType.GOD_RAYS` branch calling `VFXBeamsRenderer.render(state/camera...)`)
+
+**Interfaces:**
+- Consumes: the entity render pose (like entity_tint), `Additive` blending (new pipelines `god_rays_visible/occluded` with `BlendFunction.ADDITIVE` or `new ColorTargetState(new BlendFunction(...))`), light coords from the state.
+
+- [ ] **Step 1:** additive pipelines (two depth variants) + a `VFXBeamsRenderer.renderEffects(entityPose, collector, state)` emitting `count` rising quads.
+- [ ] **Step 2:** built-in `vfxweaver:god_rays` (duration 60, params per the spec).
+- [ ] **Step 3: build + visual test + Commit** — `feat(render): god_rays beams effect`.
+
+### Task 8: World quad effects — `light_beam`, `pulse_ring`, `scan_sweep`, `guide_line`
+
+**Files:**
+- Modify: `src/client/java/dev/vfxweaver/client/render/VFXWorldOverlayRenderer.java` — four new effect branches (quad generators + additive pipelines) + `VFXEffectType` additions (`LIGHT_BEAM`, `PULSE_RING`, `SCAN_SWEEP`, `GUIDE_LINE`; `isWorldOverlay()` updated)
+
+**Interfaces:**
+- Consumes: the existing world-overlay loop (positions/region, camera-relative PoseStack, `blockPipeline`-style registrations with `BlendFunction.ADDITIVE` for the glow quads).
+
+- [ ] **Step 1:** additive pipeline pair (visible/occluded) shared by the four effects; register in `VFXShaderPrograms`-style block (or the overlay renderer's own statics, mirroring `blockPipeline`).
+- [ ] **Step 2:** `light_beam` - vertical billboarded column (2 quads), alpha gradient to the top, sway offset per vertex.
+- [ ] **Step 3:** `pulse_ring` - flat annulus segments (12-24 segments), alpha soft edges, tilt by pitch.
+- [ ] **Step 4:** `scan_sweep` - sheet quad across the axis + 3-5 trail quads with decreasing alpha.
+- [ ] **Step 5:** `guide_line` - dashed quad chain along a parabola between two anchors (the region corners), dash phase from time.
+- [ ] **Step 6:** built-in definitions for all four (params per the spec).
+- [ ] **Step 7: build + visual test each + Commit** — `feat(render): world quad effects (light_beam, pulse_ring, scan_sweep, guide_line)`.
+
+### Task 9: feedback buffer infrastructure + `afterimage`, `stop_motion`
+
+**Files:**
+- Modify: `src/client/java/dev/vfxweaver/client/postprocessing/VFXPostProcessingManager.java` — add a persistent history target (`TextureTarget` created/destroyed alongside the ping-pong targets, sized on resize), plus `getHistoryTarget()`
+- Modify: `src/client/java/dev/vfxweaver/client/postprocessing/VFXShaderPrograms.java` — two new passes: `afterimage.fsh` (feedback mix: `hist = mix(prev.zoomed(drift), current, blend)`, desaturation, output) and `stop_motion.fsh` (sample history at `floor(t * fps) / fps`)
+- Modify: the pass executor - these two passes read AND write the history target (keep the current frame copy flow: copy main -> history-prep)
+
+**Interfaces:**
+- Produces: the history target lifecycle + two ProgramInfos (`afterimage` with params `decay/blend/drift/desat/intensity`; `stop_motion` with `fps/intensity`).
+
+- [ ] **Step 1:** add the persistent history target lifecycle (resize-aware, freed on shutdown via `freeGpuResources`).
+- [ ] **Step 2:** implement `afterimage` shader per the spec (feedback mix + desaturation + drift zoom).
+- [ ] **Step 3:** implement `stop_motion` shader per the spec (time-quantized history sampling).
+- [ ] **Step 4:** built-in definitions: `vfxweaver:afterimage` (duration 60, per spec), `vfxweaver:stop_motion` (duration 60, `fps 12 → 0`).
+- [ ] **Step 5: build + visual test (trails/quantization visible, fade returns to normal) + Commit** — `feat(post): feedback buffer + afterimage + stop_motion`.
+
+### Task 10: docs + changelog for the whole batch
+
+**Files:**
+- Modify: `docs/GUIDE.md` - new per-parameter subsections for every Task 1-17 effect (format: param / default / description + example), options line updates
+- Modify: `docs/CHANGELOG.md` - unreleased Added entries
+
+- [ ] **Step 1:** write the doc subsections from the shipped params (copy the tables used in the source test commands).
+- [ ] **Step 2: Commit** - `docs: document the new effects batch`.
 
 ---
 
+
+### Task 11: `solarize` screen effect
+
+**Files:** Create `shaders/post/solarize.fsh`; modify `VFXEffectType` (+enum, +neutral), `VFXShaderPrograms` (+registerPost).
+
+- [ ] **Step 1: shader.** Header as blur.fsh; Config `{ float threshold; float softness; float intensity; }`:
+```glsl
+void main() {
+    vec4 c = texture(InSampler, uv);
+    float luma = dot(c.rgb, vec3(0.299, 0.587, 0.114));
+    float t = smoothstep(threshold - softness / 2.0 - 1.0e-4, threshold + softness / 2.0 + 1.0e-4, luma);
+    fragColor = vec4(mix(c.rgb, 1.0 - c.rgb, t * intensity), c.a);
+}
+```
+
+- [ ] **Step 2: wiring.** `SLICE_SHIFT`-pattern: enum `SOLARIZE("solarize")`; `registerPost(VFXEffectType.SOLARIZE, "threshold", "softness", "intensity")`; `neutralValue`: `"intensity" -> 0.0F`; built-in: duration 40, params `threshold 0.5`, `softness 0`, `intensity 1 → 0`.
+
+- [ ] **Step 3: build + visual test + Commit** — `feat(post): solarize screen effect`.
+
+### Task 12: `double_vision` screen effect
+
+**Files:** Create `post/double_vision.fsh`; modify the three files (pattern of Task 6).
+
+- [ ] **Step 1: shader.** Config `{ float offset; float ghost_opacity; float drift; float intensity; }`; uniform `float time` added to Config (see film_grain `time`):
+```glsl
+void main() {
+    float drift = sin(time * 1.2) * drift_amp;   // drift_amp = drift * 8.0 from java side? keep: pass drift already in fractions
+    vec2 base = vec2(offset + drift, 0.0);
+    vec4 c = texture(InSampler, uv) * (1.0 - ghost_opacity * intensity);
+    c += texture(InSampler, uv + base) * ghost_opacity * intensity;
+    c += texture(InSampler, uv - base) * ghost_opacity * intensity;
+    fragColor = vec4(c.rgb, 1.0);
+}
+```
+Note: keep Config params `offset`, `ghost_opacity`, `drift`, `intensity` (drift animated in shader via `time`; `time` is already passed for film_grain/scanlines - reuse that plumbing).
+
+- [ ] **Step 2: wiring + built-in.** `registerPost(VFXEffectType.DOUBLE_VISION, "offset", "ghost_opacity", "drift", "intensity", "time")`; enum `DOUBLE_VISION("double_vision")`; neutral `"intensity" -> 0.0F`; built-in: duration 60, params `offset 0.04`, `ghost_opacity 0.5`, `drift 0.02`, `intensity 1 → 0`.
+
+- [ ] **Step 3: build + visual test + Commit** — `feat(post): double_vision screen effect`.
+
+### Task 13: `eyelids` screen effect
+
+**Files:** Create `post/eyelids.fsh`; modify the three files (pattern of Task 6).
+
+- [ ] **Step 1: shader.** Config `{ float openness; float softness; float curve; }`:
+```glsl
+void main() {
+    float halfOpen = openness / 2.0;                       // lid travel from each edge
+    float bulge = curve * 0.5 * (1.0 - 4.0 * pow(uv.x - 0.5, 2.0));
+    float lidTop = halfOpen + bulge;                       // top lid edge, uv.y from bottom
+    float lidBottom = 1.0 - halfOpen - bulge;
+    float t = smoothstep(lidTop - softness, lidTop + softness, uv.y);
+    float b = smoothstep(lidBottom - softness, lidBottom + softness, 1.0 - uv.y);
+    float mask = clamp(t + b, 0.0, 1.0);
+    fragColor = vec4(0.0, 0.0, 0.0, mask);
+}
+```
+
+- [ ] **Step 2: wiring + built-in.** `registerPost(..., "openness", "softness", "curve")`; enum `EYELIDS("eyelids")`; neutral `"openness" -> 1.0F`; built-in: duration 40, params `openness 0.5`, `softness 0.15`, `curve 0.35` (constants - owner animates openness via keyframes/bindings).
+
+- [ ] **Step 3: build + visual test + Commit** — `feat(post): eyelids screen effect`.
+
+### Task 14: `iris_wipe` screen effect
+
+**Files:** Create `post/iris_wipe.fsh`; modify the three files (pattern of Task 6).
+
+- [ ] **Step 1: shader.** Config `{ float radius; float softness; float center_x; float center_y; float zoom; }`:
+```glsl
+void main() {
+    vec2 aspect = vec2(InSize.x / InSize.y, 1.0);
+    vec2 corr = (uv - vec2(center_x, center_y)) * aspect;
+    float dist = length(corr);
+    float mask = smoothstep(radius - softness, radius + softness, dist);
+    float zoomFactor = 1.0 - zoom * (1.0 - clamp(dist / max(radius, 1.0e-4), 0.0, 1.0));
+    vec2 zoomed = vec2(center_x, center_y) + (uv - vec2(center_x, center_y)) * zoomFactor;
+    vec4 inner = texture(InSampler, zoomed);
+    fragColor = mix(inner, vec4(0.0, 0.0, 0.0, 1.0), mask);
+}
+```
+
+- [ ] **Step 2: wiring + built-in.** Params `radius (animated 1.4 → 0)`, `softness 0.05`, `center_x 0.5`, `center_y 0.5`, `zoom 0`; neutral `"radius" -> 1.4F`; enum `IRIS_WIPE("iris_wipe")`.
+
+- [ ] **Step 3: build + visual test + Commit** — `feat(post): iris_wipe screen effect`.
+
+### Task 15: `digital_glitch` screen effect
+
+**Files:** Create `post/digital_glitch.fsh`; modify the three files (pattern of Task 6). Config `{ float block; float displacement; float rate; float chroma; float seed; float intensity; float time; }`.
+
+- [ ] **Step 1: shader.**
+```glsl
+float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+void main() {
+    float band = floor(uv.y / max(block, 1.0e-3));
+    float burst = step(1.0 - 1.0 / max(rate, 1.0e-3), hash(vec2(band, floor(time * rate) + seed)));
+    float shift = (hash(vec2(band, floor(time * rate) + seed + 99.0)) - 0.5) * displacement * burst;
+    vec2 uvG = uv + vec2(shift, 0.0);
+    vec4 c;
+    c.r = texture(InSampler, uvG + vec2(chroma * burst, 0.0)).r;
+    c.g = texture(InSampler, uvG).g;
+    c.b = texture(InSampler, uvG - vec2(chroma * burst, 0.0)).b;
+    c.a = 1.0;
+    vec4 orig = texture(InSampler, uv);
+    fragColor = mix(orig, c, intensity);
+}
+```
+
+- [ ] **Step 2: wiring + built-in.** Params per Config order; neutral `"intensity" -> 0.0F`; built-in: duration 40, params `block 0.06`, `displacement 0.08`, `rate 6`, `chroma 0.5`, `seed 0`, `intensity 1 → 0`.
+
+- [ ] **Step 3: build + visual test + Commit** — `feat(post): digital_glitch screen effect`.
+
+### Task 16: `vhs` screen effect
+
+**Files:** Create `post/vhs.fsh`; modify the three files (pattern of Task 6). Config `{ float tracking; float band_height; float band_speed; float bleed; float wobble; float intensity; float time; }`.
+
+- [ ] **Step 1: shader.**
+```glsl
+void main() {
+    float bandY = fract(uv.y - time * band_speed);
+    float inBand = 1.0 - smoothstep(band_height * 0.5, band_height, abs(uv.y - bandY));
+    float wob = (hash(vec2(floor(uv.y * InSize.y), floor(time * 60.0))) - 0.5) * wobble;
+    float shift = (hash(vec2(floor(uv.y - time * band_speed * 8.0), floor(time * 12.0))) - 0.5) * tracking * inBand;
+    vec2 uvG = uv + vec2(shift + wob, 0.0);
+    vec4 c;
+    c.r = texture(InSampler, uvG + vec2(bleed, 0.0)).r;
+    c.g = texture(InSampler, uvG).g;
+    c.b = texture(InSampler, uvG + vec2(-bleed * 2.0, 0.0)).b;
+    c.a = 1.0;
+    c.rgb = (c.rgb - 0.08) / 0.92;                         // washed-out contrast
+    fragColor = vec4(mix(texture(InSampler, uv).rgb, c.rgb, intensity), 1.0);
+}
+float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+```
+(Place `hash` above `main`.)
+
+- [ ] **Step 2: wiring + built-in.** Params per Config order; neutral `"intensity" -> 0.0F`; built-in: duration 60, `tracking 0.35`, `band_height 0.08`, `band_speed 0.15`, `bleed 0.02`, `wobble 0.004`, `intensity 1 → 0`.
+
+- [ ] **Step 3: build + visual test + Commit** — `feat(post): vhs screen effect`.
+
+### Task 17: `shockwave` screen effect
+
+**Files:** Create `post/shockwave.fsh`; modify the three files (pattern of Task 6). Config `{ float center_x; float center_y; float radius; float width; float amplitude; float sharpness; }`.
+
+- [ ] **Step 1: shader.**
+```glsl
+void main() {
+    vec2 aspect = vec2(InSize.x / InSize.y, 1.0);
+    vec2 corr = (uv - vec2(center_x, center_y)) * aspect;
+    float dist = length(corr);
+    float d = (dist - radius) / max(width, 1.0e-3);
+    float profile = cos(d * 3.14159265 / max(sharpness, 1.0e-3)) * exp(-d * d) ;
+    vec2 dir = normalize(corr + vec2(1.0e-5));
+    vec4 c = texture(InSampler, uv + dir * amplitude * profile);
+    fragColor = vec4(mix(texture(InSampler, uv).rgb, c.rgb, 0.85), 1.0);
+}
+```
+
+- [ ] **Step 2: wiring + built-in.** Params per Config order; neutral: `"amplitude" -> 0.0F`, `"radius" -> 1.5F`; built-in: duration 40, `center_x/y 0.5`, `radius 0.4 (animated 0.4 → 1.5)`, `width 0.15`, `amplitude 0.12 → 0`, `sharpness 1.5`.
+
+- [ ] **Step 3: build + visual test + Commit** — `feat(post): shockwave screen effect`.
+
+
 ## Self-Review checklist (run after drafting)
+
+
 
 - [ ] Spec coverage: slice_shift ✓, noise_warp ✓, entity_displace ✓, block_displace ✓, dropped items not implemented ✓.
 - [ ] No placeholders: every shader/Java step above contains full code or a copy-from instruction that names the exact source file.
