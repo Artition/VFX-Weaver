@@ -13,6 +13,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). The versions bel
 
 ### Added
 - **Item frames as entity effect targets.** `entity_tint`/`entity_outline` now also apply to item frames (non-living entities): the UUID is captured from the frame renderer and a flat tint quad / rectangular outline is drawn on the frame plane, aligned with the frame model.
+- **`vertex_displace` effect (entities + blocks)** — all vertices of the target model are randomly displaced; amount, field detail and the random seed are parameters, and the seed itself can be animated/bound to drive the glitch motion (stepped snaps or smooth morphing).
 - **`look_at` world binding.** Like `look`, but the target direction is derived from a world `pos: [x,y,z]` anchor instead of explicit yaw/pitch (`range` default 90, supports `invert`/`scale`).
 
 ## v1.0.5 / Guide v20
