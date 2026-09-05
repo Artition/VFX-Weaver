@@ -64,6 +64,7 @@ public class VFXClient implements ClientModInitializer {
 			}
 			LOGGER.info("Received VFX packet: action={}, effect={}, duration={}, instance={}, params={}", payload.action(), payload.effectId(), payload.durationTicks(), payload.instanceId(), payload.params().keySet());
 			if (payload.action() == VFXAction.STOP) {
+				FlashbackCompat.recordStop(payload.effectId());
 				if (payload.instanceId() != 0L) {
 					VFXEffectManager.get().stop(payload.effectId(), payload.instanceId());
 				} else {
@@ -83,6 +84,7 @@ public class VFXClient implements ClientModInitializer {
 					LOGGER.warn("VFX keyframe: effect '{}' is not running", payload.effectId());
 				}
 			} else {
+				FlashbackCompat.recordServerPlay(payload.effectId(), payload.durationTicks(), payload.params(), payload.easing());
 				VFXEffectManager.get().play(payload.effectId(), payload.durationTicks(), payload.elapsedTicks(), payload.instanceId(), payload.position(), payload.entityUuids(), payload.params(), EasingFunction.fromString(payload.easing()));
 			}
 		});
