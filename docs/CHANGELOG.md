@@ -2,6 +2,11 @@
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). The versions below are guide/feature-set versions of the mod (as they progressed historically, see `docs/GUIDE.md`), plus git release tags where applicable (`v1.0.x`, `gradle.properties` → `mod_version`). Add new entries at the top, in the same PR as the behavior change.
 
+## v1.0.7
+### Fixed
+- **Effects replayed fresh on every world join and never expired.** The reconnect memory used the server tick counter as its clock, which resets when the server instance is recreated (every singleplayer world reload): elapsed time collapsed to zero, so all previously played effects were re-applied at full duration on each join. The reconnect memory now uses wall-clock time (1 tick = 50 ms), stable across world reloads and restarts.
+- **Item frame overlay drawn twice / offset.** The overlay hook fired on every PoseStack.popPose in the vanilla submit and the frame-local pose was rebuilt from identity - the quads landed at world origin or offset by the item transforms. It is now drawn once, anchored to the frame model pose with model-space coordinates matching the panel plane (z ~ 0.97).
+
 ## v1.0.6 / Guide v21
 ### Docs
 - **Documentation rewritten.** Every effect now has a per-parameter reference (type, default, what it actually does) and copy-pasteable command/JSON examples.
