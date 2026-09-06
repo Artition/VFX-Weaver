@@ -288,6 +288,11 @@ public class VFXDefinitionManager extends SimplePreparableReloadListener<Map<Ide
 			builtIn("vfxweaver", "fov_modifier", VFXEffectType.FOV_MODIFIER, 40, EasingType.EASE_IN_OUT_CUBIC,
 				param("fov_delta", 10.0F, 0.0F))
 		);
+		this.builtIns.put(
+			Identifier.fromNamespaceAndPath("vfxweaver", "camera_roll"),
+			builtIn("vfxweaver", "camera_roll", VFXEffectType.CAMERA_ROLL, 40, EasingType.EASE_IN_OUT_CUBIC,
+				param("angle", 15.0F, 0.0F), param("wobble", 0.0F), param("wobble_speed", 0.2F))
+		);
 		// World-space block highlighting.
 		this.builtIns.put(
 			Identifier.fromNamespaceAndPath("vfxweaver", "block_tint"),

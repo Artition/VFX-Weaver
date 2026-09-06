@@ -2,6 +2,7 @@ package dev.vfxweaver.client.mixin;
 
 import dev.vfxweaver.client.effect.VFXEffectManager;
 import dev.vfxweaver.client.shake.CameraShakeManager;
+import dev.vfxweaver.client.shake.VFXCameraRoll;
 import net.minecraft.client.Camera;
 import net.minecraft.client.DeltaTracker;
 import net.minecraft.world.phys.Vec3;
@@ -80,5 +81,14 @@ public abstract class CameraMixin {
 		}
 
 		this.setPosition(this.position.add(offset.dx(), offset.dy(), offset.dz()));
+
+		float cameraRoll = VFXCameraRoll.compute(VFXEffectManager.get());
+		if (cameraRoll != 0.0F) {
+			Quaternionf roll = new Quaternionf().rotationZ(cameraRoll * (float) Math.PI / 180.0F);
+			this.rotation.mul(roll, this.rotation);
+			roll.transform(this.forwards);
+			roll.transform(this.up);
+			roll.transform(this.left);
+		}
 	}
 }

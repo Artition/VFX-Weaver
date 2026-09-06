@@ -49,6 +49,8 @@ public enum VFXEffectType {
 	FOV_MODIFIER("fov_modifier"),
 	/** Camera shake driven by simplex noise. */
 	CAMERA_SHAKE("camera_shake"),
+	/** Fixed camera roll around the view axis with an optional sinusoidal wobble. */
+	CAMERA_ROLL("camera_roll"),
 	/** Renders a coloured outline around a block (world overlay, not a shader pass). */
 	BLOCK_OUTLINE("block_outline"),
 	/** Renders a solid-colour fill over a block (world overlay, not a shader pass). */
@@ -88,7 +90,7 @@ public enum VFXEffectType {
 	 * True for the effect types that render a fullscreen post-processing pass.
 	 */
 	public boolean isPostProcessing() {
-		return this != CAMERA_SHAKE && this != BLOCK_OUTLINE && this != BLOCK_TINT && this != ENTITY_TINT && this != ENTITY_OUTLINE && this != ENTITY_DISPLACE && this != FOV_MODIFIER && this != COLLECTION;
+		return this != CAMERA_SHAKE && this != CAMERA_ROLL && this != BLOCK_OUTLINE && this != BLOCK_TINT && this != ENTITY_TINT && this != ENTITY_OUTLINE && this != ENTITY_DISPLACE && this != FOV_MODIFIER && this != COLLECTION;
 	}
 
 	/**

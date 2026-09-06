@@ -445,6 +445,13 @@ public class VFXEffectManager {
 		return this.active.stream().filter(e -> e.getType() == VFXEffectType.CAMERA_SHAKE).toList();
 	}
 
+	/**
+	 * The active {@code camera_roll} effects.
+	 */
+	public List<VFXActiveEffect> getActiveCameraRolls() {
+		return this.active.stream().filter(e -> e.getType() == VFXEffectType.CAMERA_ROLL).toList();
+	}
+
 	public float getActiveFovDelta() {
 		float delta = 0.0F;
 		for (VFXActiveEffect effect : this.active) {
