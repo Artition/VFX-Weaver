@@ -556,41 +556,50 @@ public final class VFXWorldOverlayRenderer {
 			float cx = pos.getX() + 0.5F;
 			float cy = pos.getY() + 0.5F;
 			float cz = pos.getZ() + 0.5F;
-			// Camera-facing orthonormal basis for the ring plane (in camera-relative space).
-			float vx = (float) -camera.pos.x;
-			float vy = (float) -camera.pos.y;
-			float vz = (float) -camera.pos.z;
+			// Camera-facing orthonormal basis in camera-relative space: the camera is at the
+			// origin and the ring centre is at (cx-cam, cy-cam, cz-cam). The plane basis is
+			// built from the VIEW DIRECTION (camera -> ring centre), so the ring is a circle
+			// from every angle.
+			float vx = (float) (cx - camera.pos.x);
+			float vy = (float) (cy - camera.pos.y);
+			float vz = (float) (cz - camera.pos.z);
 			float vlen = (float) Math.sqrt(vx * vx + vy * vy + vz * vz);
 			if (vlen < 1.0e-5F) {
 				vlen = 1.0F;
-				vz = 1.0F;
 			}
 			vx /= vlen;
 			vy /= vlen;
 			vz /= vlen;
-			// right = normalize(cross(viewDir, worldUp)); then up = cross(right, viewDir).
-			float rx = vx;
-			float ry = vz;
-			float rz = -vy;
-			float rl = (float) Math.sqrt(rx * rx + ry * ry + rz * rz);
+			// right = normalize(cross(viewDir, worldUp)); worldUp = (0,1,0) in camera-relative.
+			// cross(a,b) with b=(0,1,0): right = (-vz, 0, vx).
+			float rx = -vz;
+			float rz = vx;
+			float rl = (float) Math.sqrt(rx * rx + rz * rz);
 			if (rl < 1.0e-5F) {
 				rx = 1.0F;
-				ry = 0.0F;
 				rz = 0.0F;
 				rl = 1.0F;
 			}
 			rx /= rl;
-			ry /= rl;
 			rz /= rl;
+			float ry = 0.0F;
+			// up = cross(right, viewDir).
 			float ux = ry * vz - rz * vy;
 			float uy = rz * vx - rx * vz;
 			float uz = rx * vy - ry * vx;
-			// Tilt the ring plane about the right axis.
+			// Tilt the ring plane about the right axis: rotate up toward viewDir.
 			float ct = (float) Math.cos(tilt);
 			float st = (float) Math.sin(tilt);
 			float uxT = ux * ct + vx * st;
 			float uyT = uy * ct + vy * st;
 			float uzT = uz * ct + vz * st;
+			float utl = (float) Math.sqrt(uxT * uxT + uyT * uyT + uzT * uzT);
+			if (utl < 1.0e-5F) {
+				utl = 1.0F;
+			}
+			uxT /= utl;
+			uyT /= utl;
+			uzT /= utl;
 
 			for (int i = 0; i < RING_SEGMENTS; i++) {
 				float a0 = (float) (i * 6.2831853 / RING_SEGMENTS);
@@ -763,12 +772,21 @@ public final class VFXWorldOverlayRenderer {
 	}
 
 	private static void glowVertexA(final VertexConsumer buffer, final PoseStack.Pose pose, final float x, final float y, final float z, final int alpha, final int rgb) {
-		buffer.addVertex(pose, x, y, z).setColor(alpha << 24 | rgb);
+		// Additive pipeline blends src.rgb + dst.rgb and IGNORES alpha, so the RGB channels must
+		// be premultiplied by the alpha byte for fading (top_fade/softness/intensity) to work.
+		float a = Mth.clamp(alpha / 255.0F, 0.0F, 1.0F);
+		int r = (int) (((rgb >> 16) & 0xFF) * a);
+		int g = (int) (((rgb >> 8) & 0xFF) * a);
+		int b = (int) ((rgb & 0xFF) * a);
+		buffer.addVertex(pose, x, y, z).setColor(255 << 24 | r << 16 | g << 8 | b);
 	}
 
 	private static void glowVertex(final VertexConsumer buffer, final PoseStack.Pose pose, final float x, final float y, final float z, final float alpha, final int rgb) {
-		int a = Mth.clamp((int) (alpha * 255.0F), 0, 255);
-		buffer.addVertex(pose, x, y, z).setColor(a << 24 | rgb);
+		float a = Mth.clamp(alpha, 0.0F, 1.0F);
+		int r = (int) ((((rgb >> 16) & 0xFF) * a));
+		int g = (int) ((((rgb >> 8) & 0xFF) * a));
+		int b = (int) (((rgb & 0xFF) * a));
+		buffer.addVertex(pose, x, y, z).setColor(255 << 24 | r << 16 | g << 8 | b);
 	}
 
 	/** Packs three 0..1 colour channels into an RGB int (alpha filled per-vertex). */

@@ -1,39 +1,33 @@
 package dev.vfxweaver.client.mixin;
 
 import dev.vfxweaver.client.hud.HudFadeState;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.renderer.state.gui.BlitRenderState;
 import net.minecraft.client.renderer.state.gui.GuiElementRenderState;
-import net.minecraft.client.renderer.state.gui.GuiRenderState;
 import net.minecraft.util.Mth;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.ModifyArg;
 
 /**
- * Applies the {@code hud_fade} effect to the state-based 26.1 HUD. Every blit layer submitted
- * through {@code GuiRenderState} gets its tint alpha multiplied by the effective HUD opacity
- * when a {@code hud_fade} effect is active (hotbar, hearts, XP bar, crosshair, boss bar — cover
- * blit-drawn layers).
- *
- * <p>Text layers ({@code GuiTextRenderState}) cannot be reconstructed here (its {@code
- * includeEmpty} field is package-private), so plain-text HUD (chat messages, XP numbers,
- * tooltips) is not faded by this hook. Per the plan's spike-first decision, the remaining
- * coverage (a dedicated chat/text hook, ideally via the chat opacity stack) must be verified
- * and added after a {@code runClient} pass.
+ * Applies the {@code hud_fade} effect to the state-based 26.1 HUD. Every blit added into the
+ * {@code GuiRenderState} (from {@code GuiGraphicsExtractor.innerBlit}) gets its tint alpha
+ * multiplied while the in-game HUD pass runs ({@link HudFadeState#isInHud()}, set by
+ * {@link GuiMixin}) - so hotbar, hearts, XP bar, crosshair, boss bar and other BlitRenderState
+ * layers fade, while {@code Screen}s (inventory, pause, ...) are rendered outside that window and
+ * stay untouched.
  */
-@Mixin(GuiRenderState.class)
-public abstract class GuiRenderStateMixin {
+@Mixin(GuiGraphicsExtractor.class)
+public abstract class GuiGraphicsExtractorMixin {
 	@ModifyArg(
-		method = "addBlitToCurrentLayer",
+		method = "innerBlit(Lcom/mojang/blaze3d/pipeline/RenderPipeline;Lcom/mojang/blaze3d/textures/GpuTextureView;Lcom/mojang/blaze3d/textures/GpuSampler;IIIIFFFFI)V",
 		at = @At(
 			value = "INVOKE",
-			target = "Lnet/minecraft/client/renderer/state/gui/GuiRenderState$Node;addGuiElement(Lnet/minecraft/client/renderer/state/gui/GuiElementRenderState;)V"
+			target = "Lnet/minecraft/client/renderer/state/gui/GuiRenderState;addGuiElement(Lnet/minecraft/client/renderer/state/gui/GuiElementRenderState;)V"
 		),
 		index = 0
 	)
 	private GuiElementRenderState vfxweaver$fadeBlit(final GuiElementRenderState element) {
-		// Only fade blits submitted during the in-game HUD pass (GuiMixin sets the flag). Screens
-		// (inventory, pause, ...) are rendered outside that window and stay untouched.
 		if (!HudFadeState.isInHud()) {
 			return element;
 		}

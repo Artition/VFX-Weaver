@@ -678,6 +678,13 @@ Fades the HUD to transparent while the player keeps full control. Currently cove
 /vfx play vfxweaver:hud_fade
 ```
 
+> **Layering note** (`screen_layer` for camera/roll effects): the `screen_layer` parameter
+> (`0` under the first-person hand, `1` above the hand below the GUI, `2` above everything) applies
+> only to **screen post-processing** effects in section 2.1. Camera-space effects
+> (`camera_shake`, `camera_roll`, `fov_modifier`) act directly on the camera transform and
+> therefore affect the world, the first-person hand and the HUD together; they do not accept
+> `screen_layer`.
+
 #### `camera_roll`
 Tilts the camera around its viewing axis by a fixed angle (dutch angle) with an optional slow wobble.
 
