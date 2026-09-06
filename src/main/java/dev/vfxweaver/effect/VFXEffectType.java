@@ -81,6 +81,8 @@ public enum VFXEffectType {
 	VHS("vhs"),
 	/** A single refraction ring ripples outward from a point. */
 	SHOCKWAVE("shockwave"),
+	/** Additive light beams rising out of the targeted entity's body (dragon-death style). */
+	GOD_RAYS("god_rays"),
 	/** An animated value-noise field warps the picture in soft fluid patches. */
 	NOISE_WARP("noise_warp"),
 	/** Not an effect itself: plays a list of child effects with per-child delays. */
@@ -104,7 +106,7 @@ public enum VFXEffectType {
 	 * True for the effect types that render a fullscreen post-processing pass.
 	 */
 	public boolean isPostProcessing() {
-		return this != CAMERA_SHAKE && this != CAMERA_ROLL && this != BLOCK_OUTLINE && this != BLOCK_TINT && this != ENTITY_TINT && this != ENTITY_OUTLINE && this != ENTITY_DISPLACE && this != FOV_MODIFIER && this != COLLECTION;
+		return this != CAMERA_SHAKE && this != CAMERA_ROLL && this != BLOCK_OUTLINE && this != BLOCK_TINT && this != ENTITY_TINT && this != ENTITY_OUTLINE && this != ENTITY_DISPLACE && this != GOD_RAYS && this != FOV_MODIFIER && this != COLLECTION;
 	}
 
 	/**

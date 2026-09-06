@@ -122,7 +122,8 @@ public class VFXEffectManager {
 	private static boolean isEntityTargeted(final VFXEffectType type) {
 		return type == VFXEffectType.ENTITY_TINT
 			|| type == VFXEffectType.ENTITY_OUTLINE
-			|| type == VFXEffectType.ENTITY_DISPLACE;
+			|| type == VFXEffectType.ENTITY_DISPLACE
+			|| type == VFXEffectType.GOD_RAYS;
 	}
 
 	/**

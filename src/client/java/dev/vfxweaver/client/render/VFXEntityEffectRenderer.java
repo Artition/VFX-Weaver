@@ -164,6 +164,41 @@ public final class VFXEntityEffectRenderer {
 		RenderSetup.builder(displacePipeline(CompareOp.LESS_THAN_OR_EQUAL, "occluded")).createRenderSetup()
 	);
 
+	/**
+	 * Additive light-beam pipeline for {@code god_rays}: same vertex stage, fragment emits the
+	 * vertex colour as an additive glow (no fog).
+	 */
+	private static RenderPipeline beamsPipeline(final CompareOp depthOp, final String suffix) {
+		return RenderPipelines.register(
+			RenderPipeline.builder(RenderPipelines.MATRICES_FOG_LIGHT_DIR_SNIPPET)
+				.withLocation(Identifier.fromNamespaceAndPath("vfxweaver", "world/entity_beams_" + suffix))
+				.withVertexShader(Identifier.fromNamespaceAndPath("vfxweaver", "core/entity_fx"))
+				.withFragmentShader(Identifier.fromNamespaceAndPath("vfxweaver", "core/beams"))
+				.withVertexFormat(DefaultVertexFormat.ENTITY, VertexFormat.Mode.QUADS)
+				.withDepthStencilState(new DepthStencilState(depthOp, false))
+				.withColorTargetState(new ColorTargetState(BlendFunction.ADDITIVE))
+				.withCull(false)
+				.build()
+		);
+	}
+
+	private static final RenderType BEAMS_VISIBLE = RenderType.create(
+		"vfxweaver_entity_beams_visible",
+		RenderSetup.builder(beamsPipeline(CompareOp.ALWAYS_PASS, "visible")).createRenderSetup()
+	);
+
+	private static final RenderType BEAMS_OCCLUDED = RenderType.create(
+		"vfxweaver_entity_beams_occluded",
+		RenderSetup.builder(beamsPipeline(CompareOp.LESS_THAN_OR_EQUAL, "occluded")).createRenderSetup()
+	);
+
+	/**
+	 * Light-beam render type for {@code god_rays} (shared with the beams renderer).
+	 */
+	public static RenderType beamsRenderType(final boolean through) {
+		return through ? BEAMS_VISIBLE : BEAMS_OCCLUDED;
+	}
+
 	private VFXEntityEffectRenderer() {
 	}
 

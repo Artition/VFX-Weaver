@@ -315,6 +315,28 @@ public class VFXDefinitionManager extends SimplePreparableReloadListener<Map<Ide
 				param("center_x", 0.5F), param("center_y", 0.5F), param("radius", 0.4F, 1.5F),
 				param("width", 0.15F), param("amplitude", 0.12F, 0.0F), param("sharpness", 1.5F))
 		);
+		this.builtIns.put(
+			Identifier.fromNamespaceAndPath("vfxweaver", "god_rays"),
+			VFXDefinition.create(
+				Identifier.fromNamespaceAndPath("vfxweaver", "god_rays"),
+				VFXEffectType.GOD_RAYS,
+				60,
+				EasingFunction.builtIn(EasingType.EASE_IN_OUT_CUBIC),
+				Map.of(
+					"count", VFXDefinition.ParamSpec.constant(6.0F),
+					"height", VFXDefinition.ParamSpec.constant(12.0F),
+					"spread", VFXDefinition.ParamSpec.constant(0.6F),
+					"speed", VFXDefinition.ParamSpec.constant(2.0F),
+					"sway", VFXDefinition.ParamSpec.constant(0.5F),
+					"red", VFXDefinition.ParamSpec.constant(0.6F),
+					"green", VFXDefinition.ParamSpec.constant(0.2F),
+					"blue", VFXDefinition.ParamSpec.constant(0.9F),
+					"through_blocks", VFXDefinition.ParamSpec.constant(0.0F),
+					"intensity", VFXDefinition.ParamSpec.animated(1.0F, 0.0F)
+				),
+				false, false, 10, List.of(), List.of(), null
+			)
+		);
 		// Camera shake parameters (the shake itself is already enveloped by the shake manager).
 		this.builtIns.put(
 			Identifier.fromNamespaceAndPath("vfxweaver", "camera_shake"),

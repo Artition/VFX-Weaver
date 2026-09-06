@@ -3,6 +3,7 @@ package dev.vfxweaver.client.mixin;
 import com.mojang.blaze3d.vertex.PoseStack;
 import dev.vfxweaver.client.access.IVFXWeaverEntityState;
 import dev.vfxweaver.client.effect.VFXEffectManager;
+import dev.vfxweaver.client.render.VFXBeamsRenderer;
 import dev.vfxweaver.client.render.VFXEntityEffectRenderer;
 import dev.vfxweaver.effect.VFXActiveEffect;
 import dev.vfxweaver.effect.VFXEffectType;
@@ -76,6 +77,8 @@ public abstract class LivingEntityRendererMixin<T extends LivingEntity, S extend
 					VFXEntityEffectRenderer.renderOutline(effect, state, poseStack, submitNodeCollector, this.model, texture);
 				} else if (effect.getType() == VFXEffectType.ENTITY_DISPLACE) {
 					VFXEntityEffectRenderer.renderDisplace(effect, state, poseStack, submitNodeCollector, this.model, texture);
+				} else if (effect.getType() == VFXEffectType.GOD_RAYS) {
+					VFXBeamsRenderer.render(effect, state, poseStack, submitNodeCollector);
 				}
 			} catch (Exception e) {
 				LOGGER.warn("Failed to apply entity effect '{}'", effect.getId(), e);
