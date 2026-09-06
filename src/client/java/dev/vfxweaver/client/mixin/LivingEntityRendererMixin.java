@@ -74,6 +74,8 @@ public abstract class LivingEntityRendererMixin<T extends LivingEntity, S extend
 					VFXEntityEffectRenderer.renderTint(effect, state, poseStack, submitNodeCollector, this.model, texture);
 				} else if (effect.getType() == VFXEffectType.ENTITY_OUTLINE) {
 					VFXEntityEffectRenderer.renderOutline(effect, state, poseStack, submitNodeCollector, this.model, texture);
+				} else if (effect.getType() == VFXEffectType.ENTITY_DISPLACE) {
+					VFXEntityEffectRenderer.renderDisplace(effect, state, poseStack, submitNodeCollector, this.model, texture);
 				}
 			} catch (Exception e) {
 				LOGGER.warn("Failed to apply entity effect '{}'", effect.getId(), e);

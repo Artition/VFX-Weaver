@@ -103,12 +103,12 @@ public class VFXEffectManager {
 
 	/**
 	 * Rebuilds the entity UUID → effects inverted index from the current {@link #active} list.
-	 * Only entity tint/outline effects with at least one target UUID are indexed.
+	 * Only entity-targeted effects with at least one target UUID are indexed.
 	 */
 	private void rebuildEntityEffectsIndex() {
 		Map<UUID, List<VFXActiveEffect>> index = new HashMap<>();
 		for (VFXActiveEffect effect : this.active) {
-			if (effect.getType() != VFXEffectType.ENTITY_TINT && effect.getType() != VFXEffectType.ENTITY_OUTLINE) {
+			if (!isEntityTargeted(effect.getType())) {
 				continue;
 			}
 			for (UUID uuid : effect.getEntityUuids()) {
@@ -116,6 +116,13 @@ public class VFXEffectManager {
 			}
 		}
 		this.entityEffectsIndex = Map.copyOf(index);
+	}
+
+	/** True for effect types that target specific entities by UUID. */
+	private static boolean isEntityTargeted(final VFXEffectType type) {
+		return type == VFXEffectType.ENTITY_TINT
+			|| type == VFXEffectType.ENTITY_OUTLINE
+			|| type == VFXEffectType.ENTITY_DISPLACE;
 	}
 
 	/**
