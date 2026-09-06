@@ -540,22 +540,21 @@ Re-emits the block's baked model quads as a flat, per-vertex displaced echo on t
 ```
 
 #### `light_beam`
-A vertical glowing column of soft light descending onto each position.
+A vertical glowing shaft of soft light descending onto each position. `top_scale` flares the top: 1 = cylinder, 2 = cone with twice the top radius. `softness` widens/dims the outer halo.
 
 | Param | Default | Description |
 |---|---|---|
 | `radius` | 1.5 | Beam radius in blocks (0.1..16) |
 | `height` | 48 | Column height upward from the anchor (1..256) |
-| `softness` | 0.6 | Outer falloff as a fraction of `radius` |
+| `top_scale` | 1 | Top radius multiplier (0.1..8): 1 = cylinder, >1 = flared cone |
+| `softness` | 0.6 | Halo softness: widens the outer glow and fades its alpha (0 = crisp, 1.5 = blurry) |
 | `top_fade` | 0.4 | Alpha at the top relative to the base (0..1) |
-| `sway` | 0 | Sideways sway amplitude, blocks (0..8) |
-| `sway_speed` | 0.4 | Sway cycles per second |
 | `red/green/blue` | 1 / 0.95 / 0.75 | Beam colour |
 | `through_blocks` | 0 | 1 = visible through walls |
 | `intensity` | 1 (fades to 0) | Beam opacity |
 
 ```
-/vfx playat vfxweaver:light_beam 8 70 8 {[radius:2],[sway:1]}
+/vfx playat vfxweaver:light_beam 8 70 8 {[radius:2],[top_scale:2],[softness:1]}
 ```
 
 #### `pulse_ring`
@@ -572,24 +571,6 @@ A flat glowing ring on the ground around each position.
 
 ```
 /vfx playat vfxweaver:pulse_ring 8 70 8 {[radius:10],[tilt:30]}
-```
-
-#### `scan_sweep`
-A thin glowing sheet sweeps through the region along an axis, leaving a fading trail.
-
-| Param | Default | Description |
-|---|---|---|
-| `range` | 16 | Sweep length from the anchor along the axis (1..128) |
-| `axis` | 1 | 0 = X, 1 = Y (bottom -> top), 2 = Z |
-| `progress` | 0 -> 1 | Sheet position along the range (animate for the pass) |
-| `width` | 0.4 | Sheet thickness, blocks |
-| `trail` | 0.25 | Fading glow behind the sheet, fraction of `range` |
-| `red/green/blue` | 0.3 / 1 / 0.9 | Sheet colour |
-| `through_blocks` | 0 | 1 = visible through walls |
-| `intensity` | 1 (fades to 0) | Sheet and trail opacity |
-
-```
-/vfx playat vfxweaver:scan_sweep 8 70 8 {[axis:1]}
 ```
 
 #### `guide_line`
@@ -643,37 +624,16 @@ Silhouette outline of the "inverted hull" type: the model is expanded by `width`
 ```
 
 #### `entity_displace`
-Re-emits the targeted entity's model as a flat, per-vertex displaced echo on top of the intact body (the vanilla body stays underneath - a jittering "ghost" copy). Targets by UUID like the other entity effects.
+Displaces the target entity's model vertices themselves (rendered with the vanilla body material, so lighting/shadows stay normal) - the body tears/glitches, no ghost copy on top.
 
 | Param | Default | Description |
 |---|---|---|
 | `amplitude` | 0.1 (fades to 0) | Max displacement in blocks (0..2) |
 | `scale` | 4 | Field detail: higher = neighbours diverge more (0.5..32) |
 | `seed` | 0 | Random phase; step it (`expr: "floor(t*8)*0.1"`) for 8x/s snaps, animate for smooth morphing |
-| `alpha` | 1 | Echo opacity |
-| `color_r/g/b` | 1 / 1 / 1 | Echo colour |
-| `through_blocks` | 0 | 1 = echo visible through walls, 0 = occluded |
 
 ```
 /vfx playentity vfxweaver:entity_displace @e[type=zombie,limit=1] {[amplitude:0.2],[scale:6]}
-```
-
-#### `god_rays`
-Additive light beams rising out of the target's body (Ender Dragon death animation style), billboarded to the camera, alpha fading toward the tip with a sideways sway.
-
-| Param | Default | Description |
-|---|---|---|
-| `count` | 6 | Number of beams (1..16) |
-| `height` | 12 | Beam length upward from the body, blocks (1..64) |
-| `spread` | 0.6 | Beam origins spread around the body centre, blocks (0..4) |
-| `speed` | 2 | Beam rise speed, blocks per second (0.5..8) |
-| `sway` | 0.5 | Sideways sway, blocks (0..4) |
-| `red/green/blue` | 0.6 / 0.2 / 0.9 | Beam colour |
-| `through_blocks` | 0 | 1 = beams visible through walls |
-| `intensity` | 1 (fades to 0) | Beam opacity |
-
-```
-/vfx playentity vfxweaver:god_rays @e[type=dragon,limit=1] {[count:8]}
 ```
 
 Targets are set via `/vfx playentity <effect> <selector>`, via the Java API (see [7](#7-java-api-for-other-mods)) or via the `entity_selector` field in the definition (then `/vfx play <effect>` is enough - the server finds the targets itself). One effect can target up to 16 entities; several effects can hang on one entity. On the first-person hand the local player's own effects are rendered too (`through_blocks` is ignored there - the hand always draws on top).
@@ -999,9 +959,9 @@ Child effect fields: `effect` (id, required), `delay` (ticks from collection sta
 
 Post-processing: `vfxweaver:chromatic_aberration`, `vfxweaver:color_grade`, `vfxweaver:distortion`, `vfxweaver:dent`, `vfxweaver:gradient_map`, `vfxweaver:posterize`, `vfxweaver:blur`, `vfxweaver:pixelate`, `vfxweaver:hue_isolation`, `vfxweaver:vignette`, `vfxweaver:screen_flash`, `vfxweaver:motion_blur`, `vfxweaver:bloom`, `vfxweaver:film_grain`, `vfxweaver:scanlines`, `vfxweaver:depth_of_field`, `vfxweaver:letterbox`, `vfxweaver:invert`, `vfxweaver:vortex`, `vfxweaver:speed_lines`, `vfxweaver:slice_shift`, `vfxweaver:noise_warp`, `vfxweaver:solarize`, `vfxweaver:double_vision`, `vfxweaver:eyelids`, `vfxweaver:iris_wipe`, `vfxweaver:digital_glitch`, `vfxweaver:vhs`, `vfxweaver:shockwave`, `vfxweaver:afterimage`, `vfxweaver:stop_motion`.
 
-World overlays: `vfxweaver:block_tint`, `vfxweaver:block_outline`, `vfxweaver:block_displace`, `vfxweaver:light_beam`, `vfxweaver:pulse_ring`, `vfxweaver:scan_sweep`, `vfxweaver:guide_line`.
+World overlays: `vfxweaver:block_tint`, `vfxweaver:block_outline`, `vfxweaver:block_displace`, `vfxweaver:light_beam`, `vfxweaver:pulse_ring`, `vfxweaver:guide_line`.
 
-Entity effects: `vfxweaver:entity_tint`, `vfxweaver:entity_outline`, `vfxweaver:entity_displace`, `vfxweaver:god_rays`.
+Entity effects: `vfxweaver:entity_tint`, `vfxweaver:entity_outline`, `vfxweaver:entity_displace`.
 
 Misc: `vfxweaver:camera_shake`, `vfxweaver:camera_roll`, `vfxweaver:fov_modifier`, `vfxweaver:hud_fade`.
 

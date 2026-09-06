@@ -266,11 +266,6 @@ public final class VFXWorldOverlayRenderer {
 					if (renderPulseRings(buffers, camera, effect, through ? GLOW_VISIBLE : GLOW_OCCLUDED)) {
 						drawn.add(through ? GLOW_VISIBLE : GLOW_OCCLUDED);
 					}
-				} else if (effect.getType() == VFXEffectType.SCAN_SWEEP) {
-					boolean through = effect.getParam("through_blocks", 0.0F) >= 0.5F;
-					if (renderScanSweeps(buffers, camera, effect, through ? GLOW_VISIBLE : GLOW_OCCLUDED)) {
-						drawn.add(through ? GLOW_VISIBLE : GLOW_OCCLUDED);
-					}
 				} else if (effect.getType() == VFXEffectType.GUIDE_LINE) {
 					boolean through = effect.getParam("through_blocks", 0.0F) >= 0.5F;
 					if (renderGuideLines(buffers, camera, effect, through ? GLOW_VISIBLE : GLOW_OCCLUDED)) {
@@ -478,10 +473,11 @@ public final class VFXWorldOverlayRenderer {
 	}
 
 	/**
-	 * Renders one {@code light_beam}: a glowing vertical cylinder descending onto each anchor,
-	 * built from two cylinder shells (a bright core at {@code 0.35 * radius} plus a translucent
-	 * halo at {@code radius}) so the silhouette and brightness are identical from every azimuth,
-	 * alpha fading toward the top with an optional slow sway of the top ring.
+	 * Renders one {@code light_beam}: a glowing vertical shaft descending onto each anchor, built
+	 * from two cylinder shells (a bright core at {@code 0.35 * radius} plus a translucent halo at
+	 * {@code radius}). {@code top_scale} scales the TOP base of the cones: 1 = cylinder, 2 = cone
+	 * whose top radius is 2x the bottom. {@code softness} widens/softens the halo (larger outer
+	 * shell, fainter alpha), so the shaft reads softer/blurrier along the edges.
 	 */
 	private static boolean renderLightBeams(
 		final MultiBufferSource.BufferSource buffers,
@@ -496,10 +492,9 @@ public final class VFXWorldOverlayRenderer {
 		float radius = Mth.clamp(effect.getParam("radius", 1.5F), 0.1F, 16.0F);
 		float height = Mth.clamp(effect.getParam("height", 48.0F), 1.0F, 256.0F);
 		float topFade = Mth.clamp(effect.getParam("top_fade", 0.4F), 0.0F, 1.0F);
-		float sway = effect.getParam("sway", 0.0F);
-		float swaySpeed = effect.getParam("sway_speed", 0.4F);
+		float topScale = Mth.clamp(effect.getParam("top_scale", 1.0F), 0.1F, 8.0F);
+		float softness = Mth.clamp(effect.getParam("softness", 0.6F), 0.0F, 1.5F);
 		int rgb = rgb(effect.getParam("red", 1.0F), effect.getParam("green", 0.95F), effect.getParam("blue", 0.75F));
-		float t = effect.getElapsed() / 20.0F;
 
 		VertexConsumer buffer = buffers.getBuffer(renderType);
 		boolean drew = false;
@@ -512,10 +507,13 @@ public final class VFXWorldOverlayRenderer {
 			float cz = pos.getZ() + 0.5F;
 			float y0 = pos.getY();
 			float y1 = y0 + height;
-			// Core shell is bright and tight, halo is wider and translucent: together (additive)
-			// they read as a smooth radial falloff from every angle.
-			emitCylinderShell(buffer, pose, cx, cz, y0, y1, radius * 0.35F, 8, topFade, sway, swaySpeed, t, intensity, rgb);
-			emitCylinderShell(buffer, pose, cx, cz, y0, y1, radius, 12, topFade, sway, swaySpeed, t, intensity * 0.4F, rgb);
+			// Core shell is bright and tight (fixed 0.35 * radius cone), halo is wider and
+			// translucent; softness scales the halo radius outward and dims its alpha, so high
+			// values read as a soft/blurry glow around the edge.
+			float haloR = radius * (1.0F + softness * 0.8F);
+			float haloA = intensity * 0.4F * (1.0F - softness * 0.35F);
+			emitConeShell(buffer, pose, cx, cz, y0, y1, radius * 0.35F, radius * 0.35F * topScale, 8, topFade, intensity, rgb);
+			emitConeShell(buffer, pose, cx, cz, y0, y1, haloR, haloR * topScale, 12, topFade, haloA, rgb);
 			drew = true;
 		}
 		poseStack.popPose();
@@ -523,12 +521,12 @@ public final class VFXWorldOverlayRenderer {
 	}
 
 	/** Number of segments around a {@code pulse_ring}. */
-	private static final int RING_SEGMENTS = 24;
+	private static final int RING_SEGMENTS = 32;
 
 	/**
-	 * Renders one {@code pulse_ring}: a glowing annulus around each anchor, each segment
-	 * billboarded toward the camera (in the XZ plane) so the ring is visible edge-on from any
-	 * angle, alpha fading at the band edges. {@code tilt} pitches the ring plane (3D torus-like).
+	 * Renders one {@code pulse_ring}: a glowing ring in a plane perpendicular to the camera (a
+	 * perfect circle from any angle), with a radial band thickness. {@code tilt} (degrees) pitches
+	 * the ring plane about the horizontal axis.
 	 */
 	private static boolean renderPulseRings(
 		final MultiBufferSource.BufferSource buffers,
@@ -551,138 +549,78 @@ public final class VFXWorldOverlayRenderer {
 		poseStack.pushPose();
 		poseStack.translate(-camera.pos.x, -camera.pos.y, -camera.pos.z);
 		PoseStack.Pose pose = poseStack.last();
-		float sinT = (float) Math.sin(tilt);
-		float hw = thickness / 2.0F;
-		// Billboard axis: horizontal, pointing at the camera.
-		float toCamX = (float) -camera.pos.x;
-		float toCamZ = (float) -camera.pos.z;
-		float camLen = (float) Math.sqrt(toCamX * toCamX + toCamZ * toCamZ);
-		float ux = camLen > 1.0e-5F ? toCamX / camLen : 1.0F;
-		float uz = camLen > 1.0e-5F ? toCamZ / camLen : 0.0F;
+		float inner = Math.max(radius - thickness / 2.0F, 0.01F);
+		float outer = radius + thickness / 2.0F;
+
 		for (BlockPos pos : effectPositions(effect)) {
 			float cx = pos.getX() + 0.5F;
 			float cy = pos.getY() + 0.5F;
 			float cz = pos.getZ() + 0.5F;
+			// Camera-facing orthonormal basis for the ring plane (in camera-relative space).
+			float vx = (float) -camera.pos.x;
+			float vy = (float) -camera.pos.y;
+			float vz = (float) -camera.pos.z;
+			float vlen = (float) Math.sqrt(vx * vx + vy * vy + vz * vz);
+			if (vlen < 1.0e-5F) {
+				vlen = 1.0F;
+				vz = 1.0F;
+			}
+			vx /= vlen;
+			vy /= vlen;
+			vz /= vlen;
+			// right = normalize(cross(viewDir, worldUp)); then up = cross(right, viewDir).
+			float rx = vx;
+			float ry = vz;
+			float rz = -vy;
+			float rl = (float) Math.sqrt(rx * rx + ry * ry + rz * rz);
+			if (rl < 1.0e-5F) {
+				rx = 1.0F;
+				ry = 0.0F;
+				rz = 0.0F;
+				rl = 1.0F;
+			}
+			rx /= rl;
+			ry /= rl;
+			rz /= rl;
+			float ux = ry * vz - rz * vy;
+			float uy = rz * vx - rx * vz;
+			float uz = rx * vy - ry * vx;
+			// Tilt the ring plane about the right axis.
+			float ct = (float) Math.cos(tilt);
+			float st = (float) Math.sin(tilt);
+			float uxT = ux * ct + vx * st;
+			float uyT = uy * ct + vy * st;
+			float uzT = uz * ct + vz * st;
+
 			for (int i = 0; i < RING_SEGMENTS; i++) {
 				float a0 = (float) (i * 6.2831853 / RING_SEGMENTS);
 				float a1 = (float) ((i + 1) * 6.2831853 / RING_SEGMENTS);
-				// Ring point in the tilted plane (Y axis tilts into the ring normal).
-				float baseX = cx + (float) Math.cos(a0) * radius;
-				float baseZ = cz + (float) Math.sin(a0) * radius;
-				float baseY = cy + (float) (Math.sin(a0) * radius) * sinT;
-				float nX = cx + (float) Math.cos(a1) * radius;
-				float nZ = cz + (float) Math.sin(a1) * radius;
-				float nY = cy + (float) (Math.sin(a1) * radius) * sinT;
-				float alpha0 = intensity;
-				float alpha1 = intensity;
-				// Each ring point is extruded along the camera axis by the band width -> a
-				// billboarded annulus visible even edge-on.
-				glowVertex(buffer, pose, baseX - ux * hw, baseY, baseZ - uz * hw, alpha0, rgb);
-				glowVertex(buffer, pose, baseX + ux * hw, baseY, baseZ + uz * hw, alpha0, rgb);
-				glowVertex(buffer, pose, nX + ux * hw, nY, nZ + uz * hw, alpha1, rgb);
-				glowVertex(buffer, pose, nX - ux * hw, nY, nZ - uz * hw, alpha1, rgb);
+				float co0 = (float) Math.cos(a0);
+				float si0 = (float) Math.sin(a0);
+				float co1 = (float) Math.cos(a1);
+				float si1 = (float) Math.sin(a1);
+				// Inner and outer vertices in the tilted camera-facing plane.
+				float ix0 = cx + (co0 * inner) * rx + (si0 * inner) * uxT;
+				float iy0 = cy + (co0 * inner) * ry + (si0 * inner) * uyT;
+				float iz0 = cz + (co0 * inner) * rz + (si0 * inner) * uzT;
+				float ox0 = cx + (co0 * outer) * rx + (si0 * outer) * uxT;
+				float oy0 = cy + (co0 * outer) * ry + (si0 * outer) * uyT;
+				float oz0 = cz + (co0 * outer) * rz + (si0 * outer) * uzT;
+				float ix1 = cx + (co1 * inner) * rx + (si1 * inner) * uxT;
+				float iy1 = cy + (co1 * inner) * ry + (si1 * inner) * uyT;
+				float iz1 = cz + (co1 * inner) * rz + (si1 * inner) * uzT;
+				float ox1 = cx + (co1 * outer) * rx + (si1 * outer) * uxT;
+				float oy1 = cy + (co1 * outer) * ry + (si1 * outer) * uyT;
+				float oz1 = cz + (co1 * outer) * rz + (si1 * outer) * uzT;
+				glowVertex(buffer, pose, ix0, iy0, iz0, intensity, rgb);
+				glowVertex(buffer, pose, ox0, oy0, oz0, intensity, rgb);
+				glowVertex(buffer, pose, ox1, oy1, oz1, intensity, rgb);
+				glowVertex(buffer, pose, ix1, iy1, iz1, intensity, rgb);
 			}
 			drew = true;
 		}
 		poseStack.popPose();
 		return drew;
-	}
-
-	/**
-	 * Renders one {@code scan_sweep}: a glowing band swept across the TARGET BLOCK's own model
-	 * quads (like block_tint) with an animated front band and an exponential trail behind it,
-	 * instead of a giant region-wide sheet.
-	 */
-	private static boolean renderScanSweeps(
-		final MultiBufferSource.BufferSource buffers,
-		final CameraRenderState camera,
-		final VFXActiveEffect effect,
-		final RenderType renderType
-	) {
-		float intensity = clamp01(effect.getParam("intensity", 1.0F)) * effect.getWeight();
-		if (intensity <= 0.0F) {
-			return false;
-		}
-		int axis = Mth.clamp((int) effect.getParam("axis", 1.0F), 0, 2);
-		float progress = Mth.clamp(effect.getParam("progress", 0.5F), 0.0F, 1.0F);
-		float band = Math.max(effect.getParam("band", 0.4F), 0.05F);
-		float trail = Mth.clamp(effect.getParam("trail", 0.25F), 0.0F, 1.0F);
-		int resolution = Mth.clamp((int) effect.getParam("resolution", 4.0F), 1, 8);
-		int rgb = rgb(effect.getParam("red", 0.3F), effect.getParam("green", 1.0F), effect.getParam("blue", 0.9F));
-
-		VertexConsumer buffer = buffers.getBuffer(renderType);
-		boolean drew = false;
-		PoseStack poseStack = new PoseStack();
-		poseStack.pushPose();
-		poseStack.translate(-camera.pos.x, -camera.pos.y, -camera.pos.z);
-		PoseStack.Pose pose = poseStack.last();
-		Minecraft mc = Minecraft.getInstance();
-		for (BlockPos pos : effectPositions(effect)) {
-			List<BakedQuad> quads = getModelQuads(mc, pos);
-			if (quads.isEmpty()) {
-				continue;
-			}
-			for (BakedQuad quad : quads) {
-				scanQuad(buffer, pose, pos, quad, axis, resolution, progress, band, trail, intensity, rgb);
-			}
-			drew = true;
-		}
-		poseStack.popPose();
-		return drew;
-	}
-
-	/**
-	 * Subdivides a target-block quad along the sweep axis into {@code res} slices and emits them
-	 * with an alpha that follows the animated progress: a bright band at the front plus an
-	 * exponential trail behind it.
-	 */
-	private static void scanQuad(
-		final VertexConsumer buffer,
-		final PoseStack.Pose pose,
-		final BlockPos pos,
-		final BakedQuad quad,
-		final int axis,
-		final int res,
-		final float progress,
-		final float band,
-		final float trail,
-		final float intensity,
-		final int rgb
-	) {
-		Vector3f c0 = new Vector3f(quad.position(0));
-		Vector3f c1 = new Vector3f(quad.position(1));
-		Vector3f c2 = new Vector3f(quad.position(2));
-		Vector3f c3 = new Vector3f(quad.position(3));
-		for (int k = 0; k < res; k++) {
-			float v0 = k / (float) res;
-			float v1 = (k + 1) / (float) res;
-			for (int corner = 0; corner < 4; corner++) {
-				float u = (corner == 1 || corner == 2) ? 1.0F : 0.0F;
-				float vv = (corner >= 2) ? v1 : v0;
-				float lx = Mth.lerp(vv, Mth.lerp(u, c0.x(), c1.x()), Mth.lerp(u, c3.x(), c2.x())) + pos.getX();
-				float ly = Mth.lerp(vv, Mth.lerp(u, c0.y(), c1.y()), Mth.lerp(u, c3.y(), c2.y())) + pos.getY();
-				float lz = Mth.lerp(vv, Mth.lerp(u, c0.z(), c1.z()), Mth.lerp(u, c3.z(), c2.z())) + pos.getZ();
-				float a = scanAlpha(progress, axisCoord(axis, lx, ly, lz, pos), band, trail) * intensity;
-				glowVertex(buffer, pose, lx, ly, lz, a, rgb);
-			}
-		}
-	}
-
-	/** Returns the vertex position along the sweep axis (block-local 0..1). */
-	private static float axisCoord(final int axis, final float x, final float y, final float z, final BlockPos pos) {
-		return switch (axis) {
-			case 0 -> Mth.lerp(0.0F, 1.0F, x - pos.getX());
-			case 2 -> Mth.lerp(0.0F, 1.0F, z - pos.getZ());
-			default -> Mth.lerp(0.0F, 1.0F, y - pos.getY());
-		};
-	}
-
-	/** 1 at the scan front (u = progress), fading exponentially behind it. */
-	private static float scanAlpha(final float progress, final float a, final float band, final float trail) {
-		float d = progress - a;
-		float front = Math.max(0.0F, 1.0F - Math.abs(d) / Math.max(band, 0.02F));
-		float tail = d > 0.0F ? (float) Math.exp(-d / Math.max(trail, 0.02F)) : 0.0F;
-		return Math.min(front + tail * 0.6F, 1.0F);
 	}
 
 	/**
@@ -789,19 +727,17 @@ public final class VFXWorldOverlayRenderer {
 	 * fading toward the top and an optional sinusoidal sway of the top ring. The outer (halo)
 	 * shell uses the same structure, so the beam reads as a cylinder from every azimuth.
 	 */
-	private static void emitCylinderShell(
+	private static void emitConeShell(
 		final VertexConsumer buffer,
 		final PoseStack.Pose pose,
 		final float cx,
 		final float cz,
 		final float y0,
 		final float y1,
-		final float radius,
+		final float radiusBot,
+		final float radiusTop,
 		final int segments,
 		final float topFade,
-		final float sway,
-		final float swaySpeed,
-		final float t,
 		final float alpha,
 		final int rgb
 	) {
@@ -810,16 +746,14 @@ public final class VFXWorldOverlayRenderer {
 		for (int i = 0; i < segments; i++) {
 			float a0 = (float) (i * 6.2831853 / segments);
 			float a1 = (float) ((i + 1) * 6.2831853 / segments);
-			float sw0 = (float) Math.sin(t * swaySpeed + a0) * sway;
-			float sw1 = (float) Math.sin(t * swaySpeed + a1) * sway;
-			float x00 = cx + (float) Math.cos(a0) * radius;
-			float z00 = cz + (float) Math.sin(a0) * radius;
-			float x01 = cx + (float) Math.cos(a1) * radius;
-			float z01 = cz + (float) Math.sin(a1) * radius;
+			float x00 = cx + (float) Math.cos(a0) * radiusBot;
+			float z00 = cz + (float) Math.sin(a0) * radiusBot;
+			float x01 = cx + (float) Math.cos(a1) * radiusBot;
+			float z01 = cz + (float) Math.sin(a1) * radiusBot;
 			glowVertexA(buffer, pose, x00, y0, z00, aBot, rgb);
 			glowVertexA(buffer, pose, x01, y0, z01, aBot, rgb);
-			glowVertexA(buffer, pose, x01 + sw1, y1, z01 + sw1, aTop, rgb);
-			glowVertexA(buffer, pose, x00 + sw0, y1, z00 + sw0, aTop, rgb);
+			glowVertexA(buffer, pose, cx + (float) Math.cos(a1) * radiusTop, y1, cz + (float) Math.sin(a1) * radiusTop, aTop, rgb);
+			glowVertexA(buffer, pose, cx + (float) Math.cos(a0) * radiusTop, y1, cz + (float) Math.sin(a0) * radiusTop, aTop, rgb);
 		}
 	}
 

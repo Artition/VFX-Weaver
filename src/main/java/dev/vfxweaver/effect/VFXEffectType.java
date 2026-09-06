@@ -63,8 +63,6 @@ public enum VFXEffectType {
 	LIGHT_BEAM("light_beam"),
 	/** A flat glowing ring expanding on the ground around each target position. */
 	PULSE_RING("pulse_ring"),
-	/** A thin glowing sheet sweeping through the region along an axis. */
-	SCAN_SWEEP("scan_sweep"),
 	/** A glowing dashed line along a parabolic arc between two anchors. */
 	GUIDE_LINE("guide_line"),
 	/** Renders a solid-colour tint over the targeted entities. */
@@ -95,8 +93,6 @@ public enum VFXEffectType {
 	AFTERIMAGE("afterimage"),
 	/** Stop-motion: the picture updates only a few times per second (myin. hold gating). */
 	STOP_MOTION("stop_motion"),
-	/** Additive light beams rising out of the targeted entity's body (dragon-death style). */
-	GOD_RAYS("god_rays"),
 	/** An animated value-noise field warps the picture in soft fluid patches. */
 	NOISE_WARP("noise_warp"),
 	/** Not an effect itself: plays a list of child effects with per-child delays. */
@@ -120,7 +116,7 @@ public enum VFXEffectType {
 	 * True for the effect types that render a fullscreen post-processing pass.
 	 */
 	public boolean isPostProcessing() {
-		return this != CAMERA_SHAKE && this != CAMERA_ROLL && this != HUD_FADE && this != BLOCK_OUTLINE && this != BLOCK_TINT && this != ENTITY_TINT && this != ENTITY_OUTLINE && this != ENTITY_DISPLACE && this != GOD_RAYS && this != FOV_MODIFIER && this != COLLECTION;
+		return this != CAMERA_SHAKE && this != CAMERA_ROLL && this != HUD_FADE && this != BLOCK_OUTLINE && this != BLOCK_TINT && this != ENTITY_TINT && this != ENTITY_OUTLINE && this != ENTITY_DISPLACE && this != FOV_MODIFIER && this != COLLECTION;
 	}
 
 	/**
@@ -128,7 +124,7 @@ public enum VFXEffectType {
 	 */
 	public boolean isWorldOverlay() {
 		return this == BLOCK_OUTLINE || this == BLOCK_TINT || this == BLOCK_DISPLACE
-			|| this == LIGHT_BEAM || this == PULSE_RING || this == SCAN_SWEEP || this == GUIDE_LINE
+			|| this == LIGHT_BEAM || this == PULSE_RING || this == GUIDE_LINE
 			|| this == ENTITY_TINT || this == ENTITY_OUTLINE;
 	}
 

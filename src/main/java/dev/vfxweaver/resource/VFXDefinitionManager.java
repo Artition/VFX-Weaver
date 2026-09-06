@@ -328,28 +328,6 @@ public class VFXDefinitionManager extends SimplePreparableReloadListener<Map<Ide
 			builtIn("vfxweaver", "stop_motion", VFXEffectType.STOP_MOTION, 60, EasingType.EASE_IN_OUT_CUBIC,
 				param("fps", 12.0F, 0.0F))
 		);
-		this.builtIns.put(
-			Identifier.fromNamespaceAndPath("vfxweaver", "god_rays"),
-			VFXDefinition.create(
-				Identifier.fromNamespaceAndPath("vfxweaver", "god_rays"),
-				VFXEffectType.GOD_RAYS,
-				60,
-				EasingFunction.builtIn(EasingType.EASE_IN_OUT_CUBIC),
-				Map.of(
-					"count", VFXDefinition.ParamSpec.constant(6.0F),
-					"height", VFXDefinition.ParamSpec.constant(12.0F),
-					"spread", VFXDefinition.ParamSpec.constant(0.6F),
-					"speed", VFXDefinition.ParamSpec.constant(2.0F),
-					"sway", VFXDefinition.ParamSpec.constant(0.5F),
-					"red", VFXDefinition.ParamSpec.constant(0.6F),
-					"green", VFXDefinition.ParamSpec.constant(0.2F),
-					"blue", VFXDefinition.ParamSpec.constant(0.9F),
-					"through_blocks", VFXDefinition.ParamSpec.constant(0.0F),
-					"intensity", VFXDefinition.ParamSpec.animated(1.0F, 0.0F)
-				),
-				false, false, 10, List.of(), List.of(), null
-			)
-		);
 		// Camera shake parameters (the shake itself is already enveloped by the shake manager).
 		this.builtIns.put(
 			Identifier.fromNamespaceAndPath("vfxweaver", "camera_shake"),
@@ -442,9 +420,8 @@ public class VFXDefinitionManager extends SimplePreparableReloadListener<Map<Ide
 					Map.entry("radius", VFXDefinition.ParamSpec.constant(1.5F)),
 					Map.entry("height", VFXDefinition.ParamSpec.constant(48.0F)),
 					Map.entry("softness", VFXDefinition.ParamSpec.constant(0.6F)),
+					Map.entry("top_scale", VFXDefinition.ParamSpec.constant(1.0F)),
 					Map.entry("top_fade", VFXDefinition.ParamSpec.constant(0.4F)),
-					Map.entry("sway", VFXDefinition.ParamSpec.constant(0.0F)),
-					Map.entry("sway_speed", VFXDefinition.ParamSpec.constant(0.4F)),
 					Map.entry("through_blocks", VFXDefinition.ParamSpec.constant(0.0F)),
 					Map.entry("intensity", VFXDefinition.ParamSpec.animated(1.0F, 0.0F))
 				),
@@ -465,28 +442,6 @@ public class VFXDefinitionManager extends SimplePreparableReloadListener<Map<Ide
 					"radius", VFXDefinition.ParamSpec.animated(0.0F, 6.0F),
 					"thickness", VFXDefinition.ParamSpec.constant(0.5F),
 					"tilt", VFXDefinition.ParamSpec.constant(0.0F),
-					"through_blocks", VFXDefinition.ParamSpec.constant(0.0F),
-					"intensity", VFXDefinition.ParamSpec.animated(1.0F, 0.0F)
-				),
-				false, false, 10, List.of(), List.of(), null
-			)
-		);
-		this.builtIns.put(
-			Identifier.fromNamespaceAndPath("vfxweaver", "scan_sweep"),
-			VFXDefinition.create(
-				Identifier.fromNamespaceAndPath("vfxweaver", "scan_sweep"),
-				VFXEffectType.SCAN_SWEEP,
-				60,
-				EasingFunction.builtIn(EasingType.EASE_OUT_CUBIC),
-				Map.of(
-					"red", VFXDefinition.ParamSpec.constant(0.3F),
-					"green", VFXDefinition.ParamSpec.constant(1.0F),
-					"blue", VFXDefinition.ParamSpec.constant(0.9F),
-					"range", VFXDefinition.ParamSpec.constant(16.0F),
-					"axis", VFXDefinition.ParamSpec.constant(1.0F),
-					"progress", VFXDefinition.ParamSpec.animated(0.0F, 1.0F),
-					"width", VFXDefinition.ParamSpec.constant(0.4F),
-					"trail", VFXDefinition.ParamSpec.constant(0.25F),
 					"through_blocks", VFXDefinition.ParamSpec.constant(0.0F),
 					"intensity", VFXDefinition.ParamSpec.animated(1.0F, 0.0F)
 				),

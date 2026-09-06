@@ -21,14 +21,16 @@ layout(std140) uniform Config {
 out vec4 fragColor;
 
 void main() {
-	// Seam model: both lids travel toward the SAME seam curve, so at openness=0 the two half-plane
-	// masks sum to 1 everywhere and the screen is fully covered (solid black/colour, no gap).
+	// Two lids bow toward the CENTRE from opposite sides: the top lid curves downward (concave
+	// toward the eye), the bottom lid curves upward. The concavity amplitude shrinks as the eye
+	// closes (c -> 1), so at openness:0 both edges meet exactly on a straight line and the screen
+	// is fully covered (solid colour, no gap).
 	float c = clamp(1.0 - openness, 0.0, 1.0);
 	float x = texCoord.x - 0.5;
-	// Line of closure: positive curve bows it downward toward the centre (concave open eye).
-	float seam = 0.5 + curve * 0.3 * (1.0 - 4.0 * x * x);
-	float topEdge = mix(1.0 + softness, seam, c);
-	float botEdge = mix(-softness, seam, c);
+	float bow = (1.0 - 4.0 * x * x);          // 1 at centre, 0 at the sides
+	float amp = curve * 0.35 * (1.0 - c);     // concavity present only while opening
+	float topEdge = mix(1.0 + softness, 0.5, c) - amp * bow;
+	float botEdge = mix(-softness, 0.5, c) + amp * bow;
 
 	float t = smoothstep(topEdge - softness, topEdge + softness, texCoord.y);
 	float b = 1.0 - smoothstep(botEdge - softness, botEdge + softness, texCoord.y);

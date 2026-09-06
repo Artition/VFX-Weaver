@@ -3,7 +3,6 @@ package dev.vfxweaver.client.mixin;
 import com.mojang.blaze3d.vertex.PoseStack;
 import dev.vfxweaver.client.access.IVFXWeaverEntityState;
 import dev.vfxweaver.client.effect.VFXEffectManager;
-import dev.vfxweaver.client.render.VFXBeamsRenderer;
 import dev.vfxweaver.client.render.VFXEntityEffectRenderer;
 import dev.vfxweaver.effect.VFXActiveEffect;
 import dev.vfxweaver.effect.VFXEffectType;
@@ -88,12 +87,11 @@ public abstract class LivingEntityRendererMixin<T extends LivingEntity, S extend
 				}
 			}
 		}
-		if (displace == null) {
+		if (displace == null || renderType == null) {
 			submitNodeCollector.submitModel(vanillaModel, state, poseStack, renderType, lightCoords, overlayCoords, modelTint, sprite, outlineColor, crumblingOverlay);
 			return;
 		}
-		Identifier texture = this.getTextureLocation(state);
-		VFXEntityEffectRenderer.renderDisplacedModel(displace, state, poseStack, submitNodeCollector, this.model, texture, lightCoords);
+		VFXEntityEffectRenderer.renderDisplacedModel(displace, state, poseStack, submitNodeCollector, this.model, renderType, lightCoords);
 	}
 
 	@Inject(
@@ -120,8 +118,6 @@ public abstract class LivingEntityRendererMixin<T extends LivingEntity, S extend
 					VFXEntityEffectRenderer.renderTint(effect, state, poseStack, submitNodeCollector, this.model, texture);
 				} else if (effect.getType() == VFXEffectType.ENTITY_OUTLINE) {
 					VFXEntityEffectRenderer.renderOutline(effect, state, poseStack, submitNodeCollector, this.model, texture);
-				} else if (effect.getType() == VFXEffectType.GOD_RAYS) {
-					VFXBeamsRenderer.render(effect, state, poseStack, submitNodeCollector);
 				}
 			} catch (Exception e) {
 				LOGGER.warn("Failed to apply entity effect '{}'", effect.getId(), e);
