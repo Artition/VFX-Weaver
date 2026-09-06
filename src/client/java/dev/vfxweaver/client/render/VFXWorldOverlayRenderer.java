@@ -15,6 +15,7 @@ import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
 import com.mojang.blaze3d.vertex.VertexFormat;
 import dev.vfxweaver.client.effect.VFXEffectManager;
+import dev.vfxweaver.client.noise.VFXNoise;
 import dev.vfxweaver.effect.VFXActiveEffect;
 import dev.vfxweaver.effect.VFXEffectType;
 import java.util.ArrayList;
@@ -126,6 +127,17 @@ public final class VFXWorldOverlayRenderer {
 		RenderSetup.builder(blockPipeline(CompareOp.LESS_THAN_OR_EQUAL, true, "outline_shell_occluded")).createRenderSetup()
 	);
 
+	/** Displaced echo variants: _VISIBLE = ALWAYS_PASS (shows through terrain), _OCCLUDED = LEQUAL. */
+	private static final RenderType DISPLACE_VISIBLE = RenderType.create(
+		"vfxweaver_block_displace_visible",
+		RenderSetup.builder(blockPipeline(CompareOp.ALWAYS_PASS, false, "displace_visible")).createRenderSetup()
+	);
+
+	private static final RenderType DISPLACE_OCCLUDED = RenderType.create(
+		"vfxweaver_block_displace_occluded",
+		RenderSetup.builder(blockPipeline(CompareOp.LESS_THAN_OR_EQUAL, false, "displace_occluded")).createRenderSetup()
+	);
+
 	/**
 	 * Writes depth only (colour write disabled). Used to stamp the target block's volume into a
 	 * cleared depth buffer before a through-walls outline, so the outline passes other blocks'
@@ -207,6 +219,12 @@ public final class VFXWorldOverlayRenderer {
 					RenderType type = through ? TINT_VISIBLE : TINT_OCCLUDED;
 					if (renderEffect(buffers, camera, effect, minecraft, type, 0.5F, 0.0F, false, TINT_OUTSET)) {
 						drawn.add(type);
+					}
+				} else if (effect.getType() == VFXEffectType.BLOCK_DISPLACE) {
+					boolean through = effect.getParam("through_blocks", 0.0F) >= 0.5F;
+					RenderType displaceType = through ? DISPLACE_VISIBLE : DISPLACE_OCCLUDED;
+					if (renderDisplaced(buffers, camera, effect, minecraft, displaceType)) {
+						drawn.add(displaceType);
 					}
 				} else if (effect.getType() == VFXEffectType.BLOCK_OUTLINE) {
 					boolean through = effect.getParam("through_blocks", 0.0F) >= 0.5F;
@@ -303,6 +321,110 @@ public final class VFXWorldOverlayRenderer {
 		}
 		poseStack.popPose();
 		return drew;
+	}
+
+	/**
+	 * Draws one {@code block_displace} effect: the baked model quads of every targeted block are
+	 * re-emitted in block-local space with a per-vertex hash displacement (a corrupted echo on
+	 * top of the intact block). Mirrors {@link #renderEffect} but applies no outset/extrusion.
+	 */
+	private static boolean renderDisplaced(
+		final MultiBufferSource.BufferSource buffers,
+		final CameraRenderState camera,
+		final VFXActiveEffect effect,
+		final Minecraft minecraft,
+		final RenderType renderType
+	) {
+		float alpha = clamp01(effect.getParam("alpha", 1.0F)) * effect.getWeight();
+		if (alpha <= 0.0F) {
+			return false;
+		}
+		float amplitude = clamp01(effect.getParam("amplitude", 0.1F)) * effect.getWeight();
+		if (amplitude <= 0.0F) {
+			return false;
+		}
+		float scale = Math.max(effect.getParam("scale", 4.0F), 0.5F);
+		float seed = effect.getParam("seed", 0.0F);
+		int color = argb(effect, alpha);
+		VertexConsumer buffer = buffers.getBuffer(renderType);
+		boolean drew = false;
+
+		PoseStack poseStack = new PoseStack();
+		poseStack.pushPose();
+		poseStack.translate(-camera.pos.x, -camera.pos.y, -camera.pos.z);
+		for (BlockPos pos : effectPositions(effect)) {
+			poseStack.pushPose();
+			try {
+				poseStack.translate(pos.getX(), pos.getY(), pos.getZ());
+				PoseStack.Pose pose = poseStack.last();
+				List<BakedQuad> quads = getModelQuads(minecraft, pos);
+				if (quads.isEmpty()) {
+					emitCubeFillDisplaced(buffer, pose, color, pos, amplitude, scale, seed);
+				} else {
+					emitQuadsDisplaced(buffer, pose, quads, color, pos, amplitude, scale, seed);
+				}
+			} finally {
+				poseStack.popPose();
+			}
+			drew = true;
+		}
+		poseStack.popPose();
+		return drew;
+	}
+
+	/**
+	 * Re-emits model quads with a per-vertex hash displacement. The hash inputs are the
+	 * world-space vertex coordinates ({@code pos + local}), wrapped for float precision, so
+	 * neighbouring blocks diverge instead of repeating the same 1-block pattern.
+	 */
+	private static void emitQuadsDisplaced(
+		final VertexConsumer buffer,
+		final PoseStack.Pose pose,
+		final List<BakedQuad> quads,
+		final int color,
+		final BlockPos pos,
+		final float amplitude,
+		final float scale,
+		final float seed
+	) {
+		for (BakedQuad quad : quads) {
+			for (int i = 0; i < 4; i++) {
+				Vector3fc p = quad.position(i);
+				float wx = VFXNoise.wrap((pos.getX() + p.x()) * scale);
+				float wy = VFXNoise.wrap((pos.getY() + p.y()) * scale);
+				float wz = VFXNoise.wrap((pos.getZ() + p.z()) * scale);
+				float ox = VFXNoise.vhash(wx, wy, wz, seed) * amplitude;
+				float oy = VFXNoise.vhash(wy, wz, wx, seed + 3.14F) * amplitude;
+				float oz = VFXNoise.vhash(wz, wx, wy, seed + 6.28F) * amplitude;
+				buffer.addVertex(pose, p.x() + ox, p.y() + oy, p.z() + oz).setColor(color);
+			}
+		}
+	}
+
+	/** Fallback displaced emitter for blocks whose model has no quads: a full cube, same hash. */
+	private static void emitCubeFillDisplaced(
+		final VertexConsumer buffer,
+		final PoseStack.Pose pose,
+		final int color,
+		final BlockPos pos,
+		final float amplitude,
+		final float scale,
+		final float seed
+	) {
+		for (float[] face : CUBE_FACES) {
+			for (int i = 0; i < 4; i++) {
+				float px = face[i * 3];
+				float py = face[i * 3 + 1];
+				float pz = face[i * 3 + 2];
+				float wx = VFXNoise.wrap((pos.getX() + px) * scale);
+				float wy = VFXNoise.wrap((pos.getY() + py) * scale);
+				float wz = VFXNoise.wrap((pos.getZ() + pz) * scale);
+				float ox = VFXNoise.vhash(wx, wy, wz, seed) * amplitude;
+				float oy = VFXNoise.vhash(wy, wz, wx, seed + 3.14F) * amplitude;
+				float oz = VFXNoise.vhash(wz, wx, wy, seed + 6.28F) * amplitude;
+				buffer.addVertex(pose, px + ox, py + oy, pz + oz).setColor(color);
+			}
+		}
 	}
 
 	/**

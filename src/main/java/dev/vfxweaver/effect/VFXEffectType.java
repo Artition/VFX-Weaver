@@ -53,6 +53,8 @@ public enum VFXEffectType {
 	BLOCK_OUTLINE("block_outline"),
 	/** Renders a solid-colour fill over a block (world overlay, not a shader pass). */
 	BLOCK_TINT("block_tint"),
+	/** Re-emits the targeted block's baked model quads as a flat, per-vertex displaced echo. */
+	BLOCK_DISPLACE("block_displace"),
 	/** Renders a solid-colour tint over the targeted entities. */
 	ENTITY_TINT("entity_tint"),
 	/** Renders an outline around the targeted entities. */
@@ -93,7 +95,7 @@ public enum VFXEffectType {
 	 * True for the effect types that render world-space geometry each frame.
 	 */
 	public boolean isWorldOverlay() {
-		return this == BLOCK_OUTLINE || this == BLOCK_TINT || this == ENTITY_TINT || this == ENTITY_OUTLINE;
+		return this == BLOCK_OUTLINE || this == BLOCK_TINT || this == BLOCK_DISPLACE || this == ENTITY_TINT || this == ENTITY_OUTLINE;
 	}
 
 	/**
