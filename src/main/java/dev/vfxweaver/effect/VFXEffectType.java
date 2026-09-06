@@ -75,6 +75,8 @@ public enum VFXEffectType {
 	EYELIDS("eyelids"),
 	/** Old-film iris transition: everything outside a circle goes black. */
 	IRIS_WIPE("iris_wipe"),
+	/** The frame tears into horizontal bands with RGB-split spikes in bursts. */
+	DIGITAL_GLITCH("digital_glitch"),
 	/** An animated value-noise field warps the picture in soft fluid patches. */
 	NOISE_WARP("noise_warp"),
 	/** Not an effect itself: plays a list of child effects with per-child delays. */
@@ -148,6 +150,7 @@ public enum VFXEffectType {
 		case DOUBLE_VISION -> "intensity".equals(parameter) ? 0.0F : Float.NaN;
 		case EYELIDS -> "openness".equals(parameter) ? 1.0F : Float.NaN;
 		case IRIS_WIPE -> "radius".equals(parameter) ? 1.4F : Float.NaN;
+		case DIGITAL_GLITCH -> "intensity".equals(parameter) ? 0.0F : Float.NaN;
 		default -> Float.NaN;
 		};
 	}

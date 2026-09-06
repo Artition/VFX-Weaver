@@ -297,6 +297,12 @@ public class VFXDefinitionManager extends SimplePreparableReloadListener<Map<Ide
 				param("radius", 0.4F, 1.4F), param("softness", 0.05F), param("center_x", 0.5F), param("center_y", 0.5F),
 				param("zoom", 1.0F, 0.0F))
 		);
+		this.builtIns.put(
+			Identifier.fromNamespaceAndPath("vfxweaver", "digital_glitch"),
+			builtIn("vfxweaver", "digital_glitch", VFXEffectType.DIGITAL_GLITCH, 40, EasingType.EASE_IN_OUT_CUBIC,
+				param("block", 0.06F), param("displacement", 0.08F), param("rate", 6.0F), param("chroma", 0.5F),
+				param("seed", 0.0F), param("chance", 0.4F), param("intensity", 1.0F, 0.0F))
+		);
 		// Camera shake parameters (the shake itself is already enveloped by the shake manager).
 		this.builtIns.put(
 			Identifier.fromNamespaceAndPath("vfxweaver", "camera_shake"),
