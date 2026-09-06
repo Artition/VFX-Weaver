@@ -89,6 +89,10 @@ public enum VFXEffectType {
 	VHS("vhs"),
 	/** A single refraction ring ripples outward from a point. */
 	SHOCKWAVE("shockwave"),
+	/** Feedback echo: trails linger in a decaying history buffer. */
+	AFTERIMAGE("afterimage"),
+	/** Stop-motion: the picture updates only a few times per second (myin. hold gating). */
+	STOP_MOTION("stop_motion"),
 	/** Additive light beams rising out of the targeted entity's body (dragon-death style). */
 	GOD_RAYS("god_rays"),
 	/** An animated value-noise field warps the picture in soft fluid patches. */
@@ -177,6 +181,8 @@ public enum VFXEffectType {
 			}
 			yield Float.NaN;
 		}
+		case AFTERIMAGE -> "intensity".equals(parameter) ? 0.0F : Float.NaN;
+		case STOP_MOTION -> "fps".equals(parameter) ? 0.0F : Float.NaN;
 		default -> Float.NaN;
 		};
 	}

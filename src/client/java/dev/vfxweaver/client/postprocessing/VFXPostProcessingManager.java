@@ -44,19 +44,36 @@ public final class VFXPostProcessingManager {
 	private static final int UBO_USAGE = 130;
 
 	private final TextureTarget[] pingPong = new TextureTarget[2];
+	/** Double-buffered history for the feedback effects (afterimage). */
+	private final TextureTarget[] history = new TextureTarget[2];
+	private @Nullable TextureTarget stopMotionHold;
+	/** Last quantised hold slot per stop_motion effect (effect id -> slot). */
+	private final Map<Identifier, Integer> stopMotionSlots = new HashMap<>();
 	private final Projection projection = new Projection();
 	private final Map<Identifier, VFXPass> passes = new HashMap<>();
 	private @Nullable ProjectionMatrixBuffer projectionMatrixBuffer;
 	private int lastWidth;
 	private int lastHeight;
+	/** True until the history targets are (re)created; first feedback blend treats prev = current. */
+	private boolean historyDirty = true;
 
-	/** Frees GPU buffers and cached passes on client shutdown. */
+/** Frees GPU buffers and cached passes on client shutdown. */
 	public void freeGpuResources() {
 		for (TextureTarget target : this.pingPong) {
 			if (target != null) {
 				target.destroyBuffers();
 			}
 		}
+		for (TextureTarget target : this.history) {
+			if (target != null) {
+				target.destroyBuffers();
+			}
+		}
+		if (this.stopMotionHold != null) {
+			this.stopMotionHold.destroyBuffers();
+			this.stopMotionHold = null;
+		}
+		this.stopMotionSlots.clear();
 		this.passes.clear();
 		this.projectionMatrixBuffer = null;
 	}
@@ -120,18 +137,36 @@ public final class VFXPostProcessingManager {
 			// texture that is not the one they are writing to. Copy main -> pingpong[0]
 			// first, then run the chain starting from that buffer.
 			VFXPass copy = this.copyPass();
-			copy.execute(encoder, samplerCache, mainTarget, this.pingPong[0], null);
+			copy.execute(encoder, samplerCache, mainTarget, this.pingPong[0], null, null, null);
+			this.pruneStopMotionSlots(active);
 
 			RenderTarget read = this.pingPong[0];
 			int pingPongIndex = 1;
 			for (int i = 0; i < chain.size(); i++) {
 				boolean last = i == chain.size() - 1;
 				PassRun run = chain.get(i);
-				RenderTarget output = last ? mainTarget : this.pingPong[pingPongIndex];
-				run.pass().execute(encoder, samplerCache, read, output, run.effect());
-				read = output;
-				if (!last) {
-					pingPongIndex = 1 - pingPongIndex;
+				VFXShaderPrograms.PassRole role = run.role();
+				if (role == VFXShaderPrograms.PassRole.FEEDBACK_UPDATE) {
+					// History update: read the live frame + the previous history, write the next.
+					RenderTarget histPrev = this.historyDirty ? read : this.history[0];
+					run.pass().execute(encoder, samplerCache, read, this.history[1], run.effect(), histPrev, null);
+					this.historyDirty = false;
+					// read stays the live frame for the composite pass.
+				} else {
+					RenderTarget output = last ? mainTarget : this.pingPong[pingPongIndex];
+					if (role == VFXShaderPrograms.PassRole.STOP_MOTION) {
+						float hold = this.updateStopMotionHold(run.effect(), encoder, samplerCache, copy, mainTarget);
+						run.pass().execute(encoder, samplerCache, read, output, run.effect(), this.stopMotionHold, hold);
+					} else if (role == VFXShaderPrograms.PassRole.FEEDBACK_COMPOSITE) {
+						run.pass().execute(encoder, samplerCache, read, output, run.effect(), this.history[1], null);
+						this.swapHistory();
+					} else {
+						run.pass().execute(encoder, samplerCache, read, output, run.effect(), null, null);
+					}
+					read = output;
+					if (!last) {
+						pingPongIndex = 1 - pingPongIndex;
+					}
 				}
 			}
 		} catch (Exception e) {
@@ -141,10 +176,54 @@ public final class VFXPostProcessingManager {
 		}
 	}
 
+	private void swapHistory() {
+		TextureTarget tmp = this.history[0];
+		this.history[0] = this.history[1];
+		this.history[1] = tmp;
+	}
+
+	/**
+	 * CPU hold gating for {@code stop_motion}: when the quantised age slot changes, recapture the
+	 * live main target into the hold target (the next frames repeat it), else keep holding.
+	 *
+	 * @return 1.0F to hold the captured frame, 0.0F to pass the live frame through
+	 */
+	private float updateStopMotionHold(
+		final VFXActiveEffect effect,
+		final CommandEncoder encoder,
+		final SamplerCache samplerCache,
+		final VFXPass copy,
+		final RenderTarget mainTarget
+	) {
+		float fps = effect.getParam("fps", 0.0F);
+		if (fps <= 1.0F) {
+			this.stopMotionSlots.remove(effect.getId());
+			return 0.0F;
+		}
+		int slot = (int) Math.floor(effect.getAge() / 20.0F * fps);
+		Integer prev = this.stopMotionSlots.get(effect.getId());
+		this.stopMotionSlots.put(effect.getId(), slot);
+		if (prev == null || prev != slot) {
+			copy.execute(encoder, samplerCache, mainTarget, this.stopMotionHold, null, null, null);
+			return 0.0F;
+		}
+		return 1.0F;
+	}
+
+	private void pruneStopMotionSlots(final List<VFXActiveEffect> active) {
+		if (this.stopMotionSlots.isEmpty()) {
+			return;
+		}
+		this.stopMotionSlots.keySet().removeIf(id -> active.stream().noneMatch(e -> e.getId().equals(id)));
+	}
+
 	/**
 	 * One scheduled pass of the chain: the shader plus the effect whose parameters drive it.
 	 */
 	private record PassRun(VFXPass pass, VFXActiveEffect effect) {
+		VFXShaderPrograms.PassRole role() {
+			return this.pass.role();
+		}
 	}
 
 	private void ensureTargets(final int width, final int height) {
@@ -155,6 +234,18 @@ public final class VFXPostProcessingManager {
 				}
 				this.pingPong[i] = new TextureTarget("vfxweaver pingpong " + i, width, height, false);
 			}
+			for (int i = 0; i < this.history.length; i++) {
+				if (this.history[i] != null) {
+					this.history[i].destroyBuffers();
+				}
+				this.history[i] = new TextureTarget("vfxweaver history " + i, width, height, false);
+			}
+			if (this.stopMotionHold != null) {
+				this.stopMotionHold.destroyBuffers();
+			}
+			this.stopMotionHold = new TextureTarget("vfxweaver stop motion hold", width, height, false);
+			this.stopMotionSlots.clear();
+			this.historyDirty = true;
 			this.lastWidth = width;
 			this.lastHeight = height;
 		}
@@ -178,16 +269,22 @@ public final class VFXPostProcessingManager {
 	private static final class VFXPass {
 		private final RenderPipeline pipeline;
 		private final String[] configParams;
+		private final VFXShaderPrograms.PassRole role;
 		private final MappableRingBuffer samplerInfoUbo;
 		private final @Nullable MappableRingBuffer configUbo;
 
 		private VFXPass(final VFXShaderPrograms.ProgramInfo info) {
 			this.pipeline = info.pipeline();
 			this.configParams = info.configParams();
+			this.role = info.role();
 			this.samplerInfoUbo = new MappableRingBuffer(() -> this.pipeline.getLocation() + " SamplerInfo", UBO_USAGE, SAMPLER_INFO_SIZE);
 			this.configUbo = info.configUboSize() > 0
 				? new MappableRingBuffer(() -> this.pipeline.getLocation() + " Config", UBO_USAGE, Math.max(16, info.configUboSize()))
 				: null;
+		}
+
+		VFXShaderPrograms.PassRole role() {
+			return this.role;
 		}
 
 		private void execute(
@@ -195,7 +292,9 @@ public final class VFXPostProcessingManager {
 			final SamplerCache samplerCache,
 			final RenderTarget input,
 			final RenderTarget output,
-			final @Nullable VFXActiveEffect effect
+			final @Nullable VFXActiveEffect effect,
+			final @Nullable RenderTarget history,
+			final @Nullable Float hold
 		) {
 			try (GpuBuffer.MappedView view = encoder.mapBuffer(this.samplerInfoUbo.currentBuffer(), false, true)) {
 				Std140Builder.intoBuffer(view.data()).putVec2(output.width, output.height).putVec2(input.width, input.height);
@@ -206,10 +305,18 @@ public final class VFXPostProcessingManager {
 				try (GpuBuffer.MappedView view = encoder.mapBuffer(this.configUbo.currentBuffer(), false, true)) {
 					Std140Builder builder = Std140Builder.intoBuffer(view.data());
 					for (String param : this.configParams) {
-						// Reserved "time" parameter: the effect's unwrapped age in ticks (never
-						// faded), used by shaders that animate procedurally (grain, scanlines).
-						float raw = "time".equals(param) ? effect.getAge() : effect.getParam(param, 0.0F);
-						float neutral = "time".equals(param) ? Float.NaN : effect.getType().neutralValue(param);
+						// Reserved "time" and "hold" parameters: never faded, filled from the
+						// effect age / the CPU hold-gate instead of a user parameter.
+						float raw;
+						boolean reserved = "time".equals(param) || "hold".equals(param);
+						if ("time".equals(param)) {
+							raw = effect.getAge();
+						} else if ("hold".equals(param)) {
+							raw = hold != null ? hold : 0.0F;
+						} else {
+							raw = effect.getParam(param, 0.0F);
+						}
+						float neutral = reserved ? Float.NaN : effect.getType().neutralValue(param);
 						builder.putFloat(Float.isNaN(neutral) ? raw : neutral + (raw - neutral) * weight);
 					}
 				}
@@ -227,6 +334,9 @@ public final class VFXPostProcessingManager {
 					renderPass.setUniform("Config", this.configUbo.currentBuffer());
 				}
 				renderPass.bindTexture("InSampler", input.getColorTextureView(), samplerCache.getClampToEdge(FilterMode.LINEAR));
+				if (history != null) {
+					renderPass.bindTexture("HistSampler", history.getColorTextureView(), samplerCache.getClampToEdge(FilterMode.LINEAR));
+				}
 				renderPass.draw(0, 3);
 			}
 

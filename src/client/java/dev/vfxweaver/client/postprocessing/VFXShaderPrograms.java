@@ -21,10 +21,23 @@ import org.jspecify.annotations.Nullable;
  */
 public final class VFXShaderPrograms {
 	/**
+	 * How a pass participates in the feedback pipeline. {@code NORMAL} is the standard one-shot
+	 * post pass. {@code FEEDBACK_UPDATE} writes the history buffer, {@code FEEDBACK_COMPOSITE}
+	 * blends it over the live frame, {@code STOP_MOTION} selects between the live frame and a
+	 * held copy via the reserved {@code hold} parameter (see VFXPostProcessingManager).
+	 */
+	public enum PassRole {
+		NORMAL, FEEDBACK_UPDATE, FEEDBACK_COMPOSITE, STOP_MOTION
+	}
+
+	/**
 	 * Describes one effect shader: its pipeline plus the ordered float parameter names of the
 	 * {@code Config} uniform block and its std140-aligned byte size.
 	 */
-	public record ProgramInfo(RenderPipeline pipeline, String[] configParams, int configUboSize) {
+	public record ProgramInfo(RenderPipeline pipeline, String[] configParams, int configUboSize, PassRole role) {
+		public ProgramInfo(final RenderPipeline pipeline, final String[] configParams, final int configUboSize) {
+			this(pipeline, configParams, configUboSize, PassRole.NORMAL);
+		}
 	}
 
 	private static final Map<VFXEffectType, List<ProgramInfo>> PROGRAMS = new EnumMap<>(VFXEffectType.class);
@@ -68,6 +81,7 @@ public final class VFXShaderPrograms {
 		registerPost(VFXEffectType.DIGITAL_GLITCH, "block", "displacement", "rate", "chroma", "seed", "chance", "intensity", "time");
 		registerPost(VFXEffectType.VHS, "tracking", "band_height", "band_speed", "bleed", "wobble", "intensity", "time");
 		registerPost(VFXEffectType.SHOCKWAVE, "center_x", "center_y", "radius", "width", "amplitude", "sharpness");
+		registerFeedbackEffects();
 		registerPost(VFXEffectType.NOISE_WARP, "scale", "amplitude", "contrast", "coherence", "speed", "drift_x", "drift_y", "time");
 
 		copyPipeline = RenderPipelines.register(
@@ -98,6 +112,38 @@ public final class VFXShaderPrograms {
 
 	private static void registerPost(final VFXEffectType type, final String... params) {
 		registerMultiPass(type, List.of(type.getName()), List.<String[]>of(params));
+	}
+
+	/**
+	 * Builds the feedback pipelines: {@code afterimage} (update + composite) and
+	 * {@code stop_motion}. Each pass samples the live frame ({@code InSampler}) and the relevant
+	 * history target ({@code HistSampler}); the save/swap semantics live in
+	 * {@code VFXPostProcessingManager}.
+	 */
+	private static void registerFeedbackEffects() {
+		RenderPipeline update = feedbackPipeline("afterimage_update", "decay", "blend", "drift");
+		RenderPipeline composite = feedbackPipeline("afterimage_composite", "decay", "blend", "drift", "desat", "intensity");
+		RenderPipeline stopMotion = feedbackPipeline("stop_motion", "fps", "hold");
+
+		PROGRAMS.put(VFXEffectType.AFTERIMAGE, List.of(
+			new ProgramInfo(update, new String[]{"decay", "blend", "drift"}, align16(4 * 4), PassRole.FEEDBACK_UPDATE),
+			new ProgramInfo(composite, new String[]{"decay", "blend", "drift", "desat", "intensity"}, align16(5 * 4), PassRole.FEEDBACK_COMPOSITE)
+		));
+		PROGRAMS.put(VFXEffectType.STOP_MOTION, List.of(
+			new ProgramInfo(stopMotion, new String[]{"fps", "hold"}, align16(2 * 4), PassRole.STOP_MOTION)
+		));
+	}
+
+	private static RenderPipeline feedbackPipeline(final String shader, final String... configParams) {
+		RenderPipeline.Builder builder = RenderPipeline.builder(RenderPipelines.POST_PROCESSING_SNIPPET)
+			.withLocation(Identifier.fromNamespaceAndPath("vfxweaver", "post/" + shader))
+			.withVertexShader("core/screenquad")
+			.withFragmentShader(Identifier.fromNamespaceAndPath("vfxweaver", "post/" + shader))
+			.withSampler("InSampler")
+			.withSampler("HistSampler")
+			.withUniform("SamplerInfo", UniformType.UNIFORM_BUFFER)
+			.withUniform("Config", UniformType.UNIFORM_BUFFER);
+		return RenderPipelines.register(builder.build());
 	}
 
 	private static void registerMultiPass(final VFXEffectType type, final List<String> shaders, final List<String[]> params) {

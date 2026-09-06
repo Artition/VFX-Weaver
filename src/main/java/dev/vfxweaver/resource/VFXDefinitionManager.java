@@ -316,6 +316,17 @@ public class VFXDefinitionManager extends SimplePreparableReloadListener<Map<Ide
 				param("width", 0.15F), param("amplitude", 0.12F, 0.0F), param("sharpness", 1.5F))
 		);
 		this.builtIns.put(
+			Identifier.fromNamespaceAndPath("vfxweaver", "afterimage"),
+			builtIn("vfxweaver", "afterimage", VFXEffectType.AFTERIMAGE, 60, EasingType.EASE_IN_OUT_CUBIC,
+				param("decay", 0.92F), param("blend", 0.6F), param("drift", 0.0F),
+				param("desat", 0.35F), param("intensity", 1.0F, 0.0F))
+		);
+		this.builtIns.put(
+			Identifier.fromNamespaceAndPath("vfxweaver", "stop_motion"),
+			builtIn("vfxweaver", "stop_motion", VFXEffectType.STOP_MOTION, 60, EasingType.EASE_IN_OUT_CUBIC,
+				param("fps", 12.0F, 0.0F))
+		);
+		this.builtIns.put(
 			Identifier.fromNamespaceAndPath("vfxweaver", "god_rays"),
 			VFXDefinition.create(
 				Identifier.fromNamespaceAndPath("vfxweaver", "god_rays"),
