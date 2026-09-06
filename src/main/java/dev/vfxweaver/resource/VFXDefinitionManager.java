@@ -281,6 +281,16 @@ public class VFXDefinitionManager extends SimplePreparableReloadListener<Map<Ide
 			builtIn("vfxweaver", "solarize", VFXEffectType.SOLARIZE, 40, EasingType.EASE_IN_OUT_CUBIC,
 				param("threshold", 0.5F), param("softness", 0.0F), param("intensity", 1.0F, 0.0F))
 		);
+		this.builtIns.put(
+			Identifier.fromNamespaceAndPath("vfxweaver", "double_vision"),
+			builtIn("vfxweaver", "double_vision", VFXEffectType.DOUBLE_VISION, 60, EasingType.EASE_IN_OUT_CUBIC,
+				param("offset", 0.04F), param("ghost_opacity", 0.5F), param("drift", 0.0F), param("intensity", 1.0F, 0.0F))
+		);
+		this.builtIns.put(
+			Identifier.fromNamespaceAndPath("vfxweaver", "eyelids"),
+			builtIn("vfxweaver", "eyelids", VFXEffectType.EYELIDS, 120, EasingType.EASE_IN_OUT_CUBIC,
+				param("openness", 0.5F), param("softness", 0.15F), param("curve", 0.35F))
+		);
 		// Camera shake parameters (the shake itself is already enveloped by the shake manager).
 		this.builtIns.put(
 			Identifier.fromNamespaceAndPath("vfxweaver", "camera_shake"),

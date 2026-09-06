@@ -69,6 +69,10 @@ public enum VFXEffectType {
 	SLICE_SHIFT("slice_shift"),
 	/** Bright pixels invert, dark pixels stay untouched. */
 	SOLARIZE("solarize"),
+	/** Two ghost copies of the frame offset left/right with a slow drift. */
+	DOUBLE_VISION("double_vision"),
+	/** Two soft curved dark lids slide in from the top and bottom of the screen. */
+	EYELIDS("eyelids"),
 	/** An animated value-noise field warps the picture in soft fluid patches. */
 	NOISE_WARP("noise_warp"),
 	/** Not an effect itself: plays a list of child effects with per-child delays. */
@@ -139,6 +143,8 @@ public enum VFXEffectType {
 		case SLICE_SHIFT -> "shift".equals(parameter) ? 0.0F : Float.NaN;
 		case NOISE_WARP -> "amplitude".equals(parameter) ? 0.0F : Float.NaN;
 		case SOLARIZE -> "intensity".equals(parameter) ? 0.0F : Float.NaN;
+		case DOUBLE_VISION -> "intensity".equals(parameter) ? 0.0F : Float.NaN;
+		case EYELIDS -> "openness".equals(parameter) ? 1.0F : Float.NaN;
 		default -> Float.NaN;
 		};
 	}
