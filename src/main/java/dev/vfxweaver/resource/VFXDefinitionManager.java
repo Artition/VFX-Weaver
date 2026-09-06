@@ -411,6 +411,93 @@ public class VFXDefinitionManager extends SimplePreparableReloadListener<Map<Ide
 			)
 		);
 		this.builtIns.put(
+			Identifier.fromNamespaceAndPath("vfxweaver", "light_beam"),
+			VFXDefinition.create(
+				Identifier.fromNamespaceAndPath("vfxweaver", "light_beam"),
+				VFXEffectType.LIGHT_BEAM,
+				60,
+				EasingFunction.builtIn(EasingType.EASE_IN_OUT_CUBIC),
+				Map.ofEntries(
+					Map.entry("red", VFXDefinition.ParamSpec.constant(1.0F)),
+					Map.entry("green", VFXDefinition.ParamSpec.constant(0.95F)),
+					Map.entry("blue", VFXDefinition.ParamSpec.constant(0.75F)),
+					Map.entry("radius", VFXDefinition.ParamSpec.constant(1.5F)),
+					Map.entry("height", VFXDefinition.ParamSpec.constant(48.0F)),
+					Map.entry("softness", VFXDefinition.ParamSpec.constant(0.6F)),
+					Map.entry("top_fade", VFXDefinition.ParamSpec.constant(0.4F)),
+					Map.entry("sway", VFXDefinition.ParamSpec.constant(0.0F)),
+					Map.entry("sway_speed", VFXDefinition.ParamSpec.constant(0.4F)),
+					Map.entry("through_blocks", VFXDefinition.ParamSpec.constant(0.0F)),
+					Map.entry("intensity", VFXDefinition.ParamSpec.animated(1.0F, 0.0F))
+				),
+				false, false, 10, List.of(), List.of(), null
+			)
+		);
+		this.builtIns.put(
+			Identifier.fromNamespaceAndPath("vfxweaver", "pulse_ring"),
+			VFXDefinition.create(
+				Identifier.fromNamespaceAndPath("vfxweaver", "pulse_ring"),
+				VFXEffectType.PULSE_RING,
+				60,
+				EasingFunction.builtIn(EasingType.EASE_OUT_CUBIC),
+				Map.of(
+					"red", VFXDefinition.ParamSpec.constant(1.0F),
+					"green", VFXDefinition.ParamSpec.constant(0.35F),
+					"blue", VFXDefinition.ParamSpec.constant(0.1F),
+					"radius", VFXDefinition.ParamSpec.animated(0.0F, 6.0F),
+					"thickness", VFXDefinition.ParamSpec.constant(0.5F),
+					"tilt", VFXDefinition.ParamSpec.constant(0.0F),
+					"through_blocks", VFXDefinition.ParamSpec.constant(0.0F),
+					"intensity", VFXDefinition.ParamSpec.animated(1.0F, 0.0F)
+				),
+				false, false, 10, List.of(), List.of(), null
+			)
+		);
+		this.builtIns.put(
+			Identifier.fromNamespaceAndPath("vfxweaver", "scan_sweep"),
+			VFXDefinition.create(
+				Identifier.fromNamespaceAndPath("vfxweaver", "scan_sweep"),
+				VFXEffectType.SCAN_SWEEP,
+				60,
+				EasingFunction.builtIn(EasingType.EASE_OUT_CUBIC),
+				Map.of(
+					"red", VFXDefinition.ParamSpec.constant(0.3F),
+					"green", VFXDefinition.ParamSpec.constant(1.0F),
+					"blue", VFXDefinition.ParamSpec.constant(0.9F),
+					"range", VFXDefinition.ParamSpec.constant(16.0F),
+					"axis", VFXDefinition.ParamSpec.constant(1.0F),
+					"progress", VFXDefinition.ParamSpec.animated(0.0F, 1.0F),
+					"width", VFXDefinition.ParamSpec.constant(0.4F),
+					"trail", VFXDefinition.ParamSpec.constant(0.25F),
+					"through_blocks", VFXDefinition.ParamSpec.constant(0.0F),
+					"intensity", VFXDefinition.ParamSpec.animated(1.0F, 0.0F)
+				),
+				false, false, 10, List.of(), List.of(), null
+			)
+		);
+		this.builtIns.put(
+			Identifier.fromNamespaceAndPath("vfxweaver", "guide_line"),
+			VFXDefinition.create(
+				Identifier.fromNamespaceAndPath("vfxweaver", "guide_line"),
+				VFXEffectType.GUIDE_LINE,
+				60,
+				EasingFunction.builtIn(EasingType.EASE_OUT_CUBIC),
+				Map.of(
+					"red", VFXDefinition.ParamSpec.constant(0.25F),
+					"green", VFXDefinition.ParamSpec.constant(1.0F),
+					"blue", VFXDefinition.ParamSpec.constant(0.45F),
+					"width", VFXDefinition.ParamSpec.constant(0.15F),
+					"dash_length", VFXDefinition.ParamSpec.constant(0.6F),
+					"gap", VFXDefinition.ParamSpec.constant(0.6F),
+					"speed", VFXDefinition.ParamSpec.constant(2.0F),
+					"arc", VFXDefinition.ParamSpec.constant(1.5F),
+					"through_blocks", VFXDefinition.ParamSpec.constant(0.0F),
+					"intensity", VFXDefinition.ParamSpec.animated(1.0F, 0.0F)
+				),
+				false, false, 10, List.of(), List.of(), null
+			)
+		);
+		this.builtIns.put(
 			Identifier.fromNamespaceAndPath("vfxweaver", "entity_tint"),
 			VFXDefinition.create(
 				Identifier.fromNamespaceAndPath("vfxweaver", "entity_tint"),

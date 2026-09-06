@@ -57,6 +57,14 @@ public enum VFXEffectType {
 	BLOCK_TINT("block_tint"),
 	/** Re-emits the targeted block's baked model quads as a flat, per-vertex displaced echo. */
 	BLOCK_DISPLACE("block_displace"),
+	/** A vertical column of soft light descending onto each target position. */
+	LIGHT_BEAM("light_beam"),
+	/** A flat glowing ring expanding on the ground around each target position. */
+	PULSE_RING("pulse_ring"),
+	/** A thin glowing sheet sweeping through the region along an axis. */
+	SCAN_SWEEP("scan_sweep"),
+	/** A glowing dashed line along a parabolic arc between two anchors. */
+	GUIDE_LINE("guide_line"),
 	/** Renders a solid-colour tint over the targeted entities. */
 	ENTITY_TINT("entity_tint"),
 	/** Renders an outline around the targeted entities. */
@@ -113,7 +121,9 @@ public enum VFXEffectType {
 	 * True for the effect types that render world-space geometry each frame.
 	 */
 	public boolean isWorldOverlay() {
-		return this == BLOCK_OUTLINE || this == BLOCK_TINT || this == BLOCK_DISPLACE || this == ENTITY_TINT || this == ENTITY_OUTLINE;
+		return this == BLOCK_OUTLINE || this == BLOCK_TINT || this == BLOCK_DISPLACE
+			|| this == LIGHT_BEAM || this == PULSE_RING || this == SCAN_SWEEP || this == GUIDE_LINE
+			|| this == ENTITY_TINT || this == ENTITY_OUTLINE;
 	}
 
 	/**
