@@ -67,6 +67,7 @@ public final class VFXShaderPrograms {
 		registerPost(VFXEffectType.IRIS_WIPE, "radius", "softness", "center_x", "center_y", "zoom");
 		registerPost(VFXEffectType.DIGITAL_GLITCH, "block", "displacement", "rate", "chroma", "seed", "chance", "intensity", "time");
 		registerPost(VFXEffectType.VHS, "tracking", "band_height", "band_speed", "bleed", "wobble", "intensity", "time");
+		registerPost(VFXEffectType.SHOCKWAVE, "center_x", "center_y", "radius", "width", "amplitude", "sharpness");
 		registerPost(VFXEffectType.NOISE_WARP, "scale", "amplitude", "contrast", "coherence", "speed", "drift_x", "drift_y", "time");
 
 		copyPipeline = RenderPipelines.register(

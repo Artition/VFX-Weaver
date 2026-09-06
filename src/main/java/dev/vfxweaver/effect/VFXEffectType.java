@@ -79,6 +79,8 @@ public enum VFXEffectType {
 	DIGITAL_GLITCH("digital_glitch"),
 	/** Worn VHS playback: wobble, a crawling tracking band and colour bleed. */
 	VHS("vhs"),
+	/** A single refraction ring ripples outward from a point. */
+	SHOCKWAVE("shockwave"),
 	/** An animated value-noise field warps the picture in soft fluid patches. */
 	NOISE_WARP("noise_warp"),
 	/** Not an effect itself: plays a list of child effects with per-child delays. */
@@ -154,6 +156,15 @@ public enum VFXEffectType {
 		case IRIS_WIPE -> "radius".equals(parameter) ? 1.4F : Float.NaN;
 		case DIGITAL_GLITCH -> "intensity".equals(parameter) ? 0.0F : Float.NaN;
 		case VHS -> "intensity".equals(parameter) ? 0.0F : Float.NaN;
+		case SHOCKWAVE -> {
+			if ("amplitude".equals(parameter)) {
+				yield 0.0F;
+			}
+			if ("radius".equals(parameter)) {
+				yield 1.5F;
+			}
+			yield Float.NaN;
+		}
 		default -> Float.NaN;
 		};
 	}

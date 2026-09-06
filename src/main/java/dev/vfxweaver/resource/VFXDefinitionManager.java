@@ -309,6 +309,12 @@ public class VFXDefinitionManager extends SimplePreparableReloadListener<Map<Ide
 				param("tracking", 0.35F), param("band_height", 0.08F), param("band_speed", 0.15F),
 				param("bleed", 0.02F), param("wobble", 0.004F), param("intensity", 1.0F, 0.0F))
 		);
+		this.builtIns.put(
+			Identifier.fromNamespaceAndPath("vfxweaver", "shockwave"),
+			builtIn("vfxweaver", "shockwave", VFXEffectType.SHOCKWAVE, 40, EasingType.EASE_IN_OUT_CUBIC,
+				param("center_x", 0.5F), param("center_y", 0.5F), param("radius", 0.4F, 1.5F),
+				param("width", 0.15F), param("amplitude", 0.12F, 0.0F), param("sharpness", 1.5F))
+		);
 		// Camera shake parameters (the shake itself is already enveloped by the shake manager).
 		this.builtIns.put(
 			Identifier.fromNamespaceAndPath("vfxweaver", "camera_shake"),
