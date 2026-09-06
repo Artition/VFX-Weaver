@@ -2,7 +2,30 @@
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). The versions below are guide/feature-set versions of the mod (as they progressed historically, see `docs/GUIDE.md`), plus git release tags where applicable (`v1.0.x`, `gradle.properties` → `mod_version`). Add new entries at the top, in the same PR as the behavior change.
 
-## v1.0.7
+## v1.1.0 / Guide v22
+### Added
+- **`slice_shift` screen effect** - a straight line slices the frame; the halves slide along it with wrap/mirror fill (`angle`, `offset`, `shift`, `mirror`).
+- **`noise_warp` screen effect** - animated value-noise field warps the picture in fluid patches (`scale`, `amplitude`, `contrast`, `coherence`, `speed`, `drift_x/y`; `time`-driven morph).
+- **`solarize` screen effect** - bright pixels invert, dark stay (`threshold`, `softness`, `intensity`).
+- **`double_vision` screen effect** - two ghost copies with slow drift, energy-preserving blend (`offset`, `ghost_opacity`, `drift`, `intensity`).
+- **`eyelids` screen effect** - two curved dark lids with correct open-state geometry, composited over the frame (`openness`, `softness`, `curve`).
+- **`iris_wipe` screen effect** - old-film iris transition (`radius`, `softness`, `center_x/y`, `zoom`).
+- **`digital_glitch` screen effect** - band tearing + RGB split in **slot-gated bursts** with a `chance` parameter (not permanent tearing).
+- **`vhs` screen effect** - worn tape: a real crawling tracking band, wobble, bleed, washed contrast.
+- **`shockwave` screen effect** - refraction ring with full-weight composite (`center_x/y`, `radius`, `width`, `amplitude`, `sharpness`).
+- **`afterimage` screen effect (feedback buffer)** - decaying history echo with desaturation and optional drift zoom; history double-buffered, cleared on resize.
+- **`stop_motion` screen effect** - CPU hold-gated frame freezing at N updates/second (`fps`; `<=1` = full speed).
+- **`entity_displace` entity effect** - flat per-vertex displaced echo over the intact model (`amplitude`, `scale`, `seed`, `alpha`, color, `through_blocks`).
+- **`block_displace` world effect** - same displacement machinery over baked block-model quads, world-space hash with float-precision wrapping.
+- **`god_rays` entity effect** - additive light beams rising out of the target's body (dragon-death style), per spec Effect 14.
+- **`light_beam` / `pulse_ring` / `scan_sweep` / `guide_line` world effects** - additive world quad effects (columns, rings, sweep sheets, dashed parabola).
+- **`camera_roll` misc effect** - dutch-angle camera tilt with optional sinusoidal wobble.
+- **`hud_fade` misc effect** - HUD opacity via the state-based GuiRenderState hook (blit-drawn HUD layers: hotbar, hearts, XP, crosshair, boss bar).
+
+### Notes
+- Screen effects that animate procedurally accept the auto-filled `time` parameter (effect age in ticks); film-grain-style shaders already used it.
+- The `expr` parameter syntax (e.g. stepped `seed`) works in **datapack** definitions; command param-maps (`{[...]}`) accept floats only.
+- A `gradlew build`-verified implementation batch; visual effects should be verified with `gradlew runClient` (the hud_fade text-layer coverage is the known spike follow-up).
 ### Fixed
 - **Effects replayed fresh on every world join and never expired.** The reconnect memory used the server tick counter as its clock, which resets when the server instance is recreated (every singleplayer world reload): elapsed time collapsed to zero, so all previously played effects were re-applied at full duration on each join. The reconnect memory now uses wall-clock time (1 tick = 50 ms), stable across world reloads and restarts.
 - **Item frame overlay drawn twice / offset.** The overlay hook fired on every PoseStack.popPose in the vanilla submit and the frame-local pose was rebuilt from identity - the quads landed at world origin or offset by the item transforms. It is now drawn once, anchored to the frame model pose with model-space coordinates matching the panel plane (z ~ 0.97).

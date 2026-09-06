@@ -2,8 +2,8 @@
 
 A client-side VFX library for Minecraft 26.1–26.1.2 (Fabric). Screen post-processing (ping-pong FBO), camera shake, world overlays (block tint/outline), entity effects (tint/outline by UUID), keyframe animation, world/camera/player bindings, datapacks, network triggers and a public Java API.
 
-- Guide version: 21 (see [docs/CHANGELOG.md](CHANGELOG.md) for history)
-- Mod: `vfxweaver-1.0.4.jar`, requires Fabric API
+- Guide version: 22 (v1.1.0 effects batch, see [docs/CHANGELOG.md](CHANGELOG.md) for history)
+- Mod: `vfxweaver-1.1.0.jar`, requires Fabric API
 
 Files: `data/<namespace>/vfx/<name>.json` and `data/<namespace>/vfx_curves/<name>.json`. After edits — `/reload`. The effect id = `<namespace>:<name>`. On a dedicated server, definitions and curves are automatically synced to clients on player join and after `/reload`, so custom (datapack) effects work for all players, not just on the server.
 
@@ -333,6 +333,164 @@ Swirls pixels into a funnel around a point.
 /vfx play vfxweaver:speed_lines {[count:120],[length:0.8]}
 ```
 
+#### `slice_shift`
+The frame is cut by a straight line and the halves slide past each other along it; the exposed strips at the screen edges are filled with wrapped or mirrored copies of the world (no black gap).
+
+| Param | Default | Description |
+|---|---|---|
+| `angle` | 0 | Cut-line tilt in degrees from horizontal (0 = horizontal line, 90 = vertical) |
+| `offset` | 0 | Pushes the line off the screen centre along its normal, in screen fractions (-0.5..0.5) |
+| `shift` | 0.05 (fades to 0) | How far each half slides along the line, in screen fractions; halves diverge by 2x `shift`, negative swaps the sides (-1..1) |
+| `mirror` | 0 | Fill of the exposed strips: 0 = repeat/wrap, 1 = mirrored copy |
+
+```
+/vfx play vfxweaver:slice_shift {[angle:25],[shift:0.12]}
+```
+
+#### `noise_warp`
+An animated value-noise field warps the picture in soft fluid patches; bright noise areas drag pixels the hardest.
+
+| Param | Default | Description |
+|---|---|---|
+| `scale` | 8 | Noise cell detail across the screen (1..64) |
+| `amplitude` | 0.03 (fades to 0) | Max pixel offset in the brightest areas, screen fractions (0..0.25) |
+| `contrast` | 2 | Gathers the warp into distinct patches (>1) or flattens it (<1) |
+| `coherence` | 1 | 1 = pixels flow along the noise gradient (liquid-glass), 0 = each patch pulls its own direction |
+| `speed` | 0.5 | Field morph rate, cycles per second |
+| `drift_x/y` | 0 / 0 | Pattern travel, screen fractions per second |
+
+```
+/vfx play vfxweaver:noise_warp {[amplitude:0.06],[scale:4],[contrast:3]}
+```
+
+#### `solarize`
+Bright pixels invert, dark stay untouched.
+
+| Param | Default | Description |
+|---|---|---|
+| `threshold` | 0.5 | Luma above which colours invert (0..1) |
+| `softness` | 0 | Rolloff width around the threshold (0..1) |
+| `intensity` | 1 (fades to 0) | Blend original to solarized (0..1) |
+
+```
+/vfx play vfxweaver:solarize {[threshold:0.4]}
+```
+
+#### `double_vision`
+Two ghost copies of the frame offset left/right with a slow drift.
+
+| Param | Default | Description |
+|---|---|---|
+| `offset` | 0.04 | Ghost distance from the centre, screen-width fractions (0..0.5) |
+| `ghost_opacity` | 0.5 | Ghost opacity (0..1) |
+| `drift` | 0 | Slow sinusoidal drift, screen fractions per second (0..0.2) |
+| `intensity` | 1 (fades to 0) | Overall strength (0..1) |
+
+```
+/vfx play vfxweaver:double_vision {[offset:0.06],[ghost_opacity:0.7]}
+```
+
+#### `eyelids`
+Two soft curved dark lids slide in from the top and bottom. Animate `openness` 1 -> 0 to close the eyes; the built-in is a static half-open template.
+
+| Param | Default | Description |
+|---|---|---|
+| `openness` | 0.5 | 1 = wide open (lids off screen), 0 = fully closed |
+| `softness` | 0.15 | Feathered lid edge width, screen-height fractions |
+| `curve` | 0.35 | Lid bulge toward the centre: 0 = straight bars, 1 = heavy arc |
+
+```
+/vfx play vfxweaver:eyelids {[openness:0.2]}
+```
+
+#### `iris_wipe`
+Everything outside a circle goes black - old-film iris transition.
+
+| Param | Default | Description |
+|---|---|---|
+| `radius` | 0.4 -> 1.4 | Circle radius in screen-height fractions (0 = closed, 1.4 = fully open) |
+| `softness` | 0.05 | Edge feather |
+| `center_x/y` | 0.5 / 0.5 | Circle centre in UV (bindable to `screen_x/ screen_y`) |
+| `zoom` | 1 -> 0 | Push-in inside the circle (0..1) |
+
+```
+/vfx play vfxweaver:iris_wipe {[zoom:0]}
+```
+
+#### `digital_glitch`
+The frame tears into horizontal bands with RGB-split spikes, in bursts (slot-gated, not constant tearing).
+
+| Param | Default | Description |
+|---|---|---|
+| `block` | 0.06 | Band height, screen-height fractions (0.01..0.5) |
+| `displacement` | 0.08 | Max sideways band shift, screen-width fractions (0..0.5) |
+| `rate` | 6 | Glitch quanta per second (slots) |
+| `chroma` | 0.5 | RGB-split strength inside glitched bands (0..1) |
+| `seed` | 0 | Pattern offset - change for a different tear layout |
+| `chance` | 0.4 | Fraction of slots that burst (0..1) |
+| `intensity` | 1 (fades to 0) | Overall strength (0..1) |
+
+```
+/vfx play vfxweaver:digital_glitch {[chance:1],[displacement:0.15]}
+```
+
+#### `vhs`
+Worn VHS playback: wobble, a crawling noise tracking band, colour bleed and washed contrast.
+
+| Param | Default | Description |
+|---|---|---|
+| `tracking` | 0.35 | Tracking band horizontal jumps (0..1) |
+| `band_height` | 0.08 | Noise band height, screen-height fractions |
+| `band_speed` | 0.15 | Band travel speed, screen-heights per second |
+| `bleed` | 0.02 | Chroma smear to the right, screen-width fractions (0..0.1) |
+| `wobble` | 0.004 | Fine constant horizontal jitter (0..0.05) |
+| `intensity` | 1 (fades to 0) | Master strength (0..1) |
+
+```
+/vfx play vfxweaver:vhs {[band_speed:0.3]}
+```
+
+#### `shockwave`
+A single refraction ring ripples outward from a point.
+
+| Param | Default | Description |
+|---|---|---|
+| `center_x/y` | 0.5 / 0.5 | Wave origin in UV |
+| `radius` | 0.4 -> 1.5 | Current ring radius, screen-height fractions (animate 0 -> 1.5) |
+| `width` | 0.15 | Ring thickness |
+| `amplitude` | 0.12 (fades to 0) | UV displacement at the ring crest |
+| `sharpness` | 1.5 | Ring profile (1 = smooth sine ripple, 4 = hard glassy ring) |
+
+```
+/vfx play vfxweaver:shockwave {[radius:0.8]}
+```
+
+#### `afterimage`
+Feedback echo: movement leaves smearing trails that linger and dissolve on a fixed decay schedule.
+
+| Param | Default | Description |
+|---|---|---|
+| `decay` | 0.92 | Fraction of the previous frame surviving each tick (0..0.98) |
+| `blend` | 0.6 | How strongly history mixes into the live image |
+| `drift` | 0 | Per-frame zoom of the echo, positive stretches outward (negative = shrink) |
+| `desat` | 0.35 | Saturation loss in the echo layer |
+| `intensity` | 1 (fades to 0) | Strength of the echo over the live frame |
+
+```
+/vfx play vfxweaver:afterimage {[intensity:0.5]}
+```
+
+#### `stop_motion`
+Stop-motion / papercraft: the picture updates only a few times per second while input keeps moving.
+
+| Param | Default | Description |
+|---|---|---|
+| `fps` | 12 (fades to 0) | Target update rate of the held picture, updates per second (1..30; <=1 = back to full speed) |
+
+```
+/vfx play vfxweaver:stop_motion {[fps:8]}
+```
+
 ### 2.2 World overlays (block geometry)
 
 #### `block_tint`
@@ -364,6 +522,93 @@ Block outline, two modes.
 ```
 
 Both support a list of coordinates via `positions` (see [3.1](#31-definition-fields)) or `region: [x0,y0,z0,x1,y1,z1]`. Without them a single position from `params.pos_x/y/z` is used - it can be a constant, an animation or a world binding.
+
+#### `block_displace`
+Re-emits the block's baked model quads as a flat, per-vertex displaced echo on top of the intact block (the base is not hidden - a corrupted "ghost" overlapping it). Anchored by `positions`/`region`/`pos_x/y/z` like the other block effects.
+
+| Param | Default | Description |
+|---|---|---|
+| `amplitude` | 0.15 (fades to 0) | Max vertex displacement in blocks (0..2) |
+| `scale` | 4 | Displacement field detail: higher = neighbours diverge more (0.5..32) |
+| `seed` | 0 | Random phase of the displacement field; step it (`expr: "floor(t*8)*0.1"`) for snaps, animate for morphing |
+| `alpha` | 1 | Echo opacity |
+| `color_r/g/b` | 1 / 1 / 1 | Echo colour |
+| `through_blocks` | 0 | 1 = echo visible through other blocks, 0 = occluded |
+
+```
+/vfx playat vfxweaver:block_displace 8 70 8 {[amplitude:0.2],[scale:6]}
+```
+
+#### `light_beam`
+A vertical glowing column of soft light descending onto each position.
+
+| Param | Default | Description |
+|---|---|---|
+| `radius` | 1.5 | Beam radius in blocks (0.1..16) |
+| `height` | 48 | Column height upward from the anchor (1..256) |
+| `softness` | 0.6 | Outer falloff as a fraction of `radius` |
+| `top_fade` | 0.4 | Alpha at the top relative to the base (0..1) |
+| `sway` | 0 | Sideways sway amplitude, blocks (0..8) |
+| `sway_speed` | 0.4 | Sway cycles per second |
+| `red/green/blue` | 1 / 0.95 / 0.75 | Beam colour |
+| `through_blocks` | 0 | 1 = visible through walls |
+| `intensity` | 1 (fades to 0) | Beam opacity |
+
+```
+/vfx playat vfxweaver:light_beam 8 70 8 {[radius:2],[sway:1]}
+```
+
+#### `pulse_ring`
+A flat glowing ring on the ground around each position.
+
+| Param | Default | Description |
+|---|---|---|
+| `radius` | 0 -> 6 | Current ring radius, blocks (animate 0 -> max) |
+| `thickness` | 0.5 | Ring band width, blocks |
+| `tilt` | 0 | Ring plane pitch: 0 = flat on the ground, 90 = vertical wall (-90..90) |
+| `red/green/blue` | 1 / 0.35 / 0.1 | Ring colour |
+| `through_blocks` | 0 | 1 = visible through walls |
+| `intensity` | 1 (fades to 0) | Ring opacity |
+
+```
+/vfx playat vfxweaver:pulse_ring 8 70 8 {[radius:10],[tilt:30]}
+```
+
+#### `scan_sweep`
+A thin glowing sheet sweeps through the region along an axis, leaving a fading trail.
+
+| Param | Default | Description |
+|---|---|---|
+| `range` | 16 | Sweep length from the anchor along the axis (1..128) |
+| `axis` | 1 | 0 = X, 1 = Y (bottom -> top), 2 = Z |
+| `progress` | 0 -> 1 | Sheet position along the range (animate for the pass) |
+| `width` | 0.4 | Sheet thickness, blocks |
+| `trail` | 0.25 | Fading glow behind the sheet, fraction of `range` |
+| `red/green/blue` | 0.3 / 1 / 0.9 | Sheet colour |
+| `through_blocks` | 0 | 1 = visible through walls |
+| `intensity` | 1 (fades to 0) | Sheet and trail opacity |
+
+```
+/vfx playat vfxweaver:scan_sweep 8 70 8 {[axis:1]}
+```
+
+#### `guide_line`
+A glowing dashed line along a parabolic arc between two anchors.
+
+| Param | Default | Description |
+|---|---|---|
+| `width` | 0.15 | Line thickness, blocks |
+| `dash_length` | 0.6 | Dash length, blocks |
+| `gap` | 0.6 | Gap between dashes, blocks |
+| `speed` | 2 | Dash crawl speed along the line, blocks per second (negative = reverse) |
+| `arc` | 1.5 | Bows the path up (+) or droops it (-) at the midpoint, blocks |
+| `red/green/blue` | 0.25 / 1 / 0.45 | Line colour |
+| `through_blocks` | 0 | 1 = visible through walls |
+| `intensity` | 1 (fades to 0) | Line opacity |
+
+```
+/vfx playat vfxweaver:guide_line 8 70 8 {[arc:3]}
+```
 
 ### 2.3 Entity effects (second model pass)
 
@@ -397,6 +642,40 @@ Silhouette outline of the "inverted hull" type: the model is expanded by `width`
 /vfx playentity vfxweaver:entity_outline @e[type=pig,limit=1] {[width:0.1]}
 ```
 
+#### `entity_displace`
+Re-emits the targeted entity's model as a flat, per-vertex displaced echo on top of the intact body (the vanilla body stays underneath - a jittering "ghost" copy). Targets by UUID like the other entity effects.
+
+| Param | Default | Description |
+|---|---|---|
+| `amplitude` | 0.1 (fades to 0) | Max displacement in blocks (0..2) |
+| `scale` | 4 | Field detail: higher = neighbours diverge more (0.5..32) |
+| `seed` | 0 | Random phase; step it (`expr: "floor(t*8)*0.1"`) for 8x/s snaps, animate for smooth morphing |
+| `alpha` | 1 | Echo opacity |
+| `color_r/g/b` | 1 / 1 / 1 | Echo colour |
+| `through_blocks` | 0 | 1 = echo visible through walls, 0 = occluded |
+
+```
+/vfx playentity vfxweaver:entity_displace @e[type=zombie,limit=1] {[amplitude:0.2],[scale:6]}
+```
+
+#### `god_rays`
+Additive light beams rising out of the target's body (Ender Dragon death animation style), billboarded to the camera, alpha fading toward the tip with a sideways sway.
+
+| Param | Default | Description |
+|---|---|---|
+| `count` | 6 | Number of beams (1..16) |
+| `height` | 12 | Beam length upward from the body, blocks (1..64) |
+| `spread` | 0.6 | Beam origins spread around the body centre, blocks (0..4) |
+| `speed` | 2 | Beam rise speed, blocks per second (0.5..8) |
+| `sway` | 0.5 | Sideways sway, blocks (0..4) |
+| `red/green/blue` | 0.6 / 0.2 / 0.9 | Beam colour |
+| `through_blocks` | 0 | 1 = beams visible through walls |
+| `intensity` | 1 (fades to 0) | Beam opacity |
+
+```
+/vfx playentity vfxweaver:god_rays @e[type=dragon,limit=1] {[count:8]}
+```
+
 Targets are set via `/vfx playentity <effect> <selector>`, via the Java API (see [7](#7-java-api-for-other-mods)) or via the `entity_selector` field in the definition (then `/vfx play <effect>` is enough - the server finds the targets itself). One effect can target up to 16 entities; several effects can hang on one entity. On the first-person hand the local player's own effects are rendered too (`through_blocks` is ignored there - the hand always draws on top).
 
 ### 2.4 Misc
@@ -425,6 +704,31 @@ Changes the player's field of view.
 
 ```
 /vfx play vfxweaver:fov_modifier {[fov_delta:-20]}
+```
+
+#### `hud_fade`
+Fades the HUD to transparent while the player keeps full control. Currently covers the blit-drawn HUD layers (hotbar, hearts, hunger, XP bar, crosshair, boss bar); plain text layers (chat text, XP numbers, tooltips) are not yet faded - tracking the hud_fade spike follow-up.
+
+| Param | Default | Description |
+|---|---|---|
+| `opacity` | 0 -> 1 | HUD opacity: 0 = fully hidden, 1 = normal |
+| `chat` | 1 | 1 = chat fades too (currently the same global multiplier), 0 = keep chat readable (not yet differentiated) |
+
+```
+/vfx play vfxweaver:hud_fade
+```
+
+#### `camera_roll`
+Tilts the camera around its viewing axis by a fixed angle (dutch angle) with an optional slow wobble.
+
+| Param | Default | Description |
+|---|---|---|
+| `angle` | 15 (fades to 0) | Roll in degrees; positive = clockwise lean |
+| `wobble` | 0 | Sinusoidal sway of +/- this many degrees (0..45) |
+| `wobble_speed` | 0.2 | Sway frequency, Hz (0..2) |
+
+```
+/vfx play vfxweaver:camera_roll {[angle:25],[wobble:5]}
 ```
 
 ---
@@ -693,13 +997,13 @@ Child effect fields: `effect` (id, required), `delay` (ticks from collection sta
 
 ## 6. Built-in effects (no datapack)
 
-Post-processing: `vfxweaver:chromatic_aberration`, `vfxweaver:color_grade`, `vfxweaver:distortion`, `vfxweaver:dent`, `vfxweaver:gradient_map`, `vfxweaver:posterize`, `vfxweaver:blur`, `vfxweaver:pixelate`, `vfxweaver:hue_isolation`, `vfxweaver:vignette`, `vfxweaver:screen_flash`, `vfxweaver:motion_blur`, `vfxweaver:bloom`, `vfxweaver:film_grain`, `vfxweaver:scanlines`, `vfxweaver:depth_of_field`, `vfxweaver:letterbox`, `vfxweaver:invert`, `vfxweaver:vortex`, `vfxweaver:speed_lines`.
+Post-processing: `vfxweaver:chromatic_aberration`, `vfxweaver:color_grade`, `vfxweaver:distortion`, `vfxweaver:dent`, `vfxweaver:gradient_map`, `vfxweaver:posterize`, `vfxweaver:blur`, `vfxweaver:pixelate`, `vfxweaver:hue_isolation`, `vfxweaver:vignette`, `vfxweaver:screen_flash`, `vfxweaver:motion_blur`, `vfxweaver:bloom`, `vfxweaver:film_grain`, `vfxweaver:scanlines`, `vfxweaver:depth_of_field`, `vfxweaver:letterbox`, `vfxweaver:invert`, `vfxweaver:vortex`, `vfxweaver:speed_lines`, `vfxweaver:slice_shift`, `vfxweaver:noise_warp`, `vfxweaver:solarize`, `vfxweaver:double_vision`, `vfxweaver:eyelids`, `vfxweaver:iris_wipe`, `vfxweaver:digital_glitch`, `vfxweaver:vhs`, `vfxweaver:shockwave`, `vfxweaver:afterimage`, `vfxweaver:stop_motion`.
 
-World overlays: `vfxweaver:block_tint`, `vfxweaver:block_outline`.
+World overlays: `vfxweaver:block_tint`, `vfxweaver:block_outline`, `vfxweaver:block_displace`, `vfxweaver:light_beam`, `vfxweaver:pulse_ring`, `vfxweaver:scan_sweep`, `vfxweaver:guide_line`.
 
-Entity effects: `vfxweaver:entity_tint`, `vfxweaver:entity_outline`.
+Entity effects: `vfxweaver:entity_tint`, `vfxweaver:entity_outline`, `vfxweaver:entity_displace`, `vfxweaver:god_rays`.
 
-Misc: `vfxweaver:camera_shake`, `vfxweaver:fov_modifier`.
+Misc: `vfxweaver:camera_shake`, `vfxweaver:camera_roll`, `vfxweaver:fov_modifier`, `vfxweaver:hud_fade`.
 
 All have fade animation (40 ticks, except where noted); params can be overridden by collections.
 
