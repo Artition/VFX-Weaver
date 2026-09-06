@@ -10,6 +10,7 @@ import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
 import com.mojang.blaze3d.vertex.VertexFormat;
 import dev.vfxweaver.client.effect.VFXEffectManager;
+import dev.vfxweaver.client.noise.VFXNoise;
 import dev.vfxweaver.effect.VFXActiveEffect;
 import dev.vfxweaver.effect.VFXEffectType;
 import java.util.HashMap;
@@ -85,6 +86,26 @@ public final class VFXEntityEffectRenderer {
 		);
 	}
 
+	/**
+	 * Textureless flat-echo pipeline for {@code entity_displace}: the model vertices pass through
+	 * {@code entity_fx.vsh} (carrying the effect ARGB as vertex colour) and a small fragment
+	 * shader outputs that colour without sampling any texture, so render types are static (not
+	 * memoized per entity texture).
+	 */
+	private static RenderPipeline displacePipeline(final CompareOp depthOp, final String suffix) {
+		return RenderPipelines.register(
+			RenderPipeline.builder(RenderPipelines.MATRICES_FOG_LIGHT_DIR_SNIPPET)
+				.withLocation(Identifier.fromNamespaceAndPath("vfxweaver", "world/entity_displace_" + suffix))
+				.withVertexShader(Identifier.fromNamespaceAndPath("vfxweaver", "core/entity_fx"))
+				.withFragmentShader(Identifier.fromNamespaceAndPath("vfxweaver", "core/displace"))
+				.withVertexFormat(DefaultVertexFormat.ENTITY, VertexFormat.Mode.QUADS)
+				.withDepthStencilState(new DepthStencilState(depthOp, false))
+				.withColorTargetState(new ColorTargetState(BlendFunction.TRANSLUCENT))
+				.withCull(false)
+				.build()
+		);
+	}
+
 	// Pipeline per (mode, through_blocks) combination; RenderTypes then memoize per entity texture.
 	private static final RenderPipeline TINT_MULTIPLY_VISIBLE_P = entityFxPipeline("tint_multiply_visible", CompareOp.ALWAYS_PASS, "TINT_MULTIPLY");
 	private static final RenderPipeline TINT_MULTIPLY_OCCLUDED_P = entityFxPipeline("tint_multiply_occluded", CompareOp.LESS_THAN_OR_EQUAL, "TINT_MULTIPLY");
@@ -132,6 +153,16 @@ public final class VFXEntityEffectRenderer {
 	private static final FxType TINT_MASK_OCCLUDED = new FxType(TINT_MASK_OCCLUDED_P, "vfxweaver_entity_tint_mask_occluded", new HashMap<>());
 	private static final FxType OUTLINE_OCCLUDED = new FxType(OUTLINE_OCCLUDED_P, "vfxweaver_entity_outline_occluded", new HashMap<>());
 	private static final FxType OUTLINE_THROUGH = new FxType(OUTLINE_THROUGH_P, "vfxweaver_entity_outline_through", new HashMap<>());
+
+	// Displace echo variants: _VISIBLE = ALWAYS_PASS (shows through terrain), _OCCLUDED = LEQUAL.
+	private static final RenderType DISPLACE_VISIBLE = RenderType.create(
+		"vfxweaver_entity_displace_visible",
+		RenderSetup.builder(displacePipeline(CompareOp.ALWAYS_PASS, "visible")).createRenderSetup()
+	);
+	private static final RenderType DISPLACE_OCCLUDED = RenderType.create(
+		"vfxweaver_entity_displace_occluded",
+		RenderSetup.builder(displacePipeline(CompareOp.LESS_THAN_OR_EQUAL, "occluded")).createRenderSetup()
+	);
 
 	private VFXEntityEffectRenderer() {
 	}
@@ -273,6 +304,71 @@ public final class VFXEntityEffectRenderer {
 				float y = cy + (v.worldY() - cy) * sy;
 				float z = cz + (v.worldZ() - cz) * sz;
 				pose.pose().transformPosition(x, y, z, pos);
+				buffer.addVertex(pos.x(), pos.y(), pos.z(), color, v.u(), v.v(), OverlayTexture.NO_OVERLAY, lightCoords, normal.x(), normal.y(), normal.z());
+			}
+		}
+	}
+
+	/**
+	 * Displace pass: the model is re-emitted as a flat echo whose vertices are displaced by a
+	 * quantised per-vertex hash (see {@link VFXNoise}). The vanilla body stays underneath — the
+	 * visual is the model jittering out of place, not a replacement. The {@code seed} parameter
+	 * drives the motion (step it for snaps, animate it for fluid morphing).
+	 */
+	public static <S extends LivingEntityRenderState> void renderDisplace(
+		final VFXActiveEffect effect,
+		final S state,
+		final PoseStack poseStack,
+		final SubmitNodeCollector submitNodeCollector,
+		final Model<? super S> model,
+		final Identifier texture
+	) {
+		float amplitude = clamp01(effect.getParam("amplitude", 0.1F)) * effect.getWeight();
+		if (amplitude <= 0.0F) {
+			return;
+		}
+		boolean through = effect.getParam("through_blocks", 0.0F) >= 0.5F;
+		float scale = Math.max(effect.getParam("scale", 4.0F), 0.5F);
+		float seed = effect.getParam("seed", 0.0F);
+		int color = argb(effect, clamp01(effect.getParam("alpha", 1.0F)) * effect.getWeight());
+		RenderType renderType = through ? DISPLACE_VISIBLE : DISPLACE_OCCLUDED;
+		model.setupAnim(state);
+		submitNodeCollector.submitCustomGeometry(poseStack, renderType, (pose, buffer) -> {
+			PoseStack stack = new PoseStack();
+			stack.last().set(pose);
+			model.root().visit(stack, (partPose, path, cubeIndex, cube) ->
+				emitDisplacedCube(partPose, buffer, cube, amplitude, scale, seed, color, state.lightCoords));
+		});
+	}
+
+	/**
+	 * Emits one model cube with a per-vertex hash displacement. Local model coordinates are small,
+	 * so no precision wrapping is needed. Each vertex is offset by three hashes (one per axis) on
+	 * the {@code scale}-warped local position, so neighbouring vertices on high {@code scale}
+	 * diverge and the echo reads as glitch refraction rather than a rigid shift.
+	 */
+	private static void emitDisplacedCube(
+		final PoseStack.Pose pose,
+		final VertexConsumer buffer,
+		final ModelPart.Cube cube,
+		final float amplitude,
+		final float scale,
+		final float seed,
+		final int color,
+		final int lightCoords
+	) {
+		Vector3f pos = new Vector3f();
+		Vector3f normal = new Vector3f();
+		for (ModelPart.Polygon polygon : cube.polygons) {
+			pose.transformNormal(polygon.normal(), normal);
+			for (ModelPart.Vertex v : polygon.vertices()) {
+				float x = v.worldX() * scale;
+				float y = v.worldY() * scale;
+				float z = v.worldZ() * scale;
+				float ox = VFXNoise.vhash(x, y, z, seed) * amplitude;
+				float oy = VFXNoise.vhash(y, z, x, seed + 3.14F) * amplitude;
+				float oz = VFXNoise.vhash(z, x, y, seed + 6.28F) * amplitude;
+				pose.pose().transformPosition(v.worldX() + ox, v.worldY() + oy, v.worldZ() + oz, pos);
 				buffer.addVertex(pos.x(), pos.y(), pos.z(), color, v.u(), v.v(), OverlayTexture.NO_OVERLAY, lightCoords, normal.x(), normal.y(), normal.z());
 			}
 		}
