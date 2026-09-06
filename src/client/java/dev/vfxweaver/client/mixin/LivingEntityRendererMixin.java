@@ -65,7 +65,7 @@ public abstract class LivingEntityRendererMixin<T extends LivingEntity, S extend
 	)
 	private void vfxweaver$displaceOrSubmit(
 		final SubmitNodeCollector submitNodeCollector,
-		final EntityModel<? super S> vanillaModel,
+		final net.minecraft.client.model.Model<? super S> vanillaModel,
 		final Object stateObject,
 		final PoseStack poseStack,
 		final net.minecraft.client.renderer.rendertype.RenderType renderType,
