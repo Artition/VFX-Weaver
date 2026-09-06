@@ -1,486 +1,654 @@
-# New Effects Batch (slice_shift, noise_warp, entity/block_displace) Implementation Plan
+# New Effects Batch — v1.1.0 Implementation Plan (rev. 2)
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **Rev. 2:** incorporated the external senior-review pass. All blockers (eyelids, noise_warp, double_vision, vhs, feedback/stop_motion, slice_shift aspect, block_displace precision, entity_displace normals, digital_glitch gating) are fixed inline below. Affected tasks are marked **[review-fixed]**.
 
-**Goal:** Add three effects — screen `slice_shift`, screen `noise_warp`, and `entity/block_displace` (vertex glitch for entity and block models) — each fully registered, built-in defined, documented.
+**Goal:** Add the v1.1.0 effect batch: screen effects (`slice_shift`, `noise_warp`, `solarize`, `double_vision`, `eyelids`, `iris_wipe`, `digital_glitch`, `vhs`, `shockwave`, `afterimage`, `stop_motion`), entity/world geometry (`entity_displace`, `block_displace`, `god_rays`, `light_beam`, `pulse_ring`, `scan_sweep`, `guide_line`) and HUD/camera misc (`hud_fade`, `camera_roll`) — each fully registered, built-in defined, documented.
 
-**Architecture:** Screen effects follow the existing chain: fsh in `assets/vfxweaver/shaders/post/`, `registerPost(VFXEffectType.X, params...)` in `VFXShaderPrograms.register()`, enum constant + `neutralValue()` cases in `VFXEffectType`, built-in definition in `VFXDefinitionManager.registerBuiltIns()`. `entity_displace` is a second pass re-emitting model cubes with CPU noise displacement via `submitCustomGeometry` into the existing `TINT_MASK`-style pipelines. `block_displace` re-emits baked block-model quads with CPU noise displacement into existing block overlay pipelines. No new shader mechanisms needed for displace (CPU hash per vertex).
+**Architecture:** Screen effects follow the existing chain: fsh in `assets/vfxweaver/shaders/post/`, `registerPost(...)` in `VFXShaderPrograms.register()`, enum constant + `neutralValue()` cases in `VFXEffectType`, built-in in `VFXDefinitionManager.registerBuiltIns()`. `entity_displace`/`god_rays` are second-pass model re-emission through the existing `LivingEntityRendererMixin` loop + `VFXEntityEffectRenderer` (`submitCustomGeometry`). `block_displace` re-emits baked block-model quads (existing `VFXWorldOverlayRenderer`). No new shader mechanism needed for displace — CPU hash per vertex.
 
 **Tech Stack:** Java 25, Fabric 0.19.3, MC 26.1.2 (official mappings), GLSL 330.
 
-**Spec:** [docs/superpowers/specs/2026-09-05-new-effects-batch.md](../specs/2026-09-05-new-effects-batch.md)
+**Spec:** [docs/superpowers/specs/2026-09-05-new-effects-batch.md](../specs/2026-09-05-new-effects-batch.md) (authoritative for effect ideas and param semantics; this plan pins the exact shipped params and shader bodies).
 
 ## Global Constraints
 
 - Params are floats; modes are numeric (0/1) — no string params.
-- Built-in fade convention: the main param (`shift`, `amplitude`) is animated to `0` in the built-in definitions (`param(name, start, end)`).
-- `neutrValue` cases: add `neutralValue()` entries so fade weight blends toward neutral.
-- Docs: follow the new per-parameter format, copy-pasteable examples.
-- `gradlew build` green after every task.
+- **`time` plumbing (unified, [review-fixed]):** any shader that animates procedurally lists `"time"` last in its `registerPost(...)` Config array. `VFXPostProcessingManager` auto-fills it from `effect.getAge()` in **ticks** (see the existing `film_grain`/`scanlines` precedent at `VFXPostProcessingManager.VFXPass.execute`). No built-in `time` param and no `neutralValue("time")` case. Convert to seconds in-shader with `float t = time / 20.0`.
+- Built-in fade convention: the main param (`shift`, `amplitude`, `intensity`, `openness`, `radius`, `fps`, ...) is animated to `0` (or its neutral) in the built-in definitions (`param(name, start, end)`).
+- `neutralValue()` cases: every new animated param gets a case so the fade weight blends toward neutral. Params that must not be faded (time, positions, colors, seed, chance) stay `Float.NaN`.
+- **Pipeline naming convention (unified, [review-fixed]):** adopt the codebase's existing pairing — `*_VISIBLE` = `CompareOp.ALWAYS_PASS` (shows through terrain), `*_OCCLUDED` = `CompareOp.LESS_THAN_OR_EQUAL` (occluded by terrain). `through_blocks ≥ 0.5` routes to `_VISIBLE`. Do **not** swap the labels between entity and block flavours.
+- **CPU hash helper (shared, [review-fixed]):** one `VFXNoise` utility class (stateless, `final class` + private ctor — see `SimplexNoise` pattern) used by both `entity_displace` and `block_displace`:
+  ```java
+  // dev.vfxweaver.client.render.VFXNoise (or client.noise, colocate with SimplexNoise)
+  public final class VFXNoise {
+      private VFXNoise() { }
+      /** Quantised hash in [-1, 1]: 21 discrete steps give the "snap glitch" look. */
+      public static float vhash(float x, float y, float z, float seed) {
+          float h = x * 37.719F + y * 71.317F + z * 151.589F + seed * 31.7F;
+          return (float) Math.floor(fract(h) * 21.0F) / 21.0F * 2.0F - 1.0F;
+      }
+      public static float fract(float v) { return v - (float) Math.floor(v); }
+      /** Wraps a coordinate into [-4096, 4096) so world coords (±30M) keep float precision. [review-fixed] */
+      public static float wrap(final float v) { return ((v % 4096.0F) + 4096.0F) % 4096.0F; }
+  }
+  ```
+- **`expr` secrets note [review-fixed]:** `/vfx play*/... {[name:value]}` accepts **floats only** (`ParamMapArgument`). Animated/stepped `seed` must come from a **datapack** parameter (`"seed": { "expr": "floor(t * 8) * 0.1" }`), not from the command. Plan test commands below use plain floats; a datapack snippet is given where the stepped-seed look is the point.
+- Docs (Task 17) must document exactly the params that ship in the built-ins — `docs ≠ /vfx play` is a bug.
+- `gradlew build` green after every task (JDK 25 in `JAVA_HOME`).
+- New mixins (Gui, any new) must be added to `src/client/resources/vfxweaver.client.mixins.json`.
+- `VFXEffectManager.rebuildEntityEffectsIndex` currently indexes only `ENTITY_TINT`/`ENTITY_OUTLINE` — **extend it** to every type that targets entities by UUID (`ENTITY_DISPLACE`, `GOD_RAYS`), otherwise the render mixins never see them.
+- `VFXEffectType.isPostProcessing()` / `isWorldOverlay()` must be updated for every new type so effects route to the right consumer (post chain vs world-overlay renderer vs entity mixin vs misc).
 
 ---
 
-### Task 1: `slice_shift` screen effect
+### Task 1: `hud_fade` — spike first [review-fixed]
+
+**Why first:** the riskiest effect (grabbing the vanilla HUD alpha globally). Spike it before the batch so a dead end is found early, not after 8 effects.
+
+**Files:**
+- Create: `src/client/java/dev/vfxweaver/client/hud/HudFadeState.java`
+- Create: `src/client/java/dev/vfxweaver/client/mixin/GuiMixin.java`
+- Modify: `src/client/java/dev/vfxweaver/client/mixin/GameRendererMixin.java` (drive the per-frame value if needed)
+- Modify: `src/client/resources/vfxweaver.client.mixins.json`, `src/main/java/dev/vfxweaver/effect/VFXEffectType.java`, `src/main/java/dev/vfxweaver/resource/VFXDefinitionManager.java`
+
+- [ ] **Step 1 — spike: compute + draw.** Implement `HudFadeState`:
+  ```java
+  public final class HudFadeState {
+      private HudFadeState() { }
+      /** Effective HUD opacity (1 = normal) and chat opacity, from all active hud_fade effects. */
+      public static void compute(final VFXEffectManager manager, float[] outOpacity, float[] outChat) {
+          float opacity = 1.0F; float chat = 1.0F;
+          for (VFXActiveEffect e : manager.getActiveHudFades()) {
+              float fade = (1.0F - Mth.clamp(e.getParam("opacity", 0.0F), 0.0F, 1.0F)) * e.getWeight();
+              opacity *= (1.0F - fade);
+              chat    *= (1.0F - fade * Mth.clamp(e.getParam("chat", 1.0F), 0.0F, 1.0F));
+          }
+          outOpacity[0] = opacity; outChat[0] = chat;
+      }
+  }
+  ```
+  (add `getActiveHudFades()` to `VFXEffectManager`). Add a debug mixin on `Gui.render` HEAD/TAIL using `RenderSystem.setShaderColor(1,1,1,opacity)` / restore `(1,1,1,1)`. Run `gradlew runClient` + `/vfx play vfxweaver:hud_fade`, and check **which elements actually respect the global shader color**: hotbar, hearts/hunger, XP bar, crosshair, boss bar, chat. Screenshot each.
+- [ ] **Step 2 — finalise the hooking.** Based on the spike: if chat is not covered (its opacity is set later in `Gui.render`, likely), add a dedicated chat hook (inject near where chat render sets its own color/opacity; see how vanilla structures chat in 26.1). If non-HUD elements leak the color, restore at TAIL unconditionally and, if some element overrides mid-render, switch to per-method wrappers (`renderHotbar`, `renderPlayerHealth`, `renderCrosshair`, `renderExperienceBar`, ...) with `setShaderColor`/restore around each — the professor's documented fallback.
+- [ ] **Step 3 — enum + built-in.** `VFXEffectType.HUD_FADE("hud_fade")`; `isPostProcessing()` excludes it; no `neutralValue` needed (params are user-driven, no fade-weight blending; weight is multiplied in `compute`). Built-in:
+  ```java
+  builtIn("vfxweaver", "hud_fade", VFXEffectType.HUD_FADE, 40, EasingType.EASE_IN_OUT_CUBIC,
+      param("opacity", 0.0F, 1.0F),  // 0 = hidden -> 1 = normal at the end (fade back)
+      param("chat", 1.0F))
+  ```
+- [ ] **Step 4: build + visual test + Commit** — `feat(hud): hud_fade effect (opacity, chat)`. Document the actual element coverage observed.
+
+---
+
+### Task 2: `slice_shift` screen effect
 
 **Files:**
 - Create: `src/client/resources/assets/vfxweaver/shaders/post/slice_shift.fsh`
-- Modify: `src/main/java/dev/vfxweaver/effect/VFXEffectType.java` — enum `SLICE_SHIFT("slice_shift")` + `neutralValue()` case
-- Modify: `src/client/java/dev/vfxweaver/client/postprocessing/VFXShaderPrograms.java` — `registerPost(VFXEffectType.SLICE_SHIFT, "angle", "offset", "shift", "mirror")`
-- Modify: `src/main/java/dev/vfxweaver/resource/VFXDefinitionManager.java` — built-in
+- Modify: `VFXEffectType.java`, `VFXShaderPrograms.java`, `VFXDefinitionManager.java`
 
-**Interfaces:**
-- Produces: `VFXEffectType.SLICE_SHIFT`, shader `vfxweaver:post/slice_shift`, Config params order `angle, offset, shift, mirror`. Task 5 docs reference these.
+**Interfaces:** `VFXEffectType.SLICE_SHIFT`, shader `vfxweaver:post/slice_shift`, Config order `angle, offset, shift, mirror`.
 
-- [ ] **Step 1: enum + neutral.** Add `SLICE_SHIFT("slice_shift")` to the `VFXEffectType` enum; add to `neutralValue()`:
-```java
-case SLICE_SHIFT -> "shift".equals(parameter) ? 0.0F : Float.NaN;
-```
-
-- [ ] **Step 2: register.** In `VFXShaderPrograms.register()` after VORTEX:
-```java
-registerPost(VFXEffectType.SLICE_SHIFT, "angle", "offset", "shift", "mirror");
-```
-
-- [ ] **Step 3: shader.** Create `post/slice_shift.fsh` (POST_PROCESSING_SNIPPET pattern, same header as `post/blur.fsh`):
-```glsl
-#version 330
-#moj_import <minecraft:dynamictransforms.glsl>
-layout(std140) uniform Config { float angle; float offset; float shift; float mirror; };
-uniform sampler2D InSampler; in vec2 uv; out vec4 fragColor;
-
-void main() {
-    vec2 corr = vec2(uv.x, uv.y * InSize.y / InSize.x);      // aspect-corrected
-    float a = radians(angle);
-    vec2 n = vec2(cos(a + 1.5707963), sin(a + 1.5707963));
-    vec2 linePoint = vec2(0.5, 0.5) + n * offset;
-    float side = sign(dot(uv - linePoint, n));
-    if (side == 0.0) side = 1.0;
-    vec2 shifted = uv - side * shift * vec2(cos(a), sin(a));
-    vec2 wrapped = fract(shifted);
-    vec2 mirrored = abs(2.0 * fract(shifted / 2.0) - 1.0);
-    vec2 finalUV = mix(wrapped, mirrored, mirror);
-    fragColor = texture(InSampler, finalUV);
-}
-```
-Note: if `uv` from `core/screenquad` vsh is already 0..1 with no flip, keep as-is; verify orientation on screen (it must match `blur.fsh` sampling of InSampler).
-
-- [ ] **Step 4: built-in definition.** In `registerBuiltIns()`:
-```java
-this.builtIns.put(Identifier.fromNamespaceAndPath("vfxweaver", "slice_shift"),
-    builtIn("vfxweaver", "slice_shift", VFXEffectType.SLICE_SHIFT, 40, EasingType.EASE_IN_OUT_CUBIC,
-        param("angle", 0.0F), param("offset", 0.0F), param("shift", 0.05F, 0.0F), param("mirror", 0.0F)));
-```
-
-- [ ] **Step 5: build + visual test** (`gradlew build`; `gradlew runClient`, then `/vfx play vfxweaver:slice_shift {[angle:25],[shift:0.12]}`).
-
+- [ ] **Step 1: enum + neutral.** `SLICE_SHIFT("slice_shift")`; `neutralValue`: `"shift" -> 0.0F`, else `NaN`.
+- [ ] **Step 2: register.** `registerPost(VFXEffectType.SLICE_SHIFT, "angle", "offset", "shift", "mirror")`.
+- [ ] **Step 3: shader [review-fixed]** — aspect space used for the side/line math, mapped back to raw UV for sampling:
+  ```glsl
+  #version 330
+  uniform sampler2D InSampler; in vec2 texCoord;
+  layout(std140) uniform SamplerInfo { vec2 OutSize; vec2 InSize; };
+  layout(std140) uniform Config { float angle; float offset; float shift; float mirror; };
+  out vec4 fragColor;
+  void main() {
+      vec2 asp = vec2(InSize.x / InSize.y, 1.0);
+      vec2 ac = texCoord * asp;
+      float a = radians(angle);
+      vec2 n = vec2(cos(a + 1.5707963), sin(a + 1.5707963));
+      vec2 lp = vec2(0.5, 0.5) * asp + n * offset;
+      float side = sign(dot(ac - lp, n));
+      if (side == 0.0) side = 1.0;
+      vec2 shifted = (ac - side * shift * vec2(cos(a), sin(a))) / asp;
+      vec2 wrapped = fract(shifted);
+      vec2 mirrored = abs(2.0 * fract(shifted / 2.0) - 1.0);
+      fragColor = texture(InSampler, mix(wrapped, mirrored, mirror));
+  }
+  ```
+  Verify orientation vs `blur_x.fsh` (same `texCoord` convention). `shift == 0` is identity.
+- [ ] **Step 4: built-in** — `shift` 0.05 → 0, `angle` 0, `offset` 0, `mirror` 0, duration 40, `EASE_IN_OUT_CUBIC`.
+- [ ] **Step 5: build + visual test** (`gradlew build`; `/vfx play vfxweaver:slice_shift {[angle:25],[shift:0.12]}`). On 16:9, 45° must look like 45°.
 - [ ] **Step 6: Commit** — `feat(post): slice_shift screen effect`.
-
-### Task 2: `noise_warp` screen effect
-
-**Files:**
-- Create: `src/client/resources/assets/vfxweaver/shaders/post/noise_warp.fsh`
-- Modify: same four files as Task 1 (enum `NOISE_WARP("noise_warp")`, registerPost with `scale, amplitude, contrast, coherence, speed, drift_x, drift_y`, neutral case `"amplitude" -> 0.0F`, built-in with `amplitude` 0.03 → 0)
-
-**Interfaces:**
-- Produces: `VFXEffectType.NOISE_WARP`, shader `vfxweaver:post/noise_warp`, Config order `scale, amplitude, contrast, coherence, speed, drift_x, drift_y`.
-
-- [ ] **Step 1:** enum + `neutralValue`:
-```java
-case NOISE_WARP -> "amplitude".equals(parameter) ? 0.0F : Float.NaN;
-```
-
-- [ ] **Step 2:** `registerPost(VFXEffectType.NOISE_WARP, "scale", "amplitude", "contrast", "coherence", "speed", "drift_x", "drift_y");`
-
-- [ ] **Step 3: shader** `post/noise_warp.fsh`:
-```glsl
-#version 330
-#moj_import <minecraft:dynamictransforms.glsl>
-layout(std140) uniform Config { float scale; float amplitude; float contrast; float coherence; float speed; float drift_x; float drift_y; };
-uniform sampler2D InSampler; in vec2 uv; out vec4 fragColor;
-
-float hash(vec3 p) { return fract(sin(dot(p, vec3(127.1, 311.7, 74.7))) * 43758.5453); }
-float vnoise(vec3 p) { vec3 i = floor(p); vec3 f = fract(p);
-    vec3 s = f * f * (3.0 - 2.0 * f);
-    float a = hash(i), b = hash(i + vec3(1,0,0)), c = hash(i + vec3(0,1,0)), d = hash(i + vec3(1,1,0));
-    float e = hash(i + vec3(0,0,1)), f2 = hash(i + vec3(1,0,1)), g = hash(i + vec3(0,1,1)), h = hash(i + vec3(1,1,1));
-    return mix(mix(mix(a,b,s.x), mix(c,d,s.x), s.y), mix(mix(e,f2,s.x), mix(g,h,s.x), s.y), s.z); }
-
-void main() {
-    vec2 corr = uv * scale; corr.x *= InSize.x / InSize.y;
-    vec3 field = vec3(corr + vec2(drift_x, drift_y) * 8.0, speed * 8.0);
-    float mag = pow(vnoise(field), 2.0);                        // contrast curve
-    vec2 rndDir = normalize(vec2(hash(field), hash(field + 17.0)) - 0.5);
-    vec2 grad = vec2(vnoise(field + vec3(0.05, 0, 0)) - vnoise(field - vec3(0.05, 0, 0)),
-                     vnoise(field + vec3(0, 0.05, 0)) - vnoise(field - vec3(0, 0.05, 0)));
-    vec2 dir = mix(rndDir, grad, coherence);
-    fragColor = texture(InSampler, uv + dir * mag * amplitude);
-}
-```
-
-- [ ] **Step 4:** built-in definition:
-```java
-this.builtIns.put(Identifier.fromNamespaceAndPath("vfxweaver", "noise_warp"),
-    builtIn("vfxweaver", "noise_warp", VFXEffectType.NOISE_WARP, 60, EasingType.EASE_IN_OUT_CUBIC,
-        param("scale", 8.0F), param("amplitude", 0.03F, 0.0F), param("contrast", 2.0F),
-        param("coherence", 1.0F), param("speed", 0.5F), param("drift_x", 0.0F), param("drift_y", 0.0F)));
-```
-
-- [ ] **Step 5: build + visual test** (`[amplitude:0.06],[scale:4],[contrast:3]` should melt the image in patches).
-
-- [ ] **Step 6: Commit** — `feat(post): noise_warp screen effect`.
-
-### Task 3: `entity_displace` — CPU vertex displacement second pass
-
-**Files:**
-- Modify: `src/client/java/dev/vfxweaver/client/render/VFXEntityEffectRenderer.java` — add `renderDisplace` + two FxType entries `ENTITY_DISPLACE_VISIBLE/OCCLUDED` (pipelines copied from the existing `TINT_MASK_VISIBLE/OCCLUDED` pattern: ENTITY format, translucent, no texture sampling in fragment — flat `vertexColor` output; verify with the existing `entity_fx.fsh` TINT_MASK branch or a tiny `displace.fsh`)
-- Modify: `src/client/java/dev/vfxweaver/client/mixin/LivingEntityRendererMixin.java` — route `ENTITY_DISPLACE`... (actually route inside `renderTint`-style switch: add a `VFXEffectType.ENTITY_DISPLACE` branch in the effect loop calling `renderDisplace`)
-
-**Interfaces:**
-- Consumes: existing `submitCustomGeometry` + `arm/root().visit` emission pattern (see `renderOutline`), `argb(effect, alpha)`, effect targeting by UUID.
-- Produces: static `renderDisplace(effect, state, poseStack, collector, model, texture)` called from the mixin for `VFXEffectType.ENTITY_DISPLACE`.
-
-- [ ] **Step 1: pipelines.** Add in `VFXEntityEffectRenderer`:
-```java
-private static final RenderPipeline DISPLACE_VISIBLE_P = entityFxPipeline("displace_visible", CompareOp.LESS_THAN_OR_EQUAL, "DISPLACE");
-private static final RenderPipeline DISPLACE_OCCLUDED_P = entityFxPipeline("displace_occluded", CompareOp.ALWAYS_PASS, "DISPLACE");
-```
-and FxTypes `ENTITY_DISPLACE_VISIBLE/OCCLUDED` (name prefix `vfxweaver_entity_displace_...`).
-
-- [ ] **Step 2: CPU noise helper.**
-```java
-private static float vhash(float x, float y, float z, float seed) {
-    float h = x * 37.719F + y * 71.317F + z * 151.589F + seed * 3.137F;
-    return (float) Math.floor(fract(h) * 21.0F) / 21.0F * 2.0F - 1.0F;   // quantised -1..1
-}
-private static float fract(float v) { return v - (float) Math.floor(v); }
-```
-
-- [ ] **Step 3: renderDisplace.** Mirror `renderOutline` structure (through → occluded/always pair, alpha handling):
-```java
-float amplitude = clamp01(effect.getParam("amplitude", 0.1F)) * effect.getWeight();
-if (amplitude <= 0.0F) return;
-float scale = Math.max(effect.getParam("scale", 4.0F), 0.5F);
-float seed = effect.getParam("seed", 0.0F);
-int color = argb(effect, clamp01(effect.getParam("alpha", 1.0F)) * effect.getWeight());
-RenderType renderType = (through ? ENTITY_DISPLACE_OCCLUDED : ENTITY_DISPLACE_VISIBLE).forTexture(texture);
-model.setupAnim(state);
-submitNodeCollector.submitCustomGeometry(poseStack, renderType, (pose, buffer) -> {
-    PoseStack stack = new PoseStack();
-    stack.last().set(pose);
-    model.root().visit(stack, (partPose, path, cubeIndex, cube) ->
-        emitDisplacedCube(partPose, buffer, cube, amplitude, scale, seed, color, state.lightCoords));
-});
-```
-`emitDisplacedCube` = copy of `emitOutlineCube` with `thickness == 0` growth and a per-vertex offset:
-```java
-float ox = vhash(pos0x, pos0y, pos0z, seed) * amplitude;
-```
-where `(pos0x/y/z)` are the untransformed per-vertex coords (each vertex gets its own hash inputs from `v.worldX()/worldY()/worldZ()` and its corner index), applied along the vertex normal direction.
-
-- [ ] **Step 4: mixin routing.** In `LivingEntityRendererMixin.vfxweaver$applyEntityEffects` add:
-```java
-} else if (effect.getType() == VFXEffectType.ENTITY_DISPLACE) {
-    VFXEntityEffectRenderer.renderDisplace(effect, state, poseStack, submitNodeCollector, this.model, texture);
-}
-```
-
-- [ ] **Step 5:** add enum `ENTITY_DISPLACE("entity_displace")` + `VFXDefinition` import in `VFXEffectType` handling (isWorldOverlay: add ENTITY_DISPLACE if routed via world overlay path — verify which path the effect loop uses; it is driven by `getActiveEntityEffects`, no isWorldOverlay change needed unless the manager filters).
-
-- [ ] **Step 6: built-in definition.** In `registerBuiltIns()`:
-```java
-this.builtIns.put(Identifier.fromNamespaceAndPath("vfxweaver", "entity_displace"),
-    builtIn("vfxweaver", "entity_displace", VFXEffectType.ENTITY_DISPLACE, 40, EasingType.EASE_IN_OUT_CUBIC,
-        param("amplitude", 0.1F, 0.0F), param("scale", 4.0F), param("seed", 0.0F),
-        param("alpha", 1.0F), param("color_r", 1.0F), param("color_g", 1.0F), param("color_b", 1.0F)));
-```
-
-- [ ] **Step 7: build + visual test** (`/vfx playentity vfxweaver:entity_displace @e[type=zombie,limit=1] {[amplitude:0.2],[scale:6]}` — model jitters out of place; `[seed:{expr:"floor(t * 8) * 0.1"}]` — snaps 8×/s).
-
-- [ ] **Step 8: Commit** — `feat(render): entity_displace effect`.
-
-### Task 4: `block_displace` — CPU displaced block model quads
-
-**Files:**
-- Modify: `src/client/java/dev/vfxweaver/client/render/VFXWorldOverlayRenderer.java` — two new RTs (displace visible/occluded, position_color translucent, `blockPipeline(CompareOp, false, "displace_...")`), `renderDisplace` branch in the BLOCK_OUTLINE-style loop, `emitQuadsDisplaced` (copy of `emitQuads` adding per-vertex `vhash` offset along the quad normal, inputs: world-space vertex coords + seed)
-
-**Interfaces:**
-- Consumes: `effectPositions(effect)`, `getModelQuads(minecraft, pos)`, existing `blockPipeline`/`emitQuads` helpers.
-- Produces: `BLOCK_DISPLACE` handling in `VFXWorldOverlayRenderer.render()`.
-
-- [ ] **Step 1: RTs:**
-```java
-private static final RenderType DISPLACE_VISIBLE = RenderType.create(
-    "vfxweaver_block_displace_visible",
-    RenderSetup.builder(blockPipeline(CompareOp.ALWAYS_PASS, false, "displace_visible")).createRenderSetup());
-private static final RenderType DISPLACE_OCCLUDED = RenderType.create(
-    "vfxweaver_block_displace_occluded",
-    RenderSetup.builder(blockPipeline(CompareOp.LESS_THAN_OR_EQUAL, false, "displace_occluded")).createRenderSetup());
-```
-
-- [ ] **Step 2: branch in `render()`:** `BLOCK_DISPLACE` → `through ? DISPLACE_VISIBLE : DISPLACE_OCCLUDED` (same pattern as BLOCK_TINT; no inset, no extrusion).
-
-- [ ] **Step 3: displaced emission.** New `emitQuadsDisplaced(buffer, pose, quads, color, seed, amplitude, worldOrigin(BlockPos))`: per vertex, hash the **world-space** vertex position (block pos + local vertex coords) with the Task-3 `vhash` (make it package-visible or move to a small `VFXNoise` helper), offset along the quad normal by `hash * amplitude` (blocks), flat color.
-
-- [ ] **Step 4: built-in definition.** `vfxweaver:block_displace`, duration 40, params `amplitude 0.15 (animated to 0)`, `scale 4.0`, `seed 0.0`, `alpha 1.0`, `color` white defaults, `through_blocks` unused (both modes exist as RTs).
-
-- [ ] **Step 5: build + visual test** (`/vfx playat vfxweaver:block_displace 8 70 8 {[amplitude:0.2],[seed:0]}` — block quads jitter; `[seed:{expr:"floor(t * 8) * 0.1"}]` — snappy).
-
-- [ ] **Step 6: Commit** — `feat(render): block_displace effect`.
-
-### Task 5: `hud_fade` (Misc)
-
-**Files:**
-- Create: `src/client/java/dev/vfxweaver/client/hud/HudFadeState.java` — static float `opacity` (1..0) + `chatOpacity`, updated from the active effect each frame via `VFXEffectManager`
-- Create: `src/client/java/dev/vfxweaver/client/mixin/GuiFadeMixin.java` — targets `Gui`, injects at `render` HEAD: `RenderSystem.setShaderColor(1, 1, 1, hudOpacity)` ... or applies a global alpha via the dispatcher available in 26.1 (inspect how chat/chat opacity is already implemented by the game and mirror it)
-- Modify: `src/client/java/dev/vfxweaver/client/VFXClient.java` or the effect update path — writes `opacity`/`chat` values from the active `hud_fade` effect every frame
-
-**Interfaces:**
-- Produces: `HudFadeState.getOpacity()` and `getChatOpacity()` floats consumed by the mixin.
-
-- [ ] **Step 1:** implement `HudFadeState` + the effect→state sync (mirror the camera_shake update path).
-- [ ] **Step 2:** implement the mixin; the exact injection point must be verified against `Gui.render` in the mapped sources (the alpha mechanism depends on 26.1 internals - inspect `Gui`/`GuiRenderer` and pick the hook that covers hotbar/hears/xbar/chat).
-- [ ] **Step 3:** built-in `vfxweaver:hud_fade` (duration 40, `opacity 0 (animated 1 → 0)`, `chat 1`); register in `VFXEffectType` as a non-post type like `CAMERA_SHAKE`.
-- [ ] **Step 4: build + visual test + Commit** — `feat(hud): hud_fade effect`.
-
-### Task 6: `camera_roll` (Misc)
-
-**Files:**
-- Modify: `src/client/java/dev/vfxweaver/client/mixin/CameraMixin.java` (or the camera shake application point) — after the existing shake application, apply roll: rotate the view around the camera forward axis
-- Modify: `src/client/java/dev/vfxweaver/client/shake/CameraShakeManager.java` or a new `VFXCameraOverlays` helper — computes roll from `camera_roll` effects (`angle * weight + sin(t * wobble_speed * 6.28) * wobble * weight`)
-
-**Interfaces:**
-- Produces: roll angle in degrees applied as `poseStack.mulPose(Axis.ZP.rotationDegrees(roll))` (or the 26.1 equivalent in the camera state) at the same hook where `camera_shake` rotates the camera.
-
-- [ ] **Step 1:** implement the roll calculation next to the shake calculation.
-- [ ] **Step 2:** apply it at the same transform point the shake uses.
-- [ ] **Step 3:** built-in `vfxweaver:camera_roll` (duration 40, `angle 15 → 0`, `wobble 0`, `wobble_speed 0.2`).
-- [ ] **Step 4: build + visual test (tilt visible, screen stays interactive) + Commit** — `feat(render): camera_roll effect`.
-
-### Task 7: `god_rays` (Entity - dragon-death beams)
-
-**Files:**
-- Create: `src/client/java/dev/vfxweaver/client/render/VFXBeamsRenderer.java` — N additive vertical quads rising from the entity body, billboarded to the camera, alpha fading along the rise; spread over the body radius; sway by sin(t)
-- Modify: `src/client/java/dev/vfxweaver/client/mixin/ItemFrameRendererMixin.java` pattern -> new `EntityBeamsMixin`... (no: beams are drawn from the same `LivingEntityRendererMixin` effect loop - add a `VFXEffectType.GOD_RAYS` branch calling `VFXBeamsRenderer.render(state/camera...)`)
-
-**Interfaces:**
-- Consumes: the entity render pose (like entity_tint), `Additive` blending (new pipelines `god_rays_visible/occluded` with `BlendFunction.ADDITIVE` or `new ColorTargetState(new BlendFunction(...))`), light coords from the state.
-
-- [ ] **Step 1:** additive pipelines (two depth variants) + a `VFXBeamsRenderer.renderEffects(entityPose, collector, state)` emitting `count` rising quads.
-- [ ] **Step 2:** built-in `vfxweaver:god_rays` (duration 60, params per the spec).
-- [ ] **Step 3: build + visual test + Commit** — `feat(render): god_rays beams effect`.
-
-### Task 8: World quad effects — `light_beam`, `pulse_ring`, `scan_sweep`, `guide_line`
-
-**Files:**
-- Modify: `src/client/java/dev/vfxweaver/client/render/VFXWorldOverlayRenderer.java` — four new effect branches (quad generators + additive pipelines) + `VFXEffectType` additions (`LIGHT_BEAM`, `PULSE_RING`, `SCAN_SWEEP`, `GUIDE_LINE`; `isWorldOverlay()` updated)
-
-**Interfaces:**
-- Consumes: the existing world-overlay loop (positions/region, camera-relative PoseStack, `blockPipeline`-style registrations with `BlendFunction.ADDITIVE` for the glow quads).
-
-- [ ] **Step 1:** additive pipeline pair (visible/occluded) shared by the four effects; register in `VFXShaderPrograms`-style block (or the overlay renderer's own statics, mirroring `blockPipeline`).
-- [ ] **Step 2:** `light_beam` - vertical billboarded column (2 quads), alpha gradient to the top, sway offset per vertex.
-- [ ] **Step 3:** `pulse_ring` - flat annulus segments (12-24 segments), alpha soft edges, tilt by pitch.
-- [ ] **Step 4:** `scan_sweep` - sheet quad across the axis + 3-5 trail quads with decreasing alpha.
-- [ ] **Step 5:** `guide_line` - dashed quad chain along a parabola between two anchors (the region corners), dash phase from time.
-- [ ] **Step 6:** built-in definitions for all four (params per the spec).
-- [ ] **Step 7: build + visual test each + Commit** — `feat(render): world quad effects (light_beam, pulse_ring, scan_sweep, guide_line)`.
-
-### Task 9: feedback buffer infrastructure + `afterimage`, `stop_motion`
-
-**Files:**
-- Modify: `src/client/java/dev/vfxweaver/client/postprocessing/VFXPostProcessingManager.java` — add a persistent history target (`TextureTarget` created/destroyed alongside the ping-pong targets, sized on resize), plus `getHistoryTarget()`
-- Modify: `src/client/java/dev/vfxweaver/client/postprocessing/VFXShaderPrograms.java` — two new passes: `afterimage.fsh` (feedback mix: `hist = mix(prev.zoomed(drift), current, blend)`, desaturation, output) and `stop_motion.fsh` (sample history at `floor(t * fps) / fps`)
-- Modify: the pass executor - these two passes read AND write the history target (keep the current frame copy flow: copy main -> history-prep)
-
-**Interfaces:**
-- Produces: the history target lifecycle + two ProgramInfos (`afterimage` with params `decay/blend/drift/desat/intensity`; `stop_motion` with `fps/intensity`).
-
-- [ ] **Step 1:** add the persistent history target lifecycle (resize-aware, freed on shutdown via `freeGpuResources`).
-- [ ] **Step 2:** implement `afterimage` shader per the spec (feedback mix + desaturation + drift zoom).
-- [ ] **Step 3:** implement `stop_motion` shader per the spec (time-quantized history sampling).
-- [ ] **Step 4:** built-in definitions: `vfxweaver:afterimage` (duration 60, per spec), `vfxweaver:stop_motion` (duration 60, `fps 12 → 0`).
-- [ ] **Step 5: build + visual test (trails/quantization visible, fade returns to normal) + Commit** — `feat(post): feedback buffer + afterimage + stop_motion`.
-
-### Task 10: docs + changelog for the whole batch
-
-**Files:**
-- Modify: `docs/GUIDE.md` - new per-parameter subsections for every Task 1-17 effect (format: param / default / description + example), options line updates
-- Modify: `docs/CHANGELOG.md` - unreleased Added entries
-
-- [ ] **Step 1:** write the doc subsections from the shipped params (copy the tables used in the source test commands).
-- [ ] **Step 2: Commit** - `docs: document the new effects batch`.
 
 ---
 
+### Task 3: `noise_warp` screen effect [review-fixed]
 
-### Task 11: `solarize` screen effect
+**Files:** same four as Task 2; Config order `scale, amplitude, contrast, coherence, speed, drift_x, drift_y, time`.
 
-**Files:** Create `shaders/post/solarize.fsh`; modify `VFXEffectType` (+enum, +neutral), `VFXShaderPrograms` (+registerPost).
+- [ ] **Step 1: enum + neutral.** `NOISE_WARP("noise_warp")`; `neutralValue`: `"amplitude" -> 0.0F`, else `NaN`.
+- [ ] **Step 2: register.** `registerPost(VFXEffectType.NOISE_WARP, "scale", "amplitude", "contrast", "coherence", "speed", "drift_x", "drift_y", "time")` — `time` last (auto-filled, see Global Constraints).
+- [ ] **Step 3: shader** — the professor's fixed version (field animated by **seconds**-based `t`, gradient + smooth per-cell directions, `contrast` actually used):
+  ```glsl
+  #version 330
+  uniform sampler2D InSampler; in vec2 texCoord;
+  layout(std140) uniform SamplerInfo { vec2 OutSize; vec2 InSize; };
+  layout(std140) uniform Config { float scale; float amplitude; float contrast; float coherence;
+                                  float speed; float drift_x; float drift_y; float time; };
+  out vec4 fragColor;
+  float hash(vec3 p) { return fract(sin(dot(p, vec3(127.1, 311.7, 74.7))) * 43758.5453); }
+  float vnoise(vec3 p) {
+      vec3 i = floor(p); vec3 f = fract(p);
+      vec3 s = f * f * (3.0 - 2.0 * f);
+      float a = hash(i), b = hash(i + vec3(1,0,0)), c = hash(i + vec3(0,1,0)), d = hash(i + vec3(1,1,0));
+      float e = hash(i + vec3(0,0,1)), f2 = hash(i + vec3(1,0,1)), g = hash(i + vec3(0,1,1)), h = hash(i + vec3(1,1,1));
+      return mix(mix(mix(a,b,s.x), mix(c,d,s.x), s.y), mix(mix(e,f2,s.x), mix(g,h,s.x), s.y), s.z);
+  }
+  void main() {
+      float t = time / 20.0;                                   // seconds
+      vec2 corr = texCoord * scale; corr.x *= InSize.x / InSize.y;
+      vec3 field = vec3(corr + vec2(drift_x, drift_y) * t, t * speed);   // animated, not static
+      float n = vnoise(field);
+      float mag = pow(clamp(n, 0.0, 1.0), max(contrast, 0.1));          // contrast curve
+      vec2 grad = vec2(vnoise(field + vec3(0.05,0,0)) - vnoise(field - vec3(0.05,0,0)),
+                       vnoise(field + vec3(0,0.05,0)) - vnoise(field - vec3(0,0.05,0)));
+      vec2 rndDir = normalize(vec2(vnoise(field + vec3(13.7,0,0)) - 0.5,
+                                   vnoise(field + vec3(71.3,0,0)) - 0.5) + vec2(1.0e-5));
+      vec2 dir = normalize(mix(rndDir, grad, clamp(coherence, 0.0, 1.0)) + vec2(1.0e-5));
+      fragColor = texture(InSampler, texCoord + dir * mag * amplitude);
+  }
+  ```
+  Perf note [review-fixed]: 7 `vnoise` calls ≈ 56 hashes/pixel is acceptable for a post pass. Do **not** add octaves; if it ever shows up in profiling, switch the gradient to forward-difference (reuse the center sample, 2 taps instead of 4).
+- [ ] **Step 4: built-in** — `scale` 8, `amplitude` 0.03 → 0, `contrast` 2, `coherence` 1, `speed` 0.5, `drift_x/y` 0, duration 60.
+- [ ] **Step 5: build + visual test** (`[amplitude:0.06],[scale:4],[contrast:3]` — fluid melting patches, **must visibly morph over time**, no flicker).
+- [ ] **Step 6: Commit** — `feat(post): noise_warp screen effect`.
 
-- [ ] **Step 1: shader.** Header as blur.fsh; Config `{ float threshold; float softness; float intensity; }`:
-```glsl
-void main() {
-    vec4 c = texture(InSampler, uv);
-    float luma = dot(c.rgb, vec3(0.299, 0.587, 0.114));
-    float t = smoothstep(threshold - softness / 2.0 - 1.0e-4, threshold + softness / 2.0 + 1.0e-4, luma);
-    fragColor = vec4(mix(c.rgb, 1.0 - c.rgb, t * intensity), c.a);
-}
-```
+---
 
-- [ ] **Step 2: wiring.** `SLICE_SHIFT`-pattern: enum `SOLARIZE("solarize")`; `registerPost(VFXEffectType.SOLARIZE, "threshold", "softness", "intensity")`; `neutralValue`: `"intensity" -> 0.0F`; built-in: duration 40, params `threshold 0.5`, `softness 0`, `intensity 1 → 0`.
+### Task 4: `entity_displace` — CPU vertex displacement second pass [review-fixed]
 
+**Semantics [review-fixed]:** the vanilla body stays underneath; the displaced copy is an **echo/ghost** of the model (not a replacement). Document it honestly: "the model jitters out of place" == a displaced echo overlapping the intact body. Test criterion reads that way.
+
+**Files:**
+- Create: `src/client/resources/assets/vfxweaver/shaders/core/displace.fsh` (reuse `entity_fx.vsh`)
+- Modify: `src/client/java/dev/vfxweaver/client/render/VFXEntityEffectRenderer.java` (`renderDisplace` + pipelines)
+- Modify: `src/client/java/dev/vfxweaver/client/render/VFXNoise.java` (new, Global Constraints)
+- Modify: `src/client/java/dev/vfxweaver/client/mixin/LivingEntityRendererMixin.java`
+- Modify: `src/client/java/dev/vfxweaver/client/effect/VFXEffectManager.java` (`rebuildEntityEffectsIndex` + type filter)
+- Modify: `VFXEffectType.java`, `VFXDefinitionManager.java`
+
+- [ ] **Step 1 [review-fixed]: separate flat echo shader.** A dedicated `displace.fsh` (do not extend `entity_fx.fsh` — its `#ifdef` chain would grow unreadable and the pass needs no texture at all):
+  ```glsl
+  #version 330
+  #moj_import <minecraft:fog.glsl>
+  #moj_import <minecraft:dynamictransforms.glsl>
+  in float sphericalVertexDistance;
+  in float cylindricalVertexDistance;
+  in vec4 vertexColor;
+  in vec2 texCoord0;
+  out vec4 fragColor;
+  void main() {
+      vec4 color = vertexColor;
+      if (color.a <= 0.0) { discard; }
+      fragColor = apply_fog(color, sphericalVertexDistance, cylindricalVertexDistance,
+                            FogEnvironmentalStart, FogEnvironmentalEnd,
+                            FogRenderDistanceStart, FogRenderDistanceEnd, FogColor);
+  }
+  ```
+  Reuse `core/entity_fx.vsh` for the vertex stage.
+- [ ] **Step 2: pipelines.** In `VFXEntityEffectRenderer`, a `displacePipeline(depthOp, suffix)` helper mirroring `entityFxPipeline` but with fragment `core/displace`, `withShaderDefine` omitted, **no** `withSampler` (this pass is textureless — RenderTypes are static, not per-texture):
+  ```java
+  private static RenderPipeline displacePipeline(final CompareOp depthOp, final String suffix) {
+      return RenderPipelines.register(
+          RenderPipeline.builder(RenderPipelines.MATRICES_FOG_LIGHT_DIR_SNIPPET)
+              .withLocation(Identifier.fromNamespaceAndPath("vfxweaver", "world/entity_displace_" + suffix))
+              .withVertexShader(Identifier.fromNamespaceAndPath("vfxweaver", "core/entity_fx"))
+              .withFragmentShader(Identifier.fromNamespaceAndPath("vfxweaver", "core/displace"))
+              .withVertexFormat(DefaultVertexFormat.ENTITY, VertexFormat.Mode.QUADS)
+              .withDepthStencilState(new DepthStencilState(depthOp, false))
+              .withColorTargetState(new ColorTargetState(BlendFunction.TRANSLUCENT))
+              .withCull(false)
+              .build()
+      );
+  }
+  private static final RenderType DISPLACE_VISIBLE = RenderType.create(
+      "vfxweaver_entity_displace_visible",
+      RenderSetup.builder(displacePipeline(CompareOp.ALWAYS_PASS, "visible")).createRenderSetup());
+  private static final RenderType DISPLACE_OCCLUDED = RenderType.create(
+      "vfxweaver_entity_displace_occluded",
+      RenderSetup.builder(displacePipeline(CompareOp.LESS_THAN_OR_EQUAL, "occluded")).createRenderSetup());
+  ```
+  Naming convention per Global Constraints: `_VISIBLE` = ALWAYS_PASS (through), `_OCCLUDED` = LEQUAL.
+- [ ] **Step 3: renderDisplace.** Mirror `renderOutline`'s structure without the thickness growth:
+  ```java
+  public static <S extends LivingEntityRenderState> void renderDisplace(
+      final VFXActiveEffect effect, final S state, final PoseStack poseStack,
+      final SubmitNodeCollector submitNodeCollector, final Model<? super S> model, final Identifier texture
+  ) {
+      float amplitude = clamp01(effect.getParam("amplitude", 0.1F)) * effect.getWeight();
+      if (amplitude <= 0.0F) { return; }
+      boolean through = effect.getParam("through_blocks", 0.0F) >= 0.5F;
+      float scale = Math.max(effect.getParam("scale", 4.0F), 0.5F);
+      float seed = effect.getParam("seed", 0.0F);
+      int color = argb(effect, clamp01(effect.getParam("alpha", 1.0F)) * effect.getWeight());
+      RenderType renderType = through ? DISPLACE_VISIBLE : DISPLACE_OCCLUDED;
+      model.setupAnim(state);
+      submitNodeCollector.submitCustomGeometry(poseStack, renderType, (pose, buffer) -> {
+          PoseStack stack = new PoseStack();
+          stack.last().set(pose);
+          model.root().visit(stack, (partPose, path, cubeIndex, cube) ->
+              emitDisplacedCube(partPose, buffer, cube, amplitude, scale, seed, color, state.lightCoords));
+      });
+  }
+  ```
+- [ ] **Step 4: emitDisplacedCube [review-fixed].** Entity coords are local and small (worldX()/worldY()/worldZ() ~ ±2 · scale) — no precision wrap needed here. Per-vertex offset via 3 hashes (X/Y/Z components) so the echo looks like glitch refraction, and `scale` warps the hash inputs (larger scale → neighbours diverge more). No normal-along-vertex: it would tear shared corners inconsistently and read no better.
+  ```java
+  private static void emitDisplacedCube(
+      final PoseStack.Pose pose, final VertexConsumer buffer, final ModelPart.Cube cube,
+      final float amplitude, final float scale, final float seed, final int color, final int lightCoords
+  ) {
+      Vector3f pos = new Vector3f();
+      Vector3f normal = new Vector3f();
+      for (ModelPart.Polygon polygon : cube.polygons) {
+          pose.transformNormal(polygon.normal(), normal);
+          for (ModelPart.Vertex v : polygon.vertices()) {
+              float x = v.worldX() * scale, y = v.worldY() * scale, z = v.worldZ() * scale;
+              float ox = VFXNoise.vhash(x, y, z, seed) * amplitude;
+              float oy = VFXNoise.vhash(y, z, x, seed + 3.14F) * amplitude;
+              float oz = VFXNoise.vhash(z, x, y, seed + 6.28F) * amplitude;
+              pose.pose().transformPosition(v.worldX() + ox, v.worldY() + oy, v.worldZ() + oz, pos);
+              buffer.addVertex(pos.x(), pos.y(), pos.z(), color, v.u(), v.v(),
+                  OverlayTexture.NO_OVERLAY, lightCoords, normal.x(), normal.y(), normal.z());
+          }
+      }
+  }
+  ```
+- [ ] **Step 5: mixin routing.** In `LivingEntityRendererMixin.vfxweaver$applyEntityEffects` add:
+  ```java
+  } else if (effect.getType() == VFXEffectType.ENTITY_DISPLACE) {
+      VFXEntityEffectRenderer.renderDisplace(effect, state, poseStack, submitNodeCollector, this.model, texture);
+  }
+  ```
+  Also extend `VFXEffectManager.rebuildEntityEffectsIndex` so `ENTITY_DISPLACE` (and later `GOD_RAYS`) are indexed by UUID, and exclude `ENTITY_DISPLACE` from `isPostProcessing()`.
+- [ ] **Step 6: enum + built-in.** `ENTITY_DISPLACE("entity_displace")`; `neutralValue` `NaN` for all (weight multiplies amplitude directly). Built-in duration 40:
+  ```java
+  param("amplitude", 0.1F, 0.0F), param("scale", 4.0F), param("seed", 0.0F),
+  param("alpha", 1.0F), param("through_blocks", 0.0F),
+  param("color_r", 1.0F), param("color_g", 1.0F), param("color_b", 1.0F)
+  ```
+- [ ] **Step 7: build + visual test.** `/vfx playentity vfxweaver:entity_displace @e[type=zombie,limit=1] {[amplitude:0.2],[scale:6]}` — the model shows a displaced echo on top of the intact body. For the stepped "snaps 8×/s" look use a datapack:
+  ```json
+  { "type": "entity_displace", "duration": 60,
+    "params": { "amplitude": 0.2, "scale": 6, "seed": { "expr": "floor(t * 8) * 0.1" } } }
+  ```
+  (command params are floats only — see Global Constraints).
+- [ ] **Step 8: Commit** — `feat(render): entity_displace echo effect`.
+
+---
+
+### Task 5: `block_displace` — CPU displaced block model quads [review-fixed]
+
+Semantics same as Task 4: a corrupted echo overlaying the intact block. This is intentional (base not hidden); document it.
+
+**Files:**
+- Modify: `src/client/java/dev/vfxweaver/client/render/VFXWorldOverlayRenderer.java`
+- Modify: `VFXNoise.java` (shared, already in Task 4), `VFXEffectType.java`, `VFXDefinitionManager.java`
+
+- [ ] **Step 1: RTs [review-fixed]** — same naming convention as Task 4 (`_VISIBLE` = ALWAYS_PASS, `_OCCLUDED` = LEQUAL):
+  ```java
+  private static final RenderType DISPLACE_VISIBLE = RenderType.create(
+      "vfxweaver_block_displace_visible",
+      RenderSetup.builder(blockPipeline(CompareOp.ALWAYS_PASS, false, "displace_visible")).createRenderSetup());
+  private static final RenderType DISPLACE_OCCLUDED = RenderType.create(
+      "vfxweaver_block_displace_occluded",
+      RenderSetup.builder(blockPipeline(CompareOp.LESS_THAN_OR_EQUAL, false, "displace_occluded")).createRenderSetup());
+  ```
+- [ ] **Step 2: branch in `render()`.** `BLOCK_DISPLACE` → `through ? DISPLACE_VISIBLE : DISPLACE_OCCLUDED` (same pattern as BLOCK_TINT; no outset, no extrusion). New `renderDisplaced(...)` mirrors `renderEffect` but calls `emitQuadsDisplaced`.
+- [ ] **Step 3: displaced emission [review-fixed].** Hash the **world-space** vertex position (`blockPos + local`), wrapped for float precision (world coords reach ±30M):
+  ```java
+  private static void emitQuadsDisplaced(final VertexConsumer buffer, final PoseStack.Pose pose,
+      final List<BakedQuad> quads, final int color, final BlockPos pos,
+      final float amplitude, final float scale, final float seed) {
+      for (BakedQuad quad : quads) {
+          for (int i = 0; i < 4; i++) {
+              var p = quad.position(i);
+              float wx = (pos.getX() + p.x()) * scale;
+              float wy = (pos.getY() + p.y()) * scale;
+              float wz = (pos.getZ() + p.z()) * scale;
+              float ox = VFXNoise.vhash(VFXNoise.wrap(wx), VFXNoise.wrap(wy), VFXNoise.wrap(wz), seed) * amplitude;
+              float oy = VFXNoise.vhash(VFXNoise.wrap(wy), VFXNoise.wrap(wz), VFXNoise.wrap(wx), seed + 3.14F) * amplitude;
+              float oz = VFXNoise.vhash(VFXNoise.wrap(wz), VFXNoise.wrap(wx), VFXNoise.wrap(wy), seed + 6.28F) * amplitude;
+              buffer.addVertex(pose, p.x() + ox, p.y() + oy, p.z() + oz).setColor(color);
+          }
+      }
+  }
+  ```
+  Add `emitCubeFillDisplaced` for the no-model fallback using `CUBE_FACES` with the same world-space hash. Displacement in world space per block means adjacent blocks get different patterns (no repeating 1-block grid).
+- [ ] **Step 4: enum + built-in + `isWorldOverlay()`.** `BLOCK_DISPLACE("block_displace")`; add to `isWorldOverlay()`; `neutralValue` NaN. Built-in duration 40: `amplitude` 0.15 → 0, `scale` 4, `seed` 0, `alpha` 1, `through_blocks` 0, white color constants.
+- [ ] **Step 5: build + visual test.** `/vfx playat vfxweaver:block_displace 8 70 8 {[amplitude:0.2]}` — block quads jitter as an echo. Stepped-seed datapack example identical in shape to Task 4's.
+- [ ] **Step 6: Commit** — `feat(render): block_displace effect`.
+
+---
+
+### Task 6: `camera_roll` (Misc)
+
+**Files:** Modify `src/client/java/dev/vfxweaver/client/shake/CameraShakeManager.java` (add roll computation) and `src/client/java/dev/vfxweaver/client/mixin/CameraMixin.java` (apply after shake); `VFXEffectType.java`, `VFXDefinitionManager.java`.
+
+- [ ] **Step 1: compute roll.** Add `VFXCameraRoll.compute(manager)` (new tiny class, or fold into `CameraShakeManager`) summing over `camera_roll` effects:
+  ```java
+  float roll = 0.0F;
+  for (VFXActiveEffect e : manager.getActiveCameraRolls()) {
+      float w = e.getWeight();
+      float t = e.getElapsed() / 20.0F;
+      float wob = e.getParam("wobble", 0.0F) * (float) Math.sin(t * e.getParam("wobble_speed", 0.2F) * 6.2831853);
+      roll += (e.getParam("angle", 0.0F) + wob) * w;
+  }
+  ```
+  Return wrapDegrees.
+- [ ] **Step 2: apply.** In `CameraMixin.vfxweaver$applyShake` (after the shake's own roll), apply the camera_roll angle as `rotationZ`, transforming `forwards/up/left` exactly like the shake roll block does. (You cannot just add into shake's `Offset.roll` — Wobble wobble should not be modulated by shake's simplex envelope.)
+- [ ] **Step 3: enum + built-in.** `CAMERA_ROLL("camera_roll")`; exclude from `isPostProcessing()`; `VFXEffectManager.getActiveCameraRolls()`. Built-in duration 40: `angle` 15 → 0, `wobble` 0, `wobble_speed` 0.2.
+- [ ] **Step 4: build + visual test (tilt visible, screen stays interactive) + Commit** — `feat(render): camera_roll effect`.
+
+---
+
+### Task 7: `solarize` screen effect
+
+**Files:** create `post/solarize.fsh`; modify the three post files.
+
+- [ ] **Step 1: shader.** Config `{ float threshold; float softness; float intensity; }`:
+  ```glsl
+  void main() {
+      vec4 c = texture(InSampler, texCoord);
+      float luma = dot(c.rgb, vec3(0.299, 0.587, 0.114));
+      float t = smoothstep(threshold - softness / 2.0 - 1.0e-4, threshold + softness / 2.0 + 1.0e-4, luma);
+      fragColor = vec4(mix(c.rgb, 1.0 - c.rgb, t * intensity), c.a);
+  }
+  ```
+- [ ] **Step 2: wiring + built-in.** `SOLARIZE("solarize")`; `registerPost(SOLARIZE, "threshold", "softness", "intensity")`; `neutralValue`: `"intensity" -> 0.0F`; built-in duration 40: `threshold` 0.5, `softness` 0, `intensity` 1 → 0.
 - [ ] **Step 3: build + visual test + Commit** — `feat(post): solarize screen effect`.
 
-### Task 12: `double_vision` screen effect
+---
 
-**Files:** Create `post/double_vision.fsh`; modify the three files (pattern of Task 6).
+### Task 8: `double_vision` screen effect [review-fixed]
 
-- [ ] **Step 1: shader.** Config `{ float offset; float ghost_opacity; float drift; float intensity; }`; uniform `float time` added to Config (see film_grain `time`):
-```glsl
-void main() {
-    float drift = sin(time * 1.2) * drift_amp;   // drift_amp = drift * 8.0 from java side? keep: pass drift already in fractions
-    vec2 base = vec2(offset + drift, 0.0);
-    vec4 c = texture(InSampler, uv) * (1.0 - ghost_opacity * intensity);
-    c += texture(InSampler, uv + base) * ghost_opacity * intensity;
-    c += texture(InSampler, uv - base) * ghost_opacity * intensity;
-    fragColor = vec4(c.rgb, 1.0);
-}
-```
-Note: keep Config params `offset`, `ghost_opacity`, `drift`, `intensity` (drift animated in shader via `time`; `time` is already passed for film_grain/scanlines - reuse that plumbing).
+**Files:** create `post/double_vision.fsh`; modify the three post files.
 
-- [ ] **Step 2: wiring + built-in.** `registerPost(VFXEffectType.DOUBLE_VISION, "offset", "ghost_opacity", "drift", "intensity", "time")`; enum `DOUBLE_VISION("double_vision")`; neutral `"intensity" -> 0.0F`; built-in: duration 60, params `offset 0.04`, `ghost_opacity 0.5`, `drift 0.02`, `intensity 1 → 0`.
+- [ ] **Step 1: shader [review-fixed]** — compile-safe (no undeclared `drift_amp`) and energy-preserving (weights sum to 1, no 1.5× brightening):
+  ```glsl
+  layout(std140) uniform Config { float offset; float ghost_opacity; float drift; float intensity; float time; };
+  ...
+  void main() {
+      float g = ghost_opacity * intensity;
+      float driftOff = sin((time / 20.0) * 1.2) * drift;      // seconds; slow sinusoidal drift
+      vec2 base = vec2(offset + driftOff, 0.0);
+      vec4 c = (texture(InSampler, texCoord)
+              + texture(InSampler, texCoord + base) * g
+              + texture(InSampler, texCoord - base) * g) / (1.0 + 2.0 * g);
+      fragColor = vec4(c.rgb, 1.0);
+  }
+  ```
+- [ ] **Step 2: wiring + built-in.** `DOUBLE_VISION("double_vision")`; `registerPost(DOUBLE_VISION, "offset", "ghost_opacity", "drift", "intensity", "time")`; `neutralValue`: `"intensity" -> 0.0F`; built-in duration 60: `offset` 0.04, `ghost_opacity` 0.5, `drift` 0, `intensity` 1 → 0.
+- [ ] **Step 3: build + visual test (ghost copies, no brightness jump) + Commit** — `feat(post): double_vision screen effect`.
 
-- [ ] **Step 3: build + visual test + Commit** — `feat(post): double_vision screen effect`.
+---
 
-### Task 13: `eyelids` screen effect
+### Task 9: `eyelids` screen effect [review-fixed]
 
-**Files:** Create `post/eyelids.fsh`; modify the three files (pattern of Task 6).
+**Files:** create `post/eyelids.fsh`; modify the three post files.
 
-- [ ] **Step 1: shader.** Config `{ float openness; float softness; float curve; }`:
-```glsl
-void main() {
-    float halfOpen = openness / 2.0;                       // lid travel from each edge
-    float bulge = curve * 0.5 * (1.0 - 4.0 * pow(uv.x - 0.5, 2.0));
-    float lidTop = halfOpen + bulge;                       // top lid edge, uv.y from bottom
-    float lidBottom = 1.0 - halfOpen - bulge;
-    float t = smoothstep(lidTop - softness, lidTop + softness, uv.y);
-    float b = smoothstep(lidBottom - softness, lidBottom + softness, 1.0 - uv.y);
-    float mask = clamp(t + b, 0.0, 1.0);
-    fragColor = vec4(0.0, 0.0, 0.0, mask);
-}
-```
+- [ ] **Step 1: shader [review-fixed]** — fixes both bugs: (A) lids are at the screen edges when `openness=1` (overshoot via `travel`, so even edge rows are clear), and (B) it **composites** over `InSampler` instead of writing an unblended black `vec4`:
+  ```glsl
+  layout(std140) uniform Config { float openness; float softness; float curve; };
+  ...
+  void main() {
+      float closure = clamp(1.0 - openness, 0.0, 1.0);
+      float bulge = curve * 0.5 * (1.0 - 4.0 * pow(texCoord.x - 0.5, 2.0)) * closure;
+      float travel = closure * (0.5 + 2.0 * softness);       // feathers leave the screen when open
+      float lidTop = 1.0 + softness - travel + bulge;
+      float lidBot = -softness + travel - bulge;
+      float t = smoothstep(lidTop - softness, lidTop + softness, texCoord.y);
+      float b = 1.0 - smoothstep(lidBot - softness, lidBot + softness, texCoord.y);
+      float mask = clamp(t + b, 0.0, 1.0);
+      fragColor = vec4(mix(texture(InSampler, texCoord).rgb, vec3(0.0), mask), 1.0);
+  }
+  ```
+  Check: `openness=1` → `mask=0` everywhere; `openness=0` → lids meet at `0.5`; bulge scales with `closure` so the neutral state is clean.
+- [ ] **Step 2: wiring + built-in.** `EYELIDS("eyelids")`; `registerPost(EYELIDS, "openness", "softness", "curve")`; `neutralValue`: `"openness" -> 1.0F`; built-in duration 120 (slow blink), params `openness` 0.5, `softness` 0.15, `curve` 0.35 as constants — owners animate `openness` via keyframes/bindings (a 40-tick built-in fade is not the intended use).
+- [ ] **Step 3: build + visual test (black screen ONLY when closed; open = fully clear) + Commit** — `feat(post): eyelids screen effect`.
 
-- [ ] **Step 2: wiring + built-in.** `registerPost(..., "openness", "softness", "curve")`; enum `EYELIDS("eyelids")`; neutral `"openness" -> 1.0F`; built-in: duration 40, params `openness 0.5`, `softness 0.15`, `curve 0.35` (constants - owner animates openness via keyframes/bindings).
+---
 
-- [ ] **Step 3: build + visual test + Commit** — `feat(post): eyelids screen effect`.
+### Task 10: `iris_wipe` screen effect
 
-### Task 14: `iris_wipe` screen effect
+**Files:** create `post/iris_wipe.fsh`; modify the three post files.
 
-**Files:** Create `post/iris_wipe.fsh`; modify the three files (pattern of Task 6).
+- [ ] **Step 1: shader** (mirror `dent`'s `center_x/center_y` + aspect handling):
+  ```glsl
+  layout(std140) uniform Config { float radius; float softness; float center_x; float center_y; float zoom; };
+  ...
+  void main() {
+      vec2 aspect = vec2(InSize.x / InSize.y, 1.0);
+      vec2 corr = (texCoord - vec2(center_x, center_y)) * aspect;
+      float dist = length(corr);
+      float mask = smoothstep(radius - softness, radius + softness, dist);
+      float zoomFactor = 1.0 - zoom * (1.0 - clamp(dist / max(radius, 1.0e-4), 0.0, 1.0));
+      vec2 zoomed = vec2(center_x, center_y) + (texCoord - vec2(center_x, center_y)) * zoomFactor;
+      vec4 inner = texture(InSampler, zoomed);
+      fragColor = mix(inner, vec4(0.0, 0.0, 0.0, 1.0), mask);
+  }
+  ```
+- [ ] **Step 2: wiring + built-in.** `IRIS_WIPE("iris_wipe")`; `registerPost(IRIS_WIPE ...)` — Config order above; `neutralValue`: `"radius" -> 1.4F` (and it is the built-in animated param); built-in duration 40: `radius` 0.4 → 1.4 (open by fading out), `softness` 0.05, `center_x/y` 0.5, `zoom` 1 → 0.
+  - Note [review-fixed]: neutral `radius` should be **large** (open), not small. Fade blends toward neutral only for persistent fade-out; the built-in animation drives the swipe itself.
+- [ ] **Step 3: build + visual test (iris opens/closes) + Commit** — `feat(post): iris_wipe screen effect`.
 
-- [ ] **Step 1: shader.** Config `{ float radius; float softness; float center_x; float center_y; float zoom; }`:
-```glsl
-void main() {
-    vec2 aspect = vec2(InSize.x / InSize.y, 1.0);
-    vec2 corr = (uv - vec2(center_x, center_y)) * aspect;
-    float dist = length(corr);
-    float mask = smoothstep(radius - softness, radius + softness, dist);
-    float zoomFactor = 1.0 - zoom * (1.0 - clamp(dist / max(radius, 1.0e-4), 0.0, 1.0));
-    vec2 zoomed = vec2(center_x, center_y) + (uv - vec2(center_x, center_y)) * zoomFactor;
-    vec4 inner = texture(InSampler, zoomed);
-    fragColor = mix(inner, vec4(0.0, 0.0, 0.0, 1.0), mask);
-}
-```
+---
 
-- [ ] **Step 2: wiring + built-in.** Params `radius (animated 1.4 → 0)`, `softness 0.05`, `center_x 0.5`, `center_y 0.5`, `zoom 0`; neutral `"radius" -> 1.4F`; enum `IRIS_WIPE("iris_wipe")`.
+### Task 11: `digital_glitch` screen effect [review-fixed]
 
-- [ ] **Step 3: build + visual test + Commit** — `feat(post): iris_wipe screen effect`.
+**Files:** create `post/digital_glitch.fsh`; modify the three post files. Config `{ float block; float displacement; float rate; float chroma; float seed; float chance; float intensity; float time; }`.
 
-### Task 15: `digital_glitch` screen effect
+- [ ] **Step 1: shader [review-fixed]** — burst-gates the whole frame on time **slots** (instead of per-band probability that everlastingly tears ~17% of the screen), and restores the `chance` parameter:
+  ```glsl
+  float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+  void main() {
+      float t = time / 20.0;                                   // seconds
+      float band = floor(texCoord.y / max(block, 1.0e-3));
+      float slot = floor(t * rate);
+      float gate = step(1.0 - chance, hash(vec2(slot, seed)));                 // burst on/off for the whole slot
+      float burst = gate * step(0.5, hash(vec2(band, slot + seed)));           // ~half the bands inside a burst
+      float shift = (hash(vec2(band, slot + seed + 99.0)) - 0.5) * displacement * burst;
+      vec2 uvG = texCoord + vec2(shift, 0.0);
+      vec4 c;
+      c.r = texture(InSampler, uvG + vec2(chroma * burst, 0.0)).r;
+      c.g = texture(InSampler, uvG).g;
+      c.b = texture(InSampler, uvG - vec2(chroma * burst, 0.0)).b;
+      c.a = 1.0;
+      fragColor = mix(texture(InSampler, texCoord), c, intensity);
+  }
+  ```
+- [ ] **Step 2: wiring + built-in.** `DIGITAL_GLITCH("digital_glitch")`; `registerPost(DIGITAL_GLITCH, "block", "displacement", "rate", "chroma", "seed", "chance", "intensity", "time")`; `neutralValue`: `"intensity" -> 0.0F`; built-in duration 40: `block` 0.06, `displacement` 0.08, `rate` 6, `chroma` 0.5, `seed` 0, `chance` 0.4, `intensity` 1 → 0.
+- [ ] **Step 3: build + visual test (bursts, not permanent tearing) + Commit** — `feat(post): digital_glitch screen effect`.
 
-**Files:** Create `post/digital_glitch.fsh`; modify the three files (pattern of Task 6). Config `{ float block; float displacement; float rate; float chroma; float seed; float intensity; float time; }`.
+---
 
-- [ ] **Step 1: shader.**
-```glsl
-float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
-void main() {
-    float band = floor(uv.y / max(block, 1.0e-3));
-    float burst = step(1.0 - 1.0 / max(rate, 1.0e-3), hash(vec2(band, floor(time * rate) + seed)));
-    float shift = (hash(vec2(band, floor(time * rate) + seed + 99.0)) - 0.5) * displacement * burst;
-    vec2 uvG = uv + vec2(shift, 0.0);
-    vec4 c;
-    c.r = texture(InSampler, uvG + vec2(chroma * burst, 0.0)).r;
-    c.g = texture(InSampler, uvG).g;
-    c.b = texture(InSampler, uvG - vec2(chroma * burst, 0.0)).b;
-    c.a = 1.0;
-    vec4 orig = texture(InSampler, uv);
-    fragColor = mix(orig, c, intensity);
-}
-```
+### Task 12: `vhs` screen effect [review-fixed]
 
-- [ ] **Step 2: wiring + built-in.** Params per Config order; neutral `"intensity" -> 0.0F`; built-in: duration 40, params `block 0.06`, `displacement 0.08`, `rate 6`, `chroma 0.5`, `seed 0`, `intensity 1 → 0`.
+**Files:** create `post/vhs.fsh`; modify the three post files. Config `{ float tracking; float band_height; float band_speed; float bleed; float wobble; float intensity; float time; }`.
 
-- [ ] **Step 3: build + visual test + Commit** — `feat(post): digital_glitch screen effect`.
+- [ ] **Step 1: shader [review-fixed]** — the tracking band is a real **band** (time-derived centre with wrap), not a whole-screen pulse; `hash` above `main`:
+  ```glsl
+  float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+  void main() {
+      float t = time / 20.0;                                   // seconds
+      float bandCenter = fract(t * band_speed);
+      float dy = abs(texCoord.y - bandCenter);
+      dy = min(dy, 1.0 - dy);                                  // wraps top/bottom
+      float inBand = 1.0 - smoothstep(band_height * 0.5, band_height, dy);
+      float wob = (hash(vec2(floor(texCoord.y * InSize.y), floor(t * 60.0))) - 0.5) * wobble;
+      float shift = (hash(vec2(floor(texCoord.y * InSize.y), floor(t * 12.0))) - 0.5) * tracking * inBand;
+      vec2 uvG = texCoord + vec2(shift + wob, 0.0);
+      vec4 c;
+      c.r = texture(InSampler, uvG + vec2(bleed, 0.0)).r;
+      c.g = texture(InSampler, uvG).g;
+      c.b = texture(InSampler, uvG - vec2(bleed * 2.0, 0.0)).b;
+      c.a = 1.0;
+      c.rgb = (c.rgb - 0.08) / 0.92;                           // washed-out contrast
+      fragColor = vec4(mix(texture(InSampler, texCoord).rgb, c.rgb, intensity), 1.0);
+  }
+  ```
+- [ ] **Step 2: wiring + built-in.** `VHS("vhs")`; `registerPost(VHS, "tracking", "band_height", "band_speed", "bleed", "wobble", "intensity", "time")`; `neutralValue`: `"intensity" -> 0.0F`; built-in duration 60: `tracking` 0.35, `band_height` 0.08, `band_speed` 0.15, `bleed` 0.02, `wobble` 0.004, `intensity` 1 → 0.
+- [ ] **Step 3: build + visual test (a band crawls; the rest is stable) + Commit** — `feat(post): vhs screen effect`.
 
-### Task 16: `vhs` screen effect
+---
 
-**Files:** Create `post/vhs.fsh`; modify the three files (pattern of Task 6). Config `{ float tracking; float band_height; float band_speed; float bleed; float wobble; float intensity; float time; }`.
+### Task 13: `shockwave` screen effect [review-fixed]
 
-- [ ] **Step 1: shader.**
-```glsl
-void main() {
-    float bandY = fract(uv.y - time * band_speed);
-    float inBand = 1.0 - smoothstep(band_height * 0.5, band_height, abs(uv.y - bandY));
-    float wob = (hash(vec2(floor(uv.y * InSize.y), floor(time * 60.0))) - 0.5) * wobble;
-    float shift = (hash(vec2(floor(uv.y - time * band_speed * 8.0), floor(time * 12.0))) - 0.5) * tracking * inBand;
-    vec2 uvG = uv + vec2(shift + wob, 0.0);
-    vec4 c;
-    c.r = texture(InSampler, uvG + vec2(bleed, 0.0)).r;
-    c.g = texture(InSampler, uvG).g;
-    c.b = texture(InSampler, uvG + vec2(-bleed * 2.0, 0.0)).b;
-    c.a = 1.0;
-    c.rgb = (c.rgb - 0.08) / 0.92;                         // washed-out contrast
-    fragColor = vec4(mix(texture(InSampler, uv).rgb, c.rgb, intensity), 1.0);
-}
-float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
-```
-(Place `hash` above `main`.)
+**Files:** create `post/shockwave.fsh`; modify the three post files. Config `{ float center_x; float center_y; float radius; float width; float amplitude; float sharpness; }`.
 
-- [ ] **Step 2: wiring + built-in.** Params per Config order; neutral `"intensity" -> 0.0F`; built-in: duration 60, `tracking 0.35`, `band_height 0.08`, `band_speed 0.15`, `bleed 0.02`, `wobble 0.004`, `intensity 1 → 0`.
-
-- [ ] **Step 3: build + visual test + Commit** — `feat(post): vhs screen effect`.
-
-### Task 17: `shockwave` screen effect
-
-**Files:** Create `post/shockwave.fsh`; modify the three files (pattern of Task 6). Config `{ float center_x; float center_y; float radius; float width; float amplitude; float sharpness; }`.
-
-- [ ] **Step 1: shader.**
-```glsl
-void main() {
-    vec2 aspect = vec2(InSize.x / InSize.y, 1.0);
-    vec2 corr = (uv - vec2(center_x, center_y)) * aspect;
-    float dist = length(corr);
-    float d = (dist - radius) / max(width, 1.0e-3);
-    float profile = cos(d * 3.14159265 / max(sharpness, 1.0e-3)) * exp(-d * d) ;
-    vec2 dir = normalize(corr + vec2(1.0e-5));
-    vec4 c = texture(InSampler, uv + dir * amplitude * profile);
-    fragColor = vec4(mix(texture(InSampler, uv).rgb, c.rgb, 0.85), 1.0);
-}
-```
-
-- [ ] **Step 2: wiring + built-in.** Params per Config order; neutral: `"amplitude" -> 0.0F`, `"radius" -> 1.5F`; built-in: duration 40, `center_x/y 0.5`, `radius 0.4 (animated 0.4 → 1.5)`, `width 0.15`, `amplitude 0.12 → 0`, `sharpness 1.5`.
-
+- [ ] **Step 1: shader [review-fixed]** — replaced the hardcoded `0.85` composite with full weight (neutrality is handled by `amplitude → 0`, which makes the displaced sample identical to the original — at amplitude 0 the pass is identity):
+  ```glsl
+  void main() {
+      vec2 aspect = vec2(InSize.x / InSize.y, 1.0);
+      vec2 corr = (texCoord - vec2(center_x, center_y)) * aspect;
+      float dist = length(corr);
+      float d = (dist - radius) / max(width, 1.0e-3);
+      float profile = cos(d * 3.14159265 / max(sharpness, 1.0e-3)) * exp(-d * d);
+      vec2 dir = normalize(corr + vec2(1.0e-5));
+      vec4 c = texture(InSampler, texCoord + dir * amplitude * profile);
+      fragColor = vec4(mix(texture(InSampler, texCoord).rgb, c.rgb, 1.0), 1.0);
+  }
+  ```
+  Know: the `cos·exp` profile is symmetric on both sides of the ring (a bulge, not a travelling wave) — fine for a "glassy ring".
+- [ ] **Step 2: wiring + built-in.** `SHOCKWAVE("shockwave")`; `registerPost(SHOCKWAVE, "center_x", "center_y", "radius", "width", "amplitude", "sharpness")`; `neutralValue`: `"amplitude" -> 0.0F`, `"radius" -> 1.5F`; built-in duration 40: `center_x/y` 0.5, `radius` 0.4 → 1.5, `width` 0.15, `amplitude` 0.12 → 0, `sharpness` 1.5.
 - [ ] **Step 3: build + visual test + Commit** — `feat(post): shockwave screen effect`.
 
+---
 
-## Self-Review checklist (run after drafting)
+### Task 14: `god_rays` — entity beams [review-fixed naming]
 
+**Decision:** keep the spec name `god_rays` and the **spec's param table** (Effect 14 of the spec — the owner-reworked Ender-Dragon-death form; screen-space god rays are dropped). The reviewer's suggested rename `entity_beams` and alt table are noted here; do **not** rename against the approved spec unless the owner says so. Docs (Task 17) describe exactly this entity-beams behaviour.
 
+**Files:**
+- Create: `src/client/java/dev/vfxweaver/client/render/VFXBeamsRenderer.java`
+- Modify: `VFXEntityEffectRenderer.java` (additive pipelines), `LivingEntityRendererMixin.java`, `VFXEffectManager.java`, `VFXEffectType.java`, `VFXDefinitionManager.java`
 
-- [ ] Spec coverage: slice_shift ✓, noise_warp ✓, entity_displace ✓, block_displace ✓, dropped items not implemented ✓.
-- [ ] No placeholders: every shader/Java step above contains full code or a copy-from instruction that names the exact source file.
-- [ ] Naming: `slice_shift`/`noise_warp`/`entity_displace`/`block_displace` consistent across enum, shaders, definitions, docs.
+**Param table (spec Effect 14):** `count` 6 (1..16), `height` 12 (1..64), `spread` 0.6 (0..4), `speed` 2 (0.5..8), `sway` 0.5 (0..4), `red` 0.6 / `green` 0.2 / `blue` 0.9, `intensity` 1 → 0.
+
+- [ ] **Step 1: additive pipelines.** In `VFXEntityEffectRenderer`, additive variants with `ColorTargetState(new BlendFunction(...))` additive (mirror `displacePipeline` but TRANSLUCENT→ADDITIVE; no texture):
+  - `BEAMS_VISIBLE` (ALWAYS_PASS), `BEAMS_OCCLUDED` (LEQUAL) — reuse `DefaultVertexFormat.ENTITY` + `core/entity_fx` vertex + a small `core/beams.fsh` that outputs a flat additive `vertexColor.rgb` (no fog — light beams shouldn't fade into fog).
+- [ ] **Step 2: VFXBeamsRenderer.renderEffects.** Emit `count` additive vertical quads rising from the entity body, billboarded to the camera:
+  - Spawn point `i`: horizontal offset `spread` at a deterministic angle (hash of `i`), around the body centre (entity feet + `height/2`).
+  - Rise: the visible beam top = `(t * speed) mod height` (spec: rise speed, blocks/sec); spawn origin drops back to the body so new beams keep rising.
+  - Sway per beam: `sin(t * 1.5 + i * 2.4) * sway` horizontal offset at the tip.
+  - Alpha: fades toward the tip (`1 - tipFraction`), overall `× intensity × weight`.
+  - Billboard: two triangle/quads expanded perpendicular to the camera-axis → view the existing block-beam billboards in `VFXWorldOverlayRenderer` for the pose pattern.
+- [ ] **Step 3: mixin + index.** `GOD_RAYS` branch in `LivingEntityRendererMixin` (render via VFXBeamsRenderer with `state` pose + camera); include `GOD_RAYS` in `rebuildEntityEffectsIndex`; exclude from `isPostProcessing()`.
+- [ ] **Step 4: built-in.** duration 60, params per the table; `intensity` animated to 0; `neutralValue` NaN.
+- [ ] **Step 5: build + visual test** (`/vfx playentity vfxweaver:god_rays @e[type=dragon,limit=1]` — purple beams pour out of the body) **+ Commit** — `feat(render): god_rays entity beams`.
+
+---
+
+### Task 15: World quad effects — `light_beam`, `pulse_ring`, `scan_sweep`, `guide_line`
+
+**Files:** modify `src/client/java/dev/vfxweaver/client/render/VFXWorldOverlayRenderer.java` (four new branches + additive pipelines), `VFXEffectType.java` (`LIGHT_BEAM`, `PULSE_RING`, `SCAN_SWEEP`, `GUIDE_LINE`, all in `isWorldOverlay()`), `VFXDefinitionManager.java`.
+
+**Param tables (spec Effects 15-18):**
+- `light_beam`: `radius` 1.5, `height` 48, `softness` 0.6, `top_fade` 0.4, `sway` 0, `sway_speed` 0.4, color 1/0.95/0.75, `intensity` 1→0. Duration 60.
+- `pulse_ring`: `radius` 6 (animate 0→max), `thickness` 0.5, `tilt` 0, color 1/0.35/0.1, `intensity` 1→0. Duration 60.
+- `scan_sweep`: `range` 16, `axis` 1, `progress` 0.5 (animate for the pass), `width` 0.4, `trail` 0.25, color 0.3/1/0.9, `intensity` 1→0. Duration 60.
+- `guide_line`: `width` 0.15, `dash_length` 0.6, `gap` 0.6, `speed` 2, `arc` 1.5, color 0.25/1/0.45, `intensity` 1→0. Duration 60.
+
+- [ ] **Step 1: additive pipeline pair** (shared by all four): `world/beam_visible/occluded` via a `glowPipeline(depthOp, suffix)` mirroring `blockPipeline` but with `ColorTargetState(BlendFunction.ADDITIVE)`. Positions come from `effectPositions(effect)` (playat → single pos; datapack `region` → many).
+- [ ] **Step 2: `light_beam`** — vertical billboarded column (2-4 quads) from the anchor up `height`; alpha gradient from base `intensity` to `top_fade` at the top; `sway` = per-vertex horizontal `sin(t * sway_speed * 6.28 + depth)`; horizontal feathered edges by `radius`/`softness` via vertex alpha.
+- [ ] **Step 3: `pulse_ring`** — flat annulus built from 12-24 segments at `radius`, band `thickness`, alpha soft toward inner/outer edges; plane tilted by `tilt` degrees about the X axis (0 = flat); `radius` recomputed per frame.
+- [ ] **Step 4: `scan_sweep`** — a two-sided quad sheet across `axis` at `progress * range`, width `width`; plus 3-5 trail quads behind with decreasing alpha down to `trail`; axis 0=X, 1=Y, 2=Z.
+- [ ] **Step 5: `guide_line`** — parabolic arc (apex +`arc` at midpoint) between two anchors: use `effectPositions(effect)`; if `≥ 2` positions, line between `[0]` and `[1]`, else between `[0]` and `[0] + (10, 0, 0)`. Subdivide into ~32 segments, emit dashes by marching distance and cutting on `(d + t*speed) mod (dash_length+gap) < dash_length`.
+- [ ] **Step 6: built-in definitions** for all four (tables above; only `intensity` and the animated param fade to 0; `neutralValue` NaN).
+- [ ] **Step 7: build + visual test each (playat) + Commit** — `feat(render): world quad effects (light_beam, pulse_ring, scan_sweep, guide_line)`.
+
+---
+
+### Task 16: feedback buffer infrastructure + `afterimage`, `stop_motion` [review-fixed]
+
+**The two critical hardware-grade fixes from review:**
+1. A feedback pass must never read and write the same texture (GL read/draw feedback = undefined behaviour). → **Double-buffer the history** (`HistoryPrev`/`HistoryNext`); afterimage runs as two passes.
+2. A single history target stores one frame — there is nothing to "sample at `floor(t*fps)/fps`". → **stop_motion uses CPU hold-gating** over a copied frame.
+
+**Files:**
+- Modify: `src/client/java/dev/vfxweaver/client/postprocessing/VFXPostProcessingManager.java` — history double-buffer + hold target + `HistSampler` binding + special-cased pass roles
+- Modify: `src/client/java/dev/vfxweaver/client/postprocessing/VFXShaderPrograms.java` — `afterimage_update`, `afterimage_composite`, `stop_motion` pipelines (each with `InSampler` + `HistSampler`), plus a `usesHistory`/role field on `ProgramInfo`
+- Create: `post/afterimage_update.fsh`, `post/afterimage_composite.fsh`, `post/stop_motion.fsh`
+- Modify: `VFXEffectType.java`, `VFXDefinitionManager.java`
+
+- [ ] **Step 1: targets.** `private final TextureTarget[] history = new TextureTarget[2];` and `private @Nullable TextureTarget stopMotionHold;` created/destroyed in the same resize path as `pingPong` (`ensureTargets`). On resize the targets are **recreated** (destroyed first) — previous state is discarded, which is the "clear history on resize" requirement; to avoid a garbage first blend, set a `historyDirty` flag: the first afterimage update treats the previous history as equal to the current frame (see Step 3).
+- [ ] **Step 2: pipelines.** Afterimage = two `ProgramInfo`s (`afterimage_update` Config `{ decay, blend, drift }`, `afterimage_composite` Config `{ decay, blend, drift, desat, intensity }` — declare the full param set in both passes so both read the same effect Config). `stop_motion` Config `{ fps }`. Each pipeline declares `.withSampler("InSampler")` + `.withSampler("HistSampler")`. Add a `VFXShaderPrograms.ProgramInfo` field `FeedbackRole role` (`NONE`/`UPDATE`/`COMPOSITE`/`STOP_MOTION`) or reuse pass ordering.
+- [ ] **Step 3: executor.**
+  ```java
+  // pseudo, inside process() after the copy pass
+  // 1) afterimage update: read current (pingPong[0]) + HistoryPrev -> write HistoryNext
+  //    historyDirty -> HistoryPrev := current (bind current as HistoryPrev) so first frame is clean
+  // 2) afterimage composite: read current + HistoryNext -> write into the chain output (main/last)
+  //    then swap HistoryPrev <-> HistoryNext
+  // 3) stop_motion (per active effect, CPU):
+  //    int slot = (int) Math.floor(effect.getAge()/20.0 * fps);       // fps<=1 -> full speed, skip
+  //    if (slot != lastSlotFor(effectId)) { copyPass.execute(main -> stopMotionHold); hold=0; }
+  //    else hold=1;
+  //    pass: fragColor = hold<0.5 ? texture(InSampler,uv) : texture(HistSampler,uv);  // HistSampler=stopMotionHold
+  ```
+  Memory: `stopMotionSlots` per effect id — prune entries whose effect is gone (bounded by the active-effect cap).
+- [ ] **Step 4: `afterimage` shaders.**
+  ```glsl  // update: H1 = mix(prev*decay, current, blend)
+  layout(std140) uniform Config { float decay; float blend; float drift; };
+  void main() {
+      vec2 uv = (texCoord - 0.5) * (1.0 + drift) + 0.5;        // drift = per-frame zoom of the echo
+      vec4 prev = texture(HistSampler, uv) * decay;
+      fragColor = mix(prev, texture(InSampler, texCoord), blend);
+  }
+  ```
+  ```glsl  // composite: out = mix(current, desaturate(H1), intensity)
+  layout(std140) uniform Config { float decay; float blend; float drift; float desat; float intensity; };
+  void main() {
+      vec4 hist = texture(HistSampler, texCoord);
+      float luma = dot(hist.rgb, vec3(0.299, 0.587, 0.114));
+      fragColor = mix(texture(InSampler, texCoord),
+                      vec4(mix(hist.rgb, vec3(luma), desat), 1.0), intensity);
+  }
+  ```
+  Neutral at `intensity=0` → composite outputs current → identity.
+- [ ] **Step 5: `stop_motion.fsh`.**
+  ```glsl
+  layout(std140) uniform Config { float fps; };
+  // hold is bound as a runtime uniform by the executor (see Step 3); expose via a small
+  // reserved param like "time": add "hold" handling in VFXPass.execute that reads the
+  // pre-computed hold flag instead of a user parameter.
+  uniform float Hold;
+  void main() { fragColor = Hold < 0.5 ? texture(InSampler, texCoord) : texture(HistSampler, texCoord); }
+  ```
+  `fps ≤ 1` → skip gating entirely (identity), matching the spec note "0 = back to full speed".
+- [ ] **Step 6: enums + built-ins.** `AFTERIMAGE("afterimage")`, `STOP_MOTION("stop_motion")`.
+  - afterimage built-in duration 60: `decay` 0.92, `blend` 0.6, `drift` 0, `desat` 0.35, `intensity` 1 → 0; `neutralValue` `"intensity" -> 0.0F`.
+  - stop_motion built-in duration 60: `fps` 12 → 0 (ends back at full speed); `neutralValue` `"fps" -> 0.0F`.
+  - `isPostProcessing()`: both true (they are screen passes) — but the executor must keep handling them even when they are the only active post effect (don't short-circuit the history init).
+- [ ] **Step 7: build + visual test.** Afterimage: move the camera → trails linger with a fixed decay time regardless of speed; fade returns to a clean frame. Stop-motion: `[fps:8]` → world updates 8×/s, HUD/physics stay smooth. **+ Commit** — `feat(post): feedback buffer + afterimage + stop_motion`.
+
+---
+
+### Task 17: docs + changelog for the whole batch
+
+**Files:** `docs/GUIDE.md` (per-parameter subsections for every new effect + the `Commands`/param-map notes), `docs/CHANGELOG.md` (unreleased Added entries).
+
+- [ ] **Step 1: write the doc subsections from the shipped params** (pull exactly what the built-ins declare — docs must equal `/vfx play`). Include: param tables (default/normal range/description), one copy-pasteable command example per effect, the `time` (auto) note, the `expr`-needs-a-datapack note, the "echo not replacement" semantics for `entity_displace`/`block_displace`, the `god_rays` = entity-beams clarification, and `screen_layer` for every screen effect.
+- [ ] **Step 2: changelog** — one `Added` entry per effect under the next version heading.
+- [ ] **Step 3: Commit** — `docs: document the new effects batch`.
+
+---
+
+## Self-Review checklist (run after drafting/during execution)
+
+- [ ] Spec coverage: slice_shift ✓, noise_warp ✓, entity_displace ✓, block_displace ✓, solarize ✓, double_vision ✓, eyelids ✓, iris_wipe ✓, digital_glitch ✓, vhs ✓, shockwave ✓, afterimage ✓, stop_motion ✓, god_rays ✓, light_beam ✓, pulse_ring ✓, scan_sweep ✓, guide_line ✓, hud_fade ✓, camera_roll ✓. Dropped by owner: sky_tint, fog_override, entity_glitch (superseded by displace), dither, edge_detect.
+- [ ] No placeholders: every shader/Java step above contains full code or a copy-from instruction naming the exact source file.
+- [ ] Naming consistent across enum, shaders, definitions, docs (`slice_shift`/`noise_warp`/`entity_displace`/... — snake_case).
+- [ ] Pipeline label convention identical in entity and block flavours (`_VISIBLE`=ALWAYS_PASS, `_OCCLUDED`=LEQUAL).
+- [ ] Docs Task 17 parameters exactly match built-ins.
+- [ ] `VFXEffectType.isPostProcessing()`/`isWorldOverlay()` and `rebuildEntityEffectsIndex` updated for every new type.
+- [ ] No effect reads and writes the same GPU texture; feedback uses the double buffer.
 
 ## Execution Handoff
 
-Two options: subagent-driven (fresh executor per task) or inline batch. The plan is small enough for inline execution with per-task commits.
+Inline execution with per-task commits (`committing-after-changes` skill). Tasks 2/3 (screen pair) share files and can share a commit. Blockers were pre-cleared by the review — no open questions expected unless the runtime misbehaves (hud_fade spike is the first to run precisely because it is the unknown).
