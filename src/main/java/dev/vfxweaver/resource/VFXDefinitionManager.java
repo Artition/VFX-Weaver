@@ -303,6 +303,12 @@ public class VFXDefinitionManager extends SimplePreparableReloadListener<Map<Ide
 				param("block", 0.06F), param("displacement", 0.08F), param("rate", 6.0F), param("chroma", 0.5F),
 				param("seed", 0.0F), param("chance", 0.4F), param("intensity", 1.0F, 0.0F))
 		);
+		this.builtIns.put(
+			Identifier.fromNamespaceAndPath("vfxweaver", "vhs"),
+			builtIn("vfxweaver", "vhs", VFXEffectType.VHS, 60, EasingType.EASE_IN_OUT_CUBIC,
+				param("tracking", 0.35F), param("band_height", 0.08F), param("band_speed", 0.15F),
+				param("bleed", 0.02F), param("wobble", 0.004F), param("intensity", 1.0F, 0.0F))
+		);
 		// Camera shake parameters (the shake itself is already enveloped by the shake manager).
 		this.builtIns.put(
 			Identifier.fromNamespaceAndPath("vfxweaver", "camera_shake"),
