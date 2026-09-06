@@ -61,6 +61,7 @@ public final class VFXShaderPrograms {
 		registerPost(VFXEffectType.VORTEX, "strength", "radius", "center_x", "center_y");
 		registerPost(VFXEffectType.SPEED_LINES, "center_x", "center_y", "count", "length", "length_rand", "width", "seed", "color_r", "color_g", "color_b", "intensity");
 		registerPost(VFXEffectType.SLICE_SHIFT, "angle", "offset", "shift", "mirror");
+		registerPost(VFXEffectType.SOLARIZE, "threshold", "softness", "intensity");
 		registerPost(VFXEffectType.NOISE_WARP, "scale", "amplitude", "contrast", "coherence", "speed", "drift_x", "drift_y", "time");
 
 		copyPipeline = RenderPipelines.register(

@@ -67,6 +67,8 @@ public enum VFXEffectType {
 	SPEED_LINES("speed_lines"),
 	/** The frame is cut by a straight line and the halves slide past each other along it. */
 	SLICE_SHIFT("slice_shift"),
+	/** Bright pixels invert, dark pixels stay untouched. */
+	SOLARIZE("solarize"),
 	/** An animated value-noise field warps the picture in soft fluid patches. */
 	NOISE_WARP("noise_warp"),
 	/** Not an effect itself: plays a list of child effects with per-child delays. */
@@ -136,6 +138,7 @@ public enum VFXEffectType {
 		case FOV_MODIFIER -> "fov_delta".equals(parameter) ? 0.0F : Float.NaN;
 		case SLICE_SHIFT -> "shift".equals(parameter) ? 0.0F : Float.NaN;
 		case NOISE_WARP -> "amplitude".equals(parameter) ? 0.0F : Float.NaN;
+		case SOLARIZE -> "intensity".equals(parameter) ? 0.0F : Float.NaN;
 		default -> Float.NaN;
 		};
 	}
