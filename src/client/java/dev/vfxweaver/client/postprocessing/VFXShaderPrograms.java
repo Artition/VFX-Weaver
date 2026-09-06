@@ -64,6 +64,7 @@ public final class VFXShaderPrograms {
 		registerPost(VFXEffectType.SOLARIZE, "threshold", "softness", "intensity");
 		registerPost(VFXEffectType.DOUBLE_VISION, "offset", "ghost_opacity", "drift", "intensity", "time");
 		registerPost(VFXEffectType.EYELIDS, "openness", "softness", "curve");
+		registerPost(VFXEffectType.IRIS_WIPE, "radius", "softness", "center_x", "center_y", "zoom");
 		registerPost(VFXEffectType.NOISE_WARP, "scale", "amplitude", "contrast", "coherence", "speed", "drift_x", "drift_y", "time");
 
 		copyPipeline = RenderPipelines.register(

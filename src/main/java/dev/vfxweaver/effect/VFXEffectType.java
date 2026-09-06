@@ -73,6 +73,8 @@ public enum VFXEffectType {
 	DOUBLE_VISION("double_vision"),
 	/** Two soft curved dark lids slide in from the top and bottom of the screen. */
 	EYELIDS("eyelids"),
+	/** Old-film iris transition: everything outside a circle goes black. */
+	IRIS_WIPE("iris_wipe"),
 	/** An animated value-noise field warps the picture in soft fluid patches. */
 	NOISE_WARP("noise_warp"),
 	/** Not an effect itself: plays a list of child effects with per-child delays. */
@@ -145,6 +147,7 @@ public enum VFXEffectType {
 		case SOLARIZE -> "intensity".equals(parameter) ? 0.0F : Float.NaN;
 		case DOUBLE_VISION -> "intensity".equals(parameter) ? 0.0F : Float.NaN;
 		case EYELIDS -> "openness".equals(parameter) ? 1.0F : Float.NaN;
+		case IRIS_WIPE -> "radius".equals(parameter) ? 1.4F : Float.NaN;
 		default -> Float.NaN;
 		};
 	}
