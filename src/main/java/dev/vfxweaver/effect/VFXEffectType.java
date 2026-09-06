@@ -57,6 +57,8 @@ public enum VFXEffectType {
 	ENTITY_TINT("entity_tint"),
 	/** Renders an outline around the targeted entities. */
 	ENTITY_OUTLINE("entity_outline"),
+	/** Re-emits the targeted entity's model as a flat, per-vertex displaced echo (ghost copy). */
+	ENTITY_DISPLACE("entity_displace"),
 	/** Radial speed lines emanating from a centre point (post-processing pass). */
 	SPEED_LINES("speed_lines"),
 	/** The frame is cut by a straight line and the halves slide past each other along it. */
@@ -84,7 +86,7 @@ public enum VFXEffectType {
 	 * True for the effect types that render a fullscreen post-processing pass.
 	 */
 	public boolean isPostProcessing() {
-		return this != CAMERA_SHAKE && this != BLOCK_OUTLINE && this != BLOCK_TINT && this != ENTITY_TINT && this != ENTITY_OUTLINE && this != FOV_MODIFIER && this != COLLECTION;
+		return this != CAMERA_SHAKE && this != BLOCK_OUTLINE && this != BLOCK_TINT && this != ENTITY_TINT && this != ENTITY_OUTLINE && this != ENTITY_DISPLACE && this != FOV_MODIFIER && this != COLLECTION;
 	}
 
 	/**

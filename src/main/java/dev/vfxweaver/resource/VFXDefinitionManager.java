@@ -360,6 +360,26 @@ public class VFXDefinitionManager extends SimplePreparableReloadListener<Map<Ide
 				false, false, 10, List.of(), List.of(), null
 			)
 		);
+		this.builtIns.put(
+			Identifier.fromNamespaceAndPath("vfxweaver", "entity_displace"),
+			VFXDefinition.create(
+				Identifier.fromNamespaceAndPath("vfxweaver", "entity_displace"),
+				VFXEffectType.ENTITY_DISPLACE,
+				40,
+				EasingFunction.builtIn(EasingType.EASE_IN_OUT_CUBIC),
+				Map.of(
+					"amplitude", VFXDefinition.ParamSpec.animated(0.1F, 0.0F),
+					"scale", VFXDefinition.ParamSpec.constant(4.0F),
+					"seed", VFXDefinition.ParamSpec.constant(0.0F),
+					"alpha", VFXDefinition.ParamSpec.constant(1.0F),
+					"through_blocks", VFXDefinition.ParamSpec.constant(0.0F),
+					"color_r", VFXDefinition.ParamSpec.constant(1.0F),
+					"color_g", VFXDefinition.ParamSpec.constant(1.0F),
+					"color_b", VFXDefinition.ParamSpec.constant(1.0F)
+				),
+				false, false, 10, List.of(), List.of(), null
+			)
+		);
 	}
 
 	@SafeVarargs
