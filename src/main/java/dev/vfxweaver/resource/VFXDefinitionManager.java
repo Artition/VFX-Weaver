@@ -265,6 +265,17 @@ public class VFXDefinitionManager extends SimplePreparableReloadListener<Map<Ide
 				param("color_r", 1.0F), param("color_g", 1.0F), param("color_b", 1.0F),
 				param("intensity", 1.0F, 0.0F))
 		);
+		this.builtIns.put(
+			Identifier.fromNamespaceAndPath("vfxweaver", "slice_shift"),
+			builtIn("vfxweaver", "slice_shift", VFXEffectType.SLICE_SHIFT, 40, EasingType.EASE_IN_OUT_CUBIC,
+				param("angle", 0.0F), param("offset", 0.0F), param("shift", 0.05F, 0.0F), param("mirror", 0.0F))
+		);
+		this.builtIns.put(
+			Identifier.fromNamespaceAndPath("vfxweaver", "noise_warp"),
+			builtIn("vfxweaver", "noise_warp", VFXEffectType.NOISE_WARP, 60, EasingType.EASE_IN_OUT_CUBIC,
+				param("scale", 8.0F), param("amplitude", 0.03F, 0.0F), param("contrast", 2.0F),
+				param("coherence", 1.0F), param("speed", 0.5F), param("drift_x", 0.0F), param("drift_y", 0.0F))
+		);
 		// Camera shake parameters (the shake itself is already enveloped by the shake manager).
 		this.builtIns.put(
 			Identifier.fromNamespaceAndPath("vfxweaver", "camera_shake"),

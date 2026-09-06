@@ -59,6 +59,10 @@ public enum VFXEffectType {
 	ENTITY_OUTLINE("entity_outline"),
 	/** Radial speed lines emanating from a centre point (post-processing pass). */
 	SPEED_LINES("speed_lines"),
+	/** The frame is cut by a straight line and the halves slide past each other along it. */
+	SLICE_SHIFT("slice_shift"),
+	/** An animated value-noise field warps the picture in soft fluid patches. */
+	NOISE_WARP("noise_warp"),
 	/** Not an effect itself: plays a list of child effects with per-child delays. */
 	COLLECTION("collection");
 
@@ -124,6 +128,8 @@ public enum VFXEffectType {
 		case VORTEX -> "strength".equals(parameter) ? 0.0F : Float.NaN;
 		case SPEED_LINES -> "intensity".equals(parameter) ? 0.0F : Float.NaN;
 		case FOV_MODIFIER -> "fov_delta".equals(parameter) ? 0.0F : Float.NaN;
+		case SLICE_SHIFT -> "shift".equals(parameter) ? 0.0F : Float.NaN;
+		case NOISE_WARP -> "amplitude".equals(parameter) ? 0.0F : Float.NaN;
 		default -> Float.NaN;
 		};
 	}
