@@ -5,71 +5,70 @@ uniform sampler2D InSampler;
 in vec2 texCoord;
 
 layout(std140) uniform SamplerInfo {
-    vec2 OutSize;
-    vec2 InSize;
+	vec2 OutSize;
+	vec2 InSize;
 };
 
 layout(std140) uniform Config {
-    float scale;
-    float amplitude;
-    float contrast;
-    float coherence;
-    float speed;
-    float drift_x;
-    float drift_y;
-    float time;
+	float scale;
+	float amplitude;
+	float contrast;
+	float coherence;
+	float speed;
+	float drift_x;
+	float drift_y;
+	float seed;
+	float time;
 };
 
 out vec4 fragColor;
 
-float hash(vec3 p) {
-    return fract(sin(dot(p, vec3(127.1, 311.7, 74.7))) * 43758.5453);
+vec3 hash33(vec3 p3) {
+	p3 = fract(p3 * vec3(0.1031, 0.1030, 0.0973));
+	p3 += dot(p3, p3.yxz + 33.33);
+	return fract((p3.xxy + p3.yxx) * p3.zyx) * 2.0 - 1.0;
 }
 
-float vnoise(vec3 p) {
-    vec3 i = floor(p);
-    vec3 f = fract(p);
-    vec3 s = f * f * (3.0 - 2.0 * f);
-    float a = hash(i);
-    float b = hash(i + vec3(1, 0, 0));
-    float c = hash(i + vec3(0, 1, 0));
-    float d = hash(i + vec3(1, 1, 0));
-    float e = hash(i + vec3(0, 0, 1));
-    float f2 = hash(i + vec3(1, 0, 1));
-    float g = hash(i + vec3(0, 1, 1));
-    float h = hash(i + vec3(1, 1, 1));
-    return mix(
-        mix(mix(a, b, s.x), mix(c, d, s.x), s.y),
-        mix(mix(e, f2, s.x), mix(g, h, s.x), s.y),
-        s.z
-    );
+float gnoise(vec3 p) {
+	vec3 i = floor(p);
+	vec3 f = fract(p);
+	vec3 u = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
+	return mix(
+		mix(mix(dot(hash33(i), f),
+			dot(hash33(i + vec3(1, 0, 0)), f - vec3(1, 0, 0)), u.x),
+			mix(dot(hash33(i + vec3(0, 1, 0)), f - vec3(0, 1, 0)),
+				dot(hash33(i + vec3(1, 1, 0)), f - vec3(1, 1, 0)), u.x), u.y),
+		mix(mix(dot(hash33(i + vec3(0, 0, 1)), f - vec3(0, 0, 1)),
+			dot(hash33(i + vec3(1, 0, 1)), f - vec3(1, 0, 1)), u.x),
+			mix(dot(hash33(i + vec3(0, 1, 1)), f - vec3(0, 1, 1)),
+				dot(hash33(i + vec3(1, 1, 1)), f - vec3(1, 1, 1)), u.x), u.y),
+		u.z);
 }
 
 void main() {
-    // `time` is the effect age in ticks (see VFXPostProcessingManager); convert to seconds so
-    // `speed` is cycles per second and `drift_*` fractions per second. The time-driven third
-    // coordinate animates the field continuously (no flicker, no frozen pattern).
-    float t = time / 20.0;
-    vec2 corr = texCoord * scale;
-    corr.x *= InSize.x / InSize.y;
-    vec3 field = vec3(corr + vec2(drift_x, drift_y) * t, t * speed);
+	// `time` is the effect age in ticks; convert to seconds so `speed` is cycles per second.
+	// `seed` shifts the noise domain, so stepping/animating it drifts the pattern independently
+	// of `speed`. mod() keeps the field coordinates inside the hash's precision-safe range.
+	float t = mod(time / 20.0, 600.0);
+	float sd = mod(seed, 64.0);
+	vec2 asp = vec2(InSize.x / InSize.y, 1.0);
+	vec3 field = vec3(texCoord * asp * scale + vec2(drift_x, drift_y) * t, t * speed)
+		+ vec3(sd * 19.19, sd * 7.7, sd * 3.3);
 
-    // Magnitude shaped by the contrast curve: >1 gathers the warp into distinct patches.
-    float n = vnoise(field);
-    float mag = pow(clamp(n, 0.0, 1.0), max(contrast, 0.1));
+	// Gradient (Perlin) noise sampled at quintic-faded lattice points: soft isotropic bulges
+	// instead of the axis-aligned blocks of value noise.
+	float n = gnoise(field);
+	float mag = pow(clamp(n * 0.7071 + 0.5, 0.0, 1.0), max(contrast, 0.1));
 
-    // Direction: coherence 1 follows the noise gradient (fluid bulges); 0 pulls each patch in
-    // its own smoothly-varying direction. Sampling the same value-noise for directions keeps
-    // them continuous (no seams between cells).
-    vec2 grad = vec2(
-        vnoise(field + vec3(0.05, 0.0, 0.0)) - vnoise(field - vec3(0.05, 0.0, 0.0)),
-        vnoise(field + vec3(0.0, 0.05, 0.0)) - vnoise(field - vec3(0.0, 0.05, 0.0))
-    );
-    vec2 rndDir = normalize(vec2(
-        vnoise(field + vec3(13.7, 0.0, 0.0)) - 0.5,
-        vnoise(field + vec3(71.3, 0.0, 0.0)) - 0.5
-    ) + vec2(1.0e-5));
-    vec2 dir = normalize(mix(rndDir, grad, clamp(coherence, 0.0, 1.0)) + vec2(1.0e-5));
+	// Direction: coherence 1 follows the gradient field (fluid), 0 pulls each patch its own way.
+	float e = 0.35;
+	vec2 gradDir;
+	gradDir.x = gnoise(field + vec3(e, 0.0, 0.0)) - n;
+	gradDir.y = gnoise(field + vec3(0.0, e, 0.0)) - n;
+	vec2 rndDir;
+	rndDir.x = gnoise(field + vec3(31.41, 0.0, 0.0));
+	rndDir.y = gnoise(field + vec3(0.0, 47.21, 0.0));
+	vec2 dir = mix(normalize(rndDir + 1.0e-6), normalize(gradDir + 1.0e-6), clamp(coherence, 0.0, 1.0));
 
-    fragColor = texture(InSampler, texCoord + dir * mag * amplitude);
+	fragColor = texture(InSampler, texCoord + dir * mag * amplitude / asp);
 }

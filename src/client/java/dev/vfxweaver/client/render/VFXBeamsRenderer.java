@@ -11,10 +11,9 @@ import org.joml.Vector3f;
 
 /**
  * Renders the {@code god_rays} effect: {@code count} additive vertical light beams rising out of
- * the target entity's body, billboarded toward the camera, alpha fading toward the tip and
- * swaying sideways over time. Emitted in the entity's own pose space via
- * {@link SubmitNodeCollector#submitCustomGeometry}, so beams follow the entity as it moves.
- * The beams are pure additive fills (no texture sampling) — see {@code core/beams.fsh}.
+ * the target entity's body. Each beam is a camera-facing vertical quad (a spherical billboard:
+ * its horizontal axis is perpendicular to the camera in world space), so it reads as a light
+ * pillar from every angle instead of a flat face on the ground.
  */
 public final class VFXBeamsRenderer {
 	private VFXBeamsRenderer() {
@@ -23,10 +22,10 @@ public final class VFXBeamsRenderer {
 	/**
 	 * Submits the beams for one active {@code god_rays} effect.
 	 *
-	 * @param effect               the running effect
-	 * @param state                the entity render state (anchor height, light coords)
-	 * @param poseStack            the entity's pose stack (must be current at submit time)
-	 * @param submitNodeCollector  the collector to submit custom geometry into
+	 * @param effect              the running effect
+	 * @param state               the entity render state (anchor height, light coords)
+	 * @param poseStack           the entity's pose stack (must be current at submit time)
+	 * @param submitNodeCollector the collector to submit custom geometry into
 	 */
 	public static <S extends LivingEntityRenderState> void render(
 		final VFXActiveEffect effect,
@@ -43,91 +42,82 @@ public final class VFXBeamsRenderer {
 		float height = Mth.clamp(effect.getParam("height", 12.0F), 1.0F, 64.0F);
 		float spread = Mth.clamp(effect.getParam("spread", 0.6F), 0.0F, 4.0F);
 		float speed = Mth.clamp(effect.getParam("speed", 2.0F), 0.5F, 8.0F);
-		float sway = Mth.clamp(effect.getParam("sway", 0.5F), 0.0F, 4.0F);
 		float width = Mth.clamp(effect.getParam("width", 0.12F), 0.02F, 1.0F);
 		int red = (int) (Mth.clamp(effect.getParam("red", 0.6F), 0.0F, 1.0F) * 255.0F);
 		int green = (int) (Mth.clamp(effect.getParam("green", 0.2F), 0.0F, 1.0F) * 255.0F);
 		int blue = (int) (Mth.clamp(effect.getParam("blue", 0.9F), 0.0F, 1.0F) * 255.0F);
+		int rgb = (red << 16) | (green << 8) | blue;
 
 		float t = effect.getElapsed() / 20.0F;
-		float rise = (t * speed) % Math.max(height, 0.001F);
-		if (rise <= 0.001F) {
-			return;
-		}
 		float centerY = Math.max(state.boundingBoxHeight * 0.5F, 0.05F);
-
+		// The camera in the pose's camera-relative space sits at the origin; the entity's world
+		// offset from the camera is what pose already encodes, so the "towards camera" direction
+		// is the entity's render-state yRot + 180 in the XZ plane. Simpler and robust: build beams
+		// in pose space by remembering that -camera is the origin, so the horizontal direction
+		// from each beam base to the camera is just -(base.x, base.z) normalized (with the base in
+		// camera-relative coords, i.e. pose space). Since the pose is camera-relative, transform
+		// the base through it first, then compute the billboard axis in that same space.
+		int light = 0xF000F0;
+		final int lightF = light;
 		submitNodeCollector.submitCustomGeometry(poseStack, VFXEntityEffectRenderer.beamsRenderType(through), (pose, buffer) -> {
 			PoseStack stack = new PoseStack();
 			stack.last().set(pose);
-			Vector3f anchor = new Vector3f();
-			Vector3f axis = new Vector3f();
-			Vector3f toCam = new Vector3f();
+			Vector3f base = new Vector3f();
+			Vector3f camSpace = new Vector3f();
 			for (int i = 0; i < count; i++) {
 				float theta = (float) (i * 6.2831853 / count) + 0.7F;
-				anchor.set((float) Math.cos(theta) * spread, centerY, (float) Math.sin(theta) * spread);
-				// Billboard: the quad faces the camera in the XZ plane. The camera sits at the
-				// origin of the pose's camera-relative space.
-				pose.pose().transformPosition(anchor, toCam);
-				toCam.set(-toCam.x, 0.0F, -toCam.z);
-				toCam.normalize();
-				axis.set(-toCam.z, 0.0F, toCam.x);
-				float swayPhase = (float) Math.sin(t * 1.5 + i * 2.4) * sway;
-				emitQuad(buffer, stack.last(), anchor, axis, toCam, width, rise, centerY, swayPhase, intensity, red, green, blue);
+				base.set((float) Math.cos(theta) * spread, centerY, (float) Math.sin(theta) * spread);
+				// Convert the base to camera-relative space (pose space): the camera is at the
+				// origin there, so the horizontal "to camera" vector is -base (normalized).
+				pose.pose().transformPosition(base, camSpace);
+				camSpace.set(-camSpace.x, 0.0F, -camSpace.z);
+				camSpace.normalize();
+				Vector3f side = new Vector3f(-camSpace.z, 0.0F, camSpace.x);
+				float phase = (float) ((t * speed + i / (float) count) % 1.0);
+				if (phase < 0.0F) {
+					phase += 1.0F;
+				}
+				float h = height * phase;
+				int aBot = alpha255(intensity * (float) Math.sin(phase * Math.PI));
+				emitBeamQuad(buffer, stack.last(), camSpace, base, side, width, h, aBot, rgb, lightF);
 			}
 		});
 	}
 
-	/**
-	 * Emits one vertical light beam as a quad: two triangles from the anchor up to the rising tip,
-	 * alpha fading toward the tip, with horizontal sway (perpendicular to the beam) growing with
-	 * height.
-	 */
-	private static void emitQuad(
-		final VertexConsumer buffer,
-		final PoseStack.Pose pose,
-		final Vector3f anchor,
-		final Vector3f axis,
-		final Vector3f toCam,
-		final float width,
-		final float rise,
-		final float centerY,
-		final float sway,
-		final float intensity,
-		final int red,
-		final int green,
-		final int blue
-	) {
-		float hw = width * 0.5F;
-		float baseAlpha = Math.round(intensity * 255.0F);
-		int light = 0xF000F0;
-		corner(buffer, pose, anchor, axis, toCam, -hw, centerY, 0.0F, 0.0F, baseAlpha, red, green, blue, light);
-		corner(buffer, pose, anchor, axis, toCam, +hw, centerY, 0.0F, 0.0F, baseAlpha, red, green, blue, light);
-		corner(buffer, pose, anchor, axis, toCam, +hw, centerY + rise, 1.0F, sway, 0.0F, red, green, blue, light);
-		corner(buffer, pose, anchor, axis, toCam, -hw, centerY + rise, 1.0F, sway, 0.0F, red, green, blue, light);
+	private static int alpha255(final float a) {
+		return Mth.clamp(Math.round(a * 255.0F), 0, 255);
 	}
 
-	private static void corner(
+	/**
+	 * Emits one vertical beam quad: four vertices in pose (camera-relative) space, base at the
+	 * entity anchor, rising to {@code top} with an alpha fade-out at the tip.
+	 */
+	private static void emitBeamQuad(
 		final VertexConsumer buffer,
 		final PoseStack.Pose pose,
-		final Vector3f anchor,
-		final Vector3f axis,
 		final Vector3f toCam,
-		final float offset,
-		final float y,
-		final float swayFactor,
-		final float sway,
-		final float alpha,
-		final int red,
-		final int green,
-		final int blue,
+		final Vector3f base,
+		final Vector3f side,
+		final float width,
+		final float top,
+		final int aBot,
+		final int rgb,
 		final int light
 	) {
-		float x = anchor.x() + axis.x() * offset + toCam.x() * sway * swayFactor;
-		float z = anchor.z() + axis.z() * offset + toCam.z() * sway * swayFactor;
-		int a = (int) alpha;
-		int color = (a << 24) | (red << 16) | (green << 8) | blue;
-		Vector3f pos = new Vector3f(x, y, z);
-		pose.pose().transformPosition(pos);
-		buffer.addVertex(pos.x(), pos.y(), pos.z(), color, 0.0F, 0.0F, OverlayTexture.NO_OVERLAY, light, 0.0F, 1.0F, 0.0F);
+		float hw = width * 0.5F;
+		Vector3f p = new Vector3f();
+		// base is entity-local in the pose; transform to camera-relative coordinates on the fly.
+		p.set(base.x() - side.x() * hw, base.y(), base.z() - side.z() * hw);
+		pose.pose().transformPosition(p);
+		buffer.addVertex(p.x(), p.y(), p.z(), (aBot << 24) | rgb, 0.0F, 0.0F, OverlayTexture.NO_OVERLAY, light, 0.0F, 1.0F, 0.0F);
+		p.set(base.x() + side.x() * hw, base.y(), base.z() + side.z() * hw);
+		pose.pose().transformPosition(p);
+		buffer.addVertex(p.x(), p.y(), p.z(), (aBot << 24) | rgb, 0.0F, 0.0F, OverlayTexture.NO_OVERLAY, light, 0.0F, 1.0F, 0.0F);
+		p.set(base.x() + side.x() * hw, base.y() + top, base.z() + side.z() * hw);
+		pose.pose().transformPosition(p);
+		buffer.addVertex(p.x(), p.y(), p.z(), rgb, 0.0F, 0.0F, OverlayTexture.NO_OVERLAY, light, 0.0F, 1.0F, 0.0F);
+		p.set(base.x() - side.x() * hw, base.y() + top, base.z() - side.z() * hw);
+		pose.pose().transformPosition(p);
+		buffer.addVertex(p.x(), p.y(), p.z(), rgb, 0.0F, 0.0F, OverlayTexture.NO_OVERLAY, light, 0.0F, 1.0F, 0.0F);
 	}
 }

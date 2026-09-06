@@ -5,6 +5,7 @@
 	"client": [
 		"GameRendererMixin",
 		"CameraMixin",
+		"GuiMixin",
 		"GuiRenderStateMixin",
 		"AvatarRendererMixin",
 		"ItemFrameRendererMixin",

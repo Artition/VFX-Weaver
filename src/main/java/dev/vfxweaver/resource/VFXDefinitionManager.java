@@ -274,7 +274,8 @@ public class VFXDefinitionManager extends SimplePreparableReloadListener<Map<Ide
 			Identifier.fromNamespaceAndPath("vfxweaver", "noise_warp"),
 			builtIn("vfxweaver", "noise_warp", VFXEffectType.NOISE_WARP, 60, EasingType.EASE_IN_OUT_CUBIC,
 				param("scale", 8.0F), param("amplitude", 0.03F, 0.0F), param("contrast", 2.0F),
-				param("coherence", 1.0F), param("speed", 0.5F), param("drift_x", 0.0F), param("drift_y", 0.0F))
+				param("coherence", 1.0F), param("speed", 0.5F), param("drift_x", 0.0F), param("drift_y", 0.0F),
+				param("seed", 0.0F))
 		);
 		this.builtIns.put(
 			Identifier.fromNamespaceAndPath("vfxweaver", "solarize"),
@@ -289,7 +290,8 @@ public class VFXDefinitionManager extends SimplePreparableReloadListener<Map<Ide
 		this.builtIns.put(
 			Identifier.fromNamespaceAndPath("vfxweaver", "eyelids"),
 			builtIn("vfxweaver", "eyelids", VFXEffectType.EYELIDS, 120, EasingType.EASE_IN_OUT_CUBIC,
-				param("openness", 0.5F), param("softness", 0.15F), param("curve", 0.35F))
+				param("openness", 0.5F), param("softness", 0.15F), param("curve", 0.35F),
+				param("red", 0.0F), param("green", 0.0F), param("blue", 0.0F))
 		);
 		this.builtIns.put(
 			Identifier.fromNamespaceAndPath("vfxweaver", "iris_wipe"),
@@ -318,7 +320,7 @@ public class VFXDefinitionManager extends SimplePreparableReloadListener<Map<Ide
 		this.builtIns.put(
 			Identifier.fromNamespaceAndPath("vfxweaver", "afterimage"),
 			builtIn("vfxweaver", "afterimage", VFXEffectType.AFTERIMAGE, 60, EasingType.EASE_IN_OUT_CUBIC,
-				param("decay", 0.92F), param("blend", 0.6F), param("drift", 0.0F),
+				param("decay", 0.97F), param("blend", 0.05F), param("drift", 0.0F),
 				param("desat", 0.35F), param("intensity", 1.0F, 0.0F))
 		);
 		this.builtIns.put(

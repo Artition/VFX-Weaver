@@ -22,6 +22,7 @@ import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
+import org.spongepowered.asm.mixin.injection.Redirect;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 /**
@@ -30,10 +31,10 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
  * <ul>
  *   <li>after {@code extractRenderState} — stores the entity's UUID on the render state (see
  *       {@link IVFXWeaverEntityState});</li>
- *   <li>after the original {@code submitModel} in {@code submit} — re-submits the model with the
- *       {@code entity_tint}/{@code entity_outline} render types so the effect renders as a second
- *       pass on top of (or around) the entity's own geometry, without touching the vanilla render
- *       type or its textures.</li>
+ *   <li>in {@code submit} — when an {@code entity_displace} effect targets the entity, the vanilla
+ *       {@code submitModel} call is swapped for a displaced version of the model itself (the vanilla
+ *       body is not drawn, so there is no copy on top of it); other effects (tint/outline/beams)
+ *       are re-submitted as an extra second pass on the displaced geometry.</li>
  * </ul>
  */
 @Mixin(LivingEntityRenderer.class)
@@ -49,6 +50,50 @@ public abstract class LivingEntityRendererMixin<T extends LivingEntity, S extend
 	@Inject(method = "extractRenderState(Lnet/minecraft/world/entity/LivingEntity;Lnet/minecraft/client/renderer/entity/state/LivingEntityRenderState;F)V", at = @At("TAIL"))
 	private void vfxweaver$storeEntityUuid(final LivingEntity entity, final LivingEntityRenderState state, final float partialTicks, final CallbackInfo ci) {
 		((IVFXWeaverEntityState) state).vfxweaver$setUuid(entity.getUUID());
+	}
+
+	/**
+	 * Replaces the vanilla model pass with the displaced textured model when an active
+	 * {@code entity_displace} effect targets the entity, else forwards to the original.
+	 */
+	@Redirect(
+		method = "submit(Lnet/minecraft/client/renderer/entity/state/LivingEntityRenderState;Lcom/mojang/blaze3d/vertex/PoseStack;Lnet/minecraft/client/renderer/SubmitNodeCollector;Lnet/minecraft/client/renderer/state/level/CameraRenderState;)V",
+		at = @At(
+			value = "INVOKE",
+			target = "Lnet/minecraft/client/renderer/SubmitNodeCollector;submitModel(Lnet/minecraft/client/model/Model;Ljava/lang/Object;Lcom/mojang/blaze3d/vertex/PoseStack;Lnet/minecraft/client/renderer/rendertype/RenderType;IIILnet/minecraft/client/renderer/texture/TextureAtlasSprite;ILnet/minecraft/client/renderer/feature/ModelFeatureRenderer$CrumblingOverlay;)V"
+		)
+	)
+	private void vfxweaver$displaceOrSubmit(
+		final SubmitNodeCollector submitNodeCollector,
+		final EntityModel<? super S> vanillaModel,
+		final Object stateObject,
+		final PoseStack poseStack,
+		final net.minecraft.client.renderer.rendertype.RenderType renderType,
+		final int lightCoords,
+		final int overlayCoords,
+		final int modelTint,
+		final net.minecraft.client.renderer.texture.TextureAtlasSprite sprite,
+		final int outlineColor,
+		final net.minecraft.client.renderer.feature.ModelFeatureRenderer.CrumblingOverlay crumblingOverlay
+	) {
+		@SuppressWarnings("unchecked")
+		final S state = (S) stateObject;
+		UUID uuid = ((IVFXWeaverEntityState) state).vfxweaver$getUuid();
+		VFXActiveEffect displace = null;
+		if (uuid != null) {
+			for (VFXActiveEffect effect : VFXEffectManager.get().getActiveEntityEffects(uuid)) {
+				if (effect.getType() == VFXEffectType.ENTITY_DISPLACE) {
+					displace = effect;
+					break;
+				}
+			}
+		}
+		if (displace == null) {
+			submitNodeCollector.submitModel(vanillaModel, state, poseStack, renderType, lightCoords, overlayCoords, modelTint, sprite, outlineColor, crumblingOverlay);
+			return;
+		}
+		Identifier texture = this.getTextureLocation(state);
+		VFXEntityEffectRenderer.renderDisplacedModel(displace, state, poseStack, submitNodeCollector, this.model, texture, lightCoords);
 	}
 
 	@Inject(
@@ -75,8 +120,6 @@ public abstract class LivingEntityRendererMixin<T extends LivingEntity, S extend
 					VFXEntityEffectRenderer.renderTint(effect, state, poseStack, submitNodeCollector, this.model, texture);
 				} else if (effect.getType() == VFXEffectType.ENTITY_OUTLINE) {
 					VFXEntityEffectRenderer.renderOutline(effect, state, poseStack, submitNodeCollector, this.model, texture);
-				} else if (effect.getType() == VFXEffectType.ENTITY_DISPLACE) {
-					VFXEntityEffectRenderer.renderDisplace(effect, state, poseStack, submitNodeCollector, this.model, texture);
 				} else if (effect.getType() == VFXEffectType.GOD_RAYS) {
 					VFXBeamsRenderer.render(effect, state, poseStack, submitNodeCollector);
 				}

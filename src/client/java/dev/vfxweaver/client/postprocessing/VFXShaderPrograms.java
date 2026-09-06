@@ -76,13 +76,13 @@ public final class VFXShaderPrograms {
 		registerPost(VFXEffectType.SLICE_SHIFT, "angle", "offset", "shift", "mirror");
 		registerPost(VFXEffectType.SOLARIZE, "threshold", "softness", "intensity");
 		registerPost(VFXEffectType.DOUBLE_VISION, "offset", "ghost_opacity", "drift", "intensity", "time");
-		registerPost(VFXEffectType.EYELIDS, "openness", "softness", "curve");
+		registerPost(VFXEffectType.EYELIDS, "openness", "softness", "curve", "red", "green", "blue");
 		registerPost(VFXEffectType.IRIS_WIPE, "radius", "softness", "center_x", "center_y", "zoom");
 		registerPost(VFXEffectType.DIGITAL_GLITCH, "block", "displacement", "rate", "chroma", "seed", "chance", "intensity", "time");
 		registerPost(VFXEffectType.VHS, "tracking", "band_height", "band_speed", "bleed", "wobble", "intensity", "time");
 		registerPost(VFXEffectType.SHOCKWAVE, "center_x", "center_y", "radius", "width", "amplitude", "sharpness");
 		registerFeedbackEffects();
-		registerPost(VFXEffectType.NOISE_WARP, "scale", "amplitude", "contrast", "coherence", "speed", "drift_x", "drift_y", "time");
+		registerPost(VFXEffectType.NOISE_WARP, "scale", "amplitude", "contrast", "coherence", "speed", "drift_x", "drift_y", "seed", "time");
 
 		copyPipeline = RenderPipelines.register(
 			RenderPipeline.builder(RenderPipelines.POST_PROCESSING_SNIPPET)

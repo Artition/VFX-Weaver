@@ -12,7 +12,24 @@ import net.minecraft.util.Mth;
 public final class HudFadeState {
 	private static final float[] CACHE = new float[2];
 
+	/** True while the in-game GUI (hotbar/chat/bossbar, not a Screen) is being rendered. */
+	private static boolean inHud;
+
 	private HudFadeState() {
+	}
+
+	/**
+	 * Marks whether the in-game HUD render pass is currently running. Only blits submitted during
+	 * this window are faded; a {@code Screen} (inventory, pause menu, ...) is rendered outside it
+	 * and stays untouched.
+	 */
+	public static void setInHud(final boolean value) {
+		inHud = value;
+	}
+
+	/** Whether the in-game HUD render pass is currently running. */
+	public static boolean isInHud() {
+		return inHud;
 	}
 
 	/**

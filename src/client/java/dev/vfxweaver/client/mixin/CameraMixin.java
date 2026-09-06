@@ -64,9 +64,11 @@ public abstract class CameraMixin {
 
 	@Inject(method = "update(Lnet/minecraft/client/DeltaTracker;)V", at = @At("TAIL"))
 	private void vfxweaver$applyShake(final DeltaTracker deltaTracker, final CallbackInfo ci) {
+		float cameraRoll = VFXCameraRoll.compute(VFXEffectManager.get());
 		CameraShakeManager.Offset offset = CameraShakeManager.compute(VFXEffectManager.get());
 		if (offset.dx() == 0.0 && offset.dy() == 0.0 && offset.dz() == 0.0
-			&& offset.yaw() == 0.0F && offset.pitch() == 0.0F && offset.roll() == 0.0F) {
+			&& offset.yaw() == 0.0F && offset.pitch() == 0.0F && offset.roll() == 0.0F
+			&& cameraRoll == 0.0F) {
 			return;
 		}
 
@@ -82,7 +84,6 @@ public abstract class CameraMixin {
 
 		this.setPosition(this.position.add(offset.dx(), offset.dy(), offset.dz()));
 
-		float cameraRoll = VFXCameraRoll.compute(VFXEffectManager.get());
 		if (cameraRoll != 0.0F) {
 			Quaternionf roll = new Quaternionf().rotationZ(cameraRoll * (float) Math.PI / 180.0F);
 			this.rotation.mul(roll, this.rotation);

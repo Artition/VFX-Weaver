@@ -32,6 +32,11 @@ public abstract class GuiRenderStateMixin {
 		index = 0
 	)
 	private GuiElementRenderState vfxweaver$fadeBlit(final GuiElementRenderState element) {
+		// Only fade blits submitted during the in-game HUD pass (GuiMixin sets the flag). Screens
+		// (inventory, pause, ...) are rendered outside that window and stay untouched.
+		if (!HudFadeState.isInHud()) {
+			return element;
+		}
 		float opacity = HudFadeState.hudOpacity();
 		if (opacity >= 1.0F || !(element instanceof BlitRenderState state)) {
 			return element;
@@ -45,7 +50,7 @@ public abstract class GuiRenderStateMixin {
 	}
 
 	private static int multiplyAlpha(final int argb, final float opacity) {
-		int a = Mth.clamp((int) (((argb >>> 24) & 0xFF) * opacity), 0, 255);
-		return (a << 24) | (argb & 0x00FFFFFF);
+		int a = Math.round(((argb >>> 24) & 0xFF) * Mth.clamp(opacity, 0.0F, 1.0F));
+		return (Math.min(a, 255) << 24) | (argb & 0x00FFFFFF);
 	}
 }

@@ -33,7 +33,7 @@ void main() {
     }
     vec2 shifted = (ac - side * shift * vec2(cos(a), sin(a))) / asp;
     vec2 wrapped = fract(shifted);
-    vec2 mirrored = abs(2.0 * fract(shifted / 2.0) - 1.0);
+    vec2 mirrored = 1.0 - abs(2.0 * fract(shifted * 0.5) - 1.0);
     vec2 finalUV = mix(wrapped, mirrored, mirror);
     fragColor = texture(InSampler, finalUV);
 }

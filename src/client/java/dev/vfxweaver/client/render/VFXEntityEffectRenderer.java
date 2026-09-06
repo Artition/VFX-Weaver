@@ -86,18 +86,18 @@ public final class VFXEntityEffectRenderer {
 		);
 	}
 
-	/**
-	 * Textureless flat-echo pipeline for {@code entity_displace}: the model vertices pass through
-	 * {@code entity_fx.vsh} (carrying the effect ARGB as vertex colour) and a small fragment
-	 * shader outputs that colour without sampling any texture, so render types are static (not
-	 * memoized per entity texture).
+/**
+	 * Textured displaced-model pipeline: same vertex stage, fragment emits vertex colour multiplied
+	 * by the native entity texture (a displaced, recolour-capable version of the vanilla body).
 	 */
-	private static RenderPipeline displacePipeline(final CompareOp depthOp, final String suffix) {
+	private static RenderPipeline displacedTexturePipeline(final CompareOp depthOp, final String suffix) {
 		return RenderPipelines.register(
 			RenderPipeline.builder(RenderPipelines.MATRICES_FOG_LIGHT_DIR_SNIPPET)
-				.withLocation(Identifier.fromNamespaceAndPath("vfxweaver", "world/entity_displace_" + suffix))
+				.withLocation(Identifier.fromNamespaceAndPath("vfxweaver", "world/entity_displaced_t_" + suffix))
 				.withVertexShader(Identifier.fromNamespaceAndPath("vfxweaver", "core/entity_fx"))
-				.withFragmentShader(Identifier.fromNamespaceAndPath("vfxweaver", "core/displace"))
+				.withFragmentShader(Identifier.fromNamespaceAndPath("vfxweaver", "core/entity_fx"))
+				.withShaderDefine("TINT_MULTIPLY")
+				.withSampler("Sampler0")
 				.withVertexFormat(DefaultVertexFormat.ENTITY, VertexFormat.Mode.QUADS)
 				.withDepthStencilState(new DepthStencilState(depthOp, false))
 				.withColorTargetState(new ColorTargetState(BlendFunction.TRANSLUCENT))
@@ -154,14 +154,17 @@ public final class VFXEntityEffectRenderer {
 	private static final FxType OUTLINE_OCCLUDED = new FxType(OUTLINE_OCCLUDED_P, "vfxweaver_entity_outline_occluded", new HashMap<>());
 	private static final FxType OUTLINE_THROUGH = new FxType(OUTLINE_THROUGH_P, "vfxweaver_entity_outline_through", new HashMap<>());
 
-	// Displace echo variants: _VISIBLE = ALWAYS_PASS (shows through terrain), _OCCLUDED = LEQUAL.
-	private static final RenderType DISPLACE_VISIBLE = RenderType.create(
-		"vfxweaver_entity_displace_visible",
-		RenderSetup.builder(displacePipeline(CompareOp.ALWAYS_PASS, "visible")).createRenderSetup()
+	// Displaced-model variants: the vanilla body is replaced by a displaced textured copy (_VISIBLE
+	// = ALWAYS_PASS, _OCCLUDED = LEQUAL), so the model itself appears to tear, with no echo on top.
+	private static final FxType DISPLACED_VISIBLE = new FxType(
+		displacedTexturePipeline(CompareOp.ALWAYS_PASS, "visible"),
+		"vfxweaver_entity_displaced_visible",
+		new HashMap<>()
 	);
-	private static final RenderType DISPLACE_OCCLUDED = RenderType.create(
-		"vfxweaver_entity_displace_occluded",
-		RenderSetup.builder(displacePipeline(CompareOp.LESS_THAN_OR_EQUAL, "occluded")).createRenderSetup()
+	private static final FxType DISPLACED_OCCLUDED = new FxType(
+		displacedTexturePipeline(CompareOp.LESS_THAN_OR_EQUAL, "occluded"),
+		"vfxweaver_entity_displaced_occluded",
+		new HashMap<>()
 	);
 
 	/**
@@ -345,34 +348,43 @@ public final class VFXEntityEffectRenderer {
 	}
 
 	/**
-	 * Displace pass: the model is re-emitted as a flat echo whose vertices are displaced by a
-	 * quantised per-vertex hash (see {@link VFXNoise}). The vanilla body stays underneath — the
-	 * visual is the model jittering out of place, not a replacement. The {@code seed} parameter
-	 * drives the motion (step it for snaps, animate it for fluid morphing).
+	 * Displaced-model pass: the model ITSELF is re-emitted (with its native texture) with a
+	 * per-vertex hash displacement, replacing the vanilla body — no copy/echo drawn on top. The
+	 * {@code seed} parameter drives the motion (step it for snaps, animate it for fluid morphing);
+	 * {@code alpha}/{@code color_*} are accepted for backward compatibility but the texture is
+	 * the model's own, tinted white so the displaced body reads as the entity.
 	 */
-	public static <S extends LivingEntityRenderState> void renderDisplace(
+	public static <S extends LivingEntityRenderState> void renderDisplacedModel(
 		final VFXActiveEffect effect,
 		final S state,
 		final PoseStack poseStack,
 		final SubmitNodeCollector submitNodeCollector,
 		final Model<? super S> model,
-		final Identifier texture
+		final Identifier texture,
+		final int lightCoords
 	) {
 		float amplitude = clamp01(effect.getParam("amplitude", 0.1F)) * effect.getWeight();
 		if (amplitude <= 0.0F) {
+			// Amplitude faded to zero: nothing displaced and the vanilla body is skipped via the
+			// redirect, so submit an exact copy (texture, no offset) to keep the entity visible.
+			submitNodeCollector.submitCustomGeometry(poseStack, DISPLACED_OCCLUDED.forTexture(texture), (pose, buffer) -> {
+				PoseStack stack = new PoseStack();
+				stack.last().set(pose);
+				model.root().visit(stack, (partPose, path, cubeIndex, cube) ->
+					emitModelCube(partPose, buffer, cube, -1, lightCoords));
+			});
 			return;
 		}
 		boolean through = effect.getParam("through_blocks", 0.0F) >= 0.5F;
 		float scale = Math.max(effect.getParam("scale", 4.0F), 0.5F);
 		float seed = effect.getParam("seed", 0.0F);
-		int color = argb(effect, clamp01(effect.getParam("alpha", 1.0F)) * effect.getWeight());
-		RenderType renderType = through ? DISPLACE_VISIBLE : DISPLACE_OCCLUDED;
+		RenderType renderType = (through ? DISPLACED_VISIBLE : DISPLACED_OCCLUDED).forTexture(texture);
 		model.setupAnim(state);
 		submitNodeCollector.submitCustomGeometry(poseStack, renderType, (pose, buffer) -> {
 			PoseStack stack = new PoseStack();
 			stack.last().set(pose);
 			model.root().visit(stack, (partPose, path, cubeIndex, cube) ->
-				emitDisplacedCube(partPose, buffer, cube, amplitude, scale, seed, color, state.lightCoords));
+				emitDisplacedCube(partPose, buffer, cube, amplitude, scale, seed, -1, lightCoords));
 		});
 	}
 
@@ -380,7 +392,7 @@ public final class VFXEntityEffectRenderer {
 	 * Emits one model cube with a per-vertex hash displacement. Local model coordinates are small,
 	 * so no precision wrapping is needed. Each vertex is offset by three hashes (one per axis) on
 	 * the {@code scale}-warped local position, so neighbouring vertices on high {@code scale}
-	 * diverge and the echo reads as glitch refraction rather than a rigid shift.
+	 * diverge and the model reads as glitch refraction rather than a rigid shift.
 	 */
 	private static void emitDisplacedCube(
 		final PoseStack.Pose pose,
@@ -404,6 +416,25 @@ public final class VFXEntityEffectRenderer {
 				float oy = VFXNoise.vhash(y, z, x, seed + 3.14F) * amplitude;
 				float oz = VFXNoise.vhash(z, x, y, seed + 6.28F) * amplitude;
 				pose.pose().transformPosition(v.worldX() + ox, v.worldY() + oy, v.worldZ() + oz, pos);
+				buffer.addVertex(pos.x(), pos.y(), pos.z(), color, v.u(), v.v(), OverlayTexture.NO_OVERLAY, lightCoords, normal.x(), normal.y(), normal.z());
+			}
+		}
+	}
+
+	/** Emits one model cube un-displaced (vertex colour keeps the {@code -1} opaque white tint). */
+	private static void emitModelCube(
+		final PoseStack.Pose pose,
+		final VertexConsumer buffer,
+		final ModelPart.Cube cube,
+		final int color,
+		final int lightCoords
+	) {
+		Vector3f pos = new Vector3f();
+		Vector3f normal = new Vector3f();
+		for (ModelPart.Polygon polygon : cube.polygons) {
+			pose.transformNormal(polygon.normal(), normal);
+			for (ModelPart.Vertex v : polygon.vertices()) {
+				pose.pose().transformPosition(v.worldX(), v.worldY(), v.worldZ(), pos);
 				buffer.addVertex(pos.x(), pos.y(), pos.z(), color, v.u(), v.v(), OverlayTexture.NO_OVERLAY, lightCoords, normal.x(), normal.y(), normal.z());
 			}
 		}
