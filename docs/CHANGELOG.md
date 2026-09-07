@@ -23,7 +23,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). The versions bel
 ### Changed
 - **`light_beam`** - layered cylindrical shells with cubic softness falloff (opaque core fading to a soft edge), optional `top_scale` for tapering beams.
 - **`pulse_ring`** - camera-facing billboard mode (flat ring always perpendicular to the camera) and a `rot` param for orientation in billboard mode.
-- **`hud_fade`** - per-pipeline fade: `GUI_TEXTURED` fades alpha only (non-premultiplied), `GUI_TEXTURED_PREMULTIPLIED_ALPHA` fades the whole ARGB, `CROSSHAIR` blends INVERT (RGB only).
+- **`hud_fade`** - binary F1-style hide: the HUD is either fully shown or fully hidden (never translucent) by skipping `addGuiElement` entirely, which also covers hotbar item icons and text layers; `opacity` is the timeline-driven on/off switch (hidden below 0.5) and `hide_hand` (default 1) extends the hide to the first-person hand.
 - **`afterimage`** - history echo now uses an island blend (the ghost does not overwrite the live frame's transparency).
 - **`camera_shake` / `camera_roll`** - now also shake/tilt the first-person hand, not just the world camera.
 - **`entity_displace`** - vertex displacement over the intact model with a quantised (snap-glitch) field.
@@ -36,7 +36,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). The versions bel
 ### Notes
 - Screen effects that animate procedurally accept the auto-filled `time` parameter (effect age in ticks); film-grain-style shaders already used it.
 - The `expr` parameter syntax (e.g. stepped `seed`) works in **datapack** definitions; command param-maps (`{[...]}`) accept floats only.
-- A `gradlew build`-verified implementation batch; visual effects should be verified with `gradlew runClient` (the hud_fade text-layer coverage is the known spike follow-up).
+- A `gradlew build`-verified implementation batch; visual effects should be verified with `gradlew runClient`.
 ### Fixed
 - **Effects replayed fresh on every world join and never expired.** The reconnect memory used the server tick counter as its clock, which resets when the server instance is recreated (every singleplayer world reload): elapsed time collapsed to zero, so all previously played effects were re-applied at full duration on each join. The reconnect memory now uses wall-clock time (1 tick = 50 ms), stable across world reloads and restarts.
 - **Item frame overlay drawn twice / offset.** The overlay hook fired on every PoseStack.popPose in the vanilla submit and the frame-local pose was rebuilt from identity - the quads landed at world origin or offset by the item transforms. It is now drawn once, anchored to the frame model pose with model-space coordinates matching the panel plane (z ~ 0.97).

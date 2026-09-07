@@ -1,7 +1,10 @@
 package dev.vfxweaver.client.mixin;
 
+import com.llamalad7.mixinextras.injector.wrapmethod.WrapMethod;
+import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
 import com.mojang.blaze3d.vertex.PoseStack;
 import dev.vfxweaver.client.effect.VFXEffectManager;
+import dev.vfxweaver.client.hud.HudFadeState;
 import dev.vfxweaver.client.shake.CameraShakeManager;
 import dev.vfxweaver.client.shake.VFXCameraRoll;
 import net.minecraft.client.player.LocalPlayer;
@@ -18,14 +21,31 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
  * re-applies the shake offset (position + roll) on top, so the hand visibly shakes together with
  * the world instead of standing still.
  *
- * <p>The HEAD/RETURN pair must always push and always pop in lock-step (never an early return in
- * HEAD), otherwise the hand's PoseStack runs out of frames and vanilla's own {@code popPose()}
- * throws {@code NoSuchElementException}.</p>
+ * <p>The whole render is wrapped in a {@code @WrapMethod}: when a {@code hud_fade} is active and
+ * its {@code hide_hand} says so ({@link HudFadeState#shouldHideHand()}), the original method is
+ * skipped entirely. Because the wrap is around the entire method, the shake HEAD/RETURN push/pop
+ * pair below is skipped together with the rendering - never just one half - so the hand's
+ * PoseStack cannot run out of frames.</p>
  */
 @Mixin(ItemInHandRenderer.class)
 public abstract class ItemInHandRendererMixin {
 	/** Rough pixel-per-block factor for the hand-space shake feet. */
 	private static final float HAND_SHAKE_SCALE = 2.0F;
+
+	@WrapMethod(method = "renderHandsWithItems(FLcom/mojang/blaze3d/vertex/PoseStack;Lnet/minecraft/client/renderer/SubmitNodeCollector;Lnet/minecraft/client/player/LocalPlayer;I)V")
+	private void vfxweaver$renderHand(
+		final float partialTicks,
+		final PoseStack poseStack,
+		final SubmitNodeCollector submitNodeCollector,
+		final LocalPlayer player,
+		final int packedLight,
+		final Operation<Void> original
+	) {
+		if (HudFadeState.shouldHideHand()) {
+			return;
+		}
+		original.call(partialTicks, poseStack, submitNodeCollector, player, packedLight);
+	}
 
 	@Inject(
 		method = "renderHandsWithItems(FLcom/mojang/blaze3d/vertex/PoseStack;Lnet/minecraft/client/renderer/SubmitNodeCollector;Lnet/minecraft/client/player/LocalPlayer;I)V",
@@ -40,7 +60,8 @@ public abstract class ItemInHandRendererMixin {
 		final CallbackInfo ci
 	) {
 		// Always push, so the matching RETURN pop keeps the stack balanced even when the shake is
-		// currently zero.
+		// currently zero. Runs inside the @WrapMethod's original.call(...) - if the hand is hidden
+		// the wrap skips the whole method and neither push nor pop runs.
 		poseStack.pushPose();
 		VFXEffectManager manager = VFXEffectManager.get();
 		CameraShakeManager.Offset offset = CameraShakeManager.compute(manager);

@@ -10,17 +10,18 @@ import org.spongepowered.asm.mixin.Mixin;
 /**
  * Intercepts the single point where every GUI element (HUD, overlay, screen) enters the
  * {@code GuiRenderState}: {@code addGuiElement}. When the in-game HUD pass runs
- * ({@link HudFadeState#isInHud()}, set by {@link GuiMixin}), the element is faded per-pipeline;
- * outside that window (screens) it is passed through untouched.
+ * ({@link HudFadeState#isInHud()}, set by {@link GuiMixin}) and the HUD is hidden, the element is
+ * not added at all - a binary F1-style hide that covers every element (hotbar item icons, glyphs,
+ * text) instead of the old per-pipeline alpha fade; outside that window (screens) it is passed
+ * through untouched.
  */
 @Mixin(GuiRenderState.class)
 public abstract class GuiRenderStateMixin {
 	@WrapMethod(method = "addGuiElement(Lnet/minecraft/client/renderer/state/gui/GuiElementRenderState;)V")
-	private void vfxweaver$fadedAdd(final GuiElementRenderState element, final Operation<Void> original) {
-		if (!HudFadeState.isInHud()) {
-			original.call(element);
+	private void vfxweaver$maybeAdd(final GuiElementRenderState element, final Operation<Void> original) {
+		if (HudFadeState.isHidden()) {
 			return;
 		}
-		original.call(HudFadeState.fade(element));
+		original.call(element);
 	}
 }

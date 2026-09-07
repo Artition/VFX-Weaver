@@ -654,12 +654,12 @@ Changes the player's field of view.
 ```
 
 #### `hud_fade`
-Fades the HUD to transparent while the player keeps full control. Currently covers the blit-drawn HUD layers (hotbar, hearts, hunger, XP bar, crosshair, boss bar); plain text layers (chat text, XP numbers, tooltips) are not yet faded - tracking the hud_fade spike follow-up.
+Hides the HUD while the player keeps full control — a binary on/off hide like vanilla F1 (`hideHud`): the HUD is either fully shown or fully hidden, never translucent, so textures can't break. The hide happens at the single `addGuiElement` chokepoint, so everything that goes through the GUI render state is hidden with it (hotbar item icons, XP numbers, text layers included). Optionally hides the first-person hand too.
 
 | Param | Default | Description |
 |---|---|---|
-| `opacity` | 0 -> 1 | HUD opacity: 0 = fully hidden, 1 = normal |
-| `chat` | 1 | 1 = chat fades too (currently the same global multiplier), 0 = keep chat readable (not yet differentiated) |
+| `opacity` | 0 -> 1 | Binary hide switch driven by the timeline: hidden while the combined opacity is below 0.5 (the default animates 0 -> 1, i.e. hidden at the start), shown above |
+| `hide_hand` | 1 | 1 = the first-person hand is hidden too, 0 = the hand stays visible while the HUD is hidden |
 
 ```
 /vfx play vfxweaver:hud_fade
@@ -1004,7 +1004,7 @@ Guide version: 22 — see changelog below.
 - New screen effects: `slice_shift`, `noise_warp`, `solarize`, `double_vision`, `eyelids`, `iris_wipe`, `digital_glitch`, `vhs`, `shockwave`, `afterimage`, `stop_motion`.
 - New world effects: `light_beam` (layered shells, cubic softness, `top_scale`), `pulse_ring` (camera-facing billboard + `rot`), `guide_line`.
 - New entity effect: `entity_displace` (flat per-vertex displaced echo over the intact model).
-- New misc effects: `camera_roll`, `hud_fade` (per-pipeline fade: `GUI_TEXTURED` alpha-only, `GUI_TEXTURED_PREMULTIPLIED_ALPHA` whole ARGB, `CROSSHAIR` RGB).
+- New misc effects: `camera_roll`, `hud_fade` (binary F1-style hide with optional `hide_hand`).
 - `afterimage` uses an island blend; `camera_shake`/`camera_roll` also move the first-person hand.
 - Removed before release: `block_displace`, `god_rays`, `scan_sweep`.
 
