@@ -1,28 +1,27 @@
 package dev.vfxweaver.client.mixin;
 
+import com.llamalad7.mixinextras.injector.wrapmethod.WrapMethod;
+import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
 import dev.vfxweaver.client.hud.HudFadeState;
 import net.minecraft.client.DeltaTracker;
 import net.minecraft.client.gui.Gui;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import org.spongepowered.asm.mixin.Mixin;
-import org.spongepowered.asm.mixin.injection.At;
-import org.spongepowered.asm.mixin.injection.Inject;
-import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 /**
- * Marks the in-game HUD render pass in {@link Gui#extractRenderState}. {@code GuiRenderStateMixin}
- * only fades blits submitted while this flag is set, so a {@code Screen} (inventory, pause, ...)
- * is rendered outside that window and never touched.
+ * Marks the in-game HUD render pass with a guaranteed try/finally. The flag is always cleared -
+ * even if {@code Gui.extractRenderState} throws - so a {@code Screen} (inventory, pause, ...)
+ * rendered right after it in {@code GameRenderer.extractGui} is never faded by a stuck flag.
  */
 @Mixin(Gui.class)
 public abstract class GuiMixin {
-	@Inject(method = "extractRenderState(Lnet/minecraft/client/gui/GuiGraphicsExtractor;Lnet/minecraft/client/DeltaTracker;)V", at = @At("HEAD"))
-	private void vfxweaver$hudBegin(final GuiGraphicsExtractor extractor, final DeltaTracker deltaTracker, final CallbackInfo ci) {
-		HudFadeState.setInHud(true);
-	}
-
-	@Inject(method = "extractRenderState(Lnet/minecraft/client/gui/GuiGraphicsExtractor;Lnet/minecraft/client/DeltaTracker;)V", at = @At("RETURN"))
-	private void vfxweaver$hudEnd(final GuiGraphicsExtractor extractor, final DeltaTracker deltaTracker, final CallbackInfo ci) {
-		HudFadeState.setInHud(false);
+	@WrapMethod(method = "extractRenderState(Lnet/minecraft/client/gui/GuiGraphicsExtractor;Lnet/minecraft/client/DeltaTracker;)V")
+	private void vfxweaver$hudScope(final GuiGraphicsExtractor extractor, final DeltaTracker deltaTracker, final Operation<Void> original) {
+		HudFadeState.beginHud();
+		try {
+			original.call(extractor, deltaTracker);
+		} finally {
+			HudFadeState.endHud();
+		}
 	}
 }

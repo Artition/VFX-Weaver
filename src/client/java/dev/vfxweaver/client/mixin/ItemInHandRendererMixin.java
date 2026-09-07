@@ -17,6 +17,10 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
  * cancels the shaken camera rotation (so it floats steady in front of a shaking world); this mixin
  * re-applies the shake offset (position + roll) on top, so the hand visibly shakes together with
  * the world instead of standing still.
+ *
+ * <p>The HEAD/RETURN pair must always push and always pop in lock-step (never an early return in
+ * HEAD), otherwise the hand's PoseStack runs out of frames and vanilla's own {@code popPose()}
+ * throws {@code NoSuchElementException}.</p>
  */
 @Mixin(ItemInHandRenderer.class)
 public abstract class ItemInHandRendererMixin {
@@ -35,13 +39,15 @@ public abstract class ItemInHandRendererMixin {
 		final int packedLight,
 		final CallbackInfo ci
 	) {
+		// Always push, so the matching RETURN pop keeps the stack balanced even when the shake is
+		// currently zero.
+		poseStack.pushPose();
 		VFXEffectManager manager = VFXEffectManager.get();
 		CameraShakeManager.Offset offset = CameraShakeManager.compute(manager);
 		float roll = offset.roll() + VFXCameraRoll.compute(manager);
 		if (offset.dx() == 0.0 && offset.dy() == 0.0 && offset.dz() == 0.0 && roll == 0.0F) {
 			return;
 		}
-		poseStack.pushPose();
 		poseStack.translate((float) offset.dx() * HAND_SHAKE_SCALE, (float) offset.dy() * HAND_SHAKE_SCALE, (float) offset.dz() * HAND_SHAKE_SCALE);
 		if (roll != 0.0F) {
 			poseStack.mulPose(com.mojang.math.Axis.ZP.rotationDegrees(roll));

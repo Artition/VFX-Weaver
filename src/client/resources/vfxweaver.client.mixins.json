@@ -6,7 +6,7 @@
 		"GameRendererMixin",
 		"CameraMixin",
 		"GuiMixin",
-		"GuiGraphicsExtractorMixin",
+		"GuiRenderStateMixin",
 		"ItemInHandRendererMixin",
 		"AvatarRendererMixin",
 		"ItemFrameRendererMixin",
