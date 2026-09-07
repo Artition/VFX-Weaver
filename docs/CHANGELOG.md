@@ -18,12 +18,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). The versions bel
 - **`entity_displace` entity effect** - flat per-vertex displaced echo over the intact model (`amplitude`, `scale`, `seed`, `alpha`, color, `through_blocks`).
 - **`light_beam` / `pulse_ring` / `guide_line` world effects** - additive world quad effects (columns, rings, dashed parabola).
 - **`camera_roll` misc effect** - dutch-angle camera tilt with optional sinusoidal wobble.
-- **`hud_fade` misc effect** - HUD opacity via the state-based GuiRenderState hook (blit-drawn HUD layers: hotbar, hearts, XP, crosshair, boss bar).
 
 ### Changed
 - **`light_beam`** - layered cylindrical shells with cubic softness falloff (opaque core fading to a soft edge), optional `top_scale` for tapering beams.
 - **`pulse_ring`** - camera-facing billboard mode (flat ring always perpendicular to the camera) and a `rot` param for orientation in billboard mode.
-- **`hud_fade`** - binary F1-style hide: the HUD is either fully shown or fully hidden (never translucent) by skipping `addGuiElement` entirely, which also covers hotbar item icons and text layers; `opacity` is the timeline-driven on/off switch (hidden below 0.5) and `hide_hand` (default 1) extends the hide to the first-person hand.
 - **`afterimage`** - history echo now uses an island blend (the ghost does not overwrite the live frame's transparency).
 - **`camera_shake` / `camera_roll`** - now also shake/tilt the first-person hand, not just the world camera.
 - **`entity_displace`** - vertex displacement over the intact model with a quantised (snap-glitch) field.
@@ -32,6 +30,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). The versions bel
 - **`block_displace`** - opaque per-vertex block tearing effect. Cut before release (the look was not useful enough to keep the world-space hash + block-model pipeline).
 - **`god_rays`** - additive body-beam entity effect. Cut before release (superseded by `light_beam`).
 - **`scan_sweep`** - sweep-sheet world effect. Cut before release (too close to `light_beam`).
+- **`hud_fade`** - HUD hide effect (binary F1-style hide + `hide_hand`). Cut before release (reverted; to be redesigned later).
 
 ### Notes
 - Screen effects that animate procedurally accept the auto-filled `time` parameter (effect age in ticks); film-grain-style shaders already used it.

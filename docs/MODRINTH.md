@@ -8,8 +8,8 @@ Author: **Artition** · License: **MIT**
 
 ## What it does
 
-- **20+ post-processing effects** rendered through a ping-pong FBO (fullscreen, per-pixel shaders): chromatic aberration, color grading, distortion, dent, gradient map, posterize, blur, pixelate, hue isolation, vignette, screen flash, motion blur, bloom, film grain, scanlines, depth of field, letterbox, invert, vortex, speed lines.
-- **Camera shake** — simplex-noise shake with a smooth envelope + FOV modifier.
+- **30+ post-processing effects** rendered through a ping-pong FBO (fullscreen, per-pixel shaders): chromatic aberration, color grading, distortion, dent, gradient map, posterize, blur, pixelate, hue isolation, vignette, screen flash, motion blur, bloom, film grain, scanlines, depth of field, letterbox, invert, vortex, speed lines, slice shift, noise warp, solarize, double vision, eyelids, iris wipe, digital glitch, VHS, shockwave, afterimage, stop motion.
+- **Camera effects** — simplex-noise shake with a smooth envelope, dutch-angle roll, FOV modifier.
 - **World block overlays** — `block_tint` and `block_outline` drawn as world-space geometry around blocks.
 - **Entity effects** — `entity_tint` / `entity_outline` applied to entities by UUID (second-pass model render, texture-aware).
 - **Datapack-defined effects** — plain JSON, no code. Keyframe animation, easing curves, world/camera/player bindings, math expressions, collections, sounds.
@@ -53,16 +53,28 @@ Author: **Artition** · License: **MIT**
 | `invert` | Inverts the screen |
 | `vortex` | Swirls pixels into a funnel around a point |
 | `speed_lines` | Speed lines from the screen borders toward a point, random length per line |
+| `slice_shift` | A straight line slices the frame; the halves slide along it |
+| `noise_warp` | Animated value-noise field warps the picture in fluid patches |
+| `solarize` | Bright pixels invert, dark stay untouched |
+| `double_vision` | Two ghost copies of the frame with a slow drift |
+| `eyelids` | Two soft curved dark lids slide in from top and bottom |
+| `iris_wipe` | Old-film iris transition: everything outside a circle goes black |
+| `digital_glitch` | Band tearing + RGB split in gated bursts |
+| `vhs` | Worn tape: tracking band, wobble, colour bleed, washed contrast |
+| `shockwave` | A refraction ring ripples outward from a point |
+| `afterimage` | Decaying history echo — trails linger in a feedback buffer |
+| `stop_motion` | The picture updates only a few times per second |
 
 **Camera**
 
 | Effect | What it does |
 |---|---|
 | `camera_shake` | Simplex-noise shake with smooth envelope |
+| `camera_roll` | Dutch-angle tilt with optional sinusoidal wobble |
 | `fov_modifier` | Field-of-view change |
 
-**World overlays** — `block_tint`, `block_outline`
-**Entity effects** — `entity_tint`, `entity_outline` (by UUID)
+**World overlays** — `block_tint`, `block_outline`, `light_beam` (soft vertical column), `pulse_ring` (expanding ring), `guide_line` (dashed parabola arc)
+**Entity effects** — `entity_tint`, `entity_outline` (by UUID), `entity_displace` (per-vertex displaced echo)
 
 ---
 

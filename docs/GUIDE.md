@@ -653,18 +653,6 @@ Changes the player's field of view.
 /vfx play vfxweaver:fov_modifier {[fov_delta:-20]}
 ```
 
-#### `hud_fade`
-Hides the HUD while the player keeps full control — a binary on/off hide like vanilla F1 (`hideHud`): the HUD is either fully shown or fully hidden, never translucent, so textures can't break. The hide happens at the single `addGuiElement` chokepoint, so everything that goes through the GUI render state is hidden with it (hotbar item icons, XP numbers, text layers included). Optionally hides the first-person hand too.
-
-| Param | Default | Description |
-|---|---|---|
-| `opacity` | 0 -> 1 | Binary hide switch driven by the timeline: hidden while the combined opacity is below 0.5 (the default animates 0 -> 1, i.e. hidden at the start), shown above |
-| `hide_hand` | 1 | 1 = the first-person hand is hidden too, 0 = the hand stays visible while the HUD is hidden |
-
-```
-/vfx play vfxweaver:hud_fade
-```
-
 > **Layering note** (`screen_layer` for camera/roll effects): the `screen_layer` parameter
 > (`0` under the first-person hand, `1` above the hand below the GUI, `2` above everything) applies
 > only to **screen post-processing** effects in section 2.1. Camera-space effects
@@ -957,7 +945,7 @@ World overlays: `vfxweaver:block_tint`, `vfxweaver:block_outline`, `vfxweaver:li
 
 Entity effects: `vfxweaver:entity_tint`, `vfxweaver:entity_outline`, `vfxweaver:entity_displace`.
 
-Misc: `vfxweaver:camera_shake`, `vfxweaver:camera_roll`, `vfxweaver:fov_modifier`, `vfxweaver:hud_fade`.
+Misc: `vfxweaver:camera_shake`, `vfxweaver:camera_roll`, `vfxweaver:fov_modifier`.
 
 All have fade animation (40 ticks, except where noted); params can be overridden by collections.
 
@@ -1004,9 +992,9 @@ Guide version: 22 — see changelog below.
 - New screen effects: `slice_shift`, `noise_warp`, `solarize`, `double_vision`, `eyelids`, `iris_wipe`, `digital_glitch`, `vhs`, `shockwave`, `afterimage`, `stop_motion`.
 - New world effects: `light_beam` (layered shells, cubic softness, `top_scale`), `pulse_ring` (camera-facing billboard + `rot`), `guide_line`.
 - New entity effect: `entity_displace` (flat per-vertex displaced echo over the intact model).
-- New misc effects: `camera_roll`, `hud_fade` (binary F1-style hide with optional `hide_hand`).
+- New misc effects: `camera_roll`.
 - `afterimage` uses an island blend; `camera_shake`/`camera_roll` also move the first-person hand.
-- Removed before release: `block_displace`, `god_rays`, `scan_sweep`.
+- Removed before release: `block_displace`, `god_rays`, `scan_sweep`, `hud_fade` (cut before release, will be redesigned later).
 
 ### v20
 - Parameter overrides whose name the effect definition does not declare (e.g. `through_blocks` on the built-in effects) now apply as constant values instead of being silently dropped; `through_blocks` is declared on the built-in entity/block tint/outline.

@@ -30,11 +30,6 @@ dependencies {
 	minecraft "com.mojang:minecraft:${project.minecraft_version}"
 	implementation "net.fabricmc:fabric-loader:${project.loader_version}"
 
-	// MixinExtras (io.github.llamalad7) — @WrapMethod / @WrapOperation etc. Already present at
-	// runtime via other mods in the test instance; declaring it here makes the annotations
-	// visible to the compiler.
-	implementation "io.github.llamalad7:mixinextras-fabric:0.5.4"
-
 	// Fabric API. This is technically optional, but you probably want it anyway.
 	implementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_api_version}"
 }

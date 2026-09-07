@@ -452,13 +452,6 @@ public class VFXEffectManager {
 		return this.active.stream().filter(e -> e.getType() == VFXEffectType.CAMERA_ROLL).toList();
 	}
 
-	/**
-	 * The active {@code hud_fade} effects (drive {@code HudFadeState}).
-	 */
-	public List<VFXActiveEffect> getActiveHudFades() {
-		return this.active.stream().filter(e -> e.getType() == VFXEffectType.HUD_FADE).toList();
-	}
-
 	public float getActiveFovDelta() {
 		float delta = 0.0F;
 		for (VFXActiveEffect effect : this.active) {
