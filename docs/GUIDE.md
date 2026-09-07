@@ -998,7 +998,15 @@ Post-processing pipeline, world overlays, effect clock, load limits and fault to
 
 Versioned feature history — **[docs/CHANGELOG.md](CHANGELOG.md)**.
 
-Guide version: 21 — see changelog below.
+Guide version: 22 — see changelog below.
+
+### v22
+- New screen effects: `slice_shift`, `noise_warp`, `solarize`, `double_vision`, `eyelids`, `iris_wipe`, `digital_glitch`, `vhs`, `shockwave`, `afterimage`, `stop_motion`.
+- New world effects: `light_beam` (layered shells, cubic softness, `top_scale`), `pulse_ring` (camera-facing billboard + `rot`), `guide_line`.
+- New entity effect: `entity_displace` (flat per-vertex displaced echo over the intact model).
+- New misc effects: `camera_roll`, `hud_fade` (per-pipeline fade: `GUI_TEXTURED` alpha-only, `GUI_TEXTURED_PREMULTIPLIED_ALPHA` whole ARGB, `CROSSHAIR` RGB).
+- `afterimage` uses an island blend; `camera_shake`/`camera_roll` also move the first-person hand.
+- Removed before release: `block_displace`, `god_rays`, `scan_sweep`.
 
 ### v20
 - Parameter overrides whose name the effect definition does not declare (e.g. `through_blocks` on the built-in effects) now apply as constant values instead of being silently dropped; `through_blocks` is declared on the built-in entity/block tint/outline.

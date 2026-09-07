@@ -16,11 +16,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). The versions bel
 - **`afterimage` screen effect (feedback buffer)** - decaying history echo with desaturation and optional drift zoom; history double-buffered, cleared on resize.
 - **`stop_motion` screen effect** - CPU hold-gated frame freezing at N updates/second (`fps`; `<=1` = full speed).
 - **`entity_displace` entity effect** - flat per-vertex displaced echo over the intact model (`amplitude`, `scale`, `seed`, `alpha`, color, `through_blocks`).
-- **`block_displace` world effect** - same displacement machinery over baked block-model quads, world-space hash with float-precision wrapping.
-- **`god_rays` entity effect** - additive light beams rising out of the target's body (dragon-death style), per spec Effect 14.
-- **`light_beam` / `pulse_ring` / `scan_sweep` / `guide_line` world effects** - additive world quad effects (columns, rings, sweep sheets, dashed parabola).
+- **`light_beam` / `pulse_ring` / `guide_line` world effects** - additive world quad effects (columns, rings, dashed parabola).
 - **`camera_roll` misc effect** - dutch-angle camera tilt with optional sinusoidal wobble.
 - **`hud_fade` misc effect** - HUD opacity via the state-based GuiRenderState hook (blit-drawn HUD layers: hotbar, hearts, XP, crosshair, boss bar).
+
+### Changed
+- **`light_beam`** - layered cylindrical shells with cubic softness falloff (opaque core fading to a soft edge), optional `top_scale` for tapering beams.
+- **`pulse_ring`** - camera-facing billboard mode (flat ring always perpendicular to the camera) and a `rot` param for orientation in billboard mode.
+- **`hud_fade`** - per-pipeline fade: `GUI_TEXTURED` fades alpha only (non-premultiplied), `GUI_TEXTURED_PREMULTIPLIED_ALPHA` fades the whole ARGB, `CROSSHAIR` blends INVERT (RGB only).
+- **`afterimage`** - history echo now uses an island blend (the ghost does not overwrite the live frame's transparency).
+- **`camera_shake` / `camera_roll`** - now also shake/tilt the first-person hand, not just the world camera.
+- **`entity_displace`** - vertex displacement over the intact model with a quantised (snap-glitch) field.
+
+### Removed
+- **`block_displace`** - opaque per-vertex block tearing effect. Cut before release (the look was not useful enough to keep the world-space hash + block-model pipeline).
+- **`god_rays`** - additive body-beam entity effect. Cut before release (superseded by `light_beam`).
+- **`scan_sweep`** - sweep-sheet world effect. Cut before release (too close to `light_beam`).
 
 ### Notes
 - Screen effects that animate procedurally accept the auto-filled `time` parameter (effect age in ticks); film-grain-style shaders already used it.
