@@ -523,20 +523,6 @@ Block outline, two modes.
 
 Both support a list of coordinates via `positions` (see [3.1](#31-definition-fields)) or `region: [x0,y0,z0,x1,y1,z1]`. Without them a single position from `params.pos_x/y/z` is used - it can be a constant, an animation or a world binding.
 
-#### `block_displace`
-Displaces the targeted block's own model quads with an **opaque** per-vertex hash fill, so the block itself appears to tear (the vanilla terrain underneath is covered, no ghost echo on top). Anchored by `positions`/`region`/`pos_x/y/z` like the other block effects.
-
-| Param | Default | Description |
-|---|---|---|
-| `amplitude` | 0.15 (fades to 0) | Max vertex displacement in blocks (0..2) |
-| `scale` | 4 | Displacement field detail: higher = neighbours diverge more (0.5..32) |
-| `seed` | 0 | Random phase of the displacement field; step it (`expr: "floor(t*8)*0.1"`) for snaps, animate for morphing |
-| `through_blocks` | 0 | 1 = displaced block visible through other blocks, 0 = occluded |
-
-```
-/vfx playat vfxweaver:block_displace 8 70 8 {[amplitude:0.2],[scale:6]}
-```
-
 #### `light_beam`
 A vertical glowing shaft of soft light descending onto each position. `top_scale` flares the top: 1 = cylinder, 2 = cone with twice the top radius. `softness` increases the number of concentric shells and fades their alpha: 0 = two hard tubes, higher = many thin, faint shells (a smooth blurred column).
 
@@ -967,7 +953,7 @@ Child effect fields: `effect` (id, required), `delay` (ticks from collection sta
 
 Post-processing: `vfxweaver:chromatic_aberration`, `vfxweaver:color_grade`, `vfxweaver:distortion`, `vfxweaver:dent`, `vfxweaver:gradient_map`, `vfxweaver:posterize`, `vfxweaver:blur`, `vfxweaver:pixelate`, `vfxweaver:hue_isolation`, `vfxweaver:vignette`, `vfxweaver:screen_flash`, `vfxweaver:motion_blur`, `vfxweaver:bloom`, `vfxweaver:film_grain`, `vfxweaver:scanlines`, `vfxweaver:depth_of_field`, `vfxweaver:letterbox`, `vfxweaver:invert`, `vfxweaver:vortex`, `vfxweaver:speed_lines`, `vfxweaver:slice_shift`, `vfxweaver:noise_warp`, `vfxweaver:solarize`, `vfxweaver:double_vision`, `vfxweaver:eyelids`, `vfxweaver:iris_wipe`, `vfxweaver:digital_glitch`, `vfxweaver:vhs`, `vfxweaver:shockwave`, `vfxweaver:afterimage`, `vfxweaver:stop_motion`.
 
-World overlays: `vfxweaver:block_tint`, `vfxweaver:block_outline`, `vfxweaver:block_displace`, `vfxweaver:light_beam`, `vfxweaver:pulse_ring`, `vfxweaver:guide_line`.
+World overlays: `vfxweaver:block_tint`, `vfxweaver:block_outline`, `vfxweaver:light_beam`, `vfxweaver:pulse_ring`, `vfxweaver:guide_line`.
 
 Entity effects: `vfxweaver:entity_tint`, `vfxweaver:entity_outline`, `vfxweaver:entity_displace`.
 

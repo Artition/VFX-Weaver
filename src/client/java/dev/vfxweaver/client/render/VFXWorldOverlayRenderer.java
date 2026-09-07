@@ -15,7 +15,6 @@ import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
 import com.mojang.blaze3d.vertex.VertexFormat;
 import dev.vfxweaver.client.effect.VFXEffectManager;
-import dev.vfxweaver.client.noise.VFXNoise;
 import dev.vfxweaver.effect.VFXActiveEffect;
 import dev.vfxweaver.effect.VFXEffectType;
 import java.util.ArrayList;
@@ -125,48 +124,6 @@ public final class VFXWorldOverlayRenderer {
 	private static final RenderType OUTLINE_SHELL_OCCLUDED = RenderType.create(
 		"vfxweaver_block_outline_shell_occluded",
 		RenderSetup.builder(blockPipeline(CompareOp.LESS_THAN_OR_EQUAL, true, "outline_shell_occluded")).createRenderSetup()
-	);
-
-	/** Displaced echo variants: _VISIBLE = ALWAYS_PASS (shows through terrain), _OCCLUDED = LEQUAL. */
-	private static final RenderType DISPLACE_VISIBLE = RenderType.create(
-		"vfxweaver_block_displace_visible",
-		RenderSetup.builder(blockPipeline(CompareOp.ALWAYS_PASS, false, "displace_visible")).createRenderSetup()
-	);
-
-	private static final RenderType DISPLACE_OCCLUDED = RenderType.create(
-		"vfxweaver_block_displace_occluded",
-		RenderSetup.builder(blockPipeline(CompareOp.LESS_THAN_OR_EQUAL, false, "displace_occluded")).createRenderSetup()
-	);
-
-	/**
-	 * Opaque displaced-block pipeline: the displaced fill is written with {@code BlendFunction}
-	 * {@code NONE} so it fully covers the vanilla terrain block - like entity_displace, the block
-	 * itself appears to tear instead of a translucent echo floating on top of it.
-	 */
-	private static RenderPipeline displaceOpaquePipeline(final CompareOp depthOp, final String suffix) {
-		return RenderPipelines.register(
-			RenderPipeline.builder()
-				.withLocation(Identifier.fromNamespaceAndPath("vfxweaver", "world/block_displace_opaque_" + suffix))
-				.withVertexShader("core/position_color")
-				.withFragmentShader("core/position_color")
-				.withUniform("DynamicTransforms", UniformType.UNIFORM_BUFFER)
-				.withUniform("Projection", UniformType.UNIFORM_BUFFER)
-				.withVertexFormat(DefaultVertexFormat.POSITION_COLOR, VertexFormat.Mode.QUADS)
-				.withDepthStencilState(new DepthStencilState(depthOp, false))
-				.withColorTargetState(ColorTargetState.DEFAULT)
-				.withCull(false)
-				.build()
-		);
-	}
-
-	private static final RenderType DISPLACE_OPAQUE_VISIBLE = RenderType.create(
-		"vfxweaver_block_displace_opaque_visible",
-		RenderSetup.builder(displaceOpaquePipeline(CompareOp.ALWAYS_PASS, "visible")).createRenderSetup()
-	);
-
-	private static final RenderType DISPLACE_OPAQUE_OCCLUDED = RenderType.create(
-		"vfxweaver_block_displace_opaque_occluded",
-		RenderSetup.builder(displaceOpaquePipeline(CompareOp.LESS_THAN_OR_EQUAL, "occluded")).createRenderSetup()
 	);
 
 	/**
@@ -281,12 +238,6 @@ public final class VFXWorldOverlayRenderer {
 					if (renderEffect(buffers, camera, effect, minecraft, type, 0.5F, 0.0F, false, TINT_OUTSET)) {
 						drawn.add(type);
 					}
-				} else if (effect.getType() == VFXEffectType.BLOCK_DISPLACE) {
-					boolean through = effect.getParam("through_blocks", 0.0F) >= 0.5F;
-					RenderType displaceType = through ? DISPLACE_OPAQUE_VISIBLE : DISPLACE_OPAQUE_OCCLUDED;
-					if (renderDisplaced(buffers, camera, effect, minecraft, displaceType)) {
-						drawn.add(displaceType);
-					}
 				} else if (effect.getType() == VFXEffectType.LIGHT_BEAM) {
 					boolean through = effect.getParam("through_blocks", 0.0F) >= 0.5F;
 					if (renderLightBeams(buffers, camera, effect, through ? GLOW_VISIBLE : GLOW_OCCLUDED)) {
@@ -400,114 +351,12 @@ public final class VFXWorldOverlayRenderer {
 	}
 
 	/**
-	 * Draws one {@code block_displace} effect: the baked model quads of every targeted block are
-	 * re-emitted in block-local space with a per-vertex hash displacement (a corrupted echo on
-	 * top of the intact block). Mirrors {@link #renderEffect} but applies no outset/extrusion.
-	 */
-	private static boolean renderDisplaced(
-		final MultiBufferSource.BufferSource buffers,
-		final CameraRenderState camera,
-		final VFXActiveEffect effect,
-		final Minecraft minecraft,
-		final RenderType renderType
-	) {
-		float amplitude = clamp01(effect.getParam("amplitude", 0.1F)) * effect.getWeight();
-		if (amplitude <= 0.0F) {
-			return false;
-		}
-		float scale = Math.max(effect.getParam("scale", 4.0F), 0.5F);
-		float seed = effect.getParam("seed", 0.0F);
-		// Opaque fill (BlendFunction NONE) fully covers the vanilla terrain block, so the displaced
-		// geometry reads as the block itself tearing - no translucent echo on top.
-		int color = argb(effect, 1.0F);
-		VertexConsumer buffer = buffers.getBuffer(renderType);
-		boolean drew = false;
-
-		PoseStack poseStack = new PoseStack();
-		poseStack.pushPose();
-		poseStack.translate(-camera.pos.x, -camera.pos.y, -camera.pos.z);
-		for (BlockPos pos : effectPositions(effect)) {
-			poseStack.pushPose();
-			try {
-				poseStack.translate(pos.getX(), pos.getY(), pos.getZ());
-				PoseStack.Pose pose = poseStack.last();
-				List<BakedQuad> quads = getModelQuads(minecraft, pos);
-				if (quads.isEmpty()) {
-					emitCubeFillDisplaced(buffer, pose, color, pos, amplitude, scale, seed);
-				} else {
-					emitQuadsDisplaced(buffer, pose, quads, color, pos, amplitude, scale, seed);
-				}
-			} finally {
-				poseStack.popPose();
-			}
-			drew = true;
-		}
-		poseStack.popPose();
-		return drew;
-	}
-
-	/**
-	 * Re-emits model quads with a per-vertex hash displacement. The hash inputs are the
-	 * world-space vertex coordinates ({@code pos + local}), wrapped for float precision, so
-	 * neighbouring blocks diverge instead of repeating the same 1-block pattern.
-	 */
-	private static void emitQuadsDisplaced(
-		final VertexConsumer buffer,
-		final PoseStack.Pose pose,
-		final List<BakedQuad> quads,
-		final int color,
-		final BlockPos pos,
-		final float amplitude,
-		final float scale,
-		final float seed
-	) {
-		for (BakedQuad quad : quads) {
-			for (int i = 0; i < 4; i++) {
-				Vector3fc p = quad.position(i);
-				float wx = VFXNoise.wrap((pos.getX() + p.x()) * scale);
-				float wy = VFXNoise.wrap((pos.getY() + p.y()) * scale);
-				float wz = VFXNoise.wrap((pos.getZ() + p.z()) * scale);
-				float ox = VFXNoise.vhash(wx, wy, wz, seed) * amplitude;
-				float oy = VFXNoise.vhash(wy, wz, wx, seed + 3.14F) * amplitude;
-				float oz = VFXNoise.vhash(wz, wx, wy, seed + 6.28F) * amplitude;
-				buffer.addVertex(pose, p.x() + ox, p.y() + oy, p.z() + oz).setColor(color);
-			}
-		}
-	}
-
-	/** Fallback displaced emitter for blocks whose model has no quads: a full cube, same hash. */
-	private static void emitCubeFillDisplaced(
-		final VertexConsumer buffer,
-		final PoseStack.Pose pose,
-		final int color,
-		final BlockPos pos,
-		final float amplitude,
-		final float scale,
-		final float seed
-	) {
-		for (float[] face : CUBE_FACES) {
-			for (int i = 0; i < 4; i++) {
-				float px = face[i * 3];
-				float py = face[i * 3 + 1];
-				float pz = face[i * 3 + 2];
-				float wx = VFXNoise.wrap((pos.getX() + px) * scale);
-				float wy = VFXNoise.wrap((pos.getY() + py) * scale);
-				float wz = VFXNoise.wrap((pos.getZ() + pz) * scale);
-				float ox = VFXNoise.vhash(wx, wy, wz, seed) * amplitude;
-				float oy = VFXNoise.vhash(wy, wz, wx, seed + 3.14F) * amplitude;
-				float oz = VFXNoise.vhash(wz, wx, wy, seed + 6.28F) * amplitude;
-				buffer.addVertex(pose, px + ox, py + oy, pz + oz).setColor(color);
-			}
-		}
-	}
-
-	/**
 	 * Renders one {@code light_beam}: a glowing vertical shaft descending onto each anchor, built
 	 * from {@code layers} concentric cone shells (a bright tight core plus progressively wider,
 	 * fainter shells). {@code top_scale} scales the TOP base of the cones: 1 = cylinder, 2 = cone
 	 * whose top radius is 2x the bottom. {@code softness} increases the number of shells and fades
-	 * their alpha, so higher values read as a soft/blurry column (many thin shells) instead of two
-	 * hard tubes.
+	 * their alpha (cubic), so higher values read as a soft/blurry column (many thin shells) instead
+	 * of two hard tubes.
 	 */
 	private static boolean renderLightBeams(
 		final MultiBufferSource.BufferSource buffers,
@@ -545,7 +394,9 @@ public final class VFXWorldOverlayRenderer {
 			for (int i = 0; i < layers; i++) {
 				float t = i / (float) (layers - 1);              // 0 = core .. 1 = outer edge
 				float shellR = radius * (0.25F + 0.85F * t);     // core at 0.25r, outermost ~1.1r
-				float shellA = intensity * (1.0F - 0.75F * t);   // brightest core, fading out
+				// Cubic alpha falloff: the outer shells fade much faster than the core, so the
+				// column keeps a strong centre and dissolves at the edge.
+				float shellA = intensity * (1.0F - t * t * t);
 				emitConeShell(buffer, pose, cx, cz, y0, y1, shellR, shellR * topScale, 8, topFade, shellA, rgb);
 			}
 			drew = true;

@@ -1,10 +1,9 @@
 package dev.vfxweaver.client.noise;
 
 /**
- * Tiny CPU hash helpers for the vertex-displacement effects ({@code entity_displace},
- * {@code block_displace}). Coordinates are hashed in 3D with a per-cell seed; the result is
- * quantised into 21 discrete steps in {@code [-1, 1]}, which gives the "snap-glitch" look when
- * the {@code seed} parameter is stepped.
+ * Tiny CPU hash helpers for the vertex-displacement effect ({@code entity_displace}). Coordinates
+ * are hashed in 3D with a per-cell seed; the result is quantised into 21 discrete steps in
+ * {@code [-1, 1]}, which gives the "snap-glitch" look when the {@code seed} parameter is stepped.
  */
 public final class VFXNoise {
 	private VFXNoise() {

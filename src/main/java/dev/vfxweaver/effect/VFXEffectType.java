@@ -57,8 +57,6 @@ public enum VFXEffectType {
 	BLOCK_OUTLINE("block_outline"),
 	/** Renders a solid-colour fill over a block (world overlay, not a shader pass). */
 	BLOCK_TINT("block_tint"),
-	/** Re-emits the targeted block's baked model quads as a flat, per-vertex displaced echo. */
-	BLOCK_DISPLACE("block_displace"),
 	/** A vertical column of soft light descending onto each target position. */
 	LIGHT_BEAM("light_beam"),
 	/** A flat glowing ring expanding on the ground around each target position. */
@@ -123,7 +121,7 @@ public enum VFXEffectType {
 	 * True for the effect types that render world-space geometry each frame.
 	 */
 	public boolean isWorldOverlay() {
-		return this == BLOCK_OUTLINE || this == BLOCK_TINT || this == BLOCK_DISPLACE
+		return this == BLOCK_OUTLINE || this == BLOCK_TINT
 			|| this == LIGHT_BEAM || this == PULSE_RING || this == GUIDE_LINE
 			|| this == ENTITY_TINT || this == ENTITY_OUTLINE;
 	}

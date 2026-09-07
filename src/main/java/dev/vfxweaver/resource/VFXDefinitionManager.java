@@ -387,22 +387,6 @@ public class VFXDefinitionManager extends SimplePreparableReloadListener<Map<Ide
 			)
 		);
 		this.builtIns.put(
-			Identifier.fromNamespaceAndPath("vfxweaver", "block_displace"),
-			VFXDefinition.create(
-				Identifier.fromNamespaceAndPath("vfxweaver", "block_displace"),
-				VFXEffectType.BLOCK_DISPLACE,
-				40,
-				EasingFunction.builtIn(EasingType.EASE_IN_OUT_CUBIC),
-				Map.of(
-					"amplitude", VFXDefinition.ParamSpec.animated(0.15F, 0.0F),
-					"scale", VFXDefinition.ParamSpec.constant(4.0F),
-					"seed", VFXDefinition.ParamSpec.constant(0.0F),
-					"through_blocks", VFXDefinition.ParamSpec.constant(0.0F)
-				),
-				false, false, 10, List.of(), List.of(), null
-			)
-		);
-		this.builtIns.put(
 			Identifier.fromNamespaceAndPath("vfxweaver", "light_beam"),
 			VFXDefinition.create(
 				Identifier.fromNamespaceAndPath("vfxweaver", "light_beam"),
