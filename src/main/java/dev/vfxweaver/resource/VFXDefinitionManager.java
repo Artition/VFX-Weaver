@@ -397,11 +397,7 @@ public class VFXDefinitionManager extends SimplePreparableReloadListener<Map<Ide
 					"amplitude", VFXDefinition.ParamSpec.animated(0.15F, 0.0F),
 					"scale", VFXDefinition.ParamSpec.constant(4.0F),
 					"seed", VFXDefinition.ParamSpec.constant(0.0F),
-					"alpha", VFXDefinition.ParamSpec.constant(1.0F),
-					"through_blocks", VFXDefinition.ParamSpec.constant(0.0F),
-					"color_r", VFXDefinition.ParamSpec.constant(1.0F),
-					"color_g", VFXDefinition.ParamSpec.constant(1.0F),
-					"color_b", VFXDefinition.ParamSpec.constant(1.0F)
+					"through_blocks", VFXDefinition.ParamSpec.constant(0.0F)
 				),
 				false, false, 10, List.of(), List.of(), null
 			)
@@ -435,15 +431,18 @@ public class VFXDefinitionManager extends SimplePreparableReloadListener<Map<Ide
 				VFXEffectType.PULSE_RING,
 				60,
 				EasingFunction.builtIn(EasingType.EASE_OUT_CUBIC),
-				Map.of(
-					"red", VFXDefinition.ParamSpec.constant(1.0F),
-					"green", VFXDefinition.ParamSpec.constant(0.35F),
-					"blue", VFXDefinition.ParamSpec.constant(0.1F),
-					"radius", VFXDefinition.ParamSpec.animated(0.0F, 6.0F),
-					"thickness", VFXDefinition.ParamSpec.constant(0.5F),
-					"tilt", VFXDefinition.ParamSpec.constant(0.0F),
-					"through_blocks", VFXDefinition.ParamSpec.constant(0.0F),
-					"intensity", VFXDefinition.ParamSpec.animated(1.0F, 0.0F)
+				Map.ofEntries(
+					Map.entry("red", VFXDefinition.ParamSpec.constant(1.0F)),
+					Map.entry("green", VFXDefinition.ParamSpec.constant(0.35F)),
+					Map.entry("blue", VFXDefinition.ParamSpec.constant(0.1F)),
+					Map.entry("radius", VFXDefinition.ParamSpec.animated(0.0F, 6.0F)),
+					Map.entry("thickness", VFXDefinition.ParamSpec.constant(0.5F)),
+					Map.entry("billboard", VFXDefinition.ParamSpec.constant(1.0F)),
+					Map.entry("rot_x", VFXDefinition.ParamSpec.constant(0.0F)),
+					Map.entry("rot_y", VFXDefinition.ParamSpec.constant(0.0F)),
+					Map.entry("rot_z", VFXDefinition.ParamSpec.constant(0.0F)),
+					Map.entry("through_blocks", VFXDefinition.ParamSpec.constant(0.0F)),
+					Map.entry("intensity", VFXDefinition.ParamSpec.animated(1.0F, 0.0F))
 				),
 				false, false, 10, List.of(), List.of(), null
 			)
@@ -516,12 +515,7 @@ public class VFXDefinitionManager extends SimplePreparableReloadListener<Map<Ide
 				Map.of(
 					"amplitude", VFXDefinition.ParamSpec.animated(0.1F, 0.0F),
 					"scale", VFXDefinition.ParamSpec.constant(4.0F),
-					"seed", VFXDefinition.ParamSpec.constant(0.0F),
-					"alpha", VFXDefinition.ParamSpec.constant(1.0F),
-					"through_blocks", VFXDefinition.ParamSpec.constant(0.0F),
-					"color_r", VFXDefinition.ParamSpec.constant(1.0F),
-					"color_g", VFXDefinition.ParamSpec.constant(1.0F),
-					"color_b", VFXDefinition.ParamSpec.constant(1.0F)
+					"seed", VFXDefinition.ParamSpec.constant(0.0F)
 				),
 				false, false, 10, List.of(), List.of(), null
 			)

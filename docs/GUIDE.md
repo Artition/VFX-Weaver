@@ -524,53 +524,54 @@ Block outline, two modes.
 Both support a list of coordinates via `positions` (see [3.1](#31-definition-fields)) or `region: [x0,y0,z0,x1,y1,z1]`. Without them a single position from `params.pos_x/y/z` is used - it can be a constant, an animation or a world binding.
 
 #### `block_displace`
-Re-emits the block's baked model quads as a flat, per-vertex displaced echo on top of the intact block (the base is not hidden - a corrupted "ghost" overlapping it). Anchored by `positions`/`region`/`pos_x/y/z` like the other block effects.
+Displaces the targeted block's own model quads with an **opaque** per-vertex hash fill, so the block itself appears to tear (the vanilla terrain underneath is covered, no ghost echo on top). Anchored by `positions`/`region`/`pos_x/y/z` like the other block effects.
 
 | Param | Default | Description |
 |---|---|---|
 | `amplitude` | 0.15 (fades to 0) | Max vertex displacement in blocks (0..2) |
 | `scale` | 4 | Displacement field detail: higher = neighbours diverge more (0.5..32) |
 | `seed` | 0 | Random phase of the displacement field; step it (`expr: "floor(t*8)*0.1"`) for snaps, animate for morphing |
-| `alpha` | 1 | Echo opacity |
-| `color_r/g/b` | 1 / 1 / 1 | Echo colour |
-| `through_blocks` | 0 | 1 = echo visible through other blocks, 0 = occluded |
+| `through_blocks` | 0 | 1 = displaced block visible through other blocks, 0 = occluded |
 
 ```
 /vfx playat vfxweaver:block_displace 8 70 8 {[amplitude:0.2],[scale:6]}
 ```
 
 #### `light_beam`
-A vertical glowing shaft of soft light descending onto each position. `top_scale` flares the top: 1 = cylinder, 2 = cone with twice the top radius. `softness` widens/dims the outer halo.
+A vertical glowing shaft of soft light descending onto each position. `top_scale` flares the top: 1 = cylinder, 2 = cone with twice the top radius. `softness` increases the number of concentric shells and fades their alpha: 0 = two hard tubes, higher = many thin, faint shells (a smooth blurred column).
 
 | Param | Default | Description |
 |---|---|---|
 | `radius` | 1.5 | Beam radius in blocks (0.1..16) |
 | `height` | 48 | Column height upward from the anchor (1..256) |
 | `top_scale` | 1 | Top radius multiplier (0.1..8): 1 = cylinder, >1 = flared cone |
-| `softness` | 0.6 | Halo softness: widens the outer glow and fades its alpha (0 = crisp, 1.5 = blurry) |
+| `softness` | 0.6 | More concentric shells with lower alpha (0 = crisp, 2..4 = soft blurry column) |
 | `top_fade` | 0.4 | Alpha at the top relative to the base (0..1) |
 | `red/green/blue` | 1 / 0.95 / 0.75 | Beam colour |
 | `through_blocks` | 0 | 1 = visible through walls |
 | `intensity` | 1 (fades to 0) | Beam opacity |
 
 ```
-/vfx playat vfxweaver:light_beam 8 70 8 {[radius:2],[top_scale:2],[softness:1]}
+/vfx playat vfxweaver:light_beam 8 70 8 {[radius:2],[top_scale:2],[softness:3]}
 ```
 
 #### `pulse_ring`
-A flat glowing ring on the ground around each position.
+A glowing ring around each position. With `billboard:1` (default) the ring always faces the camera (perfect circle from any angle); with `billboard:0` it stays in a fixed plane rotated by `rot_x/rot_y/rot_z`.
 
 | Param | Default | Description |
 |---|---|---|
 | `radius` | 0 -> 6 | Current ring radius, blocks (animate 0 -> max) |
 | `thickness` | 0.5 | Ring band width, blocks |
-| `tilt` | 0 | Ring plane pitch: 0 = flat on the ground, 90 = vertical wall (-90..90) |
+| `billboard` | 1 | 1 = always faces the camera, 0 = fixed orientation by rot_* |
+| `rot_x` | 0 | Fixed ring-plane pitch (degrees, -360..360, when billboard:0) |
+| `rot_y` | 0 | Fixed ring-plane yaw (degrees, -360..360, when billboard:0) |
+| `rot_z` | 0 | Fixed ring-plane roll (degrees, -360..360, when billboard:0) |
 | `red/green/blue` | 1 / 0.35 / 0.1 | Ring colour |
 | `through_blocks` | 0 | 1 = visible through walls |
 | `intensity` | 1 (fades to 0) | Ring opacity |
 
 ```
-/vfx playat vfxweaver:pulse_ring 8 70 8 {[radius:10],[tilt:30]}
+/vfx playat vfxweaver:pulse_ring 8 70 8 {[radius:10],[billboard:0],[rot_x:60]}
 ```
 
 #### `guide_line`

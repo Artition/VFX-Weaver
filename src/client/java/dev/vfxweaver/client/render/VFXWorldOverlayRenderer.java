@@ -139,6 +139,37 @@ public final class VFXWorldOverlayRenderer {
 	);
 
 	/**
+	 * Opaque displaced-block pipeline: the displaced fill is written with {@code BlendFunction}
+	 * {@code NONE} so it fully covers the vanilla terrain block - like entity_displace, the block
+	 * itself appears to tear instead of a translucent echo floating on top of it.
+	 */
+	private static RenderPipeline displaceOpaquePipeline(final CompareOp depthOp, final String suffix) {
+		return RenderPipelines.register(
+			RenderPipeline.builder()
+				.withLocation(Identifier.fromNamespaceAndPath("vfxweaver", "world/block_displace_opaque_" + suffix))
+				.withVertexShader("core/position_color")
+				.withFragmentShader("core/position_color")
+				.withUniform("DynamicTransforms", UniformType.UNIFORM_BUFFER)
+				.withUniform("Projection", UniformType.UNIFORM_BUFFER)
+				.withVertexFormat(DefaultVertexFormat.POSITION_COLOR, VertexFormat.Mode.QUADS)
+				.withDepthStencilState(new DepthStencilState(depthOp, false))
+				.withColorTargetState(ColorTargetState.DEFAULT)
+				.withCull(false)
+				.build()
+		);
+	}
+
+	private static final RenderType DISPLACE_OPAQUE_VISIBLE = RenderType.create(
+		"vfxweaver_block_displace_opaque_visible",
+		RenderSetup.builder(displaceOpaquePipeline(CompareOp.ALWAYS_PASS, "visible")).createRenderSetup()
+	);
+
+	private static final RenderType DISPLACE_OPAQUE_OCCLUDED = RenderType.create(
+		"vfxweaver_block_displace_opaque_occluded",
+		RenderSetup.builder(displaceOpaquePipeline(CompareOp.LESS_THAN_OR_EQUAL, "occluded")).createRenderSetup()
+	);
+
+	/**
 	 * Additive "glow" pipeline shared by the world quad effects ({@code light_beam},
 	 * {@code pulse_ring}, {@code scan_sweep}, {@code guide_line}).
 	 */
@@ -252,7 +283,7 @@ public final class VFXWorldOverlayRenderer {
 					}
 				} else if (effect.getType() == VFXEffectType.BLOCK_DISPLACE) {
 					boolean through = effect.getParam("through_blocks", 0.0F) >= 0.5F;
-					RenderType displaceType = through ? DISPLACE_VISIBLE : DISPLACE_OCCLUDED;
+					RenderType displaceType = through ? DISPLACE_OPAQUE_VISIBLE : DISPLACE_OPAQUE_OCCLUDED;
 					if (renderDisplaced(buffers, camera, effect, minecraft, displaceType)) {
 						drawn.add(displaceType);
 					}
@@ -380,17 +411,15 @@ public final class VFXWorldOverlayRenderer {
 		final Minecraft minecraft,
 		final RenderType renderType
 	) {
-		float alpha = clamp01(effect.getParam("alpha", 1.0F)) * effect.getWeight();
-		if (alpha <= 0.0F) {
-			return false;
-		}
 		float amplitude = clamp01(effect.getParam("amplitude", 0.1F)) * effect.getWeight();
 		if (amplitude <= 0.0F) {
 			return false;
 		}
 		float scale = Math.max(effect.getParam("scale", 4.0F), 0.5F);
 		float seed = effect.getParam("seed", 0.0F);
-		int color = argb(effect, alpha);
+		// Opaque fill (BlendFunction NONE) fully covers the vanilla terrain block, so the displaced
+		// geometry reads as the block itself tearing - no translucent echo on top.
+		int color = argb(effect, 1.0F);
 		VertexConsumer buffer = buffers.getBuffer(renderType);
 		boolean drew = false;
 
@@ -474,10 +503,11 @@ public final class VFXWorldOverlayRenderer {
 
 	/**
 	 * Renders one {@code light_beam}: a glowing vertical shaft descending onto each anchor, built
-	 * from two cylinder shells (a bright core at {@code 0.35 * radius} plus a translucent halo at
-	 * {@code radius}). {@code top_scale} scales the TOP base of the cones: 1 = cylinder, 2 = cone
-	 * whose top radius is 2x the bottom. {@code softness} widens/softens the halo (larger outer
-	 * shell, fainter alpha), so the shaft reads softer/blurrier along the edges.
+	 * from {@code layers} concentric cone shells (a bright tight core plus progressively wider,
+	 * fainter shells). {@code top_scale} scales the TOP base of the cones: 1 = cylinder, 2 = cone
+	 * whose top radius is 2x the bottom. {@code softness} increases the number of shells and fades
+	 * their alpha, so higher values read as a soft/blurry column (many thin shells) instead of two
+	 * hard tubes.
 	 */
 	private static boolean renderLightBeams(
 		final MultiBufferSource.BufferSource buffers,
@@ -493,7 +523,7 @@ public final class VFXWorldOverlayRenderer {
 		float height = Mth.clamp(effect.getParam("height", 48.0F), 1.0F, 256.0F);
 		float topFade = Mth.clamp(effect.getParam("top_fade", 0.4F), 0.0F, 1.0F);
 		float topScale = Mth.clamp(effect.getParam("top_scale", 1.0F), 0.1F, 8.0F);
-		float softness = Mth.clamp(effect.getParam("softness", 0.6F), 0.0F, 1.5F);
+		float softness = Mth.clamp(effect.getParam("softness", 0.6F), 0.0F, 4.0F);
 		int rgb = rgb(effect.getParam("red", 1.0F), effect.getParam("green", 0.95F), effect.getParam("blue", 0.75F));
 
 		VertexConsumer buffer = buffers.getBuffer(renderType);
@@ -502,18 +532,22 @@ public final class VFXWorldOverlayRenderer {
 		poseStack.pushPose();
 		poseStack.translate(-camera.pos.x, -camera.pos.y, -camera.pos.z);
 		PoseStack.Pose pose = poseStack.last();
+
+		// Concentric shells: the innermost is the bright core, each next shell sits a bit wider
+		// and fainter. More softness = more, thinner shells (a smooth gradient instead of two
+		// distinct tubes).
+		int layers = Math.max(2, Math.round(2.0F + softness * 4.0F));
 		for (BlockPos pos : effectPositions(effect)) {
 			float cx = pos.getX() + 0.5F;
 			float cz = pos.getZ() + 0.5F;
 			float y0 = pos.getY();
 			float y1 = y0 + height;
-			// Core shell is bright and tight (fixed 0.35 * radius cone), halo is wider and
-			// translucent; softness scales the halo radius outward and dims its alpha, so high
-			// values read as a soft/blurry glow around the edge.
-			float haloR = radius * (1.0F + softness * 0.8F);
-			float haloA = intensity * 0.4F * (1.0F - softness * 0.35F);
-			emitConeShell(buffer, pose, cx, cz, y0, y1, radius * 0.35F, radius * 0.35F * topScale, 8, topFade, intensity, rgb);
-			emitConeShell(buffer, pose, cx, cz, y0, y1, haloR, haloR * topScale, 12, topFade, haloA, rgb);
+			for (int i = 0; i < layers; i++) {
+				float t = i / (float) (layers - 1);              // 0 = core .. 1 = outer edge
+				float shellR = radius * (0.25F + 0.85F * t);     // core at 0.25r, outermost ~1.1r
+				float shellA = intensity * (1.0F - 0.75F * t);   // brightest core, fading out
+				emitConeShell(buffer, pose, cx, cz, y0, y1, shellR, shellR * topScale, 8, topFade, shellA, rgb);
+			}
 			drew = true;
 		}
 		poseStack.popPose();
@@ -524,9 +558,10 @@ public final class VFXWorldOverlayRenderer {
 	private static final int RING_SEGMENTS = 32;
 
 	/**
-	 * Renders one {@code pulse_ring}: a glowing ring in a plane perpendicular to the camera (a
-	 * perfect circle from any angle), with a radial band thickness. {@code tilt} (degrees) pitches
-	 * the ring plane about the horizontal axis.
+	 * Renders one {@code pulse_ring}: a glowing ring with a radial band thickness. With
+	 * {@code billboard}=1 the ring always faces the camera (a perfect circle from any angle);
+	 * with {@code billboard}=0 it stays in a fixed plane defined by {@code rot_x/rot_y/rot_z}
+	 * (degrees, rotation about the world axes).
 	 */
 	private static boolean renderPulseRings(
 		final MultiBufferSource.BufferSource buffers,
@@ -540,7 +575,10 @@ public final class VFXWorldOverlayRenderer {
 		}
 		float radius = Mth.clamp(effect.getParam("radius", 6.0F), 0.0F, 64.0F);
 		float thickness = Mth.clamp(effect.getParam("thickness", 0.5F), 0.05F, 4.0F);
-		float tilt = (float) Math.toRadians(Mth.clamp(effect.getParam("tilt", 0.0F), -90.0F, 90.0F));
+		boolean billboard = effect.getParam("billboard", 1.0F) >= 0.5F;
+		float rotX = (float) Math.toRadians(Mth.clamp(effect.getParam("rot_x", 0.0F), -360.0F, 360.0F));
+		float rotY = (float) Math.toRadians(Mth.clamp(effect.getParam("rot_y", 0.0F), -360.0F, 360.0F));
+		float rotZ = (float) Math.toRadians(Mth.clamp(effect.getParam("rot_z", 0.0F), -360.0F, 360.0F));
 		int rgb = rgb(effect.getParam("red", 1.0F), effect.getParam("green", 0.35F), effect.getParam("blue", 0.1F));
 
 		VertexConsumer buffer = buffers.getBuffer(renderType);
@@ -556,50 +594,55 @@ public final class VFXWorldOverlayRenderer {
 			float cx = pos.getX() + 0.5F;
 			float cy = pos.getY() + 0.5F;
 			float cz = pos.getZ() + 0.5F;
-			// Camera-facing orthonormal basis in camera-relative space: the camera is at the
-			// origin and the ring centre is at (cx-cam, cy-cam, cz-cam). The plane basis is
-			// built from the VIEW DIRECTION (camera -> ring centre), so the ring is a circle
-			// from every angle.
-			float vx = (float) (cx - camera.pos.x);
-			float vy = (float) (cy - camera.pos.y);
-			float vz = (float) (cz - camera.pos.z);
-			float vlen = (float) Math.sqrt(vx * vx + vy * vy + vz * vz);
-			if (vlen < 1.0e-5F) {
-				vlen = 1.0F;
-			}
-			vx /= vlen;
-			vy /= vlen;
-			vz /= vlen;
-			// right = normalize(cross(viewDir, worldUp)); worldUp = (0,1,0) in camera-relative.
-			// cross(a,b) with b=(0,1,0): right = (-vz, 0, vx).
-			float rx = -vz;
-			float rz = vx;
-			float rl = (float) Math.sqrt(rx * rx + rz * rz);
-			if (rl < 1.0e-5F) {
+
+			// Two orthonormal axes spanning the ring plane: (rx,ry,rz) and (ux,uy,uz).
+			float rx, ry, rz, ux, uy, uz;
+			if (billboard) {
+				// Camera-facing: build the basis from the VIEW DIRECTION (camera -> ring centre).
+				float vx = (float) (cx - camera.pos.x);
+				float vy = (float) (cy - camera.pos.y);
+				float vz = (float) (cz - camera.pos.z);
+				float vlen = (float) Math.sqrt(vx * vx + vy * vy + vz * vz);
+				if (vlen < 1.0e-5F) {
+					vlen = 1.0F;
+				}
+				vx /= vlen;
+				vy /= vlen;
+				vz /= vlen;
+				// right = normalize(cross(viewDir, worldUp)); worldUp = (0,1,0).
+				rx = -vz;
+				rz = vx;
+				float rl = (float) Math.sqrt(rx * rx + rz * rz);
+				if (rl < 1.0e-5F) {
+					rx = 1.0F;
+					rz = 0.0F;
+					rl = 1.0F;
+				}
+				rx /= rl;
+				rz /= rl;
+				ry = 0.0F;
+				// up = cross(right, viewDir).
+				ux = ry * vz - rz * vy;
+				uy = rz * vx - rx * vz;
+				uz = rx * vy - ry * vx;
+			} else {
+				// Fixed world axes rotated by rot_x/rot_y/rot_z. Start from the XZ plane
+				// (right = +X, up = +Y) and rotate.
 				rx = 1.0F;
+				ry = 0.0F;
 				rz = 0.0F;
-				rl = 1.0F;
+				ux = 0.0F;
+				uy = 1.0F;
+				uz = 0.0F;
+				float[] r = rotateXyz(rx, ry, rz, rotX, rotY, rotZ);
+				rx = r[0];
+				ry = r[1];
+				rz = r[2];
+				float[] u = rotateXyz(ux, uy, uz, rotX, rotY, rotZ);
+				ux = u[0];
+				uy = u[1];
+				uz = u[2];
 			}
-			rx /= rl;
-			rz /= rl;
-			float ry = 0.0F;
-			// up = cross(right, viewDir).
-			float ux = ry * vz - rz * vy;
-			float uy = rz * vx - rx * vz;
-			float uz = rx * vy - ry * vx;
-			// Tilt the ring plane about the right axis: rotate up toward viewDir.
-			float ct = (float) Math.cos(tilt);
-			float st = (float) Math.sin(tilt);
-			float uxT = ux * ct + vx * st;
-			float uyT = uy * ct + vy * st;
-			float uzT = uz * ct + vz * st;
-			float utl = (float) Math.sqrt(uxT * uxT + uyT * uyT + uzT * uzT);
-			if (utl < 1.0e-5F) {
-				utl = 1.0F;
-			}
-			uxT /= utl;
-			uyT /= utl;
-			uzT /= utl;
 
 			for (int i = 0; i < RING_SEGMENTS; i++) {
 				float a0 = (float) (i * 6.2831853 / RING_SEGMENTS);
@@ -608,19 +651,19 @@ public final class VFXWorldOverlayRenderer {
 				float si0 = (float) Math.sin(a0);
 				float co1 = (float) Math.cos(a1);
 				float si1 = (float) Math.sin(a1);
-				// Inner and outer vertices in the tilted camera-facing plane.
-				float ix0 = cx + (co0 * inner) * rx + (si0 * inner) * uxT;
-				float iy0 = cy + (co0 * inner) * ry + (si0 * inner) * uyT;
-				float iz0 = cz + (co0 * inner) * rz + (si0 * inner) * uzT;
-				float ox0 = cx + (co0 * outer) * rx + (si0 * outer) * uxT;
-				float oy0 = cy + (co0 * outer) * ry + (si0 * outer) * uyT;
-				float oz0 = cz + (co0 * outer) * rz + (si0 * outer) * uzT;
-				float ix1 = cx + (co1 * inner) * rx + (si1 * inner) * uxT;
-				float iy1 = cy + (co1 * inner) * ry + (si1 * inner) * uyT;
-				float iz1 = cz + (co1 * inner) * rz + (si1 * inner) * uzT;
-				float ox1 = cx + (co1 * outer) * rx + (si1 * outer) * uxT;
-				float oy1 = cy + (co1 * outer) * ry + (si1 * outer) * uyT;
-				float oz1 = cz + (co1 * outer) * rz + (si1 * outer) * uzT;
+				// Inner and outer vertices in the ring plane.
+				float ix0 = cx + (co0 * inner) * rx + (si0 * inner) * ux;
+				float iy0 = cy + (co0 * inner) * ry + (si0 * inner) * uy;
+				float iz0 = cz + (co0 * inner) * rz + (si0 * inner) * uz;
+				float ox0 = cx + (co0 * outer) * rx + (si0 * outer) * ux;
+				float oy0 = cy + (co0 * outer) * ry + (si0 * outer) * uy;
+				float oz0 = cz + (co0 * outer) * rz + (si0 * outer) * uz;
+				float ix1 = cx + (co1 * inner) * rx + (si1 * inner) * ux;
+				float iy1 = cy + (co1 * inner) * ry + (si1 * inner) * uy;
+				float iz1 = cz + (co1 * inner) * rz + (si1 * inner) * uz;
+				float ox1 = cx + (co1 * outer) * rx + (si1 * outer) * ux;
+				float oy1 = cy + (co1 * outer) * ry + (si1 * outer) * uy;
+				float oz1 = cz + (co1 * outer) * rz + (si1 * outer) * uz;
 				glowVertex(buffer, pose, ix0, iy0, iz0, intensity, rgb);
 				glowVertex(buffer, pose, ox0, oy0, oz0, intensity, rgb);
 				glowVertex(buffer, pose, ox1, oy1, oz1, intensity, rgb);
@@ -630,6 +673,35 @@ public final class VFXWorldOverlayRenderer {
 		}
 		poseStack.popPose();
 		return drew;
+	}
+
+	/** Rotates a vector by yaw (Y), then pitch (X), then roll (Z), in degrees. */
+	private static float[] rotateXyz(final float x, final float y, final float z, final float rotX, final float rotY, final float rotZ) {
+		float vx = x;
+		float vy = y;
+		float vz = z;
+		// Yaw about Y.
+		float cy = (float) Math.cos(rotY);
+		float sy = (float) Math.sin(rotY);
+		float tx = vx * cy + vz * sy;
+		float tz = -vx * sy + vz * cy;
+		vx = tx;
+		vz = tz;
+		// Pitch about X.
+		float cx = (float) Math.cos(rotX);
+		float sx = (float) Math.sin(rotX);
+		float ty = vy * cx - vz * sx;
+		tz = vy * sx + vz * cx;
+		vy = ty;
+		vz = tz;
+		// Roll about Z.
+		float cz = (float) Math.cos(rotZ);
+		float sz = (float) Math.sin(rotZ);
+		tx = vx * cz - vy * sz;
+		ty = vx * sz + vy * cz;
+		vx = tx;
+		vy = ty;
+		return new float[]{vx, vy, vz};
 	}
 
 	/**
