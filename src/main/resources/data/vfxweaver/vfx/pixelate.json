@@ -1,0 +1,11 @@
+{
+  "type": "pixelate",
+  "duration": 40,
+  "easing": "ease_in_out_cubic",
+  "persistent": false,
+  "loop": false,
+  "fade_ticks": 0,
+  "params": {
+    "cell_size": { "start": 0.012, "end": 0.0005 }
+  }
+}

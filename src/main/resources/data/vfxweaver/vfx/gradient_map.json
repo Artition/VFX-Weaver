@@ -1,0 +1,19 @@
+{
+  "type": "gradient_map",
+  "duration": 40,
+  "easing": "ease_in_out_cubic",
+  "persistent": false,
+  "loop": false,
+  "fade_ticks": 0,
+  "params": {
+    "from_r": 0.1,
+    "from_g": 0.0,
+    "from_b": 0.2,
+    "to_r": 1.0,
+    "to_g": 0.2,
+    "to_b": 0.1,
+    "intensity": { "start": 1.0, "end": 0.0 },
+    "mode": 0.0,
+    "pos": 0.5
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "type": "hue_isolation",
+  "duration": 40,
+  "easing": "ease_in_out_cubic",
+  "persistent": false,
+  "loop": false,
+  "fade_ticks": 0,
+  "params": {
+    "hue": 0.0,
+    "tolerance": 0.2,
+    "intensity": { "start": 1.0, "end": 0.0 }
+  }
+}

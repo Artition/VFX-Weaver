@@ -1,0 +1,12 @@
+{
+  "type": "chromatic_aberration",
+  "duration": 40,
+  "easing": "ease_in_out_cubic",
+  "persistent": false,
+  "loop": false,
+  "fade_ticks": 0,
+  "params": {
+    "intensity": { "start": 0.8, "end": 0.0 },
+    "radius": 4.0
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "type": "distortion",
+  "duration": 40,
+  "easing": "ease_in_out_cubic",
+  "persistent": false,
+  "loop": false,
+  "fade_ticks": 0,
+  "params": {
+    "amount": { "start": 0.2, "end": 0.0 },
+    "radius": 0.8
+  }
+}

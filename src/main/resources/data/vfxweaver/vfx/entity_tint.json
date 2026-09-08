@@ -1,0 +1,16 @@
+{
+  "type": "entity_tint",
+  "duration": 40,
+  "easing": "ease_in_out_cubic",
+  "persistent": false,
+  "loop": false,
+  "fade_ticks": 10,
+  "params": {
+    "color_r": 0.2,
+    "color_g": 0.6,
+    "color_b": 1.0,
+    "alpha": 0.5,
+    "texture": 1.0,
+    "through_blocks": 1.0
+  }
+}

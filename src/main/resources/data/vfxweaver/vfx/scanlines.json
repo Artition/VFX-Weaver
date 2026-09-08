@@ -1,0 +1,13 @@
+{
+  "type": "scanlines",
+  "duration": 40,
+  "easing": "ease_in_out_cubic",
+  "persistent": false,
+  "loop": false,
+  "fade_ticks": 0,
+  "params": {
+    "intensity": { "start": 0.3, "end": 0.0 },
+    "line_count": 3.0,
+    "speed": 0.5
+  }
+}

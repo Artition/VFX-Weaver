@@ -1,0 +1,13 @@
+{
+  "type": "entity_displace",
+  "duration": 40,
+  "easing": "ease_in_out_cubic",
+  "persistent": false,
+  "loop": false,
+  "fade_ticks": 10,
+  "params": {
+    "amplitude": { "start": 0.1, "end": 0.0 },
+    "scale": 4.0,
+    "seed": 0.0
+  }
+}

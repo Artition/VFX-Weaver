@@ -1,0 +1,14 @@
+{
+  "type": "dent",
+  "duration": 40,
+  "easing": "ease_in_out_cubic",
+  "persistent": false,
+  "loop": false,
+  "fade_ticks": 0,
+  "params": {
+    "strength": { "start": 0.6, "end": 0.0 },
+    "radius": 0.25,
+    "center_x": 0.5,
+    "center_y": 0.5
+  }
+}

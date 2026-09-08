@@ -1,0 +1,18 @@
+{
+  "type": "noise_warp",
+  "duration": 60,
+  "easing": "ease_in_out_cubic",
+  "persistent": false,
+  "loop": false,
+  "fade_ticks": 0,
+  "params": {
+    "scale": 8.0,
+    "amplitude": { "start": 0.03, "end": 0.0 },
+    "contrast": 2.0,
+    "coherence": 1.0,
+    "speed": 0.5,
+    "drift_x": 0.0,
+    "drift_y": 0.0,
+    "seed": 0.0
+  }
+}

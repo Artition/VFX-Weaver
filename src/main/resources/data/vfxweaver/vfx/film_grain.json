@@ -1,0 +1,12 @@
+{
+  "type": "film_grain",
+  "duration": 40,
+  "easing": "ease_in_out_cubic",
+  "persistent": false,
+  "loop": false,
+  "fade_ticks": 0,
+  "params": {
+    "intensity": { "start": 0.08, "end": 0.0 },
+    "size": 2.0
+  }
+}
