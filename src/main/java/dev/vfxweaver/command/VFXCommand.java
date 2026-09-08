@@ -5,6 +5,7 @@ import com.mojang.brigadier.StringReader;
 import com.mojang.brigadier.context.CommandContext;
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import com.mojang.brigadier.exceptions.DynamicCommandExceptionType;
+import com.mojang.brigadier.exceptions.Dynamic2CommandExceptionType;
 import com.mojang.brigadier.suggestion.SuggestionProvider;
 import com.mojang.brigadier.suggestion.Suggestions;
 import com.mojang.brigadier.suggestion.SuggestionsBuilder;
@@ -34,14 +35,22 @@ import net.minecraft.server.permissions.PermissionLevel;
 import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.entity.Entity;
 import java.util.UUID;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * {@code /vfx play <effect> [<targets>]} triggers a VFX effect,
  * {@code /vfx stop <effect> [<targets>]} stops it and {@code /vfx list} lists known effects.
  */
 public final class VFXCommand {
+	private static final Logger LOGGER = LoggerFactory.getLogger("vfxweaver/command");
+
 	private static final DynamicCommandExceptionType ERROR_UNKNOWN_EFFECT = new DynamicCommandExceptionType(
 		id -> Component.translatable("commands.vfxweaver.unknown_effect", String.valueOf(id))
+	);
+
+	private static final Dynamic2CommandExceptionType ERROR_ANCHOR_NOT_FOUND = new Dynamic2CommandExceptionType(
+		(id, selector) -> Component.translatable("commands.vfxweaver.anchor_not_found", String.valueOf(id), String.valueOf(selector))
 	);
 
 	private VFXCommand() {
@@ -180,6 +189,33 @@ public final class VFXCommand {
 			// Entity-targeted effect: the datapack declares its own selector, so plain /vfx play
 			// resolves it into target UUIDs and sends to the executor.
 			return playEntity(context, resolveSelector(context, selector), List.of(requirePlayer(context)), overrides);
+		}
+
+		if (!definition.getEntityAnchors().isEmpty()) {
+			// World overlay with entity-anchored positions: resolve every anchor selector against
+			// the command source (first match wins) and ship the UUIDs in anchor order. An anchor
+			// that matches nothing fails the command instead of producing a half-tracked effect.
+			List<UUID> anchorUuids = new ArrayList<>();
+			for (VFXDefinition.EntityAnchor anchor : definition.getEntityAnchors()) {
+				if (anchorUuids.size() >= VFXTriggerPayload.MAX_ENTITY_UUIDS) {
+					LOGGER.warn("Effect '{}' declares more than {} entity anchors; the rest are ignored", effectId, VFXTriggerPayload.MAX_ENTITY_UUIDS);
+					break;
+				}
+				Collection<? extends Entity> found = resolveSelector(context, anchor.selector());
+				if (found.isEmpty()) {
+					throw ERROR_ANCHOR_NOT_FOUND.create(effectId.toString(), anchor.selector());
+				}
+				anchorUuids.add(found.iterator().next().getUUID());
+			}
+			for (ServerPlayer player : targets) {
+				VFXAPI.sendEffect(player, effectId, 0L, null, anchorUuids, overrides, null);
+			}
+			context.getSource()
+				.sendSuccess(
+					() -> Component.translatable("commands.vfxweaver.played", effectId.toString(), targets.size()),
+					false
+				);
+			return targets.size();
 		}
 
 		for (ServerPlayer player : targets) {

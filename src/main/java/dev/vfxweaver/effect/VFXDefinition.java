@@ -33,6 +33,7 @@ public class VFXDefinition {
 	private final int fadeTicks;
 	private final List<ChildEffect> children;
 	private final List<BlockPos> positions;
+	private final List<EntityAnchor> entityAnchors;
 	private final @Nullable Identifier sound;
 	private final @Nullable String entitySelector;
 
@@ -47,6 +48,7 @@ public class VFXDefinition {
 		final int fadeTicks,
 		final List<ChildEffect> children,
 		final List<BlockPos> positions,
+		final List<EntityAnchor> entityAnchors,
 		final @Nullable Identifier sound,
 		final @Nullable String entitySelector
 	) {
@@ -60,6 +62,7 @@ public class VFXDefinition {
 		this.fadeTicks = fadeTicks;
 		this.children = List.copyOf(children);
 		this.positions = List.copyOf(positions);
+		this.entityAnchors = List.copyOf(entityAnchors);
 		this.sound = sound;
 		this.entitySelector = entitySelector;
 	}
@@ -130,7 +133,7 @@ public class VFXDefinition {
 		final @Nullable Identifier sound,
 		final @Nullable String entitySelector
 	) {
-		return new VFXDefinition(id, type, defaultDuration, defaultEasing, params, persistent, loop, fadeTicks, children, positions, sound, entitySelector);
+		return new VFXDefinition(id, type, defaultDuration, defaultEasing, params, persistent, loop, fadeTicks, children, positions, List.of(), sound, entitySelector);
 	}
 
 	/**
@@ -180,7 +183,8 @@ public class VFXDefinition {
 			}
 		}
 
-		List<BlockPos> positions = parsePositions(json, params);
+		List<EntityAnchor> entityAnchors = new ArrayList<>();
+		List<BlockPos> positions = parsePositions(json, params, entityAnchors);
 
 		Identifier sound = null;
 		if (json.has("sound") && !json.get("sound").isJsonNull()) {
@@ -191,7 +195,7 @@ public class VFXDefinition {
 			? GsonHelper.getAsString(json, "entity_selector")
 			: null;
 
-		return new VFXDefinition(id, type, duration, easing, params, persistent, loop, fadeTicks, children, positions, sound, entitySelector);
+		return new VFXDefinition(id, type, duration, easing, params, persistent, loop, fadeTicks, children, positions, entityAnchors, sound, entitySelector);
 	}
 
 	/**
@@ -234,7 +238,17 @@ public class VFXDefinition {
 	/** Safety cap on parsed positions per effect (external input, see AGENTS.md). */
 	private static final int MAX_POSITIONS = 4096;
 
-	private static List<BlockPos> parsePositions(final JsonObject json, final Map<String, ParamSpec> params) {
+	/**
+	 * Parses the {@code positions}/{@code region} declarations into the ordered static position
+	 * list. A {@code positions} entry may be a plain {@code [x, y, z]} array or an object
+	 * {@code {"entity": "<selector>", "offset": [x, y, z]}} that anchors the slot to a live
+	 * entity: such entries put a placeholder block into the position list (so slot indices stay
+	 * aligned, e.g. for the two {@code guide_line} endpoints) and record an
+	 * {@link EntityAnchor} for per-play resolution on the server.
+	 *
+	 * @param anchorsOut filled with the entity-anchored slots in declaration order
+	 */
+	private static List<BlockPos> parsePositions(final JsonObject json, final Map<String, ParamSpec> params, final List<EntityAnchor> anchorsOut) {
 		List<BlockPos> positions = new ArrayList<>();
 		if (json.has("positions")) {
 			for (JsonElement entry : GsonHelper.getAsJsonArray(json, "positions")) {
@@ -242,9 +256,14 @@ public class VFXDefinition {
 					LOGGER.warn("Effect declares more than {} positions; the rest are ignored", MAX_POSITIONS);
 					break;
 				}
+				if (entry.isJsonObject()) {
+					anchorsOut.add(parseEntityAnchor(entry.getAsJsonObject(), positions.size()));
+					positions.add(BlockPos.ZERO);
+					continue;
+				}
 				JsonArray array = GsonHelper.convertToJsonArray(entry, "position");
 				if (array.size() != 3) {
-					throw new IllegalArgumentException("Position must be an array of [x, y, z]: " + entry);
+					throw new IllegalArgumentException("Position must be an array of [x, y, z] or an object with 'entity': " + entry);
 				}
 				positions.add(new BlockPos(array.get(0).getAsInt(), array.get(1).getAsInt(), array.get(2).getAsInt()));
 			}
@@ -286,6 +305,31 @@ public class VFXDefinition {
 		return positions;
 	}
 
+	/**
+	 * Parses one {@code {"entity": ..., "offset": ...}} position entry into an anchor spec.
+	 * The {@code offset} (relative to the entity's feet position) is optional and defaults
+	 * to {@code [0, 0, 0]}.
+	 */
+	private static EntityAnchor parseEntityAnchor(final JsonObject object, final int slot) {
+		String selector = GsonHelper.getAsString(object, "entity", "");
+		if (selector.isBlank()) {
+			throw new IllegalArgumentException("Entity anchor position needs a non-blank 'entity' selector: " + object);
+		}
+		double x = 0.0;
+		double y = 0.0;
+		double z = 0.0;
+		if (object.has("offset")) {
+			JsonArray offset = GsonHelper.getAsJsonArray(object, "offset");
+			if (offset.size() != 3) {
+				throw new IllegalArgumentException("Entity anchor 'offset' must be an array of [x, y, z]: " + object);
+			}
+			x = offset.get(0).getAsDouble();
+			y = offset.get(1).getAsDouble();
+			z = offset.get(2).getAsDouble();
+		}
+		return new EntityAnchor(slot, selector, x, y, z);
+	}
+
 	private static ChildEffect parseChild(final JsonElement element) {
 		JsonObject object = GsonHelper.convertToJsonObject(element, "effect entry");
 		Identifier effectId = Identifier.parse(GsonHelper.getAsString(object, "effect"));
@@ -318,6 +362,21 @@ public class VFXDefinition {
 	 * @param easing  easing override (null = the child definition default)
 	 */
 	public record ChildEffect(Identifier effect, float delay, int duration, Map<String, Float> params, EasingFunction easing) {
+	}
+
+	/**
+	 * One entity-anchored {@code positions} entry: the slot index it fills in the ordered
+	 * position list, the entity selector string (resolved once per play on the server) and
+	 * the offset applied to the entity's feet position.
+	 *
+	 * @param slot     index into the definition's position list (placeholder {@link BlockPos#ZERO}
+	 *                 is stored there so static positions keep their declaration order)
+	 * @param selector entity selector string, e.g. {@code "@e[type=villager,limit=1]"} or {@code "@s"}
+	 * @param ox       X offset from the entity's feet position
+	 * @param oy       Y offset from the entity's feet position
+	 * @param oz       Z offset from the entity's feet position
+	 */
+	public record EntityAnchor(int slot, String selector, double ox, double oy, double oz) {
 	}
 
 	private static ParamSpec parseParam(final JsonElement element) {
@@ -513,9 +572,20 @@ public class VFXDefinition {
 
 	/**
 	 * World positions this effect applies to (for world-space effects such as block highlighting).
+	 * Slots backed by {@link #getEntityAnchors()} hold a placeholder and are resolved against the
+	 * tracked entity every frame on the client.
 	 */
 	public List<BlockPos> getPositions() {
 		return this.positions;
+	}
+
+	/**
+	 * Entity-anchored {@code positions} entries in declaration order (empty when all positions
+	 * are static). The server resolves each selector to an entity UUID on every play; the client
+	 * substitutes the entity's current position (+ offset) for the placeholder slot each frame.
+	 */
+	public List<EntityAnchor> getEntityAnchors() {
+		return this.entityAnchors;
 	}
 
 	/**

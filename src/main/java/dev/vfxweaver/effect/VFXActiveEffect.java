@@ -5,6 +5,7 @@ import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
 import net.minecraft.core.BlockPos;
 import net.minecraft.resources.Identifier;
+import net.minecraft.world.phys.Vec3;
 
 /**
  * A single running instance of a {@link VFXDefinition}. Holds a {@link VFXTimeline} that is
@@ -23,6 +24,7 @@ public class VFXActiveEffect {
 	private final boolean loop;
 	private final List<BlockPos> positions;
 	private final List<UUID> entityUuids;
+	private final List<ResolvedAnchor> anchors;
 	private float elapsed;
 	private float age;
 	private float fadeOutStart = Float.NEGATIVE_INFINITY;
@@ -81,6 +83,20 @@ public class VFXActiveEffect {
 	 * @param entityUuids  entity UUIDs this effect applies to (for entity tint/outline)
 	 */
 	public VFXActiveEffect(final Identifier id, final VFXEffectType type, final long instanceId, final long instanceSeed, final float startTime, final VFXTimeline timeline, final int fadeTicks, final boolean loop, final List<BlockPos> positions, final List<UUID> entityUuids) {
+		this(id, type, instanceId, instanceSeed, startTime, timeline, fadeTicks, loop, positions, entityUuids, List.of());
+	}
+
+	/**
+	 * Creates a new effect instance with an instance id, noise seed, entity UUID targets and
+	 * resolved entity anchors (for world overlays whose {@code positions} entries are anchored
+	 * to live entities).
+	 *
+	 * @param instanceSeed per-instance seed used to drive generated noise (camera shake, {@code expr})
+	 * @param entityUuids  entity UUIDs this effect applies to (for entity tint/outline, or the
+	 *                     resolved anchor entities of a world overlay)
+	 * @param anchors      entity-anchored position slots (empty when all positions are static)
+	 */
+	public VFXActiveEffect(final Identifier id, final VFXEffectType type, final long instanceId, final long instanceSeed, final float startTime, final VFXTimeline timeline, final int fadeTicks, final boolean loop, final List<BlockPos> positions, final List<UUID> entityUuids, final List<ResolvedAnchor> anchors) {
 		this.id = id;
 		this.type = type;
 		this.instanceId = instanceId;
@@ -91,6 +107,7 @@ public class VFXActiveEffect {
 		this.loop = loop;
 		this.positions = List.copyOf(positions);
 		this.entityUuids = List.copyOf(entityUuids);
+		this.anchors = List.copyOf(anchors);
 		this.elapsed = 0.0F;
 		this.age = 0.0F;
 	}
@@ -242,5 +259,25 @@ public class VFXActiveEffect {
 	 */
 	public List<UUID> getEntityUuids() {
 		return this.entityUuids;
+	}
+
+	/**
+	 * Entity-anchored position slots of a world overlay: the placeholder slot index, the tracked
+	 * entity (resolved by the server at play time) and the offset from its feet position. Empty
+	 * when all positions are static.
+	 */
+	public List<ResolvedAnchor> getAnchors() {
+		return this.anchors;
+	}
+
+	/**
+	 * A resolved entity anchor for one {@code positions} slot: the renderer substitutes the
+	 * tracked entity's current position (+ offset) for the placeholder block every frame.
+	 *
+	 * @param slot   index into the effect's position list
+	 * @param uuid   tracked entity UUID
+	 * @param offset offset from the entity's feet position
+	 */
+	public record ResolvedAnchor(int slot, UUID uuid, Vec3 offset) {
 	}
 }

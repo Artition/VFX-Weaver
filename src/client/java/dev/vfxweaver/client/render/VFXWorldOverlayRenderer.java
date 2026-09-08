@@ -23,6 +23,7 @@ import java.util.Optional;
 import net.fabricmc.fabric.api.client.rendering.v1.level.LevelRenderContext;
 import net.fabricmc.fabric.api.client.rendering.v1.level.LevelRenderEvents;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.renderer.MultiBufferSource;
 import net.minecraft.client.renderer.RenderPipelines;
 import net.minecraft.client.renderer.block.dispatch.BlockStateModelPart;
@@ -35,6 +36,8 @@ import net.minecraft.core.Direction;
 import net.minecraft.resources.Identifier;
 import net.minecraft.util.Mth;
 import net.minecraft.util.RandomSource;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.phys.Vec3;
 import org.joml.Vector3f;
 import org.joml.Vector3fc;
 import org.jspecify.annotations.Nullable;
@@ -245,6 +248,7 @@ public final class VFXWorldOverlayRenderer {
 		if (minecraft.level == null) {
 			return;
 		}
+		ClientLevel level = minecraft.level;
 		CameraRenderState camera = context.levelState().cameraRenderState;
 		if (!camera.initialized) {
 			return;
@@ -258,22 +262,22 @@ public final class VFXWorldOverlayRenderer {
 				if (effect.getType() == VFXEffectType.BLOCK_TINT) {
 					boolean through = effect.getParam("through_blocks", 1.0F) >= 0.5F;
 					RenderType type = through ? TINT_VISIBLE : TINT_OCCLUDED;
-					if (renderEffect(buffers, camera, effect, minecraft, type, 0.5F, 0.0F, false, TINT_OUTSET)) {
+					if (renderEffect(buffers, camera, effect, level, minecraft, type, 0.5F, 0.0F, false, TINT_OUTSET)) {
 						drawn.add(type);
 					}
 				} else if (effect.getType() == VFXEffectType.LIGHT_BEAM) {
 					boolean through = effect.getParam("through_blocks", 0.0F) >= 0.5F;
-					if (renderLightBeams(buffers, camera, effect, through ? GLOW_VISIBLE : GLOW_OCCLUDED)) {
+					if (renderLightBeams(buffers, camera, effect, level, through ? GLOW_VISIBLE : GLOW_OCCLUDED)) {
 						drawn.add(through ? GLOW_VISIBLE : GLOW_OCCLUDED);
 					}
 				} else if (effect.getType() == VFXEffectType.PULSE_RING) {
 					boolean through = effect.getParam("through_blocks", 0.0F) >= 0.5F;
-					if (renderPulseRings(buffers, camera, effect, through ? GLOW_VISIBLE : GLOW_OCCLUDED)) {
+					if (renderPulseRings(buffers, camera, effect, level, through ? GLOW_VISIBLE : GLOW_OCCLUDED)) {
 						drawn.add(through ? GLOW_VISIBLE : GLOW_OCCLUDED);
 					}
 				} else if (effect.getType() == VFXEffectType.GUIDE_LINE) {
 					boolean through = effect.getParam("through_blocks", 0.0F) >= 0.5F;
-					if (renderGuideLines(buffers, camera, effect, through ? GLOW_VISIBLE : GLOW_OCCLUDED)) {
+					if (renderGuideLines(buffers, camera, effect, level, through ? GLOW_VISIBLE : GLOW_OCCLUDED)) {
 						drawn.add(through ? GLOW_VISIBLE : GLOW_OCCLUDED);
 					}
 				} else if (effect.getType() == VFXEffectType.BLOCK_OUTLINE) {
@@ -283,8 +287,8 @@ public final class VFXWorldOverlayRenderer {
 					float amount = shell ? width : width * 0.5F;
 					RenderType outlineType = shell ? OUTLINE_SHELL_OCCLUDED : OUTLINE_WALLS_OCCLUDED;
 					if (through) {
-						renderThroughOutline(buffers, camera, effect, minecraft, outlineType, amount, shell);
-					} else if (renderEffect(buffers, camera, effect, minecraft, outlineType, 1.0F, amount, shell, 0.0F)) {
+						renderThroughOutline(buffers, camera, effect, level, minecraft, outlineType, amount, shell);
+					} else if (renderEffect(buffers, camera, effect, level, minecraft, outlineType, 1.0F, amount, shell, 0.0F)) {
 						drawn.add(outlineType);
 					}
 				}
@@ -313,6 +317,7 @@ public final class VFXWorldOverlayRenderer {
 		final MultiBufferSource.BufferSource buffers,
 		final CameraRenderState camera,
 		final VFXActiveEffect effect,
+		final ClientLevel level,
 		final Minecraft minecraft,
 		final RenderType renderType,
 		final float defaultAlpha,
@@ -331,7 +336,7 @@ public final class VFXWorldOverlayRenderer {
 		PoseStack poseStack = new PoseStack();
 		poseStack.pushPose();
 		poseStack.translate(-camera.pos.x, -camera.pos.y, -camera.pos.z);
-		for (BlockPos pos : effectPositions(effect)) {
+		for (BlockPos pos : effectPositions(effect, level)) {
 			poseStack.pushPose();
 			try {
 				poseStack.translate(pos.getX(), pos.getY(), pos.getZ());
@@ -386,6 +391,7 @@ public final class VFXWorldOverlayRenderer {
 		final MultiBufferSource.BufferSource buffers,
 		final CameraRenderState camera,
 		final VFXActiveEffect effect,
+		final ClientLevel level,
 		final RenderType renderType
 	) {
 		float intensity = clamp01(effect.getParam("intensity", 1.0F)) * effect.getWeight();
@@ -411,7 +417,7 @@ public final class VFXWorldOverlayRenderer {
 		// and fainter. More softness = more, thinner shells (a smooth gradient instead of two
 		// distinct tubes).
 		int layers = Math.max(2, Math.round(2.0F + softness * 4.0F));
-		for (BlockPos pos : effectPositions(effect)) {
+		for (BlockPos pos : effectPositions(effect, level)) {
 			float cx = pos.getX() + 0.5F;
 			float cz = pos.getZ() + 0.5F;
 			float y0 = pos.getY();
@@ -443,6 +449,7 @@ public final class VFXWorldOverlayRenderer {
 		final MultiBufferSource.BufferSource buffers,
 		final CameraRenderState camera,
 		final VFXActiveEffect effect,
+		final ClientLevel level,
 		final RenderType renderType
 	) {
 		float intensity = clamp01(effect.getParam("intensity", 1.0F)) * effect.getWeight();
@@ -466,7 +473,7 @@ public final class VFXWorldOverlayRenderer {
 		float inner = Math.max(radius - thickness / 2.0F, 0.01F);
 		float outer = radius + thickness / 2.0F;
 
-		for (BlockPos pos : effectPositions(effect)) {
+		for (BlockPos pos : effectPositions(effect, level)) {
 			float cx = pos.getX() + 0.5F;
 			float cy = pos.getY() + 0.5F;
 			float cz = pos.getZ() + 0.5F;
@@ -588,6 +595,7 @@ public final class VFXWorldOverlayRenderer {
 		final MultiBufferSource.BufferSource buffers,
 		final CameraRenderState camera,
 		final VFXActiveEffect effect,
+		final ClientLevel level,
 		final RenderType renderType
 	) {
 		float intensity = clamp01(effect.getParam("intensity", 1.0F)) * effect.getWeight();
@@ -601,7 +609,11 @@ public final class VFXWorldOverlayRenderer {
 		float arc = effect.getParam("arc", 1.5F);
 		int rgb = rgb(effect.getParam("red", 0.25F), effect.getParam("green", 1.0F), effect.getParam("blue", 0.45F));
 
-		List<BlockPos> positions = effectPositions(effect);
+		List<BlockPos> positions = effectPositions(effect, level);
+		if (positions.isEmpty()) {
+			// Entity-anchored endpoints not tracked this frame (or a legacy empty definition).
+			return false;
+		}
 		BlockPos a = positions.get(0);
 		BlockPos b = positions.size() > 1 ? positions.get(1) : a.offset(10, 0, 0);
 		float t = effect.getElapsed() / 20.0F;
@@ -779,6 +791,7 @@ public final class VFXWorldOverlayRenderer {
 		final MultiBufferSource.BufferSource buffers,
 		final CameraRenderState camera,
 		final VFXActiveEffect effect,
+		final ClientLevel level,
 		final Minecraft minecraft,
 		final RenderType outlineType,
 		final float amount,
@@ -799,7 +812,7 @@ public final class VFXWorldOverlayRenderer {
 			PoseStack poseStack = new PoseStack();
 			poseStack.pushPose();
 			poseStack.translate(-camera.pos.x, -camera.pos.y, -camera.pos.z);
-			for (BlockPos pos : effectPositions(effect)) {
+			for (BlockPos pos : effectPositions(effect, level)) {
 				poseStack.pushPose();
 				try {
 					poseStack.translate(pos.getX(), pos.getY(), pos.getZ());
@@ -812,7 +825,7 @@ public final class VFXWorldOverlayRenderer {
 			buffers.endBatch(BLOCK_DEPTH_MASK);
 
 			// Outline now only hides behind its own target's depth.
-			if (renderEffect(buffers, camera, effect, minecraft, outlineType, 1.0F, amount, shell, 0.0F)) {
+			if (renderEffect(buffers, camera, effect, level, minecraft, outlineType, 1.0F, amount, shell, 0.0F)) {
 				buffers.endBatch(outlineType);
 			}
 		} finally {
@@ -820,12 +833,35 @@ public final class VFXWorldOverlayRenderer {
 		}
 	}
 
-	private static List<BlockPos> effectPositions(final VFXActiveEffect effect) {
+	private static List<BlockPos> effectPositions(final VFXActiveEffect effect, final ClientLevel level) {
 		List<BlockPos> list = effect.getPositions();
-		if (!list.isEmpty()) {
-			return list;
+		List<VFXActiveEffect.ResolvedAnchor> anchors = effect.getAnchors();
+		if (anchors.isEmpty()) {
+			if (!list.isEmpty()) {
+				return list;
+			}
+			return List.of(BlockPos.containing(effect.getParam("pos_x", 0.0F), effect.getParam("pos_y", 0.0F), effect.getParam("pos_z", 0.0F)));
 		}
-		return List.of(BlockPos.containing(effect.getParam("pos_x", 0.0F), effect.getParam("pos_y", 0.0F), effect.getParam("pos_z", 0.0F)));
+		if (list.isEmpty()) {
+			return List.of();
+		}
+		// Entity-anchored slots: substitute the tracked entity's current feet position (+ offset)
+		// for the placeholder block. If any anchor's entity is untracked this frame (dead, out of
+		// range, not yet spawned) the effect is skipped entirely — a half-tracked effect would
+		// render e.g. a guide line with one endpoint stuck at the placeholder origin.
+		List<BlockPos> resolved = new ArrayList<>(list);
+		for (VFXActiveEffect.ResolvedAnchor anchor : anchors) {
+			if (anchor.slot() >= resolved.size()) {
+				return List.of();
+			}
+			Entity entity = level.getEntity(anchor.uuid());
+			if (entity == null) {
+				return List.of();
+			}
+			Vec3 pos = entity.position().add(anchor.offset());
+			resolved.set(anchor.slot(), BlockPos.containing(pos.x, pos.y, pos.z));
+		}
+		return List.copyOf(resolved);
 	}
 
 	private static List<BakedQuad> getModelQuads(final Minecraft minecraft, final BlockPos pos) {

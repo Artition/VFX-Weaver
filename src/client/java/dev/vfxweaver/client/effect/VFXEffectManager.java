@@ -237,7 +237,24 @@ public class VFXEffectManager {
 			double pz = position != null ? position.z() : payloadPos.getZ();
 			timeline.rebindPositions(px, py, pz);
 		}
-		VFXActiveEffect effect = new VFXActiveEffect(effectId, type, id, instanceSeed, this.clock, timeline, fadeTicks, loop, positions, entityUuids);
+		// Entity-anchored positions: the server resolved each definition anchor selector into one
+		// UUID (in anchor order) and shipped them in entityUuids; zip them with the definition's
+		// anchor slots. With a payload position override the anchors are ignored (the override
+		// wins, same as static definition positions).
+		List<VFXActiveEffect.ResolvedAnchor> anchors = List.of();
+		if (payloadPos == null && definition != null && !definition.getEntityAnchors().isEmpty()) {
+			List<VFXActiveEffect.ResolvedAnchor> built = new ArrayList<>();
+			List<VFXDefinition.EntityAnchor> specs = definition.getEntityAnchors();
+			for (int i = 0; i < specs.size() && i < entityUuids.size(); i++) {
+				VFXDefinition.EntityAnchor spec = specs.get(i);
+				built.add(new VFXActiveEffect.ResolvedAnchor(spec.slot(), entityUuids.get(i), new Vec3(spec.ox(), spec.oy(), spec.oz())));
+			}
+			if (built.size() < specs.size()) {
+				LOGGER.warn("Effect '{}' has {} entity-anchored positions but only {} entity UUID(s) arrived; unanchored slots are skipped while rendering", effectId, specs.size(), built.size());
+			}
+			anchors = List.copyOf(built);
+		}
+		VFXActiveEffect effect = new VFXActiveEffect(effectId, type, id, instanceSeed, this.clock, timeline, fadeTicks, loop, positions, entityUuids, anchors);
 		// Same-id replays stack as independent instances (e.g. several dents at once);
 		// /vfx stop removes every instance of the id, stop(instanceId) removes one. MAX_ACTIVE_EFFECTS caps the total.
 		while (this.active.size() >= MAX_ACTIVE_EFFECTS) {

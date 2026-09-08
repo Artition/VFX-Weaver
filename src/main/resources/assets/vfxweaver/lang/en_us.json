@@ -1,5 +1,6 @@
 {
 	"commands.vfxweaver.unknown_effect": "Unknown VFX effect: %s",
+	"commands.vfxweaver.anchor_not_found": "No entity matched the anchor selector '%s' of VFX %s",
 	"commands.vfxweaver.played": "Playing VFX %s for %s player(s)",
 	"commands.vfxweaver.played_at": "Playing VFX %s at [%s, %s, %s] for %s player(s)",
 	"commands.vfxweaver.stopped": "Stopped VFX %s for %s player(s)",
