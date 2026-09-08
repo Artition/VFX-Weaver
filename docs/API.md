@@ -2,7 +2,7 @@
 
 The public API for other mods interacting with vfxweaver. Backward compatibility matters — don't break signatures without good reason (see `AGENTS.md`).
 
-## `com.tom.vfx.api.VFXAPI`
+## `dev.vfxweaver.api.VFXAPI`
 
 A stateless class (all methods static), the entry point for other mods.
 
@@ -27,8 +27,10 @@ boolean sendEffect(ServerPlayer player, Identifier effectId, long instanceId, @N
 void sendEffect(ServerPlayer player, Identifier effectId, int durationTicks, Map<String, Float> params, EasingType easing);
 
 // Full variant: duration, instance id, world position, entity UUID targets for entity effects
-// (entity_tint/entity_outline), parameter overrides and easing. entityUuids — up to 16 UUIDs;
-// an empty list for all other effect types.
+// (entity_tint/entity_outline) or entity-anchored world overlays, parameter overrides and
+// easing. entityUuids — up to 16 UUIDs; an empty list for all other effect types. For world
+// overlays whose definition declares entity-anchored "positions", the UUIDs fill the anchor
+// slots in anchor order (the client tracks those entities per frame).
 void sendEffect(ServerPlayer player, Identifier effectId, int durationTicks, long instanceId, @Nullable Vec3 worldPos, List<UUID> entityUuids, Map<String, Float> overrides, @Nullable EasingType easing);
 
 // Stops the effect on the player's client (all its instances).
@@ -61,6 +63,18 @@ long playEffectId(Identifier effectId, int durationTicks, Map<String, Float> par
 boolean stopEffect(Identifier effectId);          // every instance of the effect
 boolean stopEffect(long instanceId);              // one specific instance
 boolean stopAllEffects();
+```
+
+### `VFXAPI.EffectRequest` (fluent builder)
+
+```java
+// Builds one request and plays it on a player (over the network) or locally on this client:
+VFXAPI.EffectRequest.of()
+	.duration(60)                    // ticks, 0 = definition default
+	.param("radius", 2.0F)           // constant overrides (repeatable)
+	.target(entityUuid)              // entity UUID targets / entity-anchored overlay slots (repeatable)
+	.easing(EasingType.EASE_OUT_CUBIC) // or .easing("ease_out_cubic")
+	.play(player);                   // or .play() for a client-local play
 ```
 
 ### `VFXLocalDispatcher`

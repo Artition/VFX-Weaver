@@ -2,7 +2,7 @@
 
 A client-side VFX library for Minecraft 26.1–26.1.2 (Fabric). Screen post-processing (ping-pong FBO), camera shake, world overlays (block tint/outline), entity effects (tint/outline by UUID), keyframe animation, world/camera/player bindings, datapacks, network triggers and a public Java API.
 
-- Guide version: 22 (v1.1.0 effects batch, see [docs/CHANGELOG.md](CHANGELOG.md) for history)
+- Guide version: 24 (v1.1.0 effects batch, see [docs/CHANGELOG.md](CHANGELOG.md) for history)
 - Mod: `vfxweaver-1.1.0.jar`, requires Fabric API
 
 Files: `data/<namespace>/vfx/<name>.json` and `data/<namespace>/vfx_curves/<name>.json`. After edits — `/reload`. The effect id = `<namespace>:<name>`. On a dedicated server, definitions and curves are automatically synced to clients on player join and after `/reload`, so custom (datapack) effects work for all players, not just on the server.
@@ -521,7 +521,7 @@ Block outline, two modes.
 /vfx play vfxweaver:block_outline {[width:0.08],[shell:1]}
 ```
 
-Both support a list of coordinates via `positions` (see [3.1](#31-definition-fields)) or `region: [x0,y0,z0,x1,y1,z1]`. Without them a single position from `params.pos_x/y/z` is used - it can be a constant, an animation or a world binding.
+Both support a list of coordinates via `positions` (see [3.1](#31-definition-fields)) or `region: [x0,y0,z0,x1,y1,z1]`. Without them a single position from `params.pos_x/y/z` is used - it can be a constant, an animation or a world binding. Positions may also be anchored to a live entity (see [3.1](#31-definition-fields)) — the effect follows it every frame; `/vfx playat` or a network position override wins over anchors, same as over static positions.
 
 #### `light_beam`
 A vertical glowing shaft of soft light descending onto each position. `top_scale` flares the top: 1 = cylinder, 2 = cone with twice the top radius. `softness` increases the number of concentric shells and fades their alpha: 0 = two hard tubes, higher = many thin, faint shells (a smooth blurred column).
@@ -710,8 +710,23 @@ Files: `data/<namespace>/vfx/<name>.json`. After edits — `/reload`. Effect id 
 | `sound_pos` | array `[x,y,z]` | — | World coordinates for positional sound playback (vanilla mechanic, like `/playsound ... x y z` — louder near, quieter far). If not set — the sound plays directly to the player without coordinates |
 | `volume` | param (see §3.2) | 1.0 | Sound volume (reserved param, can be a constant, animation, bind or expression) |
 | `pitch` | param (see §3.2) | 1.0 | Sound pitch (reserved param) |
-| `positions` | array `[x,y,z]` | — | World coordinate list for `block_tint`/`block_outline`. If not set — `params.pos_x/y/z` is used. Not used for entity effects (targets are set by UUID). |
+| `positions` | array `[x,y,z]` or objects | — | World coordinate list for world overlays (`block_tint`/`block_outline`/`light_beam`/`pulse_ring`/`guide_line`). Each entry is either a plain `[x,y,z]` array or an entity anchor `{"entity": "<selector>", "offset": [x,y,z]}` — see below. If not set — `params.pos_x/y/z` is used. Not used for entity effects (targets are set by UUID). |
 | `entity_selector` | string | — | Entity selector (e.g. `"@e[type=minecraft:zombie,distance=..10]"`) that the server resolves into target UUIDs on every play. Lets you trigger an entity effect with plain `/vfx play` (no `playentity`): the effect finds its own targets. For entity effects (`entity_tint`/`entity_outline`). |
+
+**Entity-anchored positions.** A `positions` entry may be an object instead of a `[x,y,z]` array: `{"entity": "<selector>", "offset": [x,y,z]}` (the offset is optional and relative to the entity's feet). The server resolves each selector once per play (first match wins, `/vfx play` fails if an anchor matches nothing); the client substitutes the tracked entity's current position every frame, so the effect follows a moving entity:
+
+```json
+{
+	"type": "light_beam",
+	"loop": true,
+	"positions": [
+		{ "entity": "@s" },
+		[16, 64, 16]
+	]
+}
+```
+
+Slot order is preserved, so `guide_line` endpoints can mix static and anchored entries (e.g. one end on the player, the other on a block). If a tracked entity disappears (death, despawn, out of range) the effect skips rendering until it is trackable again. Works for all world overlays (`block_tint`, `block_outline`, `light_beam`, `pulse_ring`, `guide_line`); the Java API passes anchor entities as regular target UUIDs (`EffectRequest.target()`), in anchor order.
 
 ### 3.2 Ways to set a param
 
@@ -934,7 +949,7 @@ The same from the Java API — see `VFXAPI.sendEffect(...)` with the `List<UUID>
 }
 ```
 
-Child effect fields: `effect` (id, required), `delay` (ticks from collection start), `duration` (0 = definition default, −1 = persistent), `params` (numbers only — constant overrides), `easing`. Collection nesting — up to 4 levels. `/vfx stop <collection>` cancels not-yet-started children; already playing ones are stopped by their own `/vfx stop`.
+Child effect fields: `effect` (id, required), `delay` (ticks from collection start), `duration` (0 = definition default, −1 = persistent), `params` (each value is a full parameter spec — plain numbers are constants, objects support `start`/`end`, `keyframes`, `bind`, `expr`, `multiply`, see §3.2), `easing`. Collection nesting — up to 4 levels. `/vfx stop <collection>` cancels not-yet-started children; already playing ones are stopped by their own `/vfx stop`.
 
 ---
 
@@ -987,7 +1002,11 @@ Post-processing pipeline, world overlays, effect clock, load limits and fault to
 
 Versioned feature history — **[docs/CHANGELOG.md](CHANGELOG.md)**.
 
-Guide version: 23 — see changelog below.
+Guide version: 24 — see changelog below.
+
+### v24
+- World overlays: `positions` entries may anchor to a live entity — `{"entity": "<selector>", "offset": [x,y,z]}`. The server resolves the selector once per play (plain `/vfx play`; fails if it matches nothing), the client follows the entity every frame; the Java API passes anchors as target UUIDs in anchor order.
+- Collections: child `params` values are now full parameter specs — `start`/`end`, `keyframes`, `bind`, `expr`, `multiply` (plain numbers still work as constants).
 
 ### v23
 - `light_beam`: new `bottom_fade` param (fades the column toward the bottom, mirrors `top_fade`).

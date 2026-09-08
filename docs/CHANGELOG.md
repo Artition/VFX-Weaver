@@ -2,7 +2,12 @@
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). The versions below are guide/feature-set versions of the mod (as they progressed historically, see `docs/GUIDE.md`), plus git release tags where applicable (`v1.0.x`, `gradle.properties` → `mod_version`). Add new entries at the top, in the same PR as the behavior change.
 
-## Unreleased / Guide v23
+## Unreleased / Guide v24
+### Added
+- **Entity-anchored `positions` for world overlays** - a `positions` entry may be `{"entity": "<selector>", "offset": [x,y,z]}` (offset relative to the entity's feet, optional): the server resolves the selector once per play (plain `/vfx play`; fails when it matches nothing), the client follows the entity every frame. Slot order is preserved, so `guide_line` endpoints can mix static and anchored entries; works for `block_tint`, `block_outline`, `light_beam`, `pulse_ring`, `guide_line`. `/vfx playat` or a network position override wins over anchors. Java API: pass anchor UUIDs via `EffectRequest.target()` in anchor order. No protocol change (reuses the `entityUuids` field).
+- **Collections: full parameter specs on children** - child `params` values may be `start`/`end`, `keyframes`, `bind`, `expr`, `multiply` (merged into a derived child definition); plain numbers keep working as constants.
+
+## Guide v23
 ### Added
 - **`light_beam` `bottom_fade` param** - fades the column alpha toward the bottom (0..1, default 0), mirroring `top_fade`.
 

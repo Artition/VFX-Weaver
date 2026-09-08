@@ -7,10 +7,10 @@ Instructions for AI agents (Claude, Copilot, etc.) working in this repository.
 A Fabric mod for Minecraft ~26.1 (a client-side VFX library). Java sources are split by side:
 
 ```
-src/main/java/com/tom/vfx/        — shared code (server + client): API, commands, datapack effects, network
-src/client/java/com/tom/vfx/client/ — client only: rendering, post-processing, shaders, camera shake
+src/main/java/dev/vfxweaver/          — shared code (server + client): API, commands, datapack effects, network
+src/client/java/dev/vfxweaver/client/ — client only: rendering, post-processing, shaders, camera shake
 src/main/resources/               — fabric.mod.json, mixins, lang, assets (shared)
-src/client/resources/             — client mixins, shaders (assets/tompfx/shaders)
+src/client/resources/             — client mixins, shaders (assets/vfxweaver/shaders)
 ```
 
 A full description of the domain model (effects, timelines, datapacks, network protocol) is in `docs/GUIDE.md`.
@@ -39,7 +39,7 @@ After any change under `src/`, always run `./gradlew build` before committing �
 
 ## What must not be broken without discussion
 
-- The datapack JSON effect format (`data/<namespace>/vfx/<effect>.json`) and the network protocol `tompfx:vfx_trigger` — backward compatibility matters; the protocol version (`VFXTriggerPayload.PROTOCOL_VERSION`) must be bumped on any breaking change.
+- The datapack JSON effect format (`data/<namespace>/vfx/<effect>.json`) and the network protocol `vfxweaver:vfx_trigger` — backward compatibility matters; the protocol version (`VFXTriggerPayload.PROTOCOL_VERSION`) must be bumped on any breaking change.
 - The public Java API (`VFXAPI`) — used by other mods.
 
 ## Documentation
