@@ -741,10 +741,6 @@ public final class VFXWorldOverlayRenderer {
 					}
 				}
 			}
-						sim.pos[i] = new Vec3(p.x + dx / h * 0.15, p.y + 0.05, p.z + dz / h * 0.15);
-					}
-				}
-			}
 		}
 		sim.pos[0] = anchorA;
 		sim.renderPrev[0] = anchorA;
