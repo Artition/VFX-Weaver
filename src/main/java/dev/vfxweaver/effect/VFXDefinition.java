@@ -321,14 +321,19 @@ public class VFXDefinition {
 	}
 
 	/**
-	 * Parses one {@code {"entity": ..., "offset": ...}} position entry into an anchor spec.
-	 * The {@code offset} (relative to the entity's feet position) is optional and defaults
-	 * to {@code [0, 0, 0]}.
+	 * Parses one {@code {"entity": ..., "offset": ..., "point": ...}} position entry into an
+	 * anchor spec. The {@code offset} (relative to the chosen anchor point) is optional and
+	 * defaults to {@code [0, 0, 0]}; {@code point} selects the reference point on the entity:
+	 * {@code feet} (default), {@code center} (bounding-box centre) or {@code eyes}.
 	 */
 	private static EntityAnchor parseEntityAnchor(final JsonObject object, final int slot) {
 		String selector = GsonHelper.getAsString(object, "entity", "");
 		if (selector.isBlank()) {
 			throw new IllegalArgumentException("Entity anchor position needs a non-blank 'entity' selector: " + object);
+		}
+		String point = GsonHelper.getAsString(object, "point", "feet").toLowerCase(java.util.Locale.ROOT);
+		if (!point.equals("feet") && !point.equals("center") && !point.equals("eyes")) {
+			throw new IllegalArgumentException("Entity anchor 'point' must be feet, center or eyes: " + object);
 		}
 		double x = 0.0;
 		double y = 0.0;
@@ -342,7 +347,7 @@ public class VFXDefinition {
 			y = offset.get(1).getAsDouble();
 			z = offset.get(2).getAsDouble();
 		}
-		return new EntityAnchor(slot, selector, x, y, z);
+		return new EntityAnchor(slot, selector, point, x, y, z);
 	}
 
 	private static ChildEffect parseChild(final JsonElement element) {
@@ -377,17 +382,18 @@ public class VFXDefinition {
 
 	/**
 	 * One entity-anchored {@code positions} entry: the slot index it fills in the ordered
-	 * position list, the entity selector string (resolved once per play on the server) and
-	 * the offset applied to the entity's feet position.
+	 * position list, the entity selector string (resolved once per play on the server), the
+	 * reference point on the entity and the offset applied to it.
 	 *
 	 * @param slot     index into the definition's position list (placeholder {@link BlockPos#ZERO}
 	 *                 is stored there so static positions keep their declaration order)
 	 * @param selector entity selector string, e.g. {@code "@e[type=villager,limit=1]"} or {@code "@s"}
-	 * @param ox       X offset from the entity's feet position
-	 * @param oy       Y offset from the entity's feet position
-	 * @param oz       Z offset from the entity's feet position
+	 * @param point    reference point on the entity: {@code feet}, {@code center} or {@code eyes}
+	 * @param ox       X offset from the anchor point
+	 * @param oy       Y offset from the anchor point
+	 * @param oz       Z offset from the anchor point
 	 */
-	public record EntityAnchor(int slot, String selector, double ox, double oy, double oz) {
+	public record EntityAnchor(int slot, String selector, String point, double ox, double oy, double oz) {
 	}
 
 	private static ParamSpec parseParam(final JsonElement element) {

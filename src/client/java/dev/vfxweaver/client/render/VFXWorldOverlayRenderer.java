@@ -416,14 +416,12 @@ public final class VFXWorldOverlayRenderer {
 				return origin.add(Math.cos(angle) * radius, u * height, Math.sin(angle) * radius);
 			}
 			case "cube": {
-				int axis = random.nextInt(3);
-				double a = random.nextDouble(-radius, radius);
-				double b = random.nextDouble(-radius, radius);
-				double side = radius * (random.nextBoolean() ? 1.0 : -1.0);
-				double x = axis == 0 ? side : a;
-				double y = axis == 1 ? side : a;
-				double z = axis == 2 ? side : b;
-				return origin.add(x, y, z);
+				// Three independent coordinates; the fixed one lands on a random face, the other
+				// two spread uniformly across that face (reusing one random for two axes made
+				// points collapse onto the face diagonal).
+				double[] c = { random.nextDouble(-radius, radius), random.nextDouble(-radius, radius), random.nextDouble(-radius, radius) };
+				c[random.nextInt(3)] = radius * (random.nextBoolean() ? 1.0 : -1.0);
+				return origin.add(c[0], c[1], c[2]);
 			}
 			case "line": {
 				Vec3 a = origin;
@@ -1147,7 +1145,12 @@ public final class VFXWorldOverlayRenderer {
 			if (entity == null) {
 				return List.of();
 			}
-			resolved.set(anchor.slot(), entity.position().add(anchor.offset()));
+			Vec3 anchorPoint = switch (anchor.point()) {
+				case "center" -> entity.position().add(0.0, entity.getBbHeight() / 2.0, 0.0);
+				case "eyes" -> entity.position().add(0.0, entity.getEyeHeight(), 0.0);
+				default -> entity.position();
+			};
+			resolved.set(anchor.slot(), anchorPoint.add(anchor.offset()));
 		}
 		return List.copyOf(resolved);
 	}
