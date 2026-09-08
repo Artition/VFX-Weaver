@@ -589,10 +589,11 @@ public final class VFXWorldOverlayRenderer {
 			if (length < 1.0e-4) {
 				return;
 			}
+			// Geometric mode also renders SEGMENTS between joints spanning anchor to anchor.
 			int links = Math.min(Math.max(1, (int) Math.round(length / spacing)), MAX_CHAIN_LINKS);
-			jointPositions = new Vec3[links];
-			for (int i = 0; i < links; i++) {
-				double u = (i + 0.5) / links;
+			jointPositions = new Vec3[links + 1];
+			for (int i = 0; i <= links; i++) {
+				double u = (double) i / links;
 				jointPositions[i] = new Vec3(a.x + delta.x * u, a.y + delta.y * u + arc * 4.0 * u * (1.0 - u), a.z + delta.z * u);
 			}
 		}
@@ -623,8 +624,9 @@ public final class VFXWorldOverlayRenderer {
 				pose.mulPose(new Quaternionf().rotationTo(new Vector3f(0.0F, 1.0F, 0.0F), new Vector3f((float) dir.x, (float) dir.y, (float) dir.z)));
 			}
 			// Stretch/compress the link along its local Y (the segment direction after align) so
-			// its ends meet the neighbouring links' ends exactly.
-			double stretch = Mth.clamp(segLen / spacing, 0.1F, 4.0F);
+			// its ends meet the neighbouring links' ends exactly. The block model's natural
+			// cell length is 1 block.
+			double stretch = Mth.clamp((float) segLen, 0.1F, 4.0F);
 			if (Math.abs(stretch - 1.0F) > 1.0e-3F || scale != 1.0F) {
 				pose.scale(scale, scale * (float) stretch, scale);
 			}
@@ -644,8 +646,12 @@ public final class VFXWorldOverlayRenderer {
 	private static Vec3[] simulateChain(final VFXActiveEffect effect, final Minecraft minecraft, final ClientLevel level, final Vec3 anchorA, final @Nullable Vec3 anchorB, final int joints, final float spacing) {
 		long key = effect.getInstanceId();
 		ChainSim sim = CHAIN_SIMS.get(key);
-		boolean teleport = sim != null && sim.joints == joints && sim.pos[0].distanceTo(anchorA) > 16.0;
-		if (sim == null || sim.joints != joints || teleport) {
+		// Auto-length chains derive the joint count from the live anchor distance, which drifts
+		// as the anchors move - rebuilding on every drift would reset the sag each frame.
+		// Rebuild only when the count changes drastically (or the anchor teleports).
+		boolean rebuild = sim != null && (joints > sim.joints * 2 || joints < Math.max(2, sim.joints / 2));
+		boolean teleport = sim != null && sim.pos[0].distanceTo(anchorA) > 16.0;
+		if (sim == null || rebuild || teleport) {
 			// Straight initial shape: toward the second anchor, or straight down for a hanging chain.
 			Vec3[] start = new Vec3[joints];
 			Vec3 step = anchorB != null
