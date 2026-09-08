@@ -307,11 +307,15 @@ public final class VFXWorldOverlayRenderer {
 	}
 
 	/**
-	 * Draws one tint/outline effect: a fresh camera-relative {@link PoseStack} per block and the
-	 * block's baked model quads in block-local coordinates. {@code amount > 0} with
-	 * {@code shell = false} extrudes quads along their normals (wall outline); with
-	 * {@code shell = true} it scales the whole model around the block centre (shell outline,
-	 * reversed winding so back-face culling keeps only the far side).
+	 * Draws one tint/outline effect: a fresh camera-relative {@link PoseStack} per slot and the
+	 * looked-up block's baked model quads in block-local coordinates. The model is looked up at
+	 * {@link BlockPos#containing(double, double, double)} of the slot vec, while the pose is
+	 * translated to the exact slot position minus its baked X/Z block-centre offset: static
+	 * slots keep their historical integer corner translate, anchored/moved slots track the
+	 * exact point instead of snapping to a block (the tint cube ends up centred on the slot's
+	 * X/Z). {@code amount > 0} with {@code shell = false} extrudes quads along their normals
+	 * (wall outline); with {@code shell = true} it scales the whole model around the block
+	 * centre (shell outline, reversed winding so back-face culling keeps only the far side).
 	 */
 	private static boolean renderEffect(
 		final MultiBufferSource.BufferSource buffers,
@@ -336,10 +340,14 @@ public final class VFXWorldOverlayRenderer {
 		PoseStack poseStack = new PoseStack();
 		poseStack.pushPose();
 		poseStack.translate(-camera.pos.x, -camera.pos.y, -camera.pos.z);
-		for (BlockPos pos : effectPositions(effect, level)) {
+		for (Vec3 vec : effectPositions(effect, level)) {
 			poseStack.pushPose();
 			try {
-				poseStack.translate(pos.getX(), pos.getY(), pos.getZ());
+				// Slot vecs carry the block-centre offset on X/Z while model quads are
+				// corner-origin block-local: shifting back half a block keeps static slots on
+				// their historical integer corner and centres anchored/moved slots on the exact
+				// point (sub-block smooth instead of snapped to a block).
+				poseStack.translate(vec.x - 0.5, vec.y, vec.z - 0.5);
 				if (shell && amount > 0.0F) {
 					float scale = 1.0F + amount;
 					poseStack.translate(0.5F, 0.5F, 0.5F);
@@ -347,7 +355,7 @@ public final class VFXWorldOverlayRenderer {
 					poseStack.translate(-0.5F, -0.5F, -0.5F);
 				}
 				PoseStack.Pose pose = poseStack.last();
-				List<BakedQuad> quads = getModelQuads(minecraft, pos);
+				List<BakedQuad> quads = getModelQuads(minecraft, BlockPos.containing(vec.x, vec.y, vec.z));
 				if (amount > 0.0F) {
 					if (shell) {
 						if (quads.isEmpty()) {
@@ -417,10 +425,10 @@ public final class VFXWorldOverlayRenderer {
 		// and fainter. More softness = more, thinner shells (a smooth gradient instead of two
 		// distinct tubes).
 		int layers = Math.max(2, Math.round(2.0F + softness * 4.0F));
-		for (BlockPos pos : effectPositions(effect, level)) {
-			float cx = pos.getX() + 0.5F;
-			float cz = pos.getZ() + 0.5F;
-			float y0 = pos.getY();
+		for (Vec3 vec : effectPositions(effect, level)) {
+			float cx = (float) vec.x;
+			float cz = (float) vec.z;
+			float y0 = (float) vec.y;
 			float y1 = y0 + height;
 			for (int i = 0; i < layers; i++) {
 				float t = i / (float) (layers - 1);              // 0 = core .. 1 = outer edge
@@ -473,10 +481,11 @@ public final class VFXWorldOverlayRenderer {
 		float inner = Math.max(radius - thickness / 2.0F, 0.01F);
 		float outer = radius + thickness / 2.0F;
 
-		for (BlockPos pos : effectPositions(effect, level)) {
-			float cx = pos.getX() + 0.5F;
-			float cy = pos.getY() + 0.5F;
-			float cz = pos.getZ() + 0.5F;
+		for (Vec3 vec : effectPositions(effect, level)) {
+			float cx = (float) vec.x;
+			float cz = (float) vec.z;
+			// Rings sit at a slot's vertical centre; static slot vecs keep the block base on Y.
+			float cy = (float) vec.y + 0.5F;
 
 			// Two orthonormal axes spanning the ring plane: (rx,ry,rz) and (ux,uy,uz).
 			float rx, ry, rz, ux, uy, uz;
@@ -609,13 +618,13 @@ public final class VFXWorldOverlayRenderer {
 		float arc = effect.getParam("arc", 1.5F);
 		int rgb = rgb(effect.getParam("red", 0.25F), effect.getParam("green", 1.0F), effect.getParam("blue", 0.45F));
 
-		List<BlockPos> positions = effectPositions(effect, level);
+		List<Vec3> positions = effectPositions(effect, level);
 		if (positions.isEmpty()) {
 			// Entity-anchored endpoints not tracked this frame (or a legacy empty definition).
 			return false;
 		}
-		BlockPos a = positions.get(0);
-		BlockPos b = positions.size() > 1 ? positions.get(1) : a.offset(10, 0, 0);
+		Vec3 a = positions.get(0);
+		Vec3 b = positions.size() > 1 ? positions.get(1) : a.add(10.0, 0.0, 0.0);
 		float t = effect.getElapsed() / 20.0F;
 
 		VertexConsumer buffer = buffers.getBuffer(renderType);
@@ -625,9 +634,10 @@ public final class VFXWorldOverlayRenderer {
 		for (int i = 0; i <= segments; i++) {
 			float u = i / (float) segments;
 			pts[i] = new Vector3f(
-				a.getX() + 0.5F + (b.getX() - a.getX()) * u,
-				a.getY() + 0.5F + (b.getY() - a.getY()) * u + arc * 4.0F * u * (1.0F - u),
-				a.getZ() + 0.5F + (b.getZ() - a.getZ()) * u
+				(float) (a.x + (b.x - a.x) * u),
+				// Lines sit at a slot's vertical centre; static slot vecs keep the block base on Y.
+				(float) (a.y + 0.5 + (b.y - a.y) * u + arc * 4.0F * u * (1.0F - u)),
+				(float) (a.z + (b.z - a.z) * u)
 			);
 		}
 
@@ -812,10 +822,11 @@ public final class VFXWorldOverlayRenderer {
 			PoseStack poseStack = new PoseStack();
 			poseStack.pushPose();
 			poseStack.translate(-camera.pos.x, -camera.pos.y, -camera.pos.z);
-			for (BlockPos pos : effectPositions(effect, level)) {
+			for (Vec3 vec : effectPositions(effect, level)) {
 				poseStack.pushPose();
 				try {
-					poseStack.translate(pos.getX(), pos.getY(), pos.getZ());
+					// Same translate as renderEffect so the depth mask matches the outline volume.
+					poseStack.translate(vec.x - 0.5, vec.y, vec.z - 0.5);
 					emitCubeFill(maskBuffer, poseStack.last(), 0, false, 0.0F);
 				} finally {
 					poseStack.popPose();
@@ -833,23 +844,60 @@ public final class VFXWorldOverlayRenderer {
 		}
 	}
 
-	private static List<BlockPos> effectPositions(final VFXActiveEffect effect, final ClientLevel level) {
+	/** Static definition slots are block-anchored: block-centre X/Z, block base Y. */
+	private static Vec3 centeredSlot(final BlockPos pos) {
+		return new Vec3(pos.getX() + 0.5, pos.getY(), pos.getZ() + 0.5);
+	}
+
+	/**
+	 * Resolves the world-space draw positions of one effect for this frame, in slot order.
+	 *
+	 * <p>Slot conversion semantics:</p>
+	 * <ul>
+	 *   <li><b>Static definition slots</b> are block-anchored: the historical block-centre
+	 *       offset is baked in on X/Z ({@code x + 0.5, y, z + 0.5}) so static visuals stay
+	 *       identical; Y keeps the block's base line.</li>
+	 *   <li><b>Entity-anchored slots</b> are exact points: the tracked entity's feet position
+	 *       plus the anchor offset, with no flooring or centring, so overlays follow entities
+	 *       at sub-block precision. If any anchor's entity is untracked this frame the result
+	 *       is empty and callers skip the whole effect.</li>
+	 *   <li><b>Legacy {@code pos_x/pos_y/pos_z} fallback</b> uses the static-slot convention
+	 *       (block-centre X/Z).</li>
+	 *   <li><b>Move positions</b> ({@link VFXActiveEffect#getMovePosition()}) are exact points,
+	 *       returned as-is with no offset. They win over every other slot source, mirroring the
+	 *       play-time payload position override.</li>
+	 * </ul>
+	 */
+	private static List<Vec3> effectPositions(final VFXActiveEffect effect, final ClientLevel level) {
+		// A runtime move re-anchors the whole effect; nothing else is consulted.
+		Vec3 moved = effect.getMovePosition();
+		if (moved != null) {
+			return List.of(moved);
+		}
 		List<BlockPos> list = effect.getPositions();
 		List<VFXActiveEffect.ResolvedAnchor> anchors = effect.getAnchors();
 		if (anchors.isEmpty()) {
 			if (!list.isEmpty()) {
-				return list;
+				List<Vec3> centered = new ArrayList<>(list.size());
+				for (BlockPos pos : list) {
+					centered.add(centeredSlot(pos));
+				}
+				return List.copyOf(centered);
 			}
-			return List.of(BlockPos.containing(effect.getParam("pos_x", 0.0F), effect.getParam("pos_y", 0.0F), effect.getParam("pos_z", 0.0F)));
+			return List.of(new Vec3(effect.getParam("pos_x", 0.0F) + 0.5, effect.getParam("pos_y", 0.0F), effect.getParam("pos_z", 0.0F) + 0.5));
 		}
 		if (list.isEmpty()) {
 			return List.of();
 		}
-		// Entity-anchored slots: substitute the tracked entity's current feet position (+ offset)
-		// for the placeholder block. If any anchor's entity is untracked this frame (dead, out of
-		// range, not yet spawned) the effect is skipped entirely — a half-tracked effect would
-		// render e.g. a guide line with one endpoint stuck at the placeholder origin.
-		List<BlockPos> resolved = new ArrayList<>(list);
+		// Entity-anchored slots: substitute the tracked entity's exact current position
+		// (+ offset) for the placeholder block. If any anchor's entity is untracked this frame
+		// (dead, out of range, not yet spawned) the effect is skipped entirely — a half-tracked
+		// effect would render e.g. a guide line with one endpoint stuck at the placeholder
+		// origin.
+		List<Vec3> resolved = new ArrayList<>(list.size());
+		for (BlockPos pos : list) {
+			resolved.add(centeredSlot(pos));
+		}
 		for (VFXActiveEffect.ResolvedAnchor anchor : anchors) {
 			if (anchor.slot() >= resolved.size()) {
 				return List.of();
@@ -858,8 +906,7 @@ public final class VFXWorldOverlayRenderer {
 			if (entity == null) {
 				return List.of();
 			}
-			Vec3 pos = entity.position().add(anchor.offset());
-			resolved.set(anchor.slot(), BlockPos.containing(pos.x, pos.y, pos.z));
+			resolved.set(anchor.slot(), entity.position().add(anchor.offset()));
 		}
 		return List.copyOf(resolved);
 	}
