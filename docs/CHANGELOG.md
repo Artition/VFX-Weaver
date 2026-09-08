@@ -2,7 +2,11 @@
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). The versions below are guide/feature-set versions of the mod (as they progressed historically, see `docs/GUIDE.md`), plus git release tags where applicable (`v1.0.x`, `gradle.properties` → `mod_version`). Add new entries at the top, in the same PR as the behavior change.
 
-## Unreleased / Guide v25
+## Unreleased / Guide v26
+### Added
+- **`particles` world-overlay effect** - emits vanilla particles in animated shapes with zero custom textures: definition fields `particle` (any simple vanilla id; `dust` takes animatable `color_r/g/b` + `size`) and `shape` (`sphere`/`ring`/`helix`/`line`/`cube`/`point`; `line` spans the first two `positions` slots). Animatable params: `rate` (per second, × fade weight), `radius`, `height`/`turns`/`spin` (helix), `speed` (radial launch velocity), `vel_y`. Emission is framerate-independent (budgeted per instance, clamped 1024/s and 256/frame), entity anchors and `sendMove` work as for other world overlays, rendering uses the vanilla particle path so shaderpacks stay compatible. New builtin demo: `vfxweaver:particles` (golden dust helix).
+
+## Guide v25
 ### Added
 - **`/vfx validate [namespace]` command** - dry-run definition health report: loaded count plus every broken datapack file with its parse error, optionally filtered by namespace (tab-completed). Operator-only.
 - **`scoreboard` world binding** - params can follow scoreboard values: `{"bind": "scoreboard", "objective": "my_obj", "holder": "optional_name"}`; default holder is the local player's own score, normalized on `range` (default 16), `invert`/`scale` as usual; usable as a value or a `multiply` multiplier; missing objective/score evaluates to 0.

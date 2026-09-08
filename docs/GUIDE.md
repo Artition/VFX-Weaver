@@ -580,6 +580,38 @@ A glowing dashed line along a parabolic arc between two anchors.
 /vfx playat vfxweaver:guide_line 8 70 8 {[arc:3]}
 ```
 
+#### `particles`
+Emits **vanilla particles** in animated shapes — no custom textures, everything is datapack-driven and works under shaderpacks. Two definition-level string fields choose the look:
+
+| Field | Default | Description |
+|---|---|---|
+| `particle` | `minecraft:end_rod` | Any simple vanilla particle id (`minecraft:flame`, `minecraft:soul`, `minecraft:glow`, `minecraft:cloud`, ...). The special id `dust` builds a redstone-dust particle whose colour/size come from the animatable params below. Option-carrying types (`block`, `item`, ...) are not supported. |
+| `shape` | `sphere` | `sphere` (random shell points), `ring` (flat circle on XZ), `helix` (rising spiral), `line` (between the first two `positions` slots, like `guide_line`), `cube` (random surface points), `point` (all at the anchor) |
+
+| Param | Default | Description |
+|---|---|---|
+| `rate` | 40 | Particles per second (× fade weight). Animate it — e.g. keyframes for a burst. |
+| `radius` | 2 | Shape size, blocks (animate for a growing shockwave ring) |
+| `height` | 3 | Helix height, blocks |
+| `turns` | 2 | Helix revolutions over its height |
+| `spin` | 0 | Helix rotation phase, revolutions |
+| `speed` | 0 | Random radial launch velocity (for particles that use it: flame, cloud, crit...) |
+| `vel_y` | 0 | Constant upward velocity (rising auras) |
+| `size` | 1 | `dust` particle size (0.05..4) |
+| `color_r/g/b` | 1 / 1 / 1 | `dust` colour (any RGB) |
+
+```json
+{
+	"type": "particles",
+	"loop": true,
+	"particle": "dust",
+	"shape": "helix",
+	"params": { "rate": 80, "radius": 1.2, "height": 3.0, "color_r": 1.0, "color_g": 0.85, "color_b": 0.3 }
+}
+```
+
+Emission is budgeted per instance (clamped to 1024 particles/s, 256 per frame) and stops automatically as the effect fades out. Anchors work like for all world overlays: `positions` may be entity-anchored, so an aura follows a player smoothly.
+
 ### 2.3 Entity effects (second model pass)
 
 These target entities by UUID: the client stores the target's UUID on the render state and, in a second pass, redraws the entity with its own render type over the original (the vanilla texture and shader are not touched). Item frames are supported too (flat overlay on the frame plane).
@@ -711,7 +743,9 @@ Files: `data/<namespace>/vfx/<name>.json`. After edits — `/reload`. Effect id 
 | `sound_pos` | array `[x,y,z]` | — | World coordinates for positional sound playback (vanilla mechanic, like `/playsound ... x y z` — louder near, quieter far). If not set — the sound plays directly to the player without coordinates |
 | `volume` | param (see §3.2) | 1.0 | Sound volume (reserved param, can be a constant, animation, bind or expression) |
 | `pitch` | param (see §3.2) | 1.0 | Sound pitch (reserved param) |
-| `positions` | array `[x,y,z]` or objects | — | World coordinate list for world overlays (`block_tint`/`block_outline`/`light_beam`/`pulse_ring`/`guide_line`). Each entry is either a plain `[x,y,z]` array or an entity anchor `{"entity": "<selector>", "offset": [x,y,z]}` — see below. If not set — `params.pos_x/y/z` is used. Not used for entity effects (targets are set by UUID). Static entries anchor to a block (the effect uses the block's centre on X/Z); entity anchors and Java-API moves use exact sub-block coordinates. |
+| `positions` | array `[x,y,z]` or objects | — | World coordinate list for world overlays (`block_tint`/`block_outline`/`light_beam`/`pulse_ring`/`guide_line`/`particles`). Each entry is either a plain `[x,y,z]` array or an entity anchor `{"entity": "<selector>", "offset": [x,y,z]}` — see below. If not set — `params.pos_x/y/z` is used. Not used for entity effects (targets are set by UUID). Static entries anchor to a block (the effect uses the block's centre on X/Z); entity anchors and Java-API moves use exact sub-block coordinates. |
+| `particle` | string | — | Vanilla particle id for the `particles` effect (e.g. `"minecraft:end_rod"`, `"dust"`), see the `particles` subsection in [2.2](#22-world-overlays-block-geometry). |
+| `shape` | string | — | Emission shape for the `particles` effect: `sphere`/`ring`/`helix`/`line`/`cube`/`point`. |
 | `entity_selector` | string | — | Entity selector (e.g. `"@e[type=minecraft:zombie,distance=..10]"`) that the server resolves into target UUIDs on every play. Lets you trigger an entity effect with plain `/vfx play` (no `playentity`): the effect finds its own targets. For entity effects (`entity_tint`/`entity_outline`). |
 
 **Entity-anchored positions.** A `positions` entry may be an object instead of a `[x,y,z]` array: `{"entity": "<selector>", "offset": [x,y,z]}` (the offset is optional and relative to the entity's feet). The server resolves each selector once per play (first match wins, `/vfx play` fails if an anchor matches nothing); the client substitutes the tracked entity's current position every frame, so the effect follows a moving entity:
@@ -961,7 +995,7 @@ Built-ins ship as regular datapack JSON inside the mod jar (`data/vfxweaver/vfx/
 
 Post-processing: `vfxweaver:chromatic_aberration`, `vfxweaver:color_grade`, `vfxweaver:distortion`, `vfxweaver:dent`, `vfxweaver:gradient_map`, `vfxweaver:posterize`, `vfxweaver:blur`, `vfxweaver:pixelate`, `vfxweaver:hue_isolation`, `vfxweaver:vignette`, `vfxweaver:screen_flash`, `vfxweaver:motion_blur`, `vfxweaver:bloom`, `vfxweaver:film_grain`, `vfxweaver:scanlines`, `vfxweaver:depth_of_field`, `vfxweaver:letterbox`, `vfxweaver:invert`, `vfxweaver:vortex`, `vfxweaver:speed_lines`, `vfxweaver:slice_shift`, `vfxweaver:noise_warp`, `vfxweaver:solarize`, `vfxweaver:double_vision`, `vfxweaver:eyelids`, `vfxweaver:iris_wipe`, `vfxweaver:digital_glitch`, `vfxweaver:vhs`, `vfxweaver:shockwave`, `vfxweaver:afterimage`, `vfxweaver:stop_motion`.
 
-World overlays: `vfxweaver:block_tint`, `vfxweaver:block_outline`, `vfxweaver:light_beam`, `vfxweaver:pulse_ring`, `vfxweaver:guide_line`.
+World overlays: `vfxweaver:block_tint`, `vfxweaver:block_outline`, `vfxweaver:light_beam`, `vfxweaver:pulse_ring`, `vfxweaver:guide_line`, `vfxweaver:particles`.
 
 Entity effects: `vfxweaver:entity_tint`, `vfxweaver:entity_outline`, `vfxweaver:entity_displace`.
 
@@ -1020,7 +1054,10 @@ Post-processing pipeline, world overlays, effect clock, load limits and fault to
 
 Versioned feature history — **[docs/CHANGELOG.md](CHANGELOG.md)**.
 
-Guide version: 25 — see changelog below.
+Guide version: 26 — see changelog below.
+
+### v26
+- New world-overlay effect `particles`: emits vanilla particles in animated shapes (`sphere`/`ring`/`helix`/`line`/`cube`/`point`) with any RGB via `dust`. No custom textures — everything from the datapack; entity anchors and fades work as usual. Builtin demo: `vfxweaver:particles` (golden dust helix).
 
 ### v25
 - New command `/vfx validate [namespace]` — dry-run definition health report (loaded count + parse errors per file), operator-only.
