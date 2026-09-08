@@ -629,6 +629,28 @@ Aimed stream example — accelerating shot from one block to another (put both p
 }
 ```
 
+#### `block_chain`
+A line of **real block-model links** between two anchors (like `guide_line`, but made of blocks) — the `block` definition field picks the block, links render with full vanilla textures/lighting and follow moving anchors every frame.
+
+| Param | Default | Description |
+|---|---|---|
+| `spacing` | 1 | Distance between links, blocks (0.25..8) |
+| `arc` | 0 | Bows the path up (+) or down/hanging (−) at the midpoint, blocks (same as `guide_line`) |
+| `scale` | 1 | Link block size (0.1..4) |
+| `align` | 1 | 1 = each link's Y axis is rotated to the local path direction (chain follows the curve), 0 = upright blocks |
+
+```json
+{
+	"type": "block_chain",
+	"loop": true,
+	"block": "minecraft:iron_chain",
+	"positions": [[0, 72, 0], [12, 70, 6]],
+	"params": { "spacing": 0.8, "arc": -1.5 }
+}
+```
+
+Links are capped at 512 per effect; rendering happens in the vanilla submit pipeline (same path as falling blocks), so it works under shaderpacks. Physics (swinging/collision) is not simulated — the chain is a geometric curve.
+
 The builtin `vfxweaver:particles` demo binds its position to the local player (`pos_x/y/z` with `bind: player_x/y/z`), so plain `/vfx play vfxweaver:particles` spawns the helix around the viewer; `/vfx playat` and `positions` override that as usual.
 
 ### 2.3 Entity effects (second model pass)
@@ -765,6 +787,7 @@ Files: `data/<namespace>/vfx/<name>.json`. After edits — `/reload`. Effect id 
 | `positions` | array `[x,y,z]` or objects | — | World coordinate list for world overlays (`block_tint`/`block_outline`/`light_beam`/`pulse_ring`/`guide_line`/`particles`). Each entry is either a plain `[x,y,z]` array or an entity anchor `{"entity": "<selector>", "offset": [x,y,z]}` — see below. If not set — `params.pos_x/y/z` is used. Not used for entity effects (targets are set by UUID). Static entries anchor to a block (the effect uses the block's centre on X/Z); entity anchors and Java-API moves use exact sub-block coordinates. |
 | `particle` | string | — | Vanilla particle id for the `particles` effect (e.g. `"minecraft:end_rod"`, `"dust"`), see the `particles` subsection in [2.2](#22-world-overlays-block-geometry). |
 | `shape` | string | — | Emission shape for the `particles` effect: `sphere`/`ring`/`helix`/`line`/`cube`/`point`. |
+| `block` | string | — | Block id for the `block_chain` effect (e.g. `"minecraft:iron_chain"`), see the `block_chain` subsection in [2.2](#22-world-overlays-block-geometry). |
 | `entity_selector` | string | — | Entity selector (e.g. `"@e[type=minecraft:zombie,distance=..10]"`) that the server resolves into target UUIDs on every play. Lets you trigger an entity effect with plain `/vfx play` (no `playentity`): the effect finds its own targets. For entity effects (`entity_tint`/`entity_outline`). |
 
 **Entity-anchored positions.** A `positions` entry may be an object instead of a `[x,y,z]` array: `{"entity": "<selector>", "offset": [x,y,z], "point": "center", "dir": "look", "distance": 24}`. The `offset` is optional and relative to the resolved anchor point; `point` selects the reference point on the entity — `feet` (default), `center` (bounding-box centre) or `eyes`; `dir` + `distance` optionally push the anchor along an entity direction (`look` = the tracked entity's live look direction, e.g. eyes + look × 24 = a target where the entity is looking — a laser). The server resolves each selector once per play (first match wins, `/vfx play` fails if an anchor matches nothing); the client substitutes the tracked entity's current anchor-point position every frame, so the effect follows a moving entity:
@@ -1077,6 +1100,8 @@ Guide version: 26 — see changelog below.
 
 ### v26
 - World overlays: entity anchors gained `point` — the reference point on the entity: `feet` (default), `center` (bounding-box centre) or `eyes` (e.g. `{"entity": "@s", "point": "center"}`), so effects can attach to the middle/head of an entity instead of its feet.
+- World overlays: entity anchors gained `dir: "look"` + `distance` — the anchor is pushed along the tracked entity's live look direction (eyes + look × 24 = a laser target where the entity is looking).
+- New world-overlay effect `block_chain`: a line of real textured block-model links between two anchors (datapack picks the block, `spacing`/`arc`/`scale`/`align` params), rendered through the vanilla submit pipeline (shaderpack-safe). No physics simulation.
 - New world-overlay effect `particles`: emits vanilla particles in animated shapes (`sphere`/`ring`/`helix`/`line`/`cube`/`point`) with any RGB via `dust`. No custom textures — everything from the datapack; entity anchors and fades work as usual. Builtin demo: `vfxweaver:particles` (golden dust helix).
 
 ### v25
