@@ -767,7 +767,7 @@ Files: `data/<namespace>/vfx/<name>.json`. After edits — `/reload`. Effect id 
 | `shape` | string | — | Emission shape for the `particles` effect: `sphere`/`ring`/`helix`/`line`/`cube`/`point`. |
 | `entity_selector` | string | — | Entity selector (e.g. `"@e[type=minecraft:zombie,distance=..10]"`) that the server resolves into target UUIDs on every play. Lets you trigger an entity effect with plain `/vfx play` (no `playentity`): the effect finds its own targets. For entity effects (`entity_tint`/`entity_outline`). |
 
-**Entity-anchored positions.** A `positions` entry may be an object instead of a `[x,y,z]` array: `{"entity": "<selector>", "offset": [x,y,z]}` (the offset is optional and relative to the entity's feet). The server resolves each selector once per play (first match wins, `/vfx play` fails if an anchor matches nothing); the client substitutes the tracked entity's current position every frame, so the effect follows a moving entity:
+**Entity-anchored positions.** A `positions` entry may be an object instead of a `[x,y,z]` array: `{"entity": "<selector>", "offset": [x,y,z], "point": "center"}`. The `offset` is optional and relative to the anchor point; `point` selects the reference point on the entity — `feet` (default), `center` (bounding-box centre) or `eyes`. The server resolves each selector once per play (first match wins, `/vfx play` fails if an anchor matches nothing); the client substitutes the tracked entity's current anchor-point position every frame, so the effect follows a moving entity:
 
 ```json
 {
@@ -1076,6 +1076,7 @@ Versioned feature history — **[docs/CHANGELOG.md](CHANGELOG.md)**.
 Guide version: 26 — see changelog below.
 
 ### v26
+- World overlays: entity anchors gained `point` — the reference point on the entity: `feet` (default), `center` (bounding-box centre) or `eyes` (e.g. `{"entity": "@s", "point": "center"}`), so effects can attach to the middle/head of an entity instead of its feet.
 - New world-overlay effect `particles`: emits vanilla particles in animated shapes (`sphere`/`ring`/`helix`/`line`/`cube`/`point`) with any RGB via `dust`. No custom textures — everything from the datapack; entity anchors and fades work as usual. Builtin demo: `vfxweaver:particles` (golden dust helix).
 
 ### v25
