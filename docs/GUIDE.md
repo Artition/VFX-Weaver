@@ -18,7 +18,7 @@ The mutating commands `/vfx play`, `/vfx playat`, `/vfx playentity`, `/vfx stop`
 3. [Datapack format](#3-datapack-format) — definition fields, ways to set a param, world bindings, easings
 4. [Persistent effects: on/off with animation](#4-persistent-effects-onoff-with-animation)
 5. [Collections — several effects with one command](#5-collections--several-effects-with-one-command)
-6. [Built-in effects (no datapack)](#6-built-in-effects-no-datapack)
+6. [Built-in effects](#6-built-in-effects)
 7. [Java API (for other mods)](#7-java-api-for-other-mods)
 8. [Flashback compatibility](#8-flashback-compatibility)
 9. [How it renders (for debugging)](#9-how-it-renders-for-debugging)
@@ -36,6 +36,7 @@ The mutating commands `/vfx play`, `/vfx playat`, `/vfx playentity`, `/vfx stop`
 | `/vfx stop <effect> [players]` | Stop the effect (all its instances). Effects with `fade_ticks > 0` fade out smoothly. |
 | `/vfx set <effect> {[param:value],...} [players]` | Live override of params of a **running** effect, without restarting the timeline. If the effect is not running — a new instance is started with those values and the definition's own `duration` (it ends on schedule like a normal play). Tab walks the syntax: `{` → `[` → param name → `:` value → `]` → `,` (new pair) or `}`. |
 | `/vfx list` | List all loaded definitions (built-ins + datapack). |
+| `/vfx validate [namespace]` | Dry-run health check of VFX definitions: prints how many are loaded and lists every broken datapack file with its parse error (optionally filtered by namespace, tab-completed). Operator-only. Useful for datapack development and server admin checks without digging through logs. |
 
 On `/vfx stop` the effect is removed instantly if `fade_ticks` is not set or is 0; otherwise — a smooth fade to neutral values.
 
@@ -710,7 +711,7 @@ Files: `data/<namespace>/vfx/<name>.json`. After edits — `/reload`. Effect id 
 | `sound_pos` | array `[x,y,z]` | — | World coordinates for positional sound playback (vanilla mechanic, like `/playsound ... x y z` — louder near, quieter far). If not set — the sound plays directly to the player without coordinates |
 | `volume` | param (see §3.2) | 1.0 | Sound volume (reserved param, can be a constant, animation, bind or expression) |
 | `pitch` | param (see §3.2) | 1.0 | Sound pitch (reserved param) |
-| `positions` | array `[x,y,z]` or objects | — | World coordinate list for world overlays (`block_tint`/`block_outline`/`light_beam`/`pulse_ring`/`guide_line`). Each entry is either a plain `[x,y,z]` array or an entity anchor `{"entity": "<selector>", "offset": [x,y,z]}` — see below. If not set — `params.pos_x/y/z` is used. Not used for entity effects (targets are set by UUID). |
+| `positions` | array `[x,y,z]` or objects | — | World coordinate list for world overlays (`block_tint`/`block_outline`/`light_beam`/`pulse_ring`/`guide_line`). Each entry is either a plain `[x,y,z]` array or an entity anchor `{"entity": "<selector>", "offset": [x,y,z]}` — see below. If not set — `params.pos_x/y/z` is used. Not used for entity effects (targets are set by UUID). Static entries anchor to a block (the effect uses the block's centre on X/Z); entity anchors and Java-API moves use exact sub-block coordinates. |
 | `entity_selector` | string | — | Entity selector (e.g. `"@e[type=minecraft:zombie,distance=..10]"`) that the server resolves into target UUIDs on every play. Lets you trigger an entity effect with plain `/vfx play` (no `playentity`): the effect finds its own targets. For entity effects (`entity_tint`/`entity_outline`). |
 
 **Entity-anchored positions.** A `positions` entry may be an object instead of a `[x,y,z]` array: `{"entity": "<selector>", "offset": [x,y,z]}` (the offset is optional and relative to the entity's feet). The server resolves each selector once per play (first match wins, `/vfx play` fails if an anchor matches nothing); the client substitutes the tracked entity's current position every frame, so the effect follows a moving entity:
@@ -815,6 +816,7 @@ Without `sound_pos` the sound plays directly to the player (no coordinate anchor
 | `speed` | 0..1 (×scale) | Horizontal speed (blocks/s), normalized on `range` (default 5 = sprint) |
 | `light_level` | 0..1 (×scale) | Light level at the player's position (block/sky light / 15) |
 | `time_of_day` | 0..1 (×scale) | Fraction of the day cycle (0 = sunrise) |
+| `scoreboard` | raw/range, clamped 0..1 (×scale) | A scoreboard value: `{"bind": "scoreboard", "objective": "my_obj", "holder": "optional_name"}`. Default holder — the local player's own score; with `holder` — the literal named scoreholder. Normalized on `range` (default 16), `invert`/`scale` as usual; missing objective/score → 0. Works as a main value and as a `multiply` multiplier. |
 
 Example — red vignette at low HP:
 
@@ -953,7 +955,9 @@ Child effect fields: `effect` (id, required), `delay` (ticks from collection sta
 
 ---
 
-## 6. Built-in effects (no datapack)
+## 6. Built-in effects
+
+Built-ins ship as regular datapack JSON inside the mod jar (`data/vfxweaver/vfx/*.json`) — they load, sync and can be overridden by higher-priority packs exactly like custom definitions, and a broken one shows up in `/vfx list`/`/vfx validate` like any other. To tweak a built-in, copy its JSON out of the jar (`vfxweaver-1.1.0.jar → data/vfxweaver/vfx/…`) into your datapack under a new id.
 
 Post-processing: `vfxweaver:chromatic_aberration`, `vfxweaver:color_grade`, `vfxweaver:distortion`, `vfxweaver:dent`, `vfxweaver:gradient_map`, `vfxweaver:posterize`, `vfxweaver:blur`, `vfxweaver:pixelate`, `vfxweaver:hue_isolation`, `vfxweaver:vignette`, `vfxweaver:screen_flash`, `vfxweaver:motion_blur`, `vfxweaver:bloom`, `vfxweaver:film_grain`, `vfxweaver:scanlines`, `vfxweaver:depth_of_field`, `vfxweaver:letterbox`, `vfxweaver:invert`, `vfxweaver:vortex`, `vfxweaver:speed_lines`, `vfxweaver:slice_shift`, `vfxweaver:noise_warp`, `vfxweaver:solarize`, `vfxweaver:double_vision`, `vfxweaver:eyelids`, `vfxweaver:iris_wipe`, `vfxweaver:digital_glitch`, `vfxweaver:vhs`, `vfxweaver:shockwave`, `vfxweaver:afterimage`, `vfxweaver:stop_motion`.
 
@@ -977,6 +981,20 @@ VFXAPI.playEffect(effectId, 0, Map.of("radius", 8.0F), EasingType.EASE_OUT_CUBIC
 ```
 
 Full reference (all `VFXAPI` methods, `VFXLocalDispatcher`, the `vfxweaver:vfx_trigger` network packet format) — **[docs/API.md](API.md)**.
+
+Live-editing methods worth knowing:
+
+```java
+// Replace a running effect's parameter with a math expression (same syntax as the JSON "expr",
+// per-instance seed), without restarting the timeline:
+VFXAPI.sendSetParamExpr(player, effectId, "radius", "1.5 + 0.5*sin(t/10)");
+
+// Smoothly move a running world-overlay instance to a new exact point (sub-block precision).
+// Call it every tick from your own code to make the effect follow any scripted path:
+VFXAPI.sendMove(player, effectId, instanceId, new Vec3(x, y, z));
+```
+
+A client mod may also **request** effects from the server with the serverbound `vfxweaver:vfx_request` packet (see API.md): without the `broadcast` flag the effect plays only for the requesting client; with `broadcast: true` it plays for every connected player — but the server grants broadcast only to operators (gamemaster level), so regular-player clients cannot spam effects at others. Note: custom named easing curves are not preserved on the request path (built-in easing names only).
 
 Effects sent via `VFXAPI.sendEffect` are remembered server-side: if the player reconnects (or a new player joins) while the effect is still running, it is re-applied automatically with its remaining duration. Persistent (`-1`) effects are always re-applied. Stopping an effect (`sendStop`) also forgets it.
 
@@ -1002,7 +1020,14 @@ Post-processing pipeline, world overlays, effect clock, load limits and fault to
 
 Versioned feature history — **[docs/CHANGELOG.md](CHANGELOG.md)**.
 
-Guide version: 24 — see changelog below.
+Guide version: 25 — see changelog below.
+
+### v25
+- New command `/vfx validate [namespace]` — dry-run definition health report (loaded count + parse errors per file), operator-only.
+- New world binding `scoreboard`: a param can follow a scoreboard value (`objective` + optional `holder`, normalized on `range`, works as a value or a `multiply` multiplier).
+- New Java API: `sendSetParamExpr` (swap a running effect's param for a live math expression), `sendMove` (move a running world-overlay instance to an exact point — call per tick for scripted motion), and a serverbound `vfxweaver:vfx_request` packet letting client mods play effects through the server (broadcast is operator-gated).
+- Built-in effects now ship as JSON resources (`data/vfxweaver/vfx/*.json` inside the mod jar) instead of code — they load, sync and can be overridden like any datapack definitions; copy a file out of the jar to tweak it.
+- World-overlay geometry uses exact `Vec3` coordinates: entity anchors and API moves are no longer snapped to block centres (static `positions` entries keep the historical block-centre behaviour). Protocol version 6.
 
 ### v24
 - World overlays: `positions` entries may anchor to a live entity — `{"entity": "<selector>", "offset": [x,y,z]}`. The server resolves the selector once per play (plain `/vfx play`; fails if it matches nothing), the client follows the entity every frame; the Java API passes anchors as target UUIDs in anchor order.

@@ -43,6 +43,16 @@ void sendStop(ServerPlayer player, Identifier effectId, long instanceId);
 // Ignored by the client with a warning in the log if the effect is not currently running.
 void sendSetParam(ServerPlayer player, Identifier effectId, String param, float value);
 
+// Like sendSetParam, but replaces the parameter with a compiled math expression (same syntax
+// as the JSON "expr" field; compiled per instance with its seed). Applies to every running
+// instance of the effect on the player's client.
+void sendSetParamExpr(ServerPlayer player, Identifier effectId, String param, String exprSource);
+
+// Moves a running world-overlay effect instance to a new exact world point (sub-block
+// precision; the instance keeps its timeline and fades). Call every tick for scripted motion.
+// Ignored with a warning when no instance with that id (of that effect) is running.
+void sendMove(ServerPlayer player, Identifier effectId, long instanceId, Vec3 worldPos);
+
 // Adds/replaces a keyframe of a parameter of a running effect.
 void sendKeyframe(ServerPlayer player, Identifier effectId, String param, int timeTicks, float value, EasingType easing);
 ```
@@ -93,17 +103,26 @@ Updated on every `/reload` (see `VFXDefinitionManager.prepare`/`apply`); one bro
 
 ## Network protocol
 
-The `vfxweaver:vfx_trigger` packet (`VFXTriggerPayload`), clientbound play.
+### Clientbound: `vfxweaver:vfx_trigger` (`VFXTriggerPayload`)
 
 | Field | Type | Description |
 |---|---|---|
-| `protocolVersion` | byte | Current value — `VFXTriggerPayload.PROTOCOL_VERSION`. The client **silently ignores** the packet on a version mismatch (see `VFXClient.handleTrigger`). |
+| `protocolVersion` | byte | Current value — `VFXTriggerPayload.PROTOCOL_VERSION` (6). The client **silently ignores** the packet on a version mismatch (see `VFXClient.handleTrigger`). |
 | `effectId` | `Identifier` | Effect id (built-in or datapack) |
-| `action` | `VFXAction` (`PLAY`/`STOP`/`SET_PARAM`/`KEYFRAME`) | `SET_PARAM`/`KEYFRAME` apply to **running** effect instances: `params` carries exactly one `name → value` entry, for `KEYFRAME` the frame time is in `durationTicks`, the segment easing in `easing` |
+| `action` | `VFXAction` (`PLAY`/`STOP`/`SET_PARAM`/`KEYFRAME`/`SET_EXPR`/`MOVE`) | `SET_PARAM`/`KEYFRAME` apply to **running** effect instances: `params` carries exactly one `name → value` entry, for `KEYFRAME` the frame time is in `durationTicks`, the segment easing in `easing`; `SET_EXPR` uses `exprParam`+`exprSource`; `MOVE` uses `position` + `instanceId` |
 | `durationTicks` | varint | 0 = definition default, negative = persistent (only for `PLAY`) |
 | `elapsedTicks` | varint | Resume offset: how far into the timeline the effect already is (only for `PLAY`, 0 = start fresh). Used when the server re-applies effects after a reconnect. |
 | `params` | `Map<String, Float>` | Constant overrides, numbers only |
 | `easing` | `EasingType` (string) | |
+| `exprParam` / `exprSource` | optional strings | Only for `SET_EXPR`: the parameter name and the raw expression source |
+
+### Serverbound: `vfxweaver:vfx_request` (`VFXRequestPayload`)
+
+Lets a client mod ask the server to play an effect through the definition registry. Fields: `protocolVersion` (must match `VFXTriggerPayload.PROTOCOL_VERSION`), `effectId`, `broadcast` (boolean), `instanceId` (long, 0 = allocate), `worldPos` (optional `Vec3`), `params` (max 32), `easing` (built-in easing name string).
+
+- `broadcast = false`: the effect plays only on the requesting player's client.
+- `broadcast = true`: the effect plays for every connected player, but the server only honours it from operators (gamemaster level) — anyone else is silently dropped (logged server-side).
+- Easing: built-in easing names resolve; custom datapack curve names fall back to `LINEAR` on this path.
 
 Bump `PROTOCOL_VERSION` on any breaking packet-format change — otherwise old clients silently ignore new packets without a single warning in the log.
 

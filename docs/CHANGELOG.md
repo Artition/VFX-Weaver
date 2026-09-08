@@ -2,7 +2,18 @@
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). The versions below are guide/feature-set versions of the mod (as they progressed historically, see `docs/GUIDE.md`), plus git release tags where applicable (`v1.0.x`, `gradle.properties` → `mod_version`). Add new entries at the top, in the same PR as the behavior change.
 
-## Unreleased / Guide v24
+## Unreleased / Guide v25
+### Added
+- **`/vfx validate [namespace]` command** - dry-run definition health report: loaded count plus every broken datapack file with its parse error, optionally filtered by namespace (tab-completed). Operator-only.
+- **`scoreboard` world binding** - params can follow scoreboard values: `{"bind": "scoreboard", "objective": "my_obj", "holder": "optional_name"}`; default holder is the local player's own score, normalized on `range` (default 16), `invert`/`scale` as usual; usable as a value or a `multiply` multiplier; missing objective/score evaluates to 0.
+- **Java API: live expression override** - `sendSetParamExpr(player, effectId, param, exprSource)` swaps a running effect's parameter for a compiled math expression (same syntax as JSON `expr`, per-instance seed) without restarting the timeline. Protocol action `SET_EXPR`.
+- **Java API: instance move** - `sendMove(player, effectId, instanceId, Vec3)` moves a running world-overlay instance to an exact point; per-tick calls produce smooth scripted motion. Protocol action `MOVE`.
+- **Serverbound effect requests** - client mods can ask the server to play an effect via the new `vfxweaver:vfx_request` packet: without `broadcast` it plays only for the requester; `broadcast: true` plays for every connected player and is gated behind operator (gamemaster) permission on the server.
+### Changed
+- **Built-in effects are datapack JSON now** - all 42 built-in definitions moved from code to `data/vfxweaver/vfx/*.json` resources inside the mod jar: they load through the regular datapack pipeline (so a broken built-in surfaces in `/vfx list`), sync to clients like any datapack file, and can be overridden/copied by packs (jar data is the lowest-priority layer).
+- **Sub-block position precision** - world-overlay geometry (`light_beam`, `pulse_ring`, `guide_line`, `block_tint`, `block_outline`) consumes exact `Vec3` coordinates: entity-anchored slots and API moves track at sub-block precision instead of snapping to the containing block; static `positions` entries keep the historical block-centre behaviour. Network protocol version bumped 5 -> 6.
+
+## Guide v24
 ### Added
 - **Entity-anchored `positions` for world overlays** - a `positions` entry may be `{"entity": "<selector>", "offset": [x,y,z]}` (offset relative to the entity's feet, optional): the server resolves the selector once per play (plain `/vfx play`; fails when it matches nothing), the client follows the entity every frame. Slot order is preserved, so `guide_line` endpoints can mix static and anchored entries; works for `block_tint`, `block_outline`, `light_beam`, `pulse_ring`, `guide_line`. `/vfx playat` or a network position override wins over anchors. Java API: pass anchor UUIDs via `EffectRequest.target()` in anchor order. No protocol change (reuses the `entityUuids` field).
 - **Collections: full parameter specs on children** - child `params` values may be `start`/`end`, `keyframes`, `bind`, `expr`, `multiply` (merged into a derived child definition); plain numbers keep working as constants.
