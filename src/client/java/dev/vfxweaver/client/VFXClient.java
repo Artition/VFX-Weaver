@@ -10,6 +10,7 @@ import dev.vfxweaver.client.render.VFXEntityEffectRenderer;
 import dev.vfxweaver.client.render.VFXWorldOverlayRenderer;
 import dev.vfxweaver.effect.EasingFunction;
 import dev.vfxweaver.effect.VFXCurveManager;
+import dev.vfxweaver.effect.VFXWorldBindings;
 import dev.vfxweaver.network.VFXAction;
 import dev.vfxweaver.network.VFXSyncPayload;
 import dev.vfxweaver.network.VFXTriggerPayload;
@@ -19,6 +20,11 @@ import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientLifecycleEvents;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import net.minecraft.client.Minecraft;
+import net.minecraft.world.scores.Objective;
+import net.minecraft.world.scores.ReadOnlyScoreInfo;
+import net.minecraft.world.scores.ScoreHolder;
+import net.minecraft.world.scores.Scoreboard;
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -35,6 +41,7 @@ public class VFXClient implements ClientModInitializer {
 		VFXWorldOverlayRenderer.register();
 		VFXEntityEffectRenderer.register();
 		VFXAPI.setLocalDispatcher(new VFXClientAPI());
+		VFXWorldBindings.setScoreboardReader(VFXClient::readScoreboard);
 		VfxIrisCompat.init();
 		FlashbackCompat.init();
 		ClientPlayNetworking.registerGlobalReceiver(VFXTriggerPayload.TYPE, this::handleTrigger);
@@ -44,6 +51,26 @@ public class VFXClient implements ClientModInitializer {
 			VFXPostProcessingManager.get().freeGpuResources();
 		});
 		LOGGER.info("VFX Weaver client initialized");
+	}
+
+	/**
+	 * Reads a raw score from the client scoreboard for
+	 * {@link VFXWorldBindings.ScoreboardReader}. Missing level, objective, holder or score
+	 * yield {@code null} (evaluated as 0.0 downstream).
+	 */
+	private static @Nullable Integer readScoreboard(final String objectiveName, final @Nullable String holderName) {
+		final Minecraft minecraft = Minecraft.getInstance();
+		if (minecraft.level == null || minecraft.player == null) {
+			return null;
+		}
+		final Scoreboard scoreboard = minecraft.level.getScoreboard();
+		final Objective objective = scoreboard.getObjective(objectiveName);
+		if (objective == null) {
+			return null;
+		}
+		final ScoreHolder holder = holderName != null ? ScoreHolder.forNameOnly(holderName) : minecraft.player;
+		final ReadOnlyScoreInfo info = scoreboard.getPlayerScoreInfo(holder, objective);
+		return info != null ? Integer.valueOf(info.value()) : null;
 	}
 
 	private void handleSync(final VFXSyncPayload payload, final ClientPlayNetworking.Context context) {

@@ -1,23 +1,28 @@
 package dev.vfxweaver.effect;
 
+import org.jspecify.annotations.Nullable;
+
 /**
  * A parameter bound to a world-space or camera-space source instead of a fixed or time-animated
  * value. The client evaluates every bound parameter per frame using the current camera state
  * (position, rotation, field of view) — for example the on-screen position of a world
  * coordinate, the distance between the camera and that coordinate, or how closely the camera
- * looks at a given direction.
+ * looks at a given direction. Scoreboard bindings instead follow a scoreboard value read from
+ * the client scoreboard.
  *
- * @param kind   what to derive
- * @param x      world X of the anchor point
- * @param y      world Y of the anchor point
- * @param z      world Z of the anchor point
- * @param yaw    target yaw in degrees (for {@link Kind#LOOK})
- * @param pitch  target pitch in degrees (for {@link Kind#LOOK})
- * @param range  falloff extent: distance for {@link Kind#PROXIMITY}, angle in degrees for {@link Kind#LOOK}
- * @param invert for {@link Kind#PROXIMITY}/{@link Kind#LOOK}: 0 near / 1 far instead of 1 near / 0 far
- * @param scale  multiplier applied to the evaluated value
+ * @param kind      what to derive
+ * @param x         world X of the anchor point
+ * @param y         world Y of the anchor point
+ * @param z         world Z of the anchor point
+ * @param yaw       target yaw in degrees (for {@link Kind#LOOK})
+ * @param pitch     target pitch in degrees (for {@link Kind#LOOK})
+ * @param range     falloff extent: distance for {@link Kind#PROXIMITY}, angle in degrees for {@link Kind#LOOK}, raw-score divisor for {@link Kind#SCOREBOARD}
+ * @param invert    for {@link Kind#PROXIMITY}/{@link Kind#LOOK}: 0 near / 1 far instead of 1 near / 0 far
+ * @param scale     multiplier applied to the evaluated value
+ * @param objective scoreboard objective name (for {@link Kind#SCOREBOARD}); {@code null} otherwise
+ * @param holder    scoreholder name whose score is read (for {@link Kind#SCOREBOARD}); {@code null} = the local viewing player
  */
-public record BoundParam(Kind kind, double x, double y, double z, float yaw, float pitch, float range, boolean invert, float scale) {
+public record BoundParam(Kind kind, double x, double y, double z, float yaw, float pitch, float range, boolean invert, float scale, @Nullable String objective, @Nullable String holder) {
 	public BoundParam {
 		if (scale == 0.0F) {
 			scale = 1.0F;
@@ -65,7 +70,9 @@ public record BoundParam(Kind kind, double x, double y, double z, float yaw, flo
 		/** Light level at the player's position, 0..1 (level / 15). */
 		LIGHT_LEVEL("light_level"),
 		/** Fraction of the day cycle, 0..1 (0 = sunrise of day 0). */
-		TIME_OF_DAY("time_of_day");
+		TIME_OF_DAY("time_of_day"),
+		/** A scoreholder's score on a scoreboard objective, divided by {@code range} (default 16). */
+		SCOREBOARD("scoreboard");
 
 		/**
 		 * True when this kind needs a world {@code pos} anchor.

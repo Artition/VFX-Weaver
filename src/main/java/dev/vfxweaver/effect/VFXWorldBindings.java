@@ -9,16 +9,34 @@ import org.jspecify.annotations.Nullable;
  * Evaluates {@link BoundParam}s against the active camera. The client feeds the camera state
  * (position plus the view-rotation-projection matrix) every frame before post-processing runs;
  * evaluation itself is plain math and stays side-agnostic. Without a camera (e.g. on a
- * dedicated server) every binding resolves to its fallback.
+ * dedicated server) every binding resolves to its fallback. Scoreboard bindings read the
+ * client scoreboard through a {@link ScoreboardReader} hook registered by the client.
  */
 public final class VFXWorldBindings {
 	private static final float SMOOTHING_RATE = 8.0F;
 	private static volatile @Nullable Frame frame;
 	private static volatile @Nullable PlayerState playerState;
+	private static volatile @Nullable ScoreboardReader scoreboardReader;
 	private static float lastYaw;
 	private static float lastPitch;
 	private static float smoothedYawDelta;
 	private static float smoothedPitchDelta;
+
+	/**
+	 * Client-side scoreboard access, registered once by the client entrypoint (the client
+	 * scoreboard lives behind client-only code, so {@code VFXWorldBindings} itself cannot
+	 * reach it).
+	 */
+	public interface ScoreboardReader {
+		/**
+		 * Reads the raw score of a scoreholder on a scoreboard objective.
+		 *
+		 * @param objectiveName scoreboard objective name
+		 * @param holderName    scoreholder name whose score is read, or {@code null} for the local viewing player
+		 * @return the raw score, or {@code null} when the objective, holder or score is missing
+		 */
+		@Nullable Integer score(final String objectiveName, final @Nullable String holderName);
+	}
 
 	/**
 	 * Snapshot of the local player's state for one frame (player-state bindings).
@@ -84,6 +102,14 @@ public final class VFXWorldBindings {
 	}
 
 	/**
+	 * Registers the client-side scoreboard reader (see {@link ScoreboardReader}). Until one is
+	 * set — e.g. on a dedicated server — scoreboard bindings evaluate to 0.0.
+	 */
+	public static void setScoreboardReader(final @Nullable ScoreboardReader reader) {
+		scoreboardReader = reader;
+	}
+
+	/**
 	 * Drops the camera and player state (e.g. when leaving a world).
 	 */
 	public static void clear() {
@@ -113,7 +139,27 @@ public final class VFXWorldBindings {
 			case CAMERA_PITCH_DELTA -> smoothedPitchDelta * binding.scale();
 			case LOOK_X, LOOK_Y, LOOK_Z -> evaluateLookDirection(binding, current, fallback);
 			case HEALTH, HUNGER, SPEED, LIGHT_LEVEL, TIME_OF_DAY, PLAYER_X, PLAYER_Y, PLAYER_Z -> evaluatePlayer(binding, fallback);
+			case SCOREBOARD -> evaluateScoreboard(binding);
 		};
+	}
+
+	/**
+	 * Evaluates a scoreboard binding: the raw score divided by {@code range}, clamped to 0..1,
+	 * flipped when inverted, then scaled — the same normalization as the numeric player binds.
+	 * A missing client hook, objective, holder or score (never set yet) resolves to 0.0,
+	 * silently, like the missing-camera fallbacks above.
+	 */
+	private static float evaluateScoreboard(final BoundParam binding) {
+		final ScoreboardReader reader = scoreboardReader;
+		if (reader == null) {
+			return 0.0F;
+		}
+		final Integer raw = reader.score(binding.objective(), binding.holder());
+		if (raw == null) {
+			return 0.0F;
+		}
+		float t = Math.min(Math.max(raw / Math.max(binding.range(), 1.0e-4F), 0.0F), 1.0F);
+		return (binding.invert() ? 1.0F - t : t) * binding.scale();
 	}
 
 	/**

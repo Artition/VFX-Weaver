@@ -216,8 +216,8 @@ public class VFXDefinitionManager extends SimplePreparableReloadListener<Map<Ide
 				EasingFunction.builtIn(EasingType.EASE_IN_OUT_CUBIC),
 				Map.of(
 					"intensity", VFXDefinition.ParamSpec.animated(0.35F, 0.0F),
-					"yaw_delta", VFXDefinition.ParamSpec.bound(new BoundParam(BoundParam.Kind.CAMERA_YAW_DELTA, 0.0, 0.0, 0.0, 0.0F, 0.0F, 1.0F, false, 1.0F)),
-					"pitch_delta", VFXDefinition.ParamSpec.bound(new BoundParam(BoundParam.Kind.CAMERA_PITCH_DELTA, 0.0, 0.0, 0.0, 0.0F, 0.0F, 1.0F, false, 1.0F))
+					"yaw_delta", VFXDefinition.ParamSpec.bound(new BoundParam(BoundParam.Kind.CAMERA_YAW_DELTA, 0.0, 0.0, 0.0, 0.0F, 0.0F, 1.0F, false, 1.0F, null, null)),
+					"pitch_delta", VFXDefinition.ParamSpec.bound(new BoundParam(BoundParam.Kind.CAMERA_PITCH_DELTA, 0.0, 0.0, 0.0, 0.0F, 0.0F, 1.0F, false, 1.0F, null, null))
 				),
 				false, false, 0, List.of(), List.of(), null
 			)
