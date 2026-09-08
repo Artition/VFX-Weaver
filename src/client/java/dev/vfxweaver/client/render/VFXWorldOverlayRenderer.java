@@ -719,7 +719,9 @@ public final class VFXWorldOverlayRenderer {
 					sim.pos[i] = sim.prev[i];
 				}
 			}
-			// Player push: joints near the local player are shoved radially away.
+			// Player push: joints near the local player are shoved radially away. Both pos and
+			// prev shift equally - a pure displacement with no velocity injection, otherwise the
+			// push kicks the link out and the constraints snap it back every tick (jitter).
 			if (minecraft.player != null && !minecraft.player.isSpectator()) {
 				AABB reach = minecraft.player.getBoundingBox().inflate(0.45);
 				for (int i = 1; i < sim.joints - (pinnedB ? 1 : 0); i++) {
@@ -733,6 +735,12 @@ public final class VFXWorldOverlayRenderer {
 							dz = 0.0;
 							h = 1.0;
 						}
+						Vec3 shift = new Vec3(dx / h * 0.15, 0.05, dz / h * 0.15);
+						sim.pos[i] = p.add(shift);
+						sim.prev[i] = sim.prev[i].add(shift);
+					}
+				}
+			}
 						sim.pos[i] = new Vec3(p.x + dx / h * 0.15, p.y + 0.05, p.z + dz / h * 0.15);
 					}
 				}
