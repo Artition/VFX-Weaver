@@ -1,0 +1,16 @@
+{
+  "type": "shockwave",
+  "duration": 40,
+  "easing": "ease_in_out_cubic",
+  "persistent": false,
+  "loop": false,
+  "fade_ticks": 0,
+  "params": {
+    "center_x": 0.5,
+    "center_y": 0.5,
+    "radius": { "start": 0.4, "end": 1.5 },
+    "width": 0.15,
+    "amplitude": { "start": 0.12, "end": 0.0 },
+    "sharpness": 1.5
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "type": "stop_motion",
+  "duration": 60,
+  "easing": "ease_in_out_cubic",
+  "persistent": false,
+  "loop": false,
+  "fade_ticks": 0,
+  "params": {
+    "fps": { "start": 12.0, "end": 0.0 }
+  }
+}

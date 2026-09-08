@@ -1,0 +1,15 @@
+{
+  "type": "afterimage",
+  "duration": 60,
+  "easing": "ease_in_out_cubic",
+  "persistent": false,
+  "loop": false,
+  "fade_ticks": 0,
+  "params": {
+    "decay": 0.97,
+    "blend": 0.05,
+    "drift": 0.0,
+    "desat": 0.35,
+    "intensity": { "start": 1.0, "end": 0.0 }
+  }
+}

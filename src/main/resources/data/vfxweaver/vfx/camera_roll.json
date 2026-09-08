@@ -1,0 +1,13 @@
+{
+  "type": "camera_roll",
+  "duration": 40,
+  "easing": "ease_in_out_cubic",
+  "persistent": false,
+  "loop": false,
+  "fade_ticks": 0,
+  "params": {
+    "angle": { "start": 15.0, "end": 0.0 },
+    "wobble": 0.0,
+    "wobble_speed": 0.2
+  }
+}

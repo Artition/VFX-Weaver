@@ -1,0 +1,17 @@
+{
+  "type": "digital_glitch",
+  "duration": 40,
+  "easing": "ease_in_out_cubic",
+  "persistent": false,
+  "loop": false,
+  "fade_ticks": 0,
+  "params": {
+    "block": 0.06,
+    "displacement": 0.08,
+    "rate": 6.0,
+    "chroma": 0.5,
+    "seed": 0.0,
+    "chance": 0.4,
+    "intensity": { "start": 1.0, "end": 0.0 }
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "type": "bloom",
+  "duration": 40,
+  "easing": "ease_in_out_cubic",
+  "persistent": false,
+  "loop": false,
+  "fade_ticks": 0,
+  "params": {
+    "intensity": { "start": 0.6, "end": 0.0 },
+    "threshold": 0.7,
+    "radius": 3.0
+  }
+}

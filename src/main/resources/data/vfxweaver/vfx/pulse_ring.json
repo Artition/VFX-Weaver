@@ -1,0 +1,21 @@
+{
+  "type": "pulse_ring",
+  "duration": 60,
+  "easing": "ease_out_cubic",
+  "persistent": false,
+  "loop": false,
+  "fade_ticks": 10,
+  "params": {
+    "red": 1.0,
+    "green": 0.35,
+    "blue": 0.1,
+    "radius": { "start": 0.0, "end": 6.0 },
+    "thickness": 0.5,
+    "billboard": 1.0,
+    "rot_x": 0.0,
+    "rot_y": 0.0,
+    "rot_z": 0.0,
+    "through_blocks": 0.0,
+    "intensity": { "start": 1.0, "end": 0.0 }
+  }
+}

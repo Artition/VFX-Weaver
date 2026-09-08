@@ -1,0 +1,16 @@
+{
+  "type": "eyelids",
+  "duration": 120,
+  "easing": "ease_in_out_cubic",
+  "persistent": false,
+  "loop": false,
+  "fade_ticks": 0,
+  "params": {
+    "openness": 0.5,
+    "softness": 0.15,
+    "curve": 0.35,
+    "red": 0.0,
+    "green": 0.0,
+    "blue": 0.0
+  }
+}

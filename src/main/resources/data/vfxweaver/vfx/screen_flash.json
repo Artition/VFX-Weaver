@@ -1,0 +1,14 @@
+{
+  "type": "screen_flash",
+  "duration": 20,
+  "easing": "ease_out_quad",
+  "persistent": false,
+  "loop": false,
+  "fade_ticks": 0,
+  "params": {
+    "alpha": { "start": 0.8, "end": 0.0 },
+    "color_r": 1.0,
+    "color_g": 1.0,
+    "color_b": 1.0
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "type": "color_grade",
+  "duration": 40,
+  "easing": "ease_in_out_cubic",
+  "persistent": false,
+  "loop": false,
+  "fade_ticks": 0,
+  "params": {
+    "saturation": { "start": 0.7, "end": 1.0 },
+    "contrast": { "start": 1.05, "end": 1.0 },
+    "brightness": 1.0,
+    "tint_r": 1.0,
+    "tint_g": { "start": 0.9, "end": 1.0 },
+    "tint_b": 1.0
+  }
+}

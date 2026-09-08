@@ -1,0 +1,15 @@
+{
+  "type": "iris_wipe",
+  "duration": 40,
+  "easing": "ease_in_out_cubic",
+  "persistent": false,
+  "loop": false,
+  "fade_ticks": 0,
+  "params": {
+    "radius": { "start": 0.4, "end": 1.4 },
+    "softness": 0.05,
+    "center_x": 0.5,
+    "center_y": 0.5,
+    "zoom": { "start": 1.0, "end": 0.0 }
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "type": "posterize",
+  "duration": 40,
+  "easing": "ease_in_out_cubic",
+  "persistent": false,
+  "loop": false,
+  "fade_ticks": 0,
+  "params": {
+    "strength": { "start": 0.25, "end": 0.0 }
+  }
+}

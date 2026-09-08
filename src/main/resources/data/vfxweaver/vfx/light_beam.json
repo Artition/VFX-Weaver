@@ -1,0 +1,21 @@
+{
+  "type": "light_beam",
+  "duration": 60,
+  "easing": "ease_in_out_cubic",
+  "persistent": false,
+  "loop": false,
+  "fade_ticks": 10,
+  "params": {
+    "red": 1.0,
+    "green": 0.95,
+    "blue": 0.75,
+    "radius": 1.5,
+    "height": 48.0,
+    "softness": 0.6,
+    "top_scale": 1.0,
+    "top_fade": 0.4,
+    "bottom_fade": 0.0,
+    "through_blocks": 0.0,
+    "intensity": { "start": 1.0, "end": 0.0 }
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "type": "solarize",
+  "duration": 40,
+  "easing": "ease_in_out_cubic",
+  "persistent": false,
+  "loop": false,
+  "fade_ticks": 0,
+  "params": {
+    "threshold": 0.5,
+    "softness": 0.0,
+    "intensity": { "start": 1.0, "end": 0.0 }
+  }
+}

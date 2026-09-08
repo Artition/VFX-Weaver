@@ -1,0 +1,16 @@
+{
+  "type": "vhs",
+  "duration": 60,
+  "easing": "ease_in_out_cubic",
+  "persistent": false,
+  "loop": false,
+  "fade_ticks": 0,
+  "params": {
+    "tracking": 0.35,
+    "band_height": 0.08,
+    "band_speed": 0.15,
+    "bleed": 0.02,
+    "wobble": 0.004,
+    "intensity": { "start": 1.0, "end": 0.0 }
+  }
+}

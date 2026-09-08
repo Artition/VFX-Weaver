@@ -1,0 +1,13 @@
+{
+  "type": "depth_of_field",
+  "duration": 40,
+  "easing": "ease_in_out_cubic",
+  "persistent": false,
+  "loop": false,
+  "fade_ticks": 0,
+  "params": {
+    "intensity": { "start": 0.5, "end": 0.0 },
+    "focus_center": 0.5,
+    "focus_range": 0.15
+  }
+}

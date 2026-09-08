@@ -1,0 +1,16 @@
+{
+  "type": "camera_shake",
+  "duration": 40,
+  "easing": "ease_out_cubic",
+  "persistent": false,
+  "loop": false,
+  "fade_ticks": 0,
+  "params": {
+    "amplitude_x": 0.12,
+    "amplitude_y": 0.12,
+    "amplitude_z": 0.04,
+    "yaw": 0.8,
+    "pitch": 0.6,
+    "roll": 0.4
+  }
+}

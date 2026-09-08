@@ -1,0 +1,21 @@
+{
+  "type": "speed_lines",
+  "duration": 40,
+  "easing": "ease_in_out_cubic",
+  "persistent": false,
+  "loop": false,
+  "fade_ticks": 0,
+  "params": {
+    "center_x": 0.5,
+    "center_y": 0.5,
+    "count": 50.0,
+    "length": 0.5,
+    "length_rand": 0.7,
+    "width": 0.5,
+    "seed": 0.0,
+    "color_r": 1.0,
+    "color_g": 1.0,
+    "color_b": 1.0,
+    "intensity": { "start": 1.0, "end": 0.0 }
+  }
+}
