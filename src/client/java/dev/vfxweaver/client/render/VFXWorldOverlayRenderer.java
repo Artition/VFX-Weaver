@@ -565,13 +565,23 @@ public final class VFXWorldOverlayRenderer {
 
 		Vec3[] jointPositions;
 		if (physics) {
-			float length = Mth.clamp(effect.getParam("length", 6.0F), 1.0F, 64.0F);
-			// Joints (connection points) are simulated; one block-model link spans each joint pair.
-			int joints = (b != null
-				? Math.max(2, (int) Math.round(a.distanceTo(b) / spacing) + 1)
-				: Math.max(2, (int) Math.round(length / spacing) + 1));
-			joints = Math.min(joints, MAX_CHAIN_LINKS + 1);
-			jointPositions = simulateChain(effect, minecraft, level, a, b, joints, spacing);
+			// 'length' = total chain length in blocks. Single anchor: hanging length (default 6).
+			// Two anchors: more than the span = deeper sag, less than the span = taut (links
+			// stretch to span it); unset (0) = exactly the span distance.
+			float length = effect.getParam("length", 0.0F);
+			int joints;
+			float restSeg;
+			if (b != null) {
+				float span = (float) a.distanceTo(b);
+				float total = length >= spacing ? length : span;
+				joints = Math.min(Math.max(2, (int) Math.round(total / spacing) + 1), MAX_CHAIN_LINKS + 1);
+				restSeg = total / (joints - 1);
+			} else {
+				float total = length >= 1.0F ? length : 6.0F;
+				joints = Math.min(Math.max(2, (int) Math.round(total / spacing) + 1), MAX_CHAIN_LINKS + 1);
+				restSeg = spacing;
+			}
+			jointPositions = simulateChain(effect, minecraft, level, a, b, joints, restSeg);
 		} else {
 			float arc = effect.getParam("arc", 0.0F);
 			Vec3 delta = (b != null ? b : a.add(10.0, -3.0, 0.0)).subtract(a);

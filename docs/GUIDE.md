@@ -639,6 +639,7 @@ A line of **real block-model links** between two anchors (like `guide_line`, but
 | `scale` | 1 | Link block size (0.1..4) |
 | `align` | 1 | 1 = each link's Y axis is rotated to the local path direction (chain follows the curve), 0 = upright blocks |
 | `physics` | 0 | 1 = verlet rope simulation: gravity sag, world collision (links catch on blocks), the local player pushes links away, `sway` wind wobble. With two anchors both ends are pinned; with one anchor the chain hangs from it (`length` blocks) |
+| `length` | auto | Total chain length in blocks (physics mode). Single anchor: hanging length (default 6). Two anchors: unset = the span distance; more than the span = deeper sag; less than the span = taut (links stretch) |
 | `length` | 6 | Hanging chain length in blocks (physics mode, single anchor) |
 | `sway` | 0.3 | Wind wobble amplitude in physics mode (0..1) |
 
