@@ -648,10 +648,16 @@ public final class VFXWorldOverlayRenderer {
 		}
 
 		float delta = effect.getAge() - sim.lastAge;
-		sim.lastAge = effect.getAge();
+		// Fixed-timestep accumulator: fractional tick leftovers carry over between frames,
+		// otherwise at high FPS floor(delta) is 0 every frame and the rope never steps.
+		int steps = Math.min((int) delta, 4);
+		sim.lastAge += steps;
+		if (delta > 8.0F) {
+			// Long hitch (lag spike, pause): drop the backlog instead of catching up.
+			sim.lastAge = effect.getAge();
+		}
 		boolean pinnedB = anchorB != null;
 		float sway = Mth.clamp(effect.getParam("sway", 0.3F), 0.0F, 1.0F);
-		int steps = Math.min((int) delta, 4);
 		float age = effect.getAge();
 		for (int s = 0; s < steps; s++) {
 			// Integrate: gravity, damping, wind sway (verlet: velocity = pos - prev).
