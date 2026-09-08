@@ -48,6 +48,7 @@ import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.Identifier;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.phys.AABB;
 import net.minecraft.client.renderer.block.MovingBlockRenderState;
 import net.minecraft.util.Mth;
 import net.minecraft.util.RandomSource;
@@ -261,6 +262,28 @@ public final class VFXWorldOverlayRenderer {
 	private static final int MAX_PARTICLES_PER_FRAME = 256;
 	private static final int MAX_AIMED_PARTICLES = 1024;
 	private static final int MAX_CHAIN_LINKS = 512;
+	/** Verlet rope simulation state per running {@code block_chain} instance (physics mode). */
+	private static final Map<Long, ChainSim> CHAIN_SIMS = new HashMap<>();
+
+	/**
+	 * Verlet rope for a physics chain: {@code pos}/{@code prev} per link, integrated at a fixed
+	 * 1-tick timestep with gravity, world collision, player push and pinned anchor ends.
+	 */
+	private static final class ChainSim {
+		float lastAge;
+		int links;
+		final Vec3[] pos;
+		final Vec3[] prev;
+
+		ChainSim(final int links, final Vec3[] positions) {
+			this.links = links;
+			this.pos = positions;
+			this.prev = new Vec3[links];
+			for (int i = 0; i < links; i++) {
+				this.prev[i] = positions[i];
+			}
+		}
+	}
 
 	/**
 	 * Spawns vanilla particles for one {@code particles} effect this frame. Emission is
@@ -502,7 +525,7 @@ public final class VFXWorldOverlayRenderer {
 				continue;
 			}
 			try {
-				submitChain(context, effect, level, camera);
+				submitChain(context, effect, level, minecraft, camera);
 			} catch (Exception e) {
 				LOGGER.warn("Failed to submit block chain '{}'", effect.getId(), e);
 			}
@@ -510,13 +533,13 @@ public final class VFXWorldOverlayRenderer {
 	}
 
 	/**
-	 * Submits the chain links of one {@code block_chain} effect: links are spaced evenly along
-	 * the path between the first two position slots (with an {@code arc} bow, like
-	 * {@code guide_line}), each link rendered as the datapack-chosen block, optionally
-	 * {@code align}ed to the local path direction and {@code scale}d. Submit poses are
-	 * camera-relative (like every entity submit), so link positions are shifted by the camera.
+	 * Submits the chain links of one {@code block_chain} effect. Geometric mode: links tile the
+	 * path end-to-end between the first two position slots (with an {@code arc} bow, like
+	 * {@code guide_line}). Physics mode ({@code physics >= 0.5}): a verlet rope — with two
+	 * anchors both ends are pinned and the rope sags under gravity; with a single anchor the
+	 * chain hangs from it ({@code length} blocks) and can be pushed around by the player.
 	 */
-	private static void submitChain(final LevelRenderContext context, final VFXActiveEffect effect, final ClientLevel level, final CameraRenderState camera) {
+	private static void submitChain(final LevelRenderContext context, final VFXActiveEffect effect, final ClientLevel level, final Minecraft minecraft, final CameraRenderState camera) {
 		if (effect.getWeight() <= 0.0F) {
 			return;
 		}
@@ -529,22 +552,39 @@ public final class VFXWorldOverlayRenderer {
 			return;
 		}
 		Vec3 a = anchors.get(0);
-		Vec3 b = anchors.size() > 1 ? anchors.get(1) : a.add(10.0, -3.0, 0.0);
+		Vec3 b = anchors.size() > 1 ? anchors.get(1) : null;
 		float spacing = Mth.clamp(effect.getParam("spacing", 1.0F), 0.25F, 8.0F);
-		float arc = effect.getParam("arc", 0.0F);
 		float scale = Mth.clamp(effect.getParam("scale", 1.0F), 0.1F, 4.0F);
 		boolean align = effect.getParam("align", 1.0F) >= 0.5F;
+		boolean physics = effect.getParam("physics", 0.0F) >= 0.5F;
 
-		Vec3 delta = b.subtract(a);
-		double length = delta.length();
-		if (length < 1.0e-4) {
-			return;
+		Vec3[] linkPositions;
+		if (physics) {
+			float length = Mth.clamp(effect.getParam("length", 6.0F), 1.0F, 64.0F);
+			int links = (b != null
+				? Math.max(1, (int) Math.round(a.distanceTo(b) / spacing))
+				: Math.max(1, (int) Math.round(length / spacing)));
+			links = Math.min(links, MAX_CHAIN_LINKS);
+			linkPositions = simulateChain(effect, minecraft, level, a, b, links, spacing);
+		} else {
+			float arc = effect.getParam("arc", 0.0F);
+			Vec3 delta = (b != null ? b : a.add(10.0, -3.0, 0.0)).subtract(a);
+			double length = delta.length();
+			if (length < 1.0e-4) {
+				return;
+			}
+			int links = Math.min(Math.max(1, (int) Math.round(length / spacing)), MAX_CHAIN_LINKS);
+			linkPositions = new Vec3[links];
+			for (int i = 0; i < links; i++) {
+				double u = (i + 0.5) / links;
+				linkPositions[i] = new Vec3(a.x + delta.x * u, a.y + delta.y * u + arc * 4.0 * u * (1.0 - u), a.z + delta.z * u);
+			}
 		}
-		int links = Math.min((int) Math.ceil(length / spacing), MAX_CHAIN_LINKS);
-		Vec3 prev = a;
+
+		int links = linkPositions.length;
+		Vec3 prev = linkPositions[0];
 		for (int i = 0; i < links; i++) {
-			double u = (i + 0.5) / links;
-			Vec3 linkPos = new Vec3(a.x + delta.x * u, a.y + delta.y * u + arc * 4.0 * u * (1.0 - u), a.z + delta.z * u);
+			Vec3 linkPos = linkPositions[i];
 			BlockPos lightPos = BlockPos.containing(linkPos.x, linkPos.y, linkPos.z);
 			MovingBlockRenderState link = new MovingBlockRenderState();
 			link.blockState = state;
@@ -564,7 +604,13 @@ public final class VFXWorldOverlayRenderer {
 					pose.mulPose(new Quaternionf().rotationTo(new Vector3f(0.0F, 1.0F, 0.0F), new Vector3f((float) dir.x, (float) dir.y, (float) dir.z)));
 				}
 			}
-			if (scale != 1.0F) {
+			// Taut chains: stretch each link along its local Y (the path direction after align)
+			// to fill the gap to the next link, so a pulled-apart chain stays connected.
+			double gap = i + 1 < links ? linkPositions[i + 1].distanceTo(linkPos) : linkPos.distanceTo(prev);
+			double stretch = Math.min(Math.max(gap / spacing, 1.0), 4.0);
+			if (stretch > 1.0) {
+				pose.scale(scale, scale * (float) stretch, scale);
+			} else if (scale != 1.0F) {
 				pose.scale(scale, scale, scale);
 			}
 			pose.translate(-0.5, -0.5, -0.5);
@@ -572,6 +618,109 @@ public final class VFXWorldOverlayRenderer {
 			pose.popPose();
 			prev = linkPos;
 		}
+	}
+
+	/**
+	 * Advances (and returns) the verlet rope for a physics chain. Both anchors pinned when a
+	 * second slot exists, otherwise only the top is pinned and the rope hangs. Rebuilt when the
+	 * link count changes or the pinned anchor teleports.
+	 */
+	private static Vec3[] simulateChain(final VFXActiveEffect effect, final Minecraft minecraft, final ClientLevel level, final Vec3 anchorA, final @Nullable Vec3 anchorB, final int links, final float spacing) {
+		long key = effect.getInstanceId();
+		ChainSim sim = CHAIN_SIMS.get(key);
+		boolean teleport = sim != null && sim.links == links && sim.pos[0].distanceTo(anchorA) > 16.0;
+		if (sim == null || sim.links != links || teleport) {
+			// Straight initial shape: toward the second anchor, or straight down for a hanging chain.
+			Vec3[] start = new Vec3[links];
+			Vec3 step = anchorB != null
+				? anchorB.subtract(anchorA).scale(1.0 / Math.max(links, 1))
+				: new Vec3(0.0, -spacing, 0.0);
+			for (int i = 0; i < links; i++) {
+				start[i] = anchorA.add(step.scale(i + 0.5));
+			}
+			sim = new ChainSim(links, start);
+			sim.lastAge = effect.getAge();
+			CHAIN_SIMS.put(key, sim);
+			if (CHAIN_SIMS.size() > 256) {
+				CHAIN_SIMS.clear();
+			}
+			return sim.pos;
+		}
+
+		float delta = effect.getAge() - sim.lastAge;
+		sim.lastAge = effect.getAge();
+		boolean pinnedB = anchorB != null;
+		float sway = Mth.clamp(effect.getParam("sway", 0.3F), 0.0F, 1.0F);
+		int steps = Math.min((int) delta, 4);
+		float age = effect.getAge();
+		for (int s = 0; s < steps; s++) {
+			// Integrate: gravity, damping, wind sway (verlet: velocity = pos - prev).
+			for (int i = 1; i < sim.links - (pinnedB ? 1 : 0); i++) {
+				Vec3 p = sim.pos[i];
+				Vec3 pr = sim.prev[i];
+				Vec3 next = new Vec3(
+					p.x + (p.x - pr.x) * 0.985 + Math.sin(age * 0.2 + i * 0.6) * 0.006 * sway,
+					p.y + (p.y - pr.y) * 0.985 - 0.06,
+					p.z + (p.z - pr.z) * 0.985 + Math.cos(age * 0.16 + i * 0.45) * 0.006 * sway
+				);
+				sim.prev[i] = p;
+				sim.pos[i] = next;
+			}
+			// Distance constraints (several relaxation passes).
+			for (int iter = 0; iter < 4; iter++) {
+				sim.pos[0] = anchorA;
+				if (pinnedB) {
+					sim.pos[sim.links - 1] = anchorB;
+				}
+				for (int i = 0; i < sim.links - 1; i++) {
+					Vec3 d = sim.pos[i + 1].subtract(sim.pos[i]);
+					double len = d.length();
+					if (len < 1.0e-6) {
+						continue;
+					}
+					boolean pinA = i == 0;
+					boolean pinB = pinnedB && i + 1 == sim.links - 1;
+					Vec3 corr = d.scale((len - spacing) / len);
+					if (!pinA) {
+						sim.pos[i] = pinB ? sim.pos[i].subtract(corr.scale(2)) : sim.pos[i].add(corr);
+					}
+					if (!pinB) {
+						sim.pos[i + 1] = pinA ? sim.pos[i + 1].add(corr.scale(2)) : sim.pos[i + 1].subtract(corr);
+					}
+				}
+			}
+			// World collision: a link inside a solid block snaps back to its previous position.
+			for (int i = 1; i < sim.links - (pinnedB ? 1 : 0); i++) {
+				Vec3 p = sim.pos[i];
+				BlockPos bp = BlockPos.containing(p.x, p.y, p.z);
+				if (!level.getBlockState(bp).getCollisionShape(level, bp).isEmpty()) {
+					sim.pos[i] = sim.prev[i];
+				}
+			}
+			// Player push: links near the local player are shoved radially away.
+			if (minecraft.player != null && !minecraft.player.isSpectator()) {
+				AABB reach = minecraft.player.getBoundingBox().inflate(0.45);
+				for (int i = 1; i < sim.links - (pinnedB ? 1 : 0); i++) {
+					Vec3 p = sim.pos[i];
+					if (reach.contains(p.x, p.y, p.z)) {
+						double dx = p.x - minecraft.player.getX();
+						double dz = p.z - minecraft.player.getZ();
+						double h = Math.sqrt(dx * dx + dz * dz);
+						if (h < 1.0e-3) {
+							dx = 1.0;
+							dz = 0.0;
+							h = 1.0;
+						}
+						sim.pos[i] = new Vec3(p.x + dx / h * 0.2, p.y + 0.05, p.z + dz / h * 0.2);
+					}
+				}
+			}
+		}
+		if (pinnedB) {
+			sim.pos[sim.links - 1] = anchorB;
+		}
+		sim.pos[0] = anchorA;
+		return sim.pos;
 	}
 
 	/**
