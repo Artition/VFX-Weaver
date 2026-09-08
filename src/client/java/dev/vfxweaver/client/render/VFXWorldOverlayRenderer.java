@@ -78,8 +78,15 @@ public final class VFXWorldOverlayRenderer {
 		{1, 0, 0, 1, 0, 1, 1, 1, 1, 1, 1, 0, 1, 0, 0}, // east
 	};
 
+	/**
+	 * Every custom {@code core/position_color} pipeline registered by this class. Iris needs each
+	 * one mapped to a shaderpack program explicitly (via {@code VfxIrisCompat}), otherwise its
+	 * override lookup returns null and the effect silently disappears under shaders.
+	 */
+	private static final List<RenderPipeline> IRIS_PIPELINES = new ArrayList<>(9);
+
 	private static RenderPipeline blockPipeline(final CompareOp depthOp, final boolean cull, final String locationSuffix) {
-		return RenderPipelines.register(
+		RenderPipeline pipeline = RenderPipelines.register(
 			RenderPipeline.builder()
 				.withLocation(Identifier.fromNamespaceAndPath("vfxweaver", "world/block_" + locationSuffix))
 				.withVertexShader("core/position_color")
@@ -92,6 +99,8 @@ public final class VFXWorldOverlayRenderer {
 				.withCull(cull)
 				.build()
 		);
+		IRIS_PIPELINES.add(pipeline);
+		return pipeline;
 	}
 
 	private static final RenderType TINT_VISIBLE = RenderType.create(
@@ -131,7 +140,7 @@ public final class VFXWorldOverlayRenderer {
 	 * {@code pulse_ring}, {@code scan_sweep}, {@code guide_line}).
 	 */
 	private static RenderPipeline glowPipeline(final CompareOp depthOp, final String suffix) {
-		return RenderPipelines.register(
+		RenderPipeline pipeline = RenderPipelines.register(
 			RenderPipeline.builder()
 				.withLocation(Identifier.fromNamespaceAndPath("vfxweaver", "world/glow_" + suffix))
 				.withVertexShader("core/position_color")
@@ -144,6 +153,8 @@ public final class VFXWorldOverlayRenderer {
 				.withCull(false)
 				.build()
 		);
+		IRIS_PIPELINES.add(pipeline);
+		return pipeline;
 	}
 
 	private static final RenderType GLOW_VISIBLE = RenderType.create(
@@ -161,22 +172,26 @@ public final class VFXWorldOverlayRenderer {
 	 * cleared depth buffer before a through-walls outline, so the outline passes other blocks'
 	 * depth (which was cleared away) but is still clipped by its own target.
 	 */
+	private static RenderPipeline depthMaskPipeline() {
+		RenderPipeline pipeline = RenderPipelines.register(
+			RenderPipeline.builder()
+				.withLocation(Identifier.fromNamespaceAndPath("vfxweaver", "world/block_depth_mask"))
+				.withVertexShader("core/position_color")
+				.withFragmentShader("core/position_color")
+				.withUniform("DynamicTransforms", UniformType.UNIFORM_BUFFER)
+				.withUniform("Projection", UniformType.UNIFORM_BUFFER)
+				.withVertexFormat(DefaultVertexFormat.POSITION_COLOR, VertexFormat.Mode.QUADS)
+				.withDepthStencilState(new DepthStencilState(CompareOp.ALWAYS_PASS, true))
+				.withColorTargetState(new ColorTargetState(Optional.empty(), ColorTargetState.WRITE_NONE))
+				.build()
+		);
+		IRIS_PIPELINES.add(pipeline);
+		return pipeline;
+	}
+
 	private static final RenderType BLOCK_DEPTH_MASK = RenderType.create(
 		"vfxweaver_block_depth_mask",
-		RenderSetup.builder(
-			RenderPipelines.register(
-				RenderPipeline.builder()
-					.withLocation(Identifier.fromNamespaceAndPath("vfxweaver", "world/block_depth_mask"))
-					.withVertexShader("core/position_color")
-					.withFragmentShader("core/position_color")
-					.withUniform("DynamicTransforms", UniformType.UNIFORM_BUFFER)
-					.withUniform("Projection", UniformType.UNIFORM_BUFFER)
-					.withVertexFormat(DefaultVertexFormat.POSITION_COLOR, VertexFormat.Mode.QUADS)
-					.withDepthStencilState(new DepthStencilState(CompareOp.ALWAYS_PASS, true))
-					.withColorTargetState(new ColorTargetState(Optional.empty(), ColorTargetState.WRITE_NONE))
-					.build()
-			)
-		).createRenderSetup()
+		RenderSetup.builder(depthMaskPipeline()).createRenderSetup()
 	);
 
 	/** Tint geometry is pushed outwards from the block centre by this fraction (coplanar fix). */
@@ -204,6 +219,14 @@ public final class VFXWorldOverlayRenderer {
 			depthScratch.destroyBuffers();
 			depthScratch = null;
 		}
+	}
+
+	/**
+	 * The custom pipelines that need an Iris override mapping so they keep rendering under a
+	 * shaderpack. Called once at client init, before any world rendering.
+	 */
+	public static List<RenderPipeline> pipelinesForIris() {
+		return List.copyOf(IRIS_PIPELINES);
 	}
 
 	private VFXWorldOverlayRenderer() {
