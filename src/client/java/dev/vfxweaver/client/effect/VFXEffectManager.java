@@ -263,6 +263,12 @@ public class VFXEffectManager {
 			if (built.size() < specs.size()) {
 				LOGGER.warn("Effect '{}' has {} entity-anchored positions but only {} entity UUID(s) arrived; unanchored slots are skipped while rendering", effectId, specs.size(), built.size());
 			}
+			if (built.isEmpty()) {
+				// No anchor UUIDs at all (e.g. client-local play without targets): without them the
+				// placeholder slots would render at the world origin — reject the play instead.
+				LOGGER.warn("Effect '{}' has entity-anchored positions but no entity UUIDs arrived; play ignored", effectId);
+				return 0L;
+			}
 			anchors = List.copyOf(built);
 		}
 		VFXActiveEffect effect = new VFXActiveEffect(effectId, type, id, instanceSeed, this.clock, timeline, fadeTicks, loop, positions, entityUuids, anchors);
