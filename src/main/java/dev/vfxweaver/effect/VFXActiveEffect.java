@@ -6,6 +6,7 @@ import java.util.concurrent.ThreadLocalRandom;
 import net.minecraft.core.BlockPos;
 import net.minecraft.resources.Identifier;
 import net.minecraft.world.phys.Vec3;
+import org.jspecify.annotations.Nullable;
 
 /**
  * A single running instance of a {@link VFXDefinition}. Holds a {@link VFXTimeline} that is
@@ -28,6 +29,11 @@ public class VFXActiveEffect {
 	private float elapsed;
 	private float age;
 	private float fadeOutStart = Float.NEGATIVE_INFINITY;
+	/**
+	 * Runtime-mutable world position the instance was moved to (network MOVE action), read by
+	 * the world overlay renderer to re-anchor its drawing every frame.
+	 */
+	private @Nullable Vec3 movePosition;
 
 	/**
 	 * Creates a new effect instance starting at the given time.
@@ -245,6 +251,22 @@ public class VFXActiveEffect {
 
 	public int getFadeTicks() {
 		return this.fadeTicks;
+	}
+
+	/**
+	 * Moves this instance to a new world position (network MOVE action). The world overlay
+	 * renderer picks the new position up on its next frame; spatial bindings are re-anchored
+	 * separately via {@link VFXTimeline#rebindPositions(double, double, double)}.
+	 */
+	public void movePosition(final Vec3 worldPos) {
+		this.movePosition = worldPos;
+	}
+
+	/**
+	 * The world position this instance was last moved to, or {@code null} when it was never moved.
+	 */
+	public @Nullable Vec3 getMovePosition() {
+		return this.movePosition;
 	}
 
 	/**

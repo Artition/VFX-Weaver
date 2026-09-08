@@ -69,7 +69,23 @@ public class VFXClient implements ClientModInitializer {
 				FlashbackCompat.recordStop(payload.effectId());
 				if (payload.instanceId() != 0L) {
 					VFXEffectManager.get().stop(payload.effectId(), payload.instanceId());
-				} else {
+			} else if (payload.action() == VFXAction.SET_EXPR) {
+				if (payload.exprParam() == null || payload.exprParam().isBlank()) {
+					LOGGER.warn("Ignoring VFX packet: SET_EXPR without a parameter name");
+					return;
+				}
+				if (!VFXEffectManager.get().setExpression(payload.effectId(), payload.exprParam(), payload.exprSource())) {
+					LOGGER.warn("VFX set_expr: effect '{}' is not running", payload.effectId());
+				}
+			} else if (payload.action() == VFXAction.MOVE) {
+				if (payload.position() == null) {
+					LOGGER.warn("Ignoring VFX packet: MOVE without a position");
+					return;
+				}
+				if (!VFXEffectManager.get().move(payload.effectId(), payload.instanceId(), payload.position())) {
+					LOGGER.warn("VFX move: effect '{}' instance {} is not running", payload.effectId(), payload.instanceId());
+				}
+			} else {
 					VFXEffectManager.get().stop(payload.effectId());
 				}
 			} else if (payload.action() == VFXAction.SET_PARAM || payload.action() == VFXAction.KEYFRAME) {

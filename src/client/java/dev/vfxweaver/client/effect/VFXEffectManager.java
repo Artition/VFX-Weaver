@@ -441,6 +441,51 @@ public class VFXEffectManager {
 	}
 
 	/**
+	 * Live-replaces a parameter with a compiled math expression on every running instance of the
+	 * effect (used by {@code VFXAPI.sendSetParamExpr}). The expression is compiled per instance
+	 * with that instance's seed, so {@code random()}/{@code noise()} stay instance-local; the new
+	 * expression replaces whatever the parameter had before (keyframes, binding or previous
+	 * expression). Invalid expressions fall back to a constant {@code 0}.
+	 *
+	 * @param exprSource expression source (may be null, which falls back to {@code 0})
+	 * @return {@code true} when at least one running instance was found and updated
+	 */
+	public boolean setExpression(final Identifier effectId, final String name, final String exprSource) {
+		boolean applied = false;
+		for (VFXActiveEffect effect : this.active) {
+			if (effect.getId().equals(effectId)) {
+				effect.getTimeline().setExpression(name, exprSource, effect.getInstanceSeed());
+				applied = true;
+			}
+		}
+		return applied;
+	}
+
+	/**
+	 * Moves one specific running instance of an effect to a new world position: the instance's
+	 * runtime move position is stored (consumed by the world overlay renderer) and its spatial
+	 * world bindings are re-anchored. Used by the network MOVE action.
+	 *
+	 * @param effectId   the effect the instance must belong to
+	 * @param instanceId the instance id to move
+	 * @param worldPos   the new world position
+	 * @return {@code true} when a matching instance was found and moved
+	 */
+	public boolean move(final Identifier effectId, final long instanceId, final Vec3 worldPos) {
+		for (VFXActiveEffect effect : this.active) {
+			if (effect.getInstanceId() == instanceId) {
+				if (!effect.getId().equals(effectId)) {
+					return false;
+				}
+				effect.movePosition(worldPos);
+				effect.getTimeline().rebindPositions(worldPos.x(), worldPos.y(), worldPos.z());
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/**
 	 * Stops all running effects (persistent ones fade out).
 	 */
 	public void stopAll() {

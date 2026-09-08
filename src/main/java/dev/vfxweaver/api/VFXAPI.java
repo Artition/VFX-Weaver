@@ -2,6 +2,7 @@ package dev.vfxweaver.api;
 
 import dev.vfxweaver.effect.EasingFunction;
 import dev.vfxweaver.effect.EasingType;
+import dev.vfxweaver.effect.MathExpression;
 import dev.vfxweaver.effect.VFXDefinition;
 import dev.vfxweaver.effect.VFXServerEffects;
 import dev.vfxweaver.network.VFXTriggerPayload;
@@ -244,6 +245,36 @@ public final class VFXAPI {
 	 */
 	public static void sendSetParam(final ServerPlayer player, final Identifier effectId, final String param, final float value) {
 		ServerPlayNetworking.send(player, VFXTriggerPayload.setParam(effectId, param, value));
+	}
+
+	/**
+	 * Live-replaces a parameter of a running effect on the player's client with a compiled math
+	 * expression, without restarting its timeline. Invalid expressions fall back to a constant
+	 * {@code 0}; ignored (with a client-side log warning) when the effect is not currently
+	 * running.
+	 *
+	 * @param player     the receiving player
+	 * @param effectId   effect id
+	 * @param param      parameter name
+	 * @param exprSource expression source (variables {@code t}/{@code x}/{@code y}/{@code z},
+	 *                   functions like {@code sin}/{@code noise}; see {@link MathExpression})
+	 */
+	public static void sendSetParamExpr(final ServerPlayer player, final Identifier effectId, final String param, final String exprSource) {
+		ServerPlayNetworking.send(player, VFXTriggerPayload.setExpr(effectId, param, exprSource));
+	}
+
+	/**
+	 * Moves a running effect instance on the player's client to a new world position,
+	 * re-anchoring its spatial world bindings. Ignored (with a client-side log warning) when no
+	 * such instance is running.
+	 *
+	 * @param player     the receiving player
+	 * @param effectId   effect id
+	 * @param instanceId the instance id to move
+	 * @param worldPos   the new world position
+	 */
+	public static void sendMove(final ServerPlayer player, final Identifier effectId, final long instanceId, final Vec3 worldPos) {
+		ServerPlayNetworking.send(player, VFXTriggerPayload.move(effectId, instanceId, worldPos));
 	}
 
 	/**
