@@ -336,16 +336,11 @@ public class VFXDefinition {
 		float delay = GsonHelper.getAsFloat(object, "delay", 0.0F);
 		int duration = GsonHelper.getAsInt(object, "duration", 0);
 		EasingFunction easing = object.has("easing") && !object.get("easing").isJsonNull() ? parseEasing(object.get("easing")) : null;
-		Map<String, Float> overrides = new LinkedHashMap<>();
+		Map<String, ParamSpec> overrides = new LinkedHashMap<>();
 		if (object.has("params")) {
 			JsonObject paramsJson = GsonHelper.getAsJsonObject(object, "params");
 			for (Map.Entry<String, JsonElement> entry : paramsJson.entrySet()) {
-				JsonElement value = entry.getValue();
-				if (value.isJsonPrimitive() && value.getAsJsonPrimitive().isNumber()) {
-					overrides.put(entry.getKey(), value.getAsFloat());
-				} else {
-					throw new IllegalArgumentException("Collection child params must be plain numbers: " + element);
-				}
+				overrides.put(entry.getKey(), parseParam(entry.getValue()));
 			}
 		}
 		return new ChildEffect(effectId, delay, duration, overrides, easing);
@@ -353,15 +348,16 @@ public class VFXDefinition {
 
 	/**
 	 * One entry of a collection definition: which effect to play, after which delay, with which
-	 * duration, constant parameter overrides and easing.
+	 * duration, parameter overrides and easing.
 	 *
 	 * @param effect  child effect id
 	 * @param delay   delay in ticks before the child starts (relative to the collection start)
 	 * @param duration child duration in ticks (0 = the child definition default, -1 = persistent)
-	 * @param params  constant parameter overrides
+	 * @param params  parameter spec overrides - plain numbers become constants, objects may be
+	 *                full specs (start/end, keyframes, {@code bind}, {@code expr}, {@code multiply})
 	 * @param easing  easing override (null = the child definition default)
 	 */
-	public record ChildEffect(Identifier effect, float delay, int duration, Map<String, Float> params, EasingFunction easing) {
+	public record ChildEffect(Identifier effect, float delay, int duration, Map<String, ParamSpec> params, EasingFunction easing) {
 	}
 
 	/**
@@ -453,6 +449,21 @@ public class VFXDefinition {
 		float yaw = GsonHelper.getAsFloat(object, "yaw", 0.0F);
 		float pitch = GsonHelper.getAsFloat(object, "pitch", 0.0F);
 		return new BoundParam(kind, x, y, z, yaw, pitch, range, invert, scale);
+	}
+
+	/**
+	 * Returns a copy of this definition with the given parameter specs merged on top of its own
+	 * (overriding same-name entries). Used when a collection child declares full parameter
+	 * specs (bind/expr/keyframes) that must land in the child's timeline, which constant
+	 * overrides alone cannot express.
+	 */
+	public VFXDefinition withParams(final Map<String, ParamSpec> overrides) {
+		if (overrides.isEmpty()) {
+			return this;
+		}
+		Map<String, ParamSpec> merged = new LinkedHashMap<>(this.params);
+		merged.putAll(overrides);
+		return new VFXDefinition(this.id, this.type, this.defaultDuration, this.defaultEasing, merged, this.persistent, this.loop, this.fadeTicks, this.children, this.positions, this.entityAnchors, this.sound, this.entitySelector);
 	}
 
 	/**

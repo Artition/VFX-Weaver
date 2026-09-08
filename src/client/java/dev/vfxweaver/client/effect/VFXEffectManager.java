@@ -92,7 +92,7 @@ public class VFXEffectManager {
 				return false;
 			});
 			for (ScheduledPlay play : due) {
-				this.play(play.effectId(), play.durationTicks(), 0L, play.position(), List.of(), play.params(), play.easing(), play.depth(), 0);
+				this.play(play.definition().getId(), play.durationTicks(), 0L, play.position(), List.of(), Map.of(), play.easing(), play.depth(), 0, play.definition());
 			}
 		}
 		for (VFXActiveEffect effect : this.active) {
@@ -136,7 +136,7 @@ public class VFXEffectManager {
 	 * @return the instance id, or {@code 0} when the effect was ignored
 	 */
 	public long play(final Identifier effectId, final int durationTicks, final Map<String, Float> params, final EasingType easing) {
-		return this.play(effectId, durationTicks, 0L, null, List.of(), params, EasingFunction.builtIn(easing), 0, 0);
+		return this.play(effectId, durationTicks, 0L, null, List.of(), params, EasingFunction.builtIn(easing), 0, 0, null);
 	}
 
 	/**
@@ -155,7 +155,7 @@ public class VFXEffectManager {
 	 * @return the instance id, or {@code 0} when the effect was ignored
 	 */
 	public long play(final Identifier effectId, final int durationTicks, final long instanceId, final @Nullable Vec3 position, final Map<String, Float> params, final EasingFunction easing) {
-		return this.play(effectId, durationTicks, instanceId, position, List.of(), params, easing, 0, 0);
+		return this.play(effectId, durationTicks, instanceId, position, List.of(), params, easing, 0, 0, null);
 	}
 
 	/**
@@ -163,7 +163,7 @@ public class VFXEffectManager {
 	 * easing function (used by the network receiver and by scheduled collection children).
 	 */
 	public long play(final Identifier effectId, final int durationTicks, final long instanceId, final @Nullable Vec3 position, final List<UUID> entityUuids, final Map<String, Float> params, final EasingFunction easing) {
-		return this.play(effectId, durationTicks, instanceId, position, entityUuids, params, easing, 0, 0);
+		return this.play(effectId, durationTicks, instanceId, position, entityUuids, params, easing, 0, 0, null);
 	}
 
 	/**
@@ -174,11 +174,11 @@ public class VFXEffectManager {
 	 * @param elapsedTicks how far into the timeline to seek, in ticks (0 = start fresh)
 	 */
 	public long play(final Identifier effectId, final int durationTicks, final int elapsedTicks, final long instanceId, final @Nullable Vec3 position, final List<UUID> entityUuids, final Map<String, Float> params, final EasingFunction easing) {
-		return this.play(effectId, durationTicks, instanceId, position, entityUuids, params, easing, 0, elapsedTicks);
+		return this.play(effectId, durationTicks, instanceId, position, entityUuids, params, easing, 0, elapsedTicks, null);
 	}
 
-	private long play(final Identifier effectId, final int durationTicks, final long instanceId, final @Nullable Vec3 position, final List<UUID> entityUuids, final Map<String, Float> params, final EasingFunction easing, final int depth, final int elapsedTicks) {
-		VFXDefinition definition = VFXDefinitionManager.get().get(effectId);
+	private long play(final Identifier effectId, final int durationTicks, final long instanceId, final @Nullable Vec3 position, final List<UUID> entityUuids, final Map<String, Float> params, final EasingFunction easing, final int depth, final int elapsedTicks, final @Nullable VFXDefinition predefined) {
+		VFXDefinition definition = predefined != null ? predefined : VFXDefinitionManager.get().get(effectId);
 		VFXEffectType type = definition != null ? definition.getType() : VFXEffectType.fromString(effectId.getPath());
 		if (type == null) {
 			LOGGER.warn("Ignoring unknown VFX effect '{}'", effectId);
@@ -195,7 +195,18 @@ public class VFXEffectManager {
 					LOGGER.warn("Scheduled VFX effect limit ({}) reached; dropping remaining collection children", MAX_SCHEDULED_EFFECTS);
 					break;
 				}
-				this.scheduled.add(new ScheduledPlay(this.clock + child.delay(), child.effect(), child.duration(), position, child.params(), child.easing(), depth + 1));
+				VFXDefinition childDef = VFXDefinitionManager.get().get(child.effect());
+				if (childDef == null) {
+					LOGGER.warn("Collection '{}' references unknown child effect '{}'", effectId, child.effect());
+					continue;
+				}
+				if (!child.params().isEmpty()) {
+					// Full parameter specs on the child (bind/expr/keyframes) must live in the
+					// child definition, so merge them into a derived copy instead of passing
+					// constant overrides.
+					childDef = childDef.withParams(child.params());
+				}
+				this.scheduled.add(new ScheduledPlay(this.clock + child.delay(), childDef, child.duration(), position, child.easing(), depth + 1));
 				scheduledCount++;
 			}
 			LOGGER.info("Scheduled {} child effect(s) from collection '{}'", scheduledCount, effectId);
@@ -310,7 +321,7 @@ public class VFXEffectManager {
 	 * definition's fade duration instead of disappearing instantly.
 	 */
 	public void stop(final Identifier effectId) {
-		this.scheduled.removeIf(play -> play.effectId().equals(effectId));
+		this.scheduled.removeIf(play -> play.definition().getId().equals(effectId));
 		this.active.removeIf(effect -> {
 			if (!effect.getId().equals(effectId)) {
 				return false;
@@ -524,8 +535,9 @@ public class VFXEffectManager {
 	}
 
 	/**
-	 * A child effect waiting for its delay to elapse.
+	 * A child effect waiting for its delay to elapse. Carries the (possibly derived) child
+	 * definition directly, so collection-level parameter specs are already merged in.
 	 */
-	private record ScheduledPlay(float at, Identifier effectId, int durationTicks, @Nullable Vec3 position, Map<String, Float> params, EasingFunction easing, int depth) {
+	private record ScheduledPlay(float at, VFXDefinition definition, int durationTicks, @Nullable Vec3 position, EasingFunction easing, int depth) {
 	}
 }
