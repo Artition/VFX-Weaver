@@ -2,6 +2,13 @@
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). The versions below are guide/feature-set versions of the mod (as they progressed historically, see `docs/GUIDE.md`), plus git release tags where applicable (`v1.0.x`, `gradle.properties` → `mod_version`). Add new entries at the top, in the same PR as the behavior change.
 
+## Unreleased / Guide v23
+### Added
+- **`light_beam` `bottom_fade` param** - fades the column alpha toward the bottom (0..1, default 0), mirroring `top_fade`.
+
+### Fixed
+- **`light_beam` under shaderpacks** - packs that declare vertex colour `flat` (e.g. Complementary) take each triangle's colour from one vertex, so the height fade rendered as clearly visible triangles ("broken" cylinders). Faded shells are now split into 32 narrow vertical slices, each quad carrying one uniform colour: flat-colour programs show a clean stepped fade with no triangle artifacts, vanilla gets an imperceptible stepped gradient.
+
 ## v1.1.0 / Guide v22
 ### Added
 - **`slice_shift` screen effect** - a straight line slices the frame; the halves slide along it with wrap/mirror fill (`angle`, `offset`, `shift`, `mirror`).

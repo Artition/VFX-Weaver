@@ -397,6 +397,7 @@ public class VFXDefinitionManager extends SimplePreparableReloadListener<Map<Ide
 					Map.entry("softness", VFXDefinition.ParamSpec.constant(0.6F)),
 					Map.entry("top_scale", VFXDefinition.ParamSpec.constant(1.0F)),
 					Map.entry("top_fade", VFXDefinition.ParamSpec.constant(0.4F)),
+					Map.entry("bottom_fade", VFXDefinition.ParamSpec.constant(0.0F)),
 					Map.entry("through_blocks", VFXDefinition.ParamSpec.constant(0.0F)),
 					Map.entry("intensity", VFXDefinition.ParamSpec.animated(1.0F, 0.0F))
 				),

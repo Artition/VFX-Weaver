@@ -533,6 +533,7 @@ A vertical glowing shaft of soft light descending onto each position. `top_scale
 | `top_scale` | 1 | Top radius multiplier (0.1..8): 1 = cylinder, >1 = flared cone |
 | `softness` | 0.6 | More concentric shells with lower alpha (0 = crisp, 2..4 = soft blurry column) |
 | `top_fade` | 0.4 | Alpha at the top relative to the base (0..1) |
+| `bottom_fade` | 0 | Alpha at the bottom relative to the base (0..1) |
 | `red/green/blue` | 1 / 0.95 / 0.75 | Beam colour |
 | `through_blocks` | 0 | 1 = visible through walls |
 | `intensity` | 1 (fades to 0) | Beam opacity |
@@ -986,7 +987,11 @@ Post-processing pipeline, world overlays, effect clock, load limits and fault to
 
 Versioned feature history — **[docs/CHANGELOG.md](CHANGELOG.md)**.
 
-Guide version: 22 — see changelog below.
+Guide version: 23 — see changelog below.
+
+### v23
+- `light_beam`: new `bottom_fade` param (fades the column toward the bottom, mirrors `top_fade`).
+- Fixed `light_beam` rendering under shaderpacks: packs that declare vertex colour `flat` (Complementary) take each triangle's colour from one vertex, so the height fade showed as visible triangles. Faded shells are now split into 32 narrow slices, each quad with one uniform colour - clean stepped fade under shaders, imperceptible difference in vanilla.
 
 ### v22
 - New screen effects: `slice_shift`, `noise_warp`, `solarize`, `double_vision`, `eyelids`, `iris_wipe`, `digital_glitch`, `vhs`, `shockwave`, `afterimage`, `stop_motion`.

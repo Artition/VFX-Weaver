@@ -379,7 +379,8 @@ public final class VFXWorldOverlayRenderer {
 	 * fainter shells). {@code top_scale} scales the TOP base of the cones: 1 = cylinder, 2 = cone
 	 * whose top radius is 2x the bottom. {@code softness} increases the number of shells and fades
 	 * their alpha (cubic), so higher values read as a soft/blurry column (many thin shells) instead
-	 * of two hard tubes.
+	 * of two hard tubes. {@code top_fade}/{@code bottom_fade} fade the alpha toward the top/bottom
+	 * of the column.
 	 */
 	private static boolean renderLightBeams(
 		final MultiBufferSource.BufferSource buffers,
@@ -394,6 +395,7 @@ public final class VFXWorldOverlayRenderer {
 		float radius = Mth.clamp(effect.getParam("radius", 1.5F), 0.1F, 16.0F);
 		float height = Mth.clamp(effect.getParam("height", 48.0F), 1.0F, 256.0F);
 		float topFade = Mth.clamp(effect.getParam("top_fade", 0.4F), 0.0F, 1.0F);
+		float bottomFade = Mth.clamp(effect.getParam("bottom_fade", 0.0F), 0.0F, 1.0F);
 		float topScale = Mth.clamp(effect.getParam("top_scale", 1.0F), 0.1F, 8.0F);
 		float softness = Mth.clamp(effect.getParam("softness", 0.6F), 0.0F, 4.0F);
 		int rgb = rgb(effect.getParam("red", 1.0F), effect.getParam("green", 0.95F), effect.getParam("blue", 0.75F));
@@ -420,7 +422,7 @@ public final class VFXWorldOverlayRenderer {
 				// Cubic alpha falloff: the outer shells fade much faster than the core, so the
 				// column keeps a strong centre and dissolves at the edge.
 				float shellA = intensity * (1.0F - t * t * t);
-				emitConeShell(buffer, pose, cx, cz, y0, y1, shellR, shellR * topScale, 8, topFade, shellA, rgb);
+				emitConeShell(buffer, pose, cx, cz, y0, y1, shellR, shellR * topScale, 8, topFade, bottomFade, shellA, rgb);
 			}
 			drew = true;
 		}
@@ -677,10 +679,20 @@ public final class VFXWorldOverlayRenderer {
 		return ramp;
 	}
 
+	/** Vertical slices a faded beam shell is split into (see {@link #emitConeShell}). */
+	private static final int FADE_SLICES = 32;
+
 	/**
-	 * Emits one vertical cylinder shell: {@code segments} quads around the anchor circle, alpha
-	 * fading toward the top and an optional sinusoidal sway of the top ring. The outer (halo)
-	 * shell uses the same structure, so the beam reads as a cylinder from every azimuth.
+	 * Emits one vertical cylinder/cone shell: {@code segments} quads around the anchor circle,
+	 * alpha fading toward the top ({@code topFade}) and bottom ({@code bottomFade}) of the shell.
+	 *
+	 * <p>When either fade is active the shell is split into {@link #FADE_SLICES} stacked slices,
+	 * and every slice quad carries ONE uniform colour (the fade value at its midpoint). Shaderpacks
+	 * that declare vertex colour {@code flat} (e.g. Complementary) take each triangle's colour from
+	 * a single vertex, so any bottom/top colour difference inside a quad renders as two visibly
+	 * different triangles; a uniform quad is immune to that. In vanilla the ramp becomes a subtle
+	 * stepped gradient (1/{@link #FADE_SLICES} of the fade range per slice) instead of perfectly
+	 * linear - imperceptible in an additive glow.</p>
 	 */
 	private static void emitConeShell(
 		final VertexConsumer buffer,
@@ -693,23 +705,38 @@ public final class VFXWorldOverlayRenderer {
 		final float radiusTop,
 		final int segments,
 		final float topFade,
+		final float bottomFade,
 		final float alpha,
 		final int rgb
 	) {
-		int aBot = alpha255(alpha);
-		int aTop = alpha255(alpha * (1.0F - topFade));
+		int slices = (topFade > 0.0F || bottomFade > 0.0F) ? FADE_SLICES : 1;
 		for (int i = 0; i < segments; i++) {
 			float a0 = (float) (i * 6.2831853 / segments);
 			float a1 = (float) ((i + 1) * 6.2831853 / segments);
-			float x00 = cx + (float) Math.cos(a0) * radiusBot;
-			float z00 = cz + (float) Math.sin(a0) * radiusBot;
-			float x01 = cx + (float) Math.cos(a1) * radiusBot;
-			float z01 = cz + (float) Math.sin(a1) * radiusBot;
-			glowVertexA(buffer, pose, x00, y0, z00, aBot, rgb);
-			glowVertexA(buffer, pose, x01, y0, z01, aBot, rgb);
-			glowVertexA(buffer, pose, cx + (float) Math.cos(a1) * radiusTop, y1, cz + (float) Math.sin(a1) * radiusTop, aTop, rgb);
-			glowVertexA(buffer, pose, cx + (float) Math.cos(a0) * radiusTop, y1, cz + (float) Math.sin(a0) * radiusTop, aTop, rgb);
+			float cos0 = (float) Math.cos(a0);
+			float sin0 = (float) Math.sin(a0);
+			float cos1 = (float) Math.cos(a1);
+			float sin1 = (float) Math.sin(a1);
+			float uPrev = 0.0F;
+			for (int j = 1; j <= slices; j++) {
+				float u = j / (float) slices;
+				int a = alpha255(fadeAlpha(alpha, topFade, bottomFade, (uPrev + u) * 0.5F));
+				float r0 = radiusBot + (radiusTop - radiusBot) * uPrev;
+				float r1 = radiusBot + (radiusTop - radiusBot) * u;
+				float y0s = y0 + (y1 - y0) * uPrev;
+				float y1s = y0 + (y1 - y0) * u;
+				glowVertexA(buffer, pose, cx + cos0 * r0, y0s, cz + sin0 * r0, a, rgb);
+				glowVertexA(buffer, pose, cx + cos1 * r0, y0s, cz + sin1 * r0, a, rgb);
+				glowVertexA(buffer, pose, cx + cos1 * r1, y1s, cz + sin1 * r1, a, rgb);
+				glowVertexA(buffer, pose, cx + cos0 * r1, y1s, cz + sin0 * r1, a, rgb);
+				uPrev = u;
+			}
 		}
+	}
+
+	/** Shell alpha at normalised height {@code u} (0 = bottom, 1 = top) with both fades applied. */
+	private static float fadeAlpha(final float alpha, final float topFade, final float bottomFade, final float u) {
+		return alpha * (1.0F - topFade * u) * (1.0F - bottomFade * (1.0F - u));
 	}
 
 	/** Clamps/rounds a 0..1 alpha to a 0..255 byte. */
