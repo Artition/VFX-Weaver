@@ -219,7 +219,7 @@ public class VFXTimeline {
 		for (final Map.Entry<String, BoundParam> entry : source.entrySet()) {
 			final BoundParam binding = entry.getValue();
 			if (binding.kind().needsPos()) {
-				updated.put(entry.getKey(), new BoundParam(binding.kind(), x, y, z, binding.yaw(), binding.pitch(), binding.range(), binding.invert(), binding.scale()));
+				updated.put(entry.getKey(), new BoundParam(binding.kind(), x, y, z, binding.yaw(), binding.pitch(), binding.range(), binding.invert(), binding.scale(), null, null));
 			} else {
 				updated.put(entry.getKey(), binding);
 			}
