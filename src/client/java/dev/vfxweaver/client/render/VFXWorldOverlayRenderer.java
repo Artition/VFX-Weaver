@@ -249,10 +249,13 @@ public final class VFXWorldOverlayRenderer {
 
 	/** Per-running-instance particle emission bookkeeping: {@code [lastAgeTicks, spawnBudget]}. */
 	private static final Map<Long, float[]> PARTICLE_BUDGETS = new HashMap<>();
+	/** Live aimed particles per instance id — accelerated from outside each frame (see {@link #emitParticles}). */
+	private static final Map<Long, List<Particle>> AIMED_PARTICLES = new HashMap<>();
 	/** Unknown particle ids / shapes we already warned about (capped to avoid unbounded growth). */
 	private static final Set<String> PARTICLE_WARNINGS = new HashSet<>();
 	private static final int MAX_PARTICLE_RATE = 1024;
 	private static final int MAX_PARTICLES_PER_FRAME = 256;
+	private static final int MAX_AIMED_PARTICLES = 1024;
 
 	/**
 	 * Spawns vanilla particles for one {@code particles} effect this frame. Emission is
@@ -260,15 +263,14 @@ public final class VFXWorldOverlayRenderer {
 	 * of framerate, multiplied by the effect's fade weight (fading out stops emission).
 	 *
 	 * <p>Shapes sample the effect's position slots (static block centres or exact entity-anchor
-	 * points). {@code line} uses the first two slots like {@code guide_line}. {@code dust}
-	 * particles take their colour/size from the animatable {@code color_r/g/b}/{@code size}
-	 * params; every other supported particle is a plain registry id.</p>
+	 * points). {@code line} uses the first two slots like {@code guide_line}. With
+	 * {@code aim >= 0.5} (and a second position slot) every particle is launched TOWARDS the
+	 * second slot with drag-free ballistics ({@code friction = 1}, {@code gravity = 0}) and is
+	 * tracked so {@code accel} is applied per frame — aimed flight works for any simple
+	 * particle. {@code dust} particles take their colour/size from the animatable
+	 * {@code color_r/g/b}/{@code size} params.</p>
 	 */
 	private static void emitParticles(final Minecraft minecraft, final VFXActiveEffect effect, final ClientLevel level) {
-		float rate = Mth.clamp(effect.getParam("rate", 40.0F), 0.0F, MAX_PARTICLE_RATE) * effect.getWeight();
-		if (rate <= 0.0F) {
-			return;
-		}
 		ParticleOptions options = resolveParticleOptions(effect);
 		if (options == null) {
 			return;
@@ -276,20 +278,58 @@ public final class VFXWorldOverlayRenderer {
 		float radius = Mth.clamp(effect.getParam("radius", 2.0F), 0.05F, 32.0F);
 		float height = Mth.clamp(effect.getParam("height", 3.0F), 0.5F, 32.0F);
 		float turns = Mth.clamp(effect.getParam("turns", 2.0F), 0.25F, 16.0F);
-		float spin = Mth.clamp(effect.getParam("spin", 0.0F), -8.0F, 8.0F);
+		float spin = Mth.clamp(effect.getParam("spin", 0.0F), 0.0F, 1.0F);
 		float speed = Mth.clamp(effect.getParam("speed", 0.0F), 0.0F, 8.0F);
 		float velY = Mth.clamp(effect.getParam("vel_y", 0.0F), -4.0F, 4.0F);
+		float spread = Mth.clamp(effect.getParam("spread", 0.15F), 0.0F, 1.0F);
+		float accel = Mth.clamp(effect.getParam("accel", 0.0F), 0.0F, 2.0F);
+		int lifetime = (int) Mth.clamp(effect.getParam("lifetime", 0.0F), 0.0F, 1200.0F);
+		boolean aimed = effect.getParam("aim", 0.0F) >= 0.5F;
 
 		List<Vec3> anchors = effectPositions(effect, level);
 		if (anchors.isEmpty()) {
 			return;
 		}
+		// Aim direction: from the first position slot to the second. Entity-anchored slots
+		// re-resolve every frame, so an aimed stream tracks a moving target.
+		Vec3 aimDir = null;
+		if (aimed && anchors.size() > 1) {
+			Vec3 to = anchors.get(1).subtract(anchors.get(0));
+			if (to.lengthSqr() > 1.0e-6) {
+				aimDir = to.normalize();
+			}
+		}
 
 		ParticleEngine engine = minecraft.particleEngine;
-		float[] budget = PARTICLE_BUDGETS.computeIfAbsent(effect.getInstanceId(), key -> new float[2]);
+		long instanceKey = effect.getInstanceId();
+		float[] budget = PARTICLE_BUDGETS.computeIfAbsent(instanceKey, key -> new float[2]);
 		float age = effect.getAge();
 		float delta = Math.max(0.0F, age - budget[0]);
 		budget[0] = age;
+
+		// Accelerate the live aimed particles of this instance (each frame, before emitting new ones).
+		if (aimDir != null && accel > 0.0F) {
+			List<Particle> tracked = AIMED_PARTICLES.get(instanceKey);
+			if (tracked != null && !tracked.isEmpty()) {
+				double ax = aimDir.x * accel * delta;
+				double ay = aimDir.y * accel * delta;
+				double az = aimDir.z * accel * delta;
+				tracked.removeIf(particle -> {
+					if (!particle.isAlive()) {
+						return true;
+					}
+					particle.xd += ax;
+					particle.yd += ay;
+					particle.zd += az;
+					return false;
+				});
+			}
+		}
+
+		float rate = Mth.clamp(effect.getParam("rate", 40.0F), 0.0F, MAX_PARTICLE_RATE) * effect.getWeight();
+		if (rate <= 0.0F) {
+			return;
+		}
 		budget[1] += rate * delta / 20.0F;
 		int count = Math.min((int) budget[1], MAX_PARTICLES_PER_FRAME);
 		if (count <= 0) {
@@ -303,6 +343,7 @@ public final class VFXWorldOverlayRenderer {
 		String shape = effect.getShape() == null ? "sphere" : effect.getShape();
 		ThreadLocalRandom random = ThreadLocalRandom.current();
 		float elapsed = effect.getElapsed() / 20.0F;
+		List<Particle> tracked = aimDir != null ? AIMED_PARTICLES.computeIfAbsent(instanceKey, key -> new ArrayList<>()) : null;
 		for (int i = 0; i < count; i++) {
 			// Jitter the sample time within the frame so high rates fill spirals evenly.
 			Vec3 p = sampleShape(shape, anchors, radius, height, turns, elapsed + spin, random);
@@ -312,7 +353,20 @@ public final class VFXWorldOverlayRenderer {
 			double vx = 0.0;
 			double vy = velY;
 			double vz = 0.0;
-			if (speed > 0.0F) {
+			if (aimDir != null) {
+				// Aimed launch: drag-free ballistics towards the second slot, optional cone spread.
+				Vec3 dir = aimDir;
+				if (spread > 0.0F) {
+					Vec3 jitter = new Vec3(random.nextDouble(-1.0, 1.0), random.nextDouble(-1.0, 1.0), random.nextDouble(-1.0, 1.0));
+					Vec3 mixed = dir.add(jitter.scale(spread));
+					if (mixed.lengthSqr() > 1.0e-6) {
+						dir = mixed.normalize();
+					}
+				}
+				vx = dir.x * speed;
+				vy += dir.y * speed;
+				vz = dir.z * speed;
+			} else if (speed > 0.0F) {
 				double th = random.nextDouble() * 6.2831853;
 				double ph = Math.acos(2.0 * random.nextDouble() - 1.0);
 				vx = Math.sin(ph) * Math.cos(th) * speed;
@@ -320,9 +374,20 @@ public final class VFXWorldOverlayRenderer {
 				vz = Math.sin(ph) * Math.sin(th) * speed;
 			}
 			Particle particle = engine.createParticle(options, p.x, p.y, p.z, vx, vy, vz);
-			if (particle != null) {
-				engine.add(particle);
+			if (particle == null) {
+				continue;
 			}
+			if (aimDir != null) {
+				particle.friction = 1.0F;
+				particle.gravity = 0.0F;
+				if (lifetime > 0) {
+					particle.setLifetime(lifetime);
+				}
+				if (tracked != null && tracked.size() < MAX_AIMED_PARTICLES) {
+					tracked.add(particle);
+				}
+			}
+			engine.add(particle);
 		}
 	}
 
