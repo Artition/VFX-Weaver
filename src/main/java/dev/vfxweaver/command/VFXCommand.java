@@ -1,6 +1,7 @@
 package dev.vfxweaver.command;
 
 import com.mojang.brigadier.CommandDispatcher;
+import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.StringReader;
 import com.mojang.brigadier.context.CommandContext;
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
@@ -41,6 +42,7 @@ import org.slf4j.LoggerFactory;
 /**
  * {@code /vfx play <effect> [<targets>]} triggers a VFX effect,
  * {@code /vfx stop <effect> [<targets>]} stops it and {@code /vfx list} lists known effects.
+ * {@code /vfx validate [namespace]} prints a dry-run health report of datapack definitions.
  */
 public final class VFXCommand {
 	private static final Logger LOGGER = LoggerFactory.getLogger("vfxweaver/command");
@@ -165,6 +167,16 @@ public final class VFXCommand {
 						)
 				)
 				.then(Commands.literal("list").executes(VFXCommand::list))
+			.then(
+				Commands.literal("validate")
+					.requires(VFXCommand::requirePermission)
+					.executes(context2 -> validate(context2, null))
+					.then(
+						Commands.argument("namespace", StringArgumentType.string())
+							.suggests(VFXCommand::suggestNamespaces)
+							.executes(context2 -> validate(context2, StringArgumentType.getString(context2, "namespace")))
+					)
+			)
 		);
 	}
 
@@ -335,8 +347,52 @@ public final class VFXCommand {
 		return definitions.getDefinitions().size();
 	}
 
+	/**
+	 * Dry-run health report of the known VFX definitions: prints how many definitions are
+	 * loaded (optionally filtered by namespace) and every parse error recorded on the last
+	 * reload, so a datapack author sees broken files without reading server logs.
+	 *
+	 * @param namespace optional namespace filter, {@code null} checks every definition
+	 * @return the number of broken definitions found
+	 */
+	private static int validate(final CommandContext<CommandSourceStack> context, final String namespace) {
+		final VFXDefinitionManager definitions = VFXDefinitionManager.get();
+		final int checked = (int) definitions.getDefinitions().keySet().stream()
+			.filter(id -> namespace == null || id.getNamespace().equals(namespace))
+			.count();
+		final List<Map.Entry<Identifier, String>> broken = definitions.getParseErrors().entrySet().stream()
+			.filter(e -> namespace == null || e.getKey().getNamespace().equals(namespace))
+			.toList();
+		context.getSource()
+			.sendSuccess(
+				() -> Component.translatable(
+					broken.isEmpty() ? "commands.vfxweaver.validated_clean" : "commands.vfxweaver.validated",
+					checked,
+					broken.size()
+				),
+				false
+			);
+		// One chat line per broken file, same detail format as /vfx list.
+		for (final Map.Entry<Identifier, String> error : broken) {
+			context.getSource()
+				.sendSuccess(() -> Component.literal(error.getKey().toString() + ": " + error.getValue()), false);
+		}
+		return broken.size();
+	}
+
 	private static CompletableFuture<Suggestions> suggestEffects(final CommandContext<CommandSourceStack> context, final SuggestionsBuilder builder) {
 		return SharedSuggestionProvider.suggestResource(VFXDefinitionManager.get().getDefinitions().keySet().stream(), builder);
+	}
+
+	/**
+	 * Suggests the distinct namespaces of the currently known effect definitions
+	 * (for the optional {@code [namespace]} argument of {@code /vfx validate}).
+	 */
+	private static CompletableFuture<Suggestions> suggestNamespaces(final CommandContext<CommandSourceStack> context, final SuggestionsBuilder builder) {
+		return SharedSuggestionProvider.suggest(
+			VFXDefinitionManager.get().getDefinitions().keySet().stream().map(Identifier::getNamespace).distinct().toList(),
+			builder
+		);
 	}
 
 	/**

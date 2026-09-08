@@ -9,5 +9,7 @@
 	"commands.vfxweaver.bad_param": "Bad parameter pair (expected name:value): %s",
 	"commands.vfxweaver.key": "Keyframed %s of VFX %s at t=%s to %s (easing %s) for %s player(s)",
 	"commands.vfxweaver.list_count": "%s VFX definition(s) loaded",
-	"commands.vfxweaver.list_errors": "§c%s broken datapack definition(s):"
+	"commands.vfxweaver.list_errors": "§c%s broken datapack definition(s):",
+	"commands.vfxweaver.validated": "%s VFX definition(s) checked, %s broken:",
+	"commands.vfxweaver.validated_clean": "%s VFX definition(s) checked, no broken definitions"
 }
