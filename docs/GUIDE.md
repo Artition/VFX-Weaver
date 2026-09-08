@@ -634,10 +634,13 @@ A line of **real block-model links** between two anchors (like `guide_line`, but
 
 | Param | Default | Description |
 |---|---|---|
-| `spacing` | 1 | Distance between links, blocks (0.25..8) |
-| `arc` | 0 | Bows the path up (+) or down/hanging (−) at the midpoint, blocks (same as `guide_line`) |
+| `spacing` | 1 | Distance between links, blocks (0.25..8); links tile the path end-to-end and stretch to span it exactly |
+| `arc` | 0 | Bows the path up (+) or down/hanging (−) at the midpoint, blocks (same as `guide_line`); ignored in physics mode |
 | `scale` | 1 | Link block size (0.1..4) |
 | `align` | 1 | 1 = each link's Y axis is rotated to the local path direction (chain follows the curve), 0 = upright blocks |
+| `physics` | 0 | 1 = verlet rope simulation: gravity sag, world collision (links catch on blocks), the local player pushes links away, `sway` wind wobble. With two anchors both ends are pinned; with one anchor the chain hangs from it (`length` blocks) |
+| `length` | 6 | Hanging chain length in blocks (physics mode, single anchor) |
+| `sway` | 0.3 | Wind wobble amplitude in physics mode (0..1) |
 
 ```json
 {
@@ -649,7 +652,19 @@ A line of **real block-model links** between two anchors (like `guide_line`, but
 }
 ```
 
-Links are capped at 512 per effect; rendering happens in the vanilla submit pipeline (same path as falling blocks), so it works under shaderpacks. Physics (swinging/collision) is not simulated — the chain is a geometric curve.
+Links are capped at 512 per effect; rendering happens in the vanilla submit pipeline (same path as falling blocks), so it works under shaderpacks. When the anchors are farther apart than the chain, links stretch along the path (up to 4×) to stay connected — a pulled-apart chain goes taut rather than showing gaps.
+
+```json
+{
+	"type": "block_chain",
+	"loop": true,
+	"block": "minecraft:iron_chain",
+	"positions": [{ "entity": "@s", "point": "center" }],
+	"params": { "physics": 1, "length": 6, "sway": 0.4 }
+}
+```
+
+Physics is a client-side visual simulation (verlet rope at a fixed tick rate) — it does not affect the server world or other entities beyond the push interaction with the local player.
 
 The builtin `vfxweaver:particles` demo binds its position to the local player (`pos_x/y/z` with `bind: player_x/y/z`), so plain `/vfx play vfxweaver:particles` spawns the helix around the viewer; `/vfx playat` and `positions` override that as usual.
 
