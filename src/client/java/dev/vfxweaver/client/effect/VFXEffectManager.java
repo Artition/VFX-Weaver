@@ -258,7 +258,7 @@ public class VFXEffectManager {
 			List<VFXDefinition.EntityAnchor> specs = definition.getEntityAnchors();
 			for (int i = 0; i < specs.size() && i < entityUuids.size(); i++) {
 				VFXDefinition.EntityAnchor spec = specs.get(i);
-				built.add(new VFXActiveEffect.ResolvedAnchor(spec.slot(), entityUuids.get(i), new Vec3(spec.ox(), spec.oy(), spec.oz()), spec.point()));
+				built.add(new VFXActiveEffect.ResolvedAnchor(spec.slot(), entityUuids.get(i), new Vec3(spec.ox(), spec.oy(), spec.oz()), spec.point(), spec.dir(), spec.distance()));
 			}
 			if (built.size() < specs.size()) {
 				LOGGER.warn("Effect '{}' has {} entity-anchored positions but only {} entity UUID(s) arrived; unanchored slots are skipped while rendering", effectId, specs.size(), built.size());

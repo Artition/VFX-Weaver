@@ -1150,6 +1150,9 @@ public final class VFXWorldOverlayRenderer {
 				case "eyes" -> entity.position().add(0.0, entity.getEyeHeight(), 0.0);
 				default -> entity.position();
 			};
+			if ("look".equals(anchor.dir())) {
+				anchorPoint = anchorPoint.add(entity.getLookAngle().scale(anchor.distance()));
+			}
 			resolved.set(anchor.slot(), anchorPoint.add(anchor.offset()));
 		}
 		return List.copyOf(resolved);

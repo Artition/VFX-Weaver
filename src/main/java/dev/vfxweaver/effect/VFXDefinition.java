@@ -321,10 +321,12 @@ public class VFXDefinition {
 	}
 
 	/**
-	 * Parses one {@code {"entity": ..., "offset": ..., "point": ...}} position entry into an
-	 * anchor spec. The {@code offset} (relative to the chosen anchor point) is optional and
-	 * defaults to {@code [0, 0, 0]}; {@code point} selects the reference point on the entity:
-	 * {@code feet} (default), {@code center} (bounding-box centre) or {@code eyes}.
+	 * Parses one {@code {"entity": ..., "offset": ..., "point": ..., "dir": ...}} position entry
+	 * into an anchor spec. The {@code offset} (relative to the resolved anchor point) is optional
+	 * and defaults to {@code [0, 0, 0]}; {@code point} selects the reference point on the entity:
+	 * {@code feet} (default), {@code center} (bounding-box centre) or {@code eyes}; {@code dir}
+	 * optionally pushes the anchor along an entity direction ({@code look}) by {@code distance}
+	 * blocks — e.g. eyes + look × 24 = a laser target where the entity is looking.
 	 */
 	private static EntityAnchor parseEntityAnchor(final JsonObject object, final int slot) {
 		String selector = GsonHelper.getAsString(object, "entity", "");
@@ -335,6 +337,11 @@ public class VFXDefinition {
 		if (!point.equals("feet") && !point.equals("center") && !point.equals("eyes")) {
 			throw new IllegalArgumentException("Entity anchor 'point' must be feet, center or eyes: " + object);
 		}
+		String dir = GsonHelper.getAsString(object, "dir", "none").toLowerCase(java.util.Locale.ROOT);
+		if (!dir.equals("none") && !dir.equals("look")) {
+			throw new IllegalArgumentException("Entity anchor 'dir' must be none or look: " + object);
+		}
+		double distance = GsonHelper.getAsFloat(object, "distance", 0.0F);
 		double x = 0.0;
 		double y = 0.0;
 		double z = 0.0;
@@ -347,7 +354,7 @@ public class VFXDefinition {
 			y = offset.get(1).getAsDouble();
 			z = offset.get(2).getAsDouble();
 		}
-		return new EntityAnchor(slot, selector, point, x, y, z);
+		return new EntityAnchor(slot, selector, point, dir, distance, x, y, z);
 	}
 
 	private static ChildEffect parseChild(final JsonElement element) {
@@ -383,17 +390,20 @@ public class VFXDefinition {
 	/**
 	 * One entity-anchored {@code positions} entry: the slot index it fills in the ordered
 	 * position list, the entity selector string (resolved once per play on the server), the
-	 * reference point on the entity and the offset applied to it.
+	 * reference point on the entity, an optional entity-direction push and the offset applied
+	 * to the result.
 	 *
 	 * @param slot     index into the definition's position list (placeholder {@link BlockPos#ZERO}
 	 *                 is stored there so static positions keep their declaration order)
 	 * @param selector entity selector string, e.g. {@code "@e[type=villager,limit=1]"} or {@code "@s"}
 	 * @param point    reference point on the entity: {@code feet}, {@code center} or {@code eyes}
-	 * @param ox       X offset from the anchor point
-	 * @param oy       Y offset from the anchor point
-	 * @param oz       Z offset from the anchor point
+	 * @param dir      entity direction to push along: {@code none} or {@code look}
+	 * @param distance how far to push along {@code dir} (blocks, used when {@code dir} != none)
+	 * @param ox       X offset from the resolved anchor point
+	 * @param oy       Y offset from the resolved anchor point
+	 * @param oz       Z offset from the resolved anchor point
 	 */
-	public record EntityAnchor(int slot, String selector, String point, double ox, double oy, double oz) {
+	public record EntityAnchor(int slot, String selector, String point, String dir, double distance, double ox, double oy, double oz) {
 	}
 
 	private static ParamSpec parseParam(final JsonElement element) {

@@ -324,14 +324,16 @@ public class VFXActiveEffect {
 
 	/**
 	 * A resolved entity anchor for one {@code positions} slot: the renderer substitutes the
-	 * tracked entity's current anchor-point position (+ offset) for the placeholder block
-	 * every frame.
+	 * tracked entity's current anchor-point position (optionally pushed along an entity
+	 * direction) plus the offset for the placeholder block every frame.
 	 *
-	 * @param slot   index into the effect's position list
-	 * @param uuid   tracked entity UUID
-	 * @param offset offset from the entity's anchor point
-	 * @param point  reference point on the entity: {@code feet}, {@code center} or {@code eyes}
+	 * @param slot     index into the effect's position list
+	 * @param uuid     tracked entity UUID
+	 * @param offset   offset from the resolved anchor point
+	 * @param point    reference point on the entity: {@code feet}, {@code center} or {@code eyes}
+	 * @param dir      entity direction push: {@code none} or {@code look}
+	 * @param distance how far to push along {@code dir} (blocks)
 	 */
-	public record ResolvedAnchor(int slot, UUID uuid, Vec3 offset, String point) {
+	public record ResolvedAnchor(int slot, UUID uuid, Vec3 offset, String point, String dir, double distance) {
 	}
 }
