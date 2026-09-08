@@ -278,13 +278,12 @@ public final class VFXWorldOverlayRenderer {
 		final Vec3[] prev;
 		Vec3[] renderPrev;
 
-		ChainSim(final int joints, final Vec3[] positions) {
+		ChainSim(final int joints, final Vec3[] positions, final Vec3[] prevPositions) {
 			this.joints = joints;
 			this.pos = positions;
-			this.prev = new Vec3[joints];
+			this.prev = prevPositions;
 			this.renderPrev = new Vec3[joints];
 			for (int i = 0; i < joints; i++) {
-				this.prev[i] = positions[i];
 				this.renderPrev[i] = positions[i];
 			}
 		}
@@ -641,26 +640,32 @@ public final class VFXWorldOverlayRenderer {
 	 * points, one rendered link spans each joint pair. Both ends pinned when a second anchor
 	 * exists, otherwise only the top is pinned and the rope hangs. Returns the INTERPOLATED
 	 * joint positions (prev→current by the fractional tick) for smooth rendering. Rebuilt when
-	 * the joint count changes or the pinned anchor teleports.
+	 * the joint count changes (resampling keeps the current rope shape) or the anchor teleports.
 	 */
 	private static Vec3[] simulateChain(final VFXActiveEffect effect, final Minecraft minecraft, final ClientLevel level, final Vec3 anchorA, final @Nullable Vec3 anchorB, final int joints, final float spacing) {
 		long key = effect.getInstanceId();
 		ChainSim sim = CHAIN_SIMS.get(key);
-		// Auto-length chains derive the joint count from the live anchor distance, which drifts
-		// as the anchors move - rebuilding on every drift would reset the sag each frame.
-		// Rebuild only when the count changes drastically (or the anchor teleports).
-		boolean rebuild = sim != null && (joints > sim.joints * 2 || joints < Math.max(2, sim.joints / 2));
 		boolean teleport = sim != null && sim.pos[0].distanceTo(anchorA) > 16.0;
-		if (sim == null || rebuild || teleport) {
-			// Straight initial shape: toward the second anchor, or straight down for a hanging chain.
+		if (sim == null || teleport || sim.joints != joints) {
 			Vec3[] start = new Vec3[joints];
-			Vec3 step = anchorB != null
-				? anchorB.subtract(anchorA).scale(1.0 / (joints - 1))
-				: new Vec3(0.0, -spacing, 0.0);
-			for (int i = 0; i < joints; i++) {
-				start[i] = anchorA.add(step.scale(i));
+			Vec3[] startPrev = new Vec3[joints];
+			if (sim != null && !teleport) {
+				// Density change (e.g. animated 'length' crossing a spacing step): resample the
+				// CURRENT rope shape onto the new joint count so the chain keeps its sag and
+				// motion instead of snapping back to a straight line.
+				resampleRope(sim.pos, start);
+				resampleRope(sim.prev, startPrev);
+			} else {
+				// Fresh rope: straight towards the second anchor, or straight down for a hang.
+				Vec3 step = anchorB != null
+					? anchorB.subtract(anchorA).scale(1.0 / (joints - 1))
+					: new Vec3(0.0, -spacing, 0.0);
+				for (int i = 0; i < joints; i++) {
+					start[i] = anchorA.add(step.scale(i));
+					startPrev[i] = start[i];
+				}
 			}
-			sim = new ChainSim(joints, start);
+			sim = new ChainSim(joints, start, startPrev);
 			sim.lastAge = effect.getAge();
 			CHAIN_SIMS.put(key, sim);
 			if (CHAIN_SIMS.size() > 256) {
@@ -775,6 +780,37 @@ public final class VFXWorldOverlayRenderer {
 			);
 		}
 		return render;
+	}
+
+	/**
+	 * Resamples a polyline onto {@code out.length} evenly spaced points (by arc length),
+	 * preserving the shape. Used when the physics chain changes joint count so an animated
+	 * {@code length} keeps the rope's current pose.
+	 */
+	private static void resampleRope(final Vec3[] source, final Vec3[] out) {
+		int count = out.length;
+		if (source.length == count) {
+			for (int i = 0; i < count; i++) {
+				out[i] = source[i];
+			}
+			return;
+		}
+		double total = 0.0;
+		double[] cumulative = new double[source.length];
+		for (int i = 1; i < source.length; i++) {
+			total += source[i].distanceTo(source[i - 1]);
+			cumulative[i] = total;
+		}
+		for (int j = 0; j < count; j++) {
+			double target = count == 1 ? 0.0 : total * j / (count - 1.0);
+			int seg = 1;
+			while (seg < source.length - 1 && cumulative[seg] < target) {
+				seg++;
+			}
+			double segLen = cumulative[seg] - cumulative[seg - 1];
+			double t = segLen > 1.0e-9 ? (target - cumulative[seg - 1]) / segLen : 0.0;
+			out[j] = source[seg - 1].lerp(source[seg], Mth.clamp((float) t, 0.0F, 1.0F));
+		}
 	}
 
 	/**
