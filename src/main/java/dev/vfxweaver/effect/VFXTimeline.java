@@ -6,6 +6,8 @@ import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * A collection of named {@link AnimatedValue}s that together drive a single visual effect.
@@ -16,14 +18,15 @@ import java.util.Map;
  * win over both world bindings and the definition values.
  */
 public class VFXTimeline {
+	private static final Logger LOGGER = LoggerFactory.getLogger("vfxweaver/timeline");
 	/** Safety cap for runtime overrides (network/command input, see AGENTS.md). */
 	private static final int MAX_OVERRIDES = 32;
 
 	private final float duration;
-	private final Map<String, AnimatedValue> values;
+	private Map<String, AnimatedValue> values;
 	private Map<String, BoundParam> bindings;
 	private Map<String, BoundParam> multipliers;
-	private final Map<String, MathExpression> expressions;
+	private Map<String, MathExpression> expressions;
 	private final Map<String, AnimatedValue> overrides = new LinkedHashMap<>();
 	private float elapsed;
 
@@ -263,15 +266,58 @@ public class VFXTimeline {
 		this.putOverride(name, AnimatedValue.fromKeyframes(frames.toArray(new Keyframe[0])));
 	}
 
+	/**
+	 * Live-replaces a parameter with a compiled math expression (used by the network
+	 * {@code SET_EXPR} action). The expression is evaluated per frame with {@code t} and the
+	 * camera position, and wins over whatever the parameter had before: any entry under this
+	 * name is removed from the value, binding and multiplier maps. When the source cannot be
+	 * compiled, a warning is logged and the parameter falls back to a constant {@code 0}
+	 * (matching the definition loading behavior for invalid expressions).
+	 *
+	 * @param name   parameter name
+	 * @param source expression source (may be null, which falls back to {@code 0})
+	 * @param seed   per-instance seed used to drive {@code random()}/{@code noise()} in the expression
+	 */
+	public void setExpression(final String name, final String source, final long seed) {
+		MathExpression expr = MathExpression.compile(seed, source);
+		if (expr == null) {
+			LOGGER.warn("Invalid expression for parameter '{}': '{}' (falling back to 0)", name, source);
+		}
+		Map<String, MathExpression> expressions = new LinkedHashMap<>(this.expressions);
+		Map<String, AnimatedValue> values = new LinkedHashMap<>(this.values);
+		if (expr != null) {
+			evictOldest(expressions, name);
+			expressions.put(name, expr);
+			values.remove(name);
+		} else {
+			evictOldest(values, name);
+			values.put(name, AnimatedValue.constant(0.0F));
+			expressions.remove(name);
+		}
+		Map<String, BoundParam> bindings = new LinkedHashMap<>(this.bindings);
+		Map<String, BoundParam> multipliers = new LinkedHashMap<>(this.multipliers);
+		bindings.remove(name);
+		multipliers.remove(name);
+		this.expressions = Collections.unmodifiableMap(expressions);
+		this.values = Collections.unmodifiableMap(values);
+		this.bindings = Collections.unmodifiableMap(bindings);
+		this.multipliers = Collections.unmodifiableMap(multipliers);
+	}
+
 	private void putOverride(final String name, final AnimatedValue value) {
-		if (this.overrides.size() >= MAX_OVERRIDES && !this.overrides.containsKey(name)) {
-			Iterator<String> it = this.overrides.keySet().iterator();
+		evictOldest(this.overrides, name);
+		this.overrides.put(name, value);
+		value.update(this.elapsed);
+	}
+
+	/** Bounds map growth from network/command input: evicts the oldest entry when full and the name is new. */
+	private static void evictOldest(final Map<String, ?> map, final String name) {
+		if (map.size() >= MAX_OVERRIDES && !map.containsKey(name)) {
+			Iterator<String> it = map.keySet().iterator();
 			if (it.hasNext()) {
 				it.next();
 				it.remove();
 			}
 		}
-		this.overrides.put(name, value);
-		value.update(this.elapsed);
 	}
 }

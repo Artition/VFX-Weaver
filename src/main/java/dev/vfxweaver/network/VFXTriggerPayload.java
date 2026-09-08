@@ -17,13 +17,14 @@ import net.minecraft.world.phys.Vec3;
 import org.jspecify.annotations.Nullable;
 
 /**
- * Server-to-client packet that triggers, stops or live-edits a VFX effect. Carries a protocol
- * version, the effect id, the action, the duration in ticks, an optional resume offset in ticks
- * (how far into the timeline the effect already is вЂ” used when re-applying effects after a
- * reconnect), an optional explicit world position, an optional instance id (to target one of
- * several concurrent instances of the same effect), the (already resolved) parameter map, the
- * easing curve name (built-in or custom datapack curve) and the list of entity UUIDs this effect
- * applies to (for entity tint/outline effects).
+ * Server-to-client packet that triggers, stops, moves or live-edits a VFX effect. Carries a
+ * protocol version, the effect id, the action, the duration in ticks, an optional resume offset
+ * in ticks (how far into the timeline the effect already is вЂ” used when re-applying effects
+ * after a reconnect), an optional explicit world position, an optional instance id (to target
+ * one of several concurrent instances of the same effect), the (already resolved) parameter
+ * map, the easing curve name (built-in or custom datapack curve), the list of entity UUIDs this
+ * effect applies to (for entity tint/outline effects) and — for the {@link VFXAction#SET_EXPR}
+ * action only — the parameter name and expression source to install at runtime.
  */
 public record VFXTriggerPayload(
 	byte protocolVersion,
@@ -35,9 +36,11 @@ public record VFXTriggerPayload(
 	@Nullable Vec3 position,
 	List<UUID> entityUuids,
 	Map<String, Float> params,
-	String easing
+	String easing,
+	@Nullable String exprParam,
+	@Nullable String exprSource
 ) implements CustomPacketPayload {
-	public static final byte PROTOCOL_VERSION = 5;
+	public static final byte PROTOCOL_VERSION = 6;
 	/** Safety cap on the number of parameters a play packet may carry (server input, see AGENTS.md). */
 	public static final int MAX_PARAMS = 32;
 	/** Safety cap on the number of entity UUIDs in one packet. */
@@ -54,6 +57,18 @@ public record VFXTriggerPayload(
 			output.writeBoolean(value != null);
 			if (value != null) {
 				Vec3.STREAM_CODEC.encode(output, value);
+			}
+		}
+	};
+	public static final StreamCodec<ByteBuf, String> OPTIONAL_STRING = new StreamCodec<>() {
+		public String decode(final ByteBuf input) {
+			return input.readBoolean() ? ByteBufCodecs.STRING_UTF8.decode(input) : null;
+		}
+
+		public void encode(final ByteBuf output, final String value) {
+			output.writeBoolean(value != null);
+			if (value != null) {
+				ByteBufCodecs.STRING_UTF8.encode(output, value);
 			}
 		}
 	};
@@ -89,6 +104,10 @@ public record VFXTriggerPayload(
 		VFXTriggerPayload::params,
 		ByteBufCodecs.STRING_UTF8,
 		VFXTriggerPayload::easing,
+		OPTIONAL_STRING,
+		VFXTriggerPayload::exprParam,
+		OPTIONAL_STRING,
+		VFXTriggerPayload::exprSource,
 		VFXTriggerPayload::new
 	);
 
@@ -134,7 +153,7 @@ public record VFXTriggerPayload(
 	 * @param elapsedTicks how far into the timeline the effect already is, in ticks
 	 */
 	public static VFXTriggerPayload play(final Identifier effectId, final int durationTicks, final int elapsedTicks, final long instanceId, final @Nullable Vec3 position, final List<UUID> entityUuids, final Map<String, Float> params, final String easing) {
-		return new VFXTriggerPayload(PROTOCOL_VERSION, effectId, VFXAction.PLAY, durationTicks, Math.max(0, elapsedTicks), instanceId, position, entityUuids, params, easing);
+		return new VFXTriggerPayload(PROTOCOL_VERSION, effectId, VFXAction.PLAY, durationTicks, Math.max(0, elapsedTicks), instanceId, position, entityUuids, params, easing, null, null);
 	}
 
 	/**
@@ -151,7 +170,7 @@ public record VFXTriggerPayload(
 	 * @param instanceId instance id (0 = stop every instance of the effect)
 	 */
 	public static VFXTriggerPayload stop(final Identifier effectId, final long instanceId) {
-		return new VFXTriggerPayload(PROTOCOL_VERSION, effectId, VFXAction.STOP, 0, 0, instanceId, null, List.of(), Map.of(), EasingType.LINEAR.name());
+		return new VFXTriggerPayload(PROTOCOL_VERSION, effectId, VFXAction.STOP, 0, 0, instanceId, null, List.of(), Map.of(), EasingType.LINEAR.name(), null, null);
 	}
 
 	/**
@@ -159,7 +178,7 @@ public record VFXTriggerPayload(
 	 * a single {@code name -> value} entry).
 	 */
 	public static VFXTriggerPayload setParam(final Identifier effectId, final String param, final float value) {
-		return new VFXTriggerPayload(PROTOCOL_VERSION, effectId, VFXAction.SET_PARAM, 0, 0, 0L, null, List.of(), Map.of(param, value), EasingType.LINEAR.name());
+		return new VFXTriggerPayload(PROTOCOL_VERSION, effectId, VFXAction.SET_PARAM, 0, 0, 0L, null, List.of(), Map.of(param, value), EasingType.LINEAR.name(), null, null);
 	}
 
 	/**
@@ -167,14 +186,33 @@ public record VFXTriggerPayload(
 	 * {@code durationTicks}, the value in {@code params} and the outgoing easing in {@code easing}.
 	 */
 	public static VFXTriggerPayload keyframe(final Identifier effectId, final String param, final int time, final float value, final EasingType easing) {
-		return new VFXTriggerPayload(PROTOCOL_VERSION, effectId, VFXAction.KEYFRAME, time, 0, 0L, null, List.of(), Map.of(param, value), easing.name());
+		return new VFXTriggerPayload(PROTOCOL_VERSION, effectId, VFXAction.KEYFRAME, time, 0, 0L, null, List.of(), Map.of(param, value), easing.name(), null, null);
 	}
 
 	/**
 	 * Creates a live keyframe payload with a custom curve name.
 	 */
 	public static VFXTriggerPayload keyframe(final Identifier effectId, final String param, final int time, final float value, final String easing) {
-		return new VFXTriggerPayload(PROTOCOL_VERSION, effectId, VFXAction.KEYFRAME, time, 0, 0L, null, List.of(), Map.of(param, value), easing);
+		return new VFXTriggerPayload(PROTOCOL_VERSION, effectId, VFXAction.KEYFRAME, time, 0, 0L, null, List.of(), Map.of(param, value), easing, null, null);
+	}
+
+	/**
+	 * Creates a live expression payload for a running effect: {@code exprSource} replaces the
+	 * parameter's whole value source (keyframes, binding or previous expression) at runtime.
+	 */
+	public static VFXTriggerPayload setExpr(final Identifier effectId, final String param, final String exprSource) {
+		return new VFXTriggerPayload(PROTOCOL_VERSION, effectId, VFXAction.SET_EXPR, 0, 0, 0L, null, List.of(), Map.of(), EasingType.LINEAR.name(), param, exprSource);
+	}
+
+	/**
+	 * Creates a move payload that re-anchors a running instance to a new world position.
+	 *
+	 * @param effectId   effect id
+	 * @param instanceId instance id to move (must match an instance of the effect on the client)
+	 * @param worldPos   the new world position
+	 */
+	public static VFXTriggerPayload move(final Identifier effectId, final long instanceId, final Vec3 worldPos) {
+		return new VFXTriggerPayload(PROTOCOL_VERSION, effectId, VFXAction.MOVE, 0, 0, instanceId, worldPos, List.of(), Map.of(), EasingType.LINEAR.name(), null, null);
 	}
 
 	@Override

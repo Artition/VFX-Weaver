@@ -4,13 +4,16 @@ import java.util.Locale;
 
 /**
  * Action carried by a {@link VFXTriggerPayload}: start playing an effect, stop all running
- * instances of it, or live-adjust a parameter/keyframe of a running instance.
+ * instances of it, live-adjust a parameter/keyframe of a running instance, replace a parameter's
+ * math expression, or move a running instance to a new world position.
  */
 public enum VFXAction {
 	PLAY(0),
 	STOP(1),
 	SET_PARAM(2),
-	KEYFRAME(3);
+	KEYFRAME(3),
+	SET_EXPR(4),
+	MOVE(5);
 
 	private final byte id;
 
