@@ -680,12 +680,18 @@ public final class VFXWorldOverlayRenderer {
 					}
 					boolean pinA = i == 0;
 					boolean pinB = pinnedB && i + 1 == sim.links - 1;
-					Vec3 corr = d.scale((len - spacing) / len);
-					if (!pinA) {
-						sim.pos[i] = pinB ? sim.pos[i].subtract(corr.scale(2)) : sim.pos[i].add(corr);
+					if (pinA && pinB) {
+						continue;
 					}
-					if (!pinB) {
-						sim.pos[i + 1] = pinA ? sim.pos[i + 1].add(corr.scale(2)) : sim.pos[i + 1].subtract(corr);
+					Vec3 corr = d.scale((len - spacing) / len);
+					if (pinA) {
+						// Only the far end can move: it covers the whole excess towards the pin.
+						sim.pos[i + 1] = sim.pos[i + 1].subtract(corr);
+					} else if (pinB) {
+						sim.pos[i] = sim.pos[i].add(corr);
+					} else {
+						sim.pos[i] = sim.pos[i].add(corr.scale(0.5));
+						sim.pos[i + 1] = sim.pos[i + 1].subtract(corr.scale(0.5));
 					}
 				}
 			}
