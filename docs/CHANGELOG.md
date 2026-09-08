@@ -5,6 +5,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). The versions bel
 ## Unreleased / Guide v26
 ### Added
 - **`particles` world-overlay effect** - emits vanilla particles in animated shapes with zero custom textures: definition fields `particle` (any simple vanilla id; `dust` takes animatable `color_r/g/b` + `size`) and `shape` (`sphere`/`ring`/`helix`/`line`/`cube`/`point`; `line` spans the first two `positions` slots). Animatable params: `rate` (per second, × fade weight), `radius`, `height`/`turns`/`spin` (helix), `speed` (radial launch velocity), `vel_y`. Emission is framerate-independent (budgeted per instance, clamped 1024/s and 256/frame), entity anchors and `sendMove` work as for other world overlays, rendering uses the vanilla particle path so shaderpacks stay compatible. New builtin demo: `vfxweaver:particles` (golden dust helix).
+- **`particles`: aimed accelerating streams** - `aim: 1` launches every particle towards the second `positions` slot (any shape/particle; drag-free ballistics via a Fabric access widener on Particle velocity fields, cone `spread`, per-tick `accel`, `lifetime` override) — accelerating energy lines that fly into a target block or track entity-anchored slots.
 
 ## Guide v25
 ### Added

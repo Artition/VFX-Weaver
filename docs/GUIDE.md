@@ -595,7 +595,11 @@ Emits **vanilla particles** in animated shapes — no custom textures, everythin
 | `height` | 3 | Helix height, blocks |
 | `turns` | 2 | Helix revolutions over its height |
 | `spin` | 0 | Helix rotation phase, revolutions |
-| `speed` | 0 | Random radial launch velocity (for particles that use it: flame, cloud, crit...) |
+| `speed` | 0 | Launch velocity (blocks/s): random radial by default, towards the second position slot when `aim:1` |
+| `aim` | 0 | 1 = aimed flight: every particle is launched towards the second `positions` slot (works for any shape and particle, drag-free ballistics; with entity-anchored slots the stream tracks moving targets) |
+| `spread` | 0.15 | Cone spread around the aim direction (0 = perfectly aimed, 1 = wide spray) |
+| `accel` | 0 | Acceleration along the aim direction, blocks/tick² — particles speed up in flight |
+| `lifetime` | 0 | Particle lifetime override in ticks (0 = particle default). Match it to the flight time so particles die at the target |
 | `vel_y` | 0 | Constant upward velocity (rising auras) |
 | `size` | 1 | `dust` particle size (0.05..4) |
 | `color_r/g/b` | 1 / 1 / 1 | `dust` colour (any RGB) |
@@ -611,6 +615,19 @@ Emits **vanilla particles** in animated shapes — no custom textures, everythin
 ```
 
 Emission is budgeted per instance (clamped to 1024 particles/s, 256 per frame) and stops automatically as the effect fades out. Anchors work like for all world overlays: `positions` may be entity-anchored, so an aura follows a player smoothly.
+
+Aimed stream example — accelerating shot from one block to another (put both points into `positions`, or entity-anchor either end):
+
+```json
+{
+	"type": "particles",
+	"particle": "dust",
+	"shape": "point",
+	"positions": [[0, 70, 0], [20, 70, 20]],
+	"params": { "rate": 60, "speed": 0.4, "accel": 0.12, "aim": 1, "spread": 0.05, "lifetime": 40,
+		"color_r": 1.0, "color_g": 0.3, "color_b": 0.1 }
+}
+```
 
 The builtin `vfxweaver:particles` demo binds its position to the local player (`pos_x/y/z` with `bind: player_x/y/z`), so plain `/vfx play vfxweaver:particles` spawns the helix around the viewer; `/vfx playat` and `positions` override that as usual.
 
