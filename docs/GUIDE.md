@@ -1117,7 +1117,7 @@ Guide version: 26 — see changelog below.
 ### v26
 - World overlays: entity anchors gained `point` — the reference point on the entity: `feet` (default), `center` (bounding-box centre) or `eyes` (e.g. `{"entity": "@s", "point": "center"}`), so effects can attach to the middle/head of an entity instead of its feet.
 - World overlays: entity anchors gained `dir: "look"` + `distance` — the anchor is pushed along the tracked entity's live look direction (eyes + look × 24 = a laser target where the entity is looking).
-- New world-overlay effect `block_chain`: a line of real textured block-model links between two anchors (datapack picks the block, `spacing`/`arc`/`scale`/`align` params), rendered through the vanilla submit pipeline (shaderpack-safe). No physics simulation.
+- New world-overlay effect `block_chain`: a line of real textured block-model links between two anchors (datapack picks the block, `spacing`/`arc`/`scale`/`align` params), rendered through the vanilla submit pipeline (shaderpack-safe). Optional `physics: 1` — a verlet rope with gravity sag, world collision, player push, `sway` wind and animatable `length` (single-anchor hang or two-anchor slack; links stretch when pulled taut).
 - New world-overlay effect `particles`: emits vanilla particles in animated shapes (`sphere`/`ring`/`helix`/`line`/`cube`/`point`) with any RGB via `dust`. No custom textures — everything from the datapack; entity anchors and fades work as usual. Builtin demo: `vfxweaver:particles` (golden dust helix).
 
 ### v25
