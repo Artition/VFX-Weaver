@@ -36,6 +36,8 @@ public class VFXDefinition {
 	private final List<EntityAnchor> entityAnchors;
 	private final @Nullable Identifier sound;
 	private final @Nullable String entitySelector;
+	private final @Nullable String particleId;
+	private final @Nullable String shape;
 
 	private VFXDefinition(
 		final Identifier id,
@@ -50,7 +52,9 @@ public class VFXDefinition {
 		final List<BlockPos> positions,
 		final List<EntityAnchor> entityAnchors,
 		final @Nullable Identifier sound,
-		final @Nullable String entitySelector
+		final @Nullable String entitySelector,
+		final @Nullable String particleId,
+		final @Nullable String shape
 	) {
 		this.id = id;
 		this.type = type;
@@ -65,6 +69,8 @@ public class VFXDefinition {
 		this.entityAnchors = List.copyOf(entityAnchors);
 		this.sound = sound;
 		this.entitySelector = entitySelector;
+		this.particleId = particleId;
+		this.shape = shape;
 	}
 
 	/**
@@ -133,7 +139,7 @@ public class VFXDefinition {
 		final @Nullable Identifier sound,
 		final @Nullable String entitySelector
 	) {
-		return new VFXDefinition(id, type, defaultDuration, defaultEasing, params, persistent, loop, fadeTicks, children, positions, List.of(), sound, entitySelector);
+		return new VFXDefinition(id, type, defaultDuration, defaultEasing, params, persistent, loop, fadeTicks, children, positions, List.of(), sound, entitySelector, null, null);
 	}
 
 	/**
@@ -195,7 +201,16 @@ public class VFXDefinition {
 			? GsonHelper.getAsString(json, "entity_selector")
 			: null;
 
-		return new VFXDefinition(id, type, duration, easing, params, persistent, loop, fadeTicks, children, positions, entityAnchors, sound, entitySelector);
+		// Particle effect fields (strings, like 'sound'): the vanilla particle id and the
+		// emission shape. Both optional - the renderer applies its defaults.
+		String particleId = json.has("particle") && !json.get("particle").isJsonNull()
+			? GsonHelper.getAsString(json, "particle")
+			: null;
+		String shape = json.has("shape") && !json.get("shape").isJsonNull()
+			? GsonHelper.getAsString(json, "shape")
+			: null;
+
+		return new VFXDefinition(id, type, duration, easing, params, persistent, loop, fadeTicks, children, positions, entityAnchors, sound, entitySelector, particleId, shape);
 	}
 
 	/**
@@ -477,7 +492,7 @@ public class VFXDefinition {
 		}
 		Map<String, ParamSpec> merged = new LinkedHashMap<>(this.params);
 		merged.putAll(overrides);
-		return new VFXDefinition(this.id, this.type, this.defaultDuration, this.defaultEasing, merged, this.persistent, this.loop, this.fadeTicks, this.children, this.positions, this.entityAnchors, this.sound, this.entitySelector);
+		return new VFXDefinition(this.id, this.type, this.defaultDuration, this.defaultEasing, merged, this.persistent, this.loop, this.fadeTicks, this.children, this.positions, this.entityAnchors, this.sound, this.entitySelector, this.particleId, this.shape);
 	}
 
 	/**
@@ -627,6 +642,23 @@ public class VFXDefinition {
 	 */
 	public @Nullable String getEntitySelector() {
 		return this.entitySelector;
+	}
+
+	/**
+	 * Vanilla particle id for {@code particles} effects (e.g. {@code "minecraft:end_rod"},
+	 * {@code "dust"}), or {@code null} for the renderer default. {@code dust} takes its
+	 * colour/size from the effect's animatable {@code color_r/g/b} and {@code size} params.
+	 */
+	public @Nullable String getParticleId() {
+		return this.particleId;
+	}
+
+	/**
+	 * Emission shape for {@code particles} effects ({@code sphere}/{@code ring}/{@code helix}/
+	 * {@code line}/{@code cube}/{@code point}), or {@code null} for the renderer default.
+	 */
+	public @Nullable String getShape() {
+		return this.shape;
 	}
 
 	/**

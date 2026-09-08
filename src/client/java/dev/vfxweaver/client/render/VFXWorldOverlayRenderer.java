@@ -18,12 +18,19 @@ import dev.vfxweaver.client.effect.VFXEffectManager;
 import dev.vfxweaver.effect.VFXActiveEffect;
 import dev.vfxweaver.effect.VFXEffectType;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
+import java.util.concurrent.ThreadLocalRandom;
 import net.fabricmc.fabric.api.client.rendering.v1.level.LevelRenderContext;
 import net.fabricmc.fabric.api.client.rendering.v1.level.LevelRenderEvents;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
+import net.minecraft.client.particle.Particle;
+import net.minecraft.client.particle.ParticleEngine;
 import net.minecraft.client.renderer.MultiBufferSource;
 import net.minecraft.client.renderer.RenderPipelines;
 import net.minecraft.client.renderer.block.dispatch.BlockStateModelPart;
@@ -33,6 +40,11 @@ import net.minecraft.client.renderer.state.level.CameraRenderState;
 import net.minecraft.client.resources.model.geometry.BakedQuad;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.core.particles.DustParticleOptions;
+import net.minecraft.core.particles.ParticleOptions;
+import net.minecraft.core.particles.ParticleType;
+import net.minecraft.core.particles.SimpleParticleType;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.Identifier;
 import net.minecraft.util.Mth;
 import net.minecraft.util.RandomSource;
@@ -235,6 +247,168 @@ public final class VFXWorldOverlayRenderer {
 	private VFXWorldOverlayRenderer() {
 	}
 
+	/** Per-running-instance particle emission bookkeeping: {@code [lastAgeTicks, spawnBudget]}. */
+	private static final Map<Long, float[]> PARTICLE_BUDGETS = new HashMap<>();
+	/** Unknown particle ids / shapes we already warned about (capped to avoid unbounded growth). */
+	private static final Set<String> PARTICLE_WARNINGS = new HashSet<>();
+	private static final int MAX_PARTICLE_RATE = 1024;
+	private static final int MAX_PARTICLES_PER_FRAME = 256;
+
+	/**
+	 * Spawns vanilla particles for one {@code particles} effect this frame. Emission is
+	 * budgeted in particle-seconds ({@code rate} × delta age) so the visual rate is independent
+	 * of framerate, multiplied by the effect's fade weight (fading out stops emission).
+	 *
+	 * <p>Shapes sample the effect's position slots (static block centres or exact entity-anchor
+	 * points). {@code line} uses the first two slots like {@code guide_line}. {@code dust}
+	 * particles take their colour/size from the animatable {@code color_r/g/b}/{@code size}
+	 * params; every other supported particle is a plain registry id.</p>
+	 */
+	private static void emitParticles(final Minecraft minecraft, final VFXActiveEffect effect, final ClientLevel level) {
+		float rate = Mth.clamp(effect.getParam("rate", 40.0F), 0.0F, MAX_PARTICLE_RATE) * effect.getWeight();
+		if (rate <= 0.0F) {
+			return;
+		}
+		ParticleOptions options = resolveParticleOptions(effect);
+		if (options == null) {
+			return;
+		}
+		float radius = Mth.clamp(effect.getParam("radius", 2.0F), 0.05F, 32.0F);
+		float height = Mth.clamp(effect.getParam("height", 3.0F), 0.5F, 32.0F);
+		float turns = Mth.clamp(effect.getParam("turns", 2.0F), 0.25F, 16.0F);
+		float spin = Mth.clamp(effect.getParam("spin", 0.0F), -8.0F, 8.0F);
+		float speed = Mth.clamp(effect.getParam("speed", 0.0F), 0.0F, 8.0F);
+		float velY = Mth.clamp(effect.getParam("vel_y", 0.0F), -4.0F, 4.0F);
+
+		List<Vec3> anchors = effectPositions(effect, level);
+		if (anchors.isEmpty()) {
+			return;
+		}
+
+		ParticleEngine engine = minecraft.particleEngine;
+		float[] budget = PARTICLE_BUDGETS.computeIfAbsent(effect.getInstanceId(), key -> new float[2]);
+		float age = effect.getAge();
+		float delta = Math.max(0.0F, age - budget[0]);
+		budget[0] = age;
+		budget[1] += rate * delta / 20.0F;
+		int count = Math.min((int) budget[1], MAX_PARTICLES_PER_FRAME);
+		if (count <= 0) {
+			return;
+		}
+		budget[1] -= count;
+		if (PARTICLE_BUDGETS.size() > 512) {
+			PARTICLE_BUDGETS.clear();
+		}
+
+		String shape = effect.getShape() == null ? "sphere" : effect.getShape();
+		ThreadLocalRandom random = ThreadLocalRandom.current();
+		float elapsed = effect.getElapsed() / 20.0F;
+		for (int i = 0; i < count; i++) {
+			// Jitter the sample time within the frame so high rates fill spirals evenly.
+			Vec3 p = sampleShape(shape, anchors, radius, height, turns, elapsed + spin, random);
+			if (p == null) {
+				return;
+			}
+			double vx = 0.0;
+			double vy = velY;
+			double vz = 0.0;
+			if (speed > 0.0F) {
+				double th = random.nextDouble() * 6.2831853;
+				double ph = Math.acos(2.0 * random.nextDouble() - 1.0);
+				vx = Math.sin(ph) * Math.cos(th) * speed;
+				vy += Math.cos(ph) * speed;
+				vz = Math.sin(ph) * Math.sin(th) * speed;
+			}
+			Particle particle = engine.createParticle(options, p.x, p.y, p.z, vx, vy, vz);
+			if (particle != null) {
+				engine.add(particle);
+			}
+		}
+	}
+
+	/**
+	 * Samples one random point of the emission shape relative to the anchor list. Returns
+	 * {@code null} for unknown shapes (the caller stops emitting; a one-time warning is logged).
+	 * {@code rotationSeconds} = elapsed seconds + {@code spin} — drives the helix revolution.
+	 */
+	private static @Nullable Vec3 sampleShape(final String shape, final List<Vec3> anchors, final float radius, final float height, final float turns, final float rotationSeconds, final ThreadLocalRandom random) {
+		Vec3 origin = anchors.get(0);
+		switch (shape) {
+			case "point":
+				return origin;
+			case "sphere": {
+				double th = random.nextDouble() * 6.2831853;
+				double ph = Math.acos(2.0 * random.nextDouble() - 1.0);
+				return origin.add(Math.sin(ph) * Math.cos(th) * radius, Math.cos(ph) * radius, Math.sin(ph) * Math.sin(th) * radius);
+			}
+			case "ring": {
+				double angle = random.nextDouble() * 6.2831853;
+				return origin.add(Math.cos(angle) * radius, 0.0, Math.sin(angle) * radius);
+			}
+			case "helix": {
+				double u = random.nextDouble();
+				double angle = u * turns * 6.2831853 + rotationSeconds * 6.2831853;
+				return origin.add(Math.cos(angle) * radius, u * height, Math.sin(angle) * radius);
+			}
+			case "cube": {
+				int axis = random.nextInt(3);
+				double a = random.nextDouble(-radius, radius);
+				double b = random.nextDouble(-radius, radius);
+				double side = radius * (random.nextBoolean() ? 1.0 : -1.0);
+				double x = axis == 0 ? side : a;
+				double y = axis == 1 ? side : a;
+				double z = axis == 2 ? side : b;
+				return origin.add(x, y, z);
+			}
+			case "line": {
+				Vec3 a = origin;
+				Vec3 b = anchors.size() > 1 ? anchors.get(1) : origin.add(10.0, 0.0, 0.0);
+				double u = random.nextDouble();
+				return new Vec3(a.x + (b.x - a.x) * u, a.y + (b.y - a.y) * u, a.z + (b.z - a.z) * u);
+			}
+			default:
+				if (PARTICLE_WARNINGS.add("shape:" + shape) && PARTICLE_WARNINGS.size() < 64) {
+					LOGGER.warn("Unknown particle shape '{}'; use sphere/ring/helix/line/cube/point", shape);
+				}
+				return null;
+		}
+	}
+
+	/**
+	 * Resolves the effect's vanilla particle into {@link ParticleOptions}. {@code dust} is
+	 * built from the animatable colour/size params; plain registry ids must be
+	 * {@link SimpleParticleType}s (option-carrying types like {@code block}/{@code item} are
+	 * rejected with a one-time warning).
+	 */
+	private static @Nullable ParticleOptions resolveParticleOptions(final VFXActiveEffect effect) {
+		String id = effect.getParticleId();
+		if (id == null || id.isBlank()) {
+			id = "minecraft:end_rod";
+		}
+		if (id.equals("dust") || id.equals("minecraft:dust")) {
+			int rgb = rgb(effect.getParam("color_r", 1.0F), effect.getParam("color_g", 1.0F), effect.getParam("color_b", 1.0F));
+			float size = Mth.clamp(effect.getParam("size", 1.0F), 0.05F, 4.0F);
+			return new DustParticleOptions(rgb, size);
+		}
+		Identifier pid = Identifier.tryParse(id);
+		if (pid == null) {
+			warnParticleOnce(id, effect);
+			return null;
+		}
+		ParticleType<?> type = BuiltInRegistries.PARTICLE_TYPE.getValue(pid);
+		if (type instanceof SimpleParticleType simple) {
+			return simple;
+		}
+		warnParticleOnce(id, effect);
+		return null;
+	}
+
+	private static void warnParticleOnce(final String id, final VFXActiveEffect effect) {
+		if (PARTICLE_WARNINGS.add("particle:" + id) && PARTICLE_WARNINGS.size() < 64) {
+			LOGGER.warn("Unsupported particle id '{}' in effect '{}'; use simple vanilla particles or 'dust'", id, effect.getId());
+		}
+	}
+
 	public static void register() {
 		LevelRenderEvents.AFTER_TRANSLUCENT_TERRAIN.register(VFXWorldOverlayRenderer::render);
 	}
@@ -280,6 +454,8 @@ public final class VFXWorldOverlayRenderer {
 					if (renderGuideLines(buffers, camera, effect, level, through ? GLOW_VISIBLE : GLOW_OCCLUDED)) {
 						drawn.add(through ? GLOW_VISIBLE : GLOW_OCCLUDED);
 					}
+				} else if (effect.getType() == VFXEffectType.PARTICLES) {
+					emitParticles(minecraft, effect, level);
 				} else if (effect.getType() == VFXEffectType.BLOCK_OUTLINE) {
 					boolean through = effect.getParam("through_blocks", 0.0F) >= 0.5F;
 					boolean shell = effect.getParam("shell", 0.0F) >= 0.5F;

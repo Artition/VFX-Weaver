@@ -61,6 +61,8 @@ public enum VFXEffectType {
 	PULSE_RING("pulse_ring"),
 	/** A glowing dashed line along a parabolic arc between two anchors. */
 	GUIDE_LINE("guide_line"),
+	/** Emits vanilla particles into the client particle engine in animated shapes (no shader pass, no custom textures). */
+	PARTICLES("particles"),
 	/** Renders a solid-colour tint over the targeted entities. */
 	ENTITY_TINT("entity_tint"),
 	/** Renders an outline around the targeted entities. */
@@ -120,7 +122,7 @@ public enum VFXEffectType {
 	 */
 	public boolean isWorldOverlay() {
 		return this == BLOCK_OUTLINE || this == BLOCK_TINT
-			|| this == LIGHT_BEAM || this == PULSE_RING || this == GUIDE_LINE
+			|| this == LIGHT_BEAM || this == PULSE_RING || this == GUIDE_LINE || this == PARTICLES
 			|| this == ENTITY_TINT || this == ENTITY_OUTLINE;
 	}
 

@@ -271,7 +271,7 @@ public class VFXEffectManager {
 			}
 			anchors = List.copyOf(built);
 		}
-		VFXActiveEffect effect = new VFXActiveEffect(effectId, type, id, instanceSeed, this.clock, timeline, fadeTicks, loop, positions, entityUuids, anchors);
+		VFXActiveEffect effect = new VFXActiveEffect(effectId, type, id, instanceSeed, this.clock, timeline, fadeTicks, loop, positions, entityUuids, anchors, definition != null ? definition.getParticleId() : null, definition != null ? definition.getShape() : null);
 		// Same-id replays stack as independent instances (e.g. several dents at once);
 		// /vfx stop removes every instance of the id, stop(instanceId) removes one. MAX_ACTIVE_EFFECTS caps the total.
 		while (this.active.size() >= MAX_ACTIVE_EFFECTS) {

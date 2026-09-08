@@ -7,6 +7,7 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.resources.Identifier;
 import net.minecraft.world.phys.Vec3;
 import org.jspecify.annotations.Nullable;
+import org.jspecify.annotations.Nullable;
 
 /**
  * A single running instance of a {@link VFXDefinition}. Holds a {@link VFXTimeline} that is
@@ -26,6 +27,8 @@ public class VFXActiveEffect {
 	private final List<BlockPos> positions;
 	private final List<UUID> entityUuids;
 	private final List<ResolvedAnchor> anchors;
+	private final @Nullable String particleId;
+	private final @Nullable String shape;
 	private float elapsed;
 	private float age;
 	private float fadeOutStart = Float.NEGATIVE_INFINITY;
@@ -89,7 +92,7 @@ public class VFXActiveEffect {
 	 * @param entityUuids  entity UUIDs this effect applies to (for entity tint/outline)
 	 */
 	public VFXActiveEffect(final Identifier id, final VFXEffectType type, final long instanceId, final long instanceSeed, final float startTime, final VFXTimeline timeline, final int fadeTicks, final boolean loop, final List<BlockPos> positions, final List<UUID> entityUuids) {
-		this(id, type, instanceId, instanceSeed, startTime, timeline, fadeTicks, loop, positions, entityUuids, List.of());
+		this(id, type, instanceId, instanceSeed, startTime, timeline, fadeTicks, loop, positions, entityUuids, List.of(), null, null);
 	}
 
 	/**
@@ -103,6 +106,17 @@ public class VFXActiveEffect {
 	 * @param anchors      entity-anchored position slots (empty when all positions are static)
 	 */
 	public VFXActiveEffect(final Identifier id, final VFXEffectType type, final long instanceId, final long instanceSeed, final float startTime, final VFXTimeline timeline, final int fadeTicks, final boolean loop, final List<BlockPos> positions, final List<UUID> entityUuids, final List<ResolvedAnchor> anchors) {
+		this(id, type, instanceId, instanceSeed, startTime, timeline, fadeTicks, loop, positions, entityUuids, anchors, null, null);
+	}
+
+	/**
+	 * Creates a new effect instance with the full state, including the {@code particles}
+	 * effect's definition-level string fields.
+	 *
+	 * @param particleId vanilla particle id for {@code particles} effects ({@code null} = renderer default)
+	 * @param shape      emission shape for {@code particles} effects ({@code null} = renderer default)
+	 */
+	public VFXActiveEffect(final Identifier id, final VFXEffectType type, final long instanceId, final long instanceSeed, final float startTime, final VFXTimeline timeline, final int fadeTicks, final boolean loop, final List<BlockPos> positions, final List<UUID> entityUuids, final List<ResolvedAnchor> anchors, final @Nullable String particleId, final @Nullable String shape) {
 		this.id = id;
 		this.type = type;
 		this.instanceId = instanceId;
@@ -114,6 +128,8 @@ public class VFXActiveEffect {
 		this.positions = List.copyOf(positions);
 		this.entityUuids = List.copyOf(entityUuids);
 		this.anchors = List.copyOf(anchors);
+		this.particleId = particleId;
+		this.shape = shape;
 		this.elapsed = 0.0F;
 		this.age = 0.0F;
 	}
@@ -290,6 +306,20 @@ public class VFXActiveEffect {
 	 */
 	public List<ResolvedAnchor> getAnchors() {
 		return this.anchors;
+	}
+
+	/**
+	 * Vanilla particle id for {@code particles} effects (from the definition, {@code null} = renderer default).
+	 */
+	public @Nullable String getParticleId() {
+		return this.particleId;
+	}
+
+	/**
+	 * Emission shape for {@code particles} effects (from the definition, {@code null} = renderer default).
+	 */
+	public @Nullable String getShape() {
+		return this.shape;
 	}
 
 	/**
