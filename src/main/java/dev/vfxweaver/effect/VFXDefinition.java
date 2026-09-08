@@ -38,6 +38,7 @@ public class VFXDefinition {
 	private final @Nullable String entitySelector;
 	private final @Nullable String particleId;
 	private final @Nullable String shape;
+	private final @Nullable String blockId;
 
 	private VFXDefinition(
 		final Identifier id,
@@ -54,7 +55,8 @@ public class VFXDefinition {
 		final @Nullable Identifier sound,
 		final @Nullable String entitySelector,
 		final @Nullable String particleId,
-		final @Nullable String shape
+		final @Nullable String shape,
+		final @Nullable String blockId
 	) {
 		this.id = id;
 		this.type = type;
@@ -71,6 +73,7 @@ public class VFXDefinition {
 		this.entitySelector = entitySelector;
 		this.particleId = particleId;
 		this.shape = shape;
+		this.blockId = blockId;
 	}
 
 	/**
@@ -139,7 +142,7 @@ public class VFXDefinition {
 		final @Nullable Identifier sound,
 		final @Nullable String entitySelector
 	) {
-		return new VFXDefinition(id, type, defaultDuration, defaultEasing, params, persistent, loop, fadeTicks, children, positions, List.of(), sound, entitySelector, null, null);
+		return new VFXDefinition(id, type, defaultDuration, defaultEasing, params, persistent, loop, fadeTicks, children, positions, List.of(), sound, entitySelector, null, null, null);
 	}
 
 	/**
@@ -209,8 +212,11 @@ public class VFXDefinition {
 		String shape = json.has("shape") && !json.get("shape").isJsonNull()
 			? GsonHelper.getAsString(json, "shape")
 			: null;
+		String blockId = json.has("block") && !json.get("block").isJsonNull()
+			? GsonHelper.getAsString(json, "block")
+			: null;
 
-		return new VFXDefinition(id, type, duration, easing, params, persistent, loop, fadeTicks, children, positions, entityAnchors, sound, entitySelector, particleId, shape);
+		return new VFXDefinition(id, type, duration, easing, params, persistent, loop, fadeTicks, children, positions, entityAnchors, sound, entitySelector, particleId, shape, blockId);
 	}
 
 	/**
@@ -508,7 +514,7 @@ public class VFXDefinition {
 		}
 		Map<String, ParamSpec> merged = new LinkedHashMap<>(this.params);
 		merged.putAll(overrides);
-		return new VFXDefinition(this.id, this.type, this.defaultDuration, this.defaultEasing, merged, this.persistent, this.loop, this.fadeTicks, this.children, this.positions, this.entityAnchors, this.sound, this.entitySelector, this.particleId, this.shape);
+		return new VFXDefinition(this.id, this.type, this.defaultDuration, this.defaultEasing, merged, this.persistent, this.loop, this.fadeTicks, this.children, this.positions, this.entityAnchors, this.sound, this.entitySelector, this.particleId, this.shape, this.blockId);
 	}
 
 	/**
@@ -675,6 +681,14 @@ public class VFXDefinition {
 	 */
 	public @Nullable String getShape() {
 		return this.shape;
+	}
+
+	/**
+	 * Block id for {@code block_chain} effects (e.g. {@code "minecraft:iron_chain"}),
+	 * or {@code null} for the renderer default.
+	 */
+	public @Nullable String getBlockId() {
+		return this.blockId;
 	}
 
 	/**

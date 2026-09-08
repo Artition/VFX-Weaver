@@ -46,10 +46,14 @@ import net.minecraft.core.particles.ParticleType;
 import net.minecraft.core.particles.SimpleParticleType;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.Identifier;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.client.renderer.block.MovingBlockRenderState;
 import net.minecraft.util.Mth;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.phys.Vec3;
+import org.joml.Quaternionf;
 import org.joml.Vector3f;
 import org.joml.Vector3fc;
 import org.jspecify.annotations.Nullable;
@@ -256,6 +260,7 @@ public final class VFXWorldOverlayRenderer {
 	private static final int MAX_PARTICLE_RATE = 1024;
 	private static final int MAX_PARTICLES_PER_FRAME = 256;
 	private static final int MAX_AIMED_PARTICLES = 1024;
+	private static final int MAX_CHAIN_LINKS = 512;
 
 	/**
 	 * Spawns vanilla particles for one {@code particles} effect this frame. Emission is
@@ -474,6 +479,113 @@ public final class VFXWorldOverlayRenderer {
 
 	public static void register() {
 		LevelRenderEvents.AFTER_TRANSLUCENT_TERRAIN.register(VFXWorldOverlayRenderer::render);
+		LevelRenderEvents.COLLECT_SUBMITS.register(VFXWorldOverlayRenderer::collectSubmits);
+	}
+
+	/**
+	 * Submit-stage hook: block-model effects ({@code block_chain}) submit their links to the
+	 * vanilla submit pipeline here, so every link renders as a REAL textured block (the same
+	 * path as falling blocks/piston moved blocks), following the anchors each frame.
+	 */
+	private static void collectSubmits(final LevelRenderContext context) {
+		Minecraft minecraft = Minecraft.getInstance();
+		if (minecraft.level == null) {
+			return;
+		}
+		ClientLevel level = minecraft.level;
+		for (VFXActiveEffect effect : VFXEffectManager.get().getActiveWorldEffects()) {
+			if (effect.getType() != VFXEffectType.BLOCK_CHAIN) {
+				continue;
+			}
+			try {
+				submitChain(context, effect, level);
+			} catch (Exception e) {
+				LOGGER.warn("Failed to submit block chain '{}'", effect.getId(), e);
+			}
+		}
+	}
+
+	/**
+	 * Submits the chain links of one {@code block_chain} effect: links are spaced evenly along
+	 * the path between the first two position slots (with an {@code arc} bow, like
+	 * {@code guide_line}), each link rendered as the datapack-chosen block, optionally
+	 * {@code align}ed to the local path direction and {@code scale}d.
+	 */
+	private static void submitChain(final LevelRenderContext context, final VFXActiveEffect effect, final ClientLevel level) {
+		if (effect.getWeight() <= 0.0F) {
+			return;
+		}
+		List<Vec3> anchors = effectPositions(effect, level);
+		if (anchors.isEmpty()) {
+			return;
+		}
+		BlockState state = resolveChainBlock(effect);
+		if (state == null) {
+			return;
+		}
+		Vec3 a = anchors.get(0);
+		Vec3 b = anchors.size() > 1 ? anchors.get(1) : a.add(10.0, -3.0, 0.0);
+		float spacing = Mth.clamp(effect.getParam("spacing", 1.0F), 0.25F, 8.0F);
+		float arc = effect.getParam("arc", 0.0F);
+		float scale = Mth.clamp(effect.getParam("scale", 1.0F), 0.1F, 4.0F);
+		boolean align = effect.getParam("align", 1.0F) >= 0.5F;
+
+		Vec3 delta = b.subtract(a);
+		double length = delta.length();
+		if (length < 1.0e-4) {
+			return;
+		}
+		int links = Math.min((int) Math.ceil(length / spacing), MAX_CHAIN_LINKS);
+		Vec3 prev = a;
+		for (int i = 0; i < links; i++) {
+			double u = (i + 0.5) / links;
+			Vec3 linkPos = new Vec3(a.x + delta.x * u, a.y + delta.y * u + arc * 4.0 * u * (1.0 - u), a.z + delta.z * u);
+			BlockPos lightPos = BlockPos.containing(linkPos.x, linkPos.y, linkPos.z);
+			MovingBlockRenderState link = new MovingBlockRenderState();
+			link.blockState = state;
+			link.blockPos = lightPos;
+			link.randomSeedPos = lightPos;
+			link.biome = level.getBiome(lightPos);
+			link.cardinalLighting = level.cardinalLighting();
+			link.lightEngine = level.getLightEngine();
+			PoseStack pose = new PoseStack();
+			pose.pushPose();
+			pose.translate(linkPos.x, linkPos.y, linkPos.z);
+			if (align) {
+				Vec3 tangent = linkPos.subtract(prev);
+				if (tangent.lengthSqr() > 1.0e-6) {
+					Vec3 dir = tangent.normalize();
+					pose.mulPose(new Quaternionf().rotationTo(new Vector3f(0.0F, 1.0F, 0.0F), new Vector3f((float) dir.x, (float) dir.y, (float) dir.z)));
+				}
+			}
+			if (scale != 1.0F) {
+				pose.scale(scale, scale, scale);
+			}
+			pose.translate(-0.5, -0.5, -0.5);
+			context.submitNodeCollector().submitMovingBlock(pose, link);
+			pose.popPose();
+			prev = linkPos;
+		}
+	}
+
+	/**
+	 * Resolves the chain block from the effect's {@code block} definition field
+	 * (default {@code minecraft:iron_chain}); unknown ids warn once per id.
+	 */
+	private static @Nullable BlockState resolveChainBlock(final VFXActiveEffect effect) {
+		String id = effect.getBlockId();
+		if (id == null || id.isBlank()) {
+			id = "minecraft:iron_chain";
+		}
+		Identifier bid = Identifier.tryParse(id);
+		Block block = bid == null ? null : BuiltInRegistries.BLOCK.getValue(bid);
+		if (block == null || block.defaultBlockState().isAir()) {
+			if (PARTICLE_WARNINGS.add("block:" + id) && PARTICLE_WARNINGS.size() < 64) {
+				LOGGER.warn("Unknown chain block '{}' in effect '{}'", id, effect.getId());
+			}
+			return null;
+		}
+		return block.defaultBlockState();
 	}
 
 	private static void render(final LevelRenderContext context) {

@@ -63,6 +63,8 @@ public enum VFXEffectType {
 	GUIDE_LINE("guide_line"),
 	/** Emits vanilla particles into the client particle engine in animated shapes (no shader pass, no custom textures). */
 	PARTICLES("particles"),
+	/** A line of real block-model links (the datapack picks the block) between two anchors, like a hanging chain. */
+	BLOCK_CHAIN("block_chain"),
 	/** Renders a solid-colour tint over the targeted entities. */
 	ENTITY_TINT("entity_tint"),
 	/** Renders an outline around the targeted entities. */
@@ -123,6 +125,7 @@ public enum VFXEffectType {
 	public boolean isWorldOverlay() {
 		return this == BLOCK_OUTLINE || this == BLOCK_TINT
 			|| this == LIGHT_BEAM || this == PULSE_RING || this == GUIDE_LINE || this == PARTICLES
+			|| this == BLOCK_CHAIN
 			|| this == ENTITY_TINT || this == ENTITY_OUTLINE;
 	}
 
