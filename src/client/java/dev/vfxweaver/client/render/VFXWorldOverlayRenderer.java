@@ -493,12 +493,16 @@ public final class VFXWorldOverlayRenderer {
 			return;
 		}
 		ClientLevel level = minecraft.level;
+		CameraRenderState camera = context.levelState().cameraRenderState;
+		if (!camera.initialized) {
+			return;
+		}
 		for (VFXActiveEffect effect : VFXEffectManager.get().getActiveWorldEffects()) {
 			if (effect.getType() != VFXEffectType.BLOCK_CHAIN) {
 				continue;
 			}
 			try {
-				submitChain(context, effect, level);
+				submitChain(context, effect, level, camera);
 			} catch (Exception e) {
 				LOGGER.warn("Failed to submit block chain '{}'", effect.getId(), e);
 			}
@@ -509,9 +513,10 @@ public final class VFXWorldOverlayRenderer {
 	 * Submits the chain links of one {@code block_chain} effect: links are spaced evenly along
 	 * the path between the first two position slots (with an {@code arc} bow, like
 	 * {@code guide_line}), each link rendered as the datapack-chosen block, optionally
-	 * {@code align}ed to the local path direction and {@code scale}d.
+	 * {@code align}ed to the local path direction and {@code scale}d. Submit poses are
+	 * camera-relative (like every entity submit), so link positions are shifted by the camera.
 	 */
-	private static void submitChain(final LevelRenderContext context, final VFXActiveEffect effect, final ClientLevel level) {
+	private static void submitChain(final LevelRenderContext context, final VFXActiveEffect effect, final ClientLevel level, final CameraRenderState camera) {
 		if (effect.getWeight() <= 0.0F) {
 			return;
 		}
@@ -550,7 +555,8 @@ public final class VFXWorldOverlayRenderer {
 			link.lightEngine = level.getLightEngine();
 			PoseStack pose = new PoseStack();
 			pose.pushPose();
-			pose.translate(linkPos.x, linkPos.y, linkPos.z);
+			// Submits are camera-relative: world coords minus the camera position.
+			pose.translate(linkPos.x - camera.pos.x, linkPos.y - camera.pos.y, linkPos.z - camera.pos.z);
 			if (align) {
 				Vec3 tangent = linkPos.subtract(prev);
 				if (tangent.lengthSqr() > 1.0e-6) {
