@@ -266,21 +266,26 @@ public final class VFXWorldOverlayRenderer {
 	private static final Map<Long, ChainSim> CHAIN_SIMS = new HashMap<>();
 
 	/**
-	 * Verlet rope for a physics chain: {@code pos}/{@code prev} per link, integrated at a fixed
-	 * 1-tick timestep with gravity, world collision, player push and pinned anchor ends.
+	 * Verlet rope for a physics chain: {@code pos}/{@code prev} per JOINT (connection point,
+	 * one more than rendered links), {@code renderPrev} snapshots the last tick for render
+	 * interpolation. Integrated at a fixed 1-tick timestep with gravity, world collision,
+	 * player push and pinned anchor ends.
 	 */
 	private static final class ChainSim {
 		float lastAge;
-		int links;
+		int joints;
 		final Vec3[] pos;
 		final Vec3[] prev;
+		Vec3[] renderPrev;
 
-		ChainSim(final int links, final Vec3[] positions) {
-			this.links = links;
+		ChainSim(final int joints, final Vec3[] positions) {
+			this.joints = joints;
 			this.pos = positions;
-			this.prev = new Vec3[links];
-			for (int i = 0; i < links; i++) {
+			this.prev = new Vec3[joints];
+			this.renderPrev = new Vec3[joints];
+			for (int i = 0; i < joints; i++) {
 				this.prev[i] = positions[i];
+				this.renderPrev[i] = positions[i];
 			}
 		}
 	}
@@ -558,14 +563,15 @@ public final class VFXWorldOverlayRenderer {
 		boolean align = effect.getParam("align", 1.0F) >= 0.5F;
 		boolean physics = effect.getParam("physics", 0.0F) >= 0.5F;
 
-		Vec3[] linkPositions;
+		Vec3[] jointPositions;
 		if (physics) {
 			float length = Mth.clamp(effect.getParam("length", 6.0F), 1.0F, 64.0F);
-			int links = (b != null
-				? Math.max(1, (int) Math.round(a.distanceTo(b) / spacing))
-				: Math.max(1, (int) Math.round(length / spacing)));
-			links = Math.min(links, MAX_CHAIN_LINKS);
-			linkPositions = simulateChain(effect, minecraft, level, a, b, links, spacing);
+			// Joints (connection points) are simulated; one block-model link spans each joint pair.
+			int joints = (b != null
+				? Math.max(2, (int) Math.round(a.distanceTo(b) / spacing) + 1)
+				: Math.max(2, (int) Math.round(length / spacing) + 1));
+			joints = Math.min(joints, MAX_CHAIN_LINKS + 1);
+			jointPositions = simulateChain(effect, minecraft, level, a, b, joints, spacing);
 		} else {
 			float arc = effect.getParam("arc", 0.0F);
 			Vec3 delta = (b != null ? b : a.add(10.0, -3.0, 0.0)).subtract(a);
@@ -574,17 +580,21 @@ public final class VFXWorldOverlayRenderer {
 				return;
 			}
 			int links = Math.min(Math.max(1, (int) Math.round(length / spacing)), MAX_CHAIN_LINKS);
-			linkPositions = new Vec3[links];
+			jointPositions = new Vec3[links];
 			for (int i = 0; i < links; i++) {
 				double u = (i + 0.5) / links;
-				linkPositions[i] = new Vec3(a.x + delta.x * u, a.y + delta.y * u + arc * 4.0 * u * (1.0 - u), a.z + delta.z * u);
+				jointPositions[i] = new Vec3(a.x + delta.x * u, a.y + delta.y * u + arc * 4.0 * u * (1.0 - u), a.z + delta.z * u);
 			}
 		}
 
-		int links = linkPositions.length;
-		Vec3 prev = linkPositions[0];
+		// One block-model link per joint pair: the link spans from the middle of the pair to the
+		// middle of the next, rotated to the segment direction and stretched to the segment
+		// length — so links stay connected even at sharp bends, and a taut chain fills its span.
+		int links = jointPositions.length - 1;
 		for (int i = 0; i < links; i++) {
-			Vec3 linkPos = linkPositions[i];
+			Vec3 startJ = jointPositions[i];
+			Vec3 endJ = jointPositions[i + 1];
+			Vec3 linkPos = startJ.add(endJ).scale(0.5);
 			BlockPos lightPos = BlockPos.containing(linkPos.x, linkPos.y, linkPos.z);
 			MovingBlockRenderState link = new MovingBlockRenderState();
 			link.blockState = state;
@@ -597,54 +607,50 @@ public final class VFXWorldOverlayRenderer {
 			pose.pushPose();
 			// Submits are camera-relative: world coords minus the camera position.
 			pose.translate(linkPos.x - camera.pos.x, linkPos.y - camera.pos.y, linkPos.z - camera.pos.z);
-			if (align) {
-				Vec3 tangent = linkPos.subtract(prev);
-				if (tangent.lengthSqr() > 1.0e-6) {
-					Vec3 dir = tangent.normalize();
-					pose.mulPose(new Quaternionf().rotationTo(new Vector3f(0.0F, 1.0F, 0.0F), new Vector3f((float) dir.x, (float) dir.y, (float) dir.z)));
-				}
+			double segLen = startJ.distanceTo(endJ);
+			if (align && segLen > 1.0e-6) {
+				Vec3 dir = endJ.subtract(startJ).normalize();
+				pose.mulPose(new Quaternionf().rotationTo(new Vector3f(0.0F, 1.0F, 0.0F), new Vector3f((float) dir.x, (float) dir.y, (float) dir.z)));
 			}
-			// Taut chains: stretch each link along its local Y (the path direction after align)
-			// to fill the gap to the next link, so a pulled-apart chain stays connected.
-			double gap = i + 1 < links ? linkPositions[i + 1].distanceTo(linkPos) : linkPos.distanceTo(prev);
-			double stretch = Math.min(Math.max(gap / spacing, 1.0), 4.0);
-			if (stretch > 1.0) {
+			// Stretch/compress the link along its local Y (the segment direction after align) so
+			// its ends meet the neighbouring links' ends exactly.
+			double stretch = Mth.clamp(segLen / spacing, 0.1F, 4.0F);
+			if (Math.abs(stretch - 1.0F) > 1.0e-3F || scale != 1.0F) {
 				pose.scale(scale, scale * (float) stretch, scale);
-			} else if (scale != 1.0F) {
-				pose.scale(scale, scale, scale);
 			}
 			pose.translate(-0.5, -0.5, -0.5);
 			context.submitNodeCollector().submitMovingBlock(pose, link);
 			pose.popPose();
-			prev = linkPos;
 		}
 	}
 
 	/**
-	 * Advances (and returns) the verlet rope for a physics chain. Both anchors pinned when a
-	 * second slot exists, otherwise only the top is pinned and the rope hangs. Rebuilt when the
-	 * link count changes or the pinned anchor teleports.
+	 * Advances (and returns) the verlet rope for a physics chain: {@code joints} connection
+	 * points, one rendered link spans each joint pair. Both ends pinned when a second anchor
+	 * exists, otherwise only the top is pinned and the rope hangs. Returns the INTERPOLATED
+	 * joint positions (prev→current by the fractional tick) for smooth rendering. Rebuilt when
+	 * the joint count changes or the pinned anchor teleports.
 	 */
-	private static Vec3[] simulateChain(final VFXActiveEffect effect, final Minecraft minecraft, final ClientLevel level, final Vec3 anchorA, final @Nullable Vec3 anchorB, final int links, final float spacing) {
+	private static Vec3[] simulateChain(final VFXActiveEffect effect, final Minecraft minecraft, final ClientLevel level, final Vec3 anchorA, final @Nullable Vec3 anchorB, final int joints, final float spacing) {
 		long key = effect.getInstanceId();
 		ChainSim sim = CHAIN_SIMS.get(key);
-		boolean teleport = sim != null && sim.links == links && sim.pos[0].distanceTo(anchorA) > 16.0;
-		if (sim == null || sim.links != links || teleport) {
+		boolean teleport = sim != null && sim.joints == joints && sim.pos[0].distanceTo(anchorA) > 16.0;
+		if (sim == null || sim.joints != joints || teleport) {
 			// Straight initial shape: toward the second anchor, or straight down for a hanging chain.
-			Vec3[] start = new Vec3[links];
+			Vec3[] start = new Vec3[joints];
 			Vec3 step = anchorB != null
-				? anchorB.subtract(anchorA).scale(1.0 / Math.max(links, 1))
+				? anchorB.subtract(anchorA).scale(1.0 / (joints - 1))
 				: new Vec3(0.0, -spacing, 0.0);
-			for (int i = 0; i < links; i++) {
-				start[i] = anchorA.add(step.scale(i + 0.5));
+			for (int i = 0; i < joints; i++) {
+				start[i] = anchorA.add(step.scale(i));
 			}
-			sim = new ChainSim(links, start);
+			sim = new ChainSim(joints, start);
 			sim.lastAge = effect.getAge();
 			CHAIN_SIMS.put(key, sim);
 			if (CHAIN_SIMS.size() > 256) {
 				CHAIN_SIMS.clear();
 			}
-			return sim.pos;
+			return sim.pos.clone();
 		}
 
 		float delta = effect.getAge() - sim.lastAge;
@@ -660,8 +666,12 @@ public final class VFXWorldOverlayRenderer {
 		float sway = Mth.clamp(effect.getParam("sway", 0.3F), 0.0F, 1.0F);
 		float age = effect.getAge();
 		for (int s = 0; s < steps; s++) {
+			// Snapshot for render interpolation before mutating this tick.
+			for (int i = 0; i < sim.joints; i++) {
+				sim.renderPrev[i] = sim.pos[i];
+			}
 			// Integrate: gravity, damping, wind sway (verlet: velocity = pos - prev).
-			for (int i = 1; i < sim.links - (pinnedB ? 1 : 0); i++) {
+			for (int i = 1; i < sim.joints - (pinnedB ? 1 : 0); i++) {
 				Vec3 p = sim.pos[i];
 				Vec3 pr = sim.prev[i];
 				Vec3 next = new Vec3(
@@ -676,16 +686,16 @@ public final class VFXWorldOverlayRenderer {
 			for (int iter = 0; iter < 4; iter++) {
 				sim.pos[0] = anchorA;
 				if (pinnedB) {
-					sim.pos[sim.links - 1] = anchorB;
+					sim.pos[sim.joints - 1] = anchorB;
 				}
-				for (int i = 0; i < sim.links - 1; i++) {
+				for (int i = 0; i < sim.joints - 1; i++) {
 					Vec3 d = sim.pos[i + 1].subtract(sim.pos[i]);
 					double len = d.length();
 					if (len < 1.0e-6) {
 						continue;
 					}
 					boolean pinA = i == 0;
-					boolean pinB = pinnedB && i + 1 == sim.links - 1;
+					boolean pinB = pinnedB && i + 1 == sim.joints - 1;
 					if (pinA && pinB) {
 						continue;
 					}
@@ -702,17 +712,17 @@ public final class VFXWorldOverlayRenderer {
 				}
 			}
 			// World collision: a link inside a solid block snaps back to its previous position.
-			for (int i = 1; i < sim.links - (pinnedB ? 1 : 0); i++) {
+			for (int i = 1; i < sim.joints - (pinnedB ? 1 : 0); i++) {
 				Vec3 p = sim.pos[i];
 				BlockPos bp = BlockPos.containing(p.x, p.y, p.z);
 				if (!level.getBlockState(bp).getCollisionShape(level, bp).isEmpty()) {
 					sim.pos[i] = sim.prev[i];
 				}
 			}
-			// Player push: links near the local player are shoved radially away.
+			// Player push: joints near the local player are shoved radially away.
 			if (minecraft.player != null && !minecraft.player.isSpectator()) {
 				AABB reach = minecraft.player.getBoundingBox().inflate(0.45);
-				for (int i = 1; i < sim.links - (pinnedB ? 1 : 0); i++) {
+				for (int i = 1; i < sim.joints - (pinnedB ? 1 : 0); i++) {
 					Vec3 p = sim.pos[i];
 					if (reach.contains(p.x, p.y, p.z)) {
 						double dx = p.x - minecraft.player.getX();
@@ -723,16 +733,28 @@ public final class VFXWorldOverlayRenderer {
 							dz = 0.0;
 							h = 1.0;
 						}
-						sim.pos[i] = new Vec3(p.x + dx / h * 0.2, p.y + 0.05, p.z + dz / h * 0.2);
+						sim.pos[i] = new Vec3(p.x + dx / h * 0.15, p.y + 0.05, p.z + dz / h * 0.15);
 					}
 				}
 			}
 		}
-		if (pinnedB) {
-			sim.pos[sim.links - 1] = anchorB;
-		}
 		sim.pos[0] = anchorA;
-		return sim.pos;
+		sim.renderPrev[0] = anchorA;
+		if (pinnedB) {
+			sim.pos[sim.joints - 1] = anchorB;
+			sim.renderPrev[sim.joints - 1] = anchorB;
+		}
+		// Interpolate prev→current by the fractional tick left in the accumulator.
+		float frac = Mth.clamp(effect.getAge() - sim.lastAge, 0.0F, 1.0F);
+		Vec3[] render = new Vec3[sim.joints];
+		for (int i = 0; i < sim.joints; i++) {
+			render[i] = new Vec3(
+				Mth.lerp(frac, sim.renderPrev[i].x, sim.pos[i].x),
+				Mth.lerp(frac, sim.renderPrev[i].y, sim.pos[i].y),
+				Mth.lerp(frac, sim.renderPrev[i].z, sim.pos[i].z)
+			);
+		}
+		return render;
 	}
 
 	/**
