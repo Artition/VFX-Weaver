@@ -43,6 +43,20 @@ public final class CameraShakeManager {
 	}
 
 	/**
+	 * Combined hand-shake multiplier across all active shake effects. Each effect can scale how
+	 * loudly the first-person hand carries its camera-shake via the {@code hand} param (0 = hand
+	 * stays still, 1 = hand shakes together with the camera). The minimum wins - one effect asking
+	 * for a steadier hand steadies it for the combined shake.
+	 */
+	public static float handMultiplier(final VFXEffectManager manager) {
+		float hand = 1.0F;
+		for (VFXActiveEffect effect : manager.getActiveShakes()) {
+			hand = Math.min(hand, Mth.clamp(effect.getParam("hand", 1.0F), 0.0F, 1.0F));
+		}
+		return hand;
+	}
+
+	/**
 	 * Samples one shake effect.
 	 */
 	public static Offset sample(final VFXActiveEffect effect) {

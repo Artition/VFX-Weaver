@@ -16,8 +16,10 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
  * Carries the camera shake onto the first-person hand. In 26.1 the hand renders from a pose that
  * cancels the shaken camera rotation (so it floats steady in front of a shaking world); this mixin
  * re-applies the shake offset (position + roll) on top, so the hand visibly shakes together with
- * the world instead of standing still. The HEAD/RETURN push/pop pair below keeps the hand's
- * PoseStack balanced.
+ * the world instead of standing still. The {@code hand} multiplier on each {@code camera_shake}
+ * effect scales how strongly that offset is re-applied to the hand (0 = hand stays still,
+ * 1 = full shake as seen on the world). The minimum {@code hand} value across active shakes wins.
+ * Camera-roll tilt is unaffected by this multiplier.
  */
 @Mixin(ItemInHandRenderer.class)
 public abstract class ItemInHandRendererMixin {
@@ -41,11 +43,12 @@ public abstract class ItemInHandRendererMixin {
 		poseStack.pushPose();
 		VFXEffectManager manager = VFXEffectManager.get();
 		CameraShakeManager.Offset offset = CameraShakeManager.compute(manager);
-		float roll = offset.roll() + VFXCameraRoll.compute(manager);
+		float handFactor = CameraShakeManager.handMultiplier(manager);
+		float roll = offset.roll() * handFactor + VFXCameraRoll.compute(manager);
 		if (offset.dx() == 0.0 && offset.dy() == 0.0 && offset.dz() == 0.0 && roll == 0.0F) {
 			return;
 		}
-		poseStack.translate((float) offset.dx() * HAND_SHAKE_SCALE, (float) offset.dy() * HAND_SHAKE_SCALE, (float) offset.dz() * HAND_SHAKE_SCALE);
+		poseStack.translate((float) offset.dx() * HAND_SHAKE_SCALE * handFactor, (float) offset.dy() * HAND_SHAKE_SCALE * handFactor, (float) offset.dz() * HAND_SHAKE_SCALE * handFactor);
 		if (roll != 0.0F) {
 			poseStack.mulPose(com.mojang.math.Axis.ZP.rotationDegrees(roll));
 		}

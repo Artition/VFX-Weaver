@@ -728,6 +728,7 @@ Camera shake with simplex noise and a smooth fade-out envelope.
 | `pitch` | 0.6 | Rotation shake amplitude (degrees) |
 | `roll` | 0.4 | Rotation shake amplitude (degrees) |
 | `frequency` | 7 | Noise oscillations per second |
+| `hand` | 0.5 | First-person hand multiplier: 0 = hand stays still, 1 = full shake with the camera |
 
 ```
 /vfx play vfxweaver:camera_shake {[amplitude_y:0.3],[frequency:20]}

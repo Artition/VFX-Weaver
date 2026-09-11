@@ -11,6 +11,7 @@
     "amplitude_z": 0.04,
     "yaw": 0.8,
     "pitch": 0.6,
-    "roll": 0.4
+    "roll": 0.4,
+    "hand": 0.5
   }
 }
