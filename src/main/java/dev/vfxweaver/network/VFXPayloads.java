@@ -28,10 +28,12 @@ public final class VFXPayloads {
 		//? if <26.1 {
 		/*PayloadTypeRegistry.playS2C().register(VFXTriggerPayload.TYPE, VFXTriggerPayload.STREAM_CODEC);
 		PayloadTypeRegistry.playS2C().register(VFXSyncPayload.TYPE, VFXSyncPayload.STREAM_CODEC);
+		PayloadTypeRegistry.playS2C().register(VFXScoreboardPayload.TYPE, VFXScoreboardPayload.STREAM_CODEC);
 		PayloadTypeRegistry.playC2S().register(VFXRequestPayload.TYPE, VFXRequestPayload.STREAM_CODEC);
 		*///?} else {
 		PayloadTypeRegistry.clientboundPlay().register(VFXTriggerPayload.TYPE, VFXTriggerPayload.STREAM_CODEC);
 		PayloadTypeRegistry.clientboundPlay().register(VFXSyncPayload.TYPE, VFXSyncPayload.STREAM_CODEC);
+		PayloadTypeRegistry.clientboundPlay().register(VFXScoreboardPayload.TYPE, VFXScoreboardPayload.STREAM_CODEC);
 		PayloadTypeRegistry.serverboundPlay().register(VFXRequestPayload.TYPE, VFXRequestPayload.STREAM_CODEC);
 		//?}
 		ServerPlayNetworking.registerGlobalReceiver(VFXRequestPayload.TYPE, VFXPayloads::handleRequest);

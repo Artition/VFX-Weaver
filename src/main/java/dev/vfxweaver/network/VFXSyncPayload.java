@@ -25,7 +25,7 @@ import net.minecraft.resources.Identifier;
  */
 public record VFXSyncPayload(byte protocolVersion, Map<Identifier, String> definitions, Map<Identifier, String> curves)
 	implements CustomPacketPayload {
-	public static final byte PROTOCOL_VERSION = 1;
+	public static final byte PROTOCOL_VERSION = 2;
 	public static final int MAX_DEFINITIONS = 1024;
 	public static final int MAX_CURVES = 256;
 	public static final Type<VFXSyncPayload> TYPE = new Type<>(Identifier.fromNamespaceAndPath("vfxweaver", "vfx_sync"));

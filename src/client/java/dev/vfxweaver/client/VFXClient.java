@@ -12,14 +12,14 @@ import dev.vfxweaver.effect.EasingFunction;
 import dev.vfxweaver.effect.VFXCurveManager;
 import dev.vfxweaver.effect.VFXWorldBindings;
 import dev.vfxweaver.network.VFXAction;
+import dev.vfxweaver.network.VFXScoreboardPayload;
 import dev.vfxweaver.network.VFXSyncPayload;
 import dev.vfxweaver.network.VFXTriggerPayload;
 import dev.vfxweaver.resource.VFXDefinitionManager;
-import java.util.HashSet;
 import java.util.Map;
-import java.util.Set;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientLifecycleEvents;
+import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import net.minecraft.client.Minecraft;
 import net.minecraft.world.scores.Objective;
@@ -48,6 +48,8 @@ public class VFXClient implements ClientModInitializer {
 		FlashbackCompat.init();
 		ClientPlayNetworking.registerGlobalReceiver(VFXTriggerPayload.TYPE, this::handleTrigger);
 		ClientPlayNetworking.registerGlobalReceiver(VFXSyncPayload.TYPE, this::handleSync);
+		ClientPlayNetworking.registerGlobalReceiver(VFXScoreboardPayload.TYPE, this::handleScoreboard);
+		ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> client.execute(VFXScoreboardCache::clear));
 		ClientLifecycleEvents.CLIENT_STOPPING.register(client -> {
 			VFXWorldOverlayRenderer.freeGpuResources();
 			VFXPostProcessingManager.get().freeGpuResources();
@@ -60,33 +62,30 @@ public class VFXClient implements ClientModInitializer {
 	 * {@link VFXWorldBindings.ScoreboardReader}. Missing level, objective, holder or score
 	 * yield {@code null} (evaluated as 0.0 downstream).
 	 */
-	private static final Set<String> SCOREBOARD_LOGGED = new HashSet<>();
-
 	private static @Nullable Integer readScoreboard(final String objectiveName, final @Nullable String holderName) {
 		final Minecraft minecraft = Minecraft.getInstance();
 		if (minecraft.level == null || minecraft.player == null) {
 			return null;
 		}
+		// Server-pushed value for scoreboard bindings first (the vanilla client only mirrors
+		// objectives that are displayed in a slot, so a bind cannot rely on the local scoreboard).
+		final String holder = holderName != null ? holderName : minecraft.player.getScoreboardName();
+		final Integer tracked = VFXScoreboardCache.get(objectiveName, holder);
+		if (tracked != null) {
+			return tracked;
+		}
 		final Scoreboard scoreboard = minecraft.level.getScoreboard();
 		final Objective objective = scoreboard.getObjective(objectiveName);
 		if (objective == null) {
-			if (SCOREBOARD_LOGGED.add("missing:" + objectiveName)) {
-				LOGGER.info("VFX scoreboard bind: objective '{}' not found on the client scoreboard", objectiveName);
-			}
 			return null;
 		}
-		final ScoreHolder holder = holderName != null ? ScoreHolder.forNameOnly(holderName) : minecraft.player;
-		final ReadOnlyScoreInfo info = scoreboard.getPlayerScoreInfo(holder, objective);
-		if (info == null) {
-			if (SCOREBOARD_LOGGED.add("noscore:" + objectiveName)) {
-				LOGGER.info("VFX scoreboard bind: objective '{}' exists but has no score for '{}'", objectiveName, minecraft.player.getScoreboardName());
-			}
-			return null;
-		}
-		if (SCOREBOARD_LOGGED.add("value:" + objectiveName)) {
-			LOGGER.info("VFX scoreboard bind: '{}' = {}", objectiveName, info.value());
-		}
-		return Integer.valueOf(info.value());
+		final ScoreHolder scoreHolder = holderName != null ? ScoreHolder.forNameOnly(holderName) : minecraft.player;
+		final ReadOnlyScoreInfo info = scoreboard.getPlayerScoreInfo(scoreHolder, objective);
+		return info != null ? Integer.valueOf(info.value()) : null;
+	}
+
+	private void handleScoreboard(final VFXScoreboardPayload payload, final ClientPlayNetworking.Context context) {
+		context.client().execute(() -> VFXScoreboardCache.apply(payload));
 	}
 
 	private void handleSync(final VFXSyncPayload payload, final ClientPlayNetworking.Context context) {

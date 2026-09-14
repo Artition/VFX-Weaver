@@ -3,6 +3,7 @@ package dev.vfxweaver;
 import dev.vfxweaver.command.ParamMapArgument;
 import dev.vfxweaver.command.VFXCommand;
 import dev.vfxweaver.effect.VFXCurveManager;
+import dev.vfxweaver.effect.VFXScoreboardSync;
 import dev.vfxweaver.effect.VFXServerEffects;
 import dev.vfxweaver.network.VFXPayloads;
 import dev.vfxweaver.network.VFXSyncPayload;
@@ -13,6 +14,8 @@ import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.command.v2.ArgumentTypeRegistry;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
+import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
+import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 //? if <26.1 {
 /*import net.fabricmc.fabric.api.resource.ResourceManagerHelper;
@@ -50,6 +53,12 @@ public class VFXMod implements ModInitializer {
 		// sync) and on /reload, so custom (datapack) effects work on dedicated servers.
 		ServerLifecycleEvents.SYNC_DATA_PACK_CONTENTS.register(VFXMod::syncToPlayer);
 		ServerLifecycleEvents.END_DATA_PACK_RELOAD.register(VFXMod::syncToAll);
+
+		// Scoreboard synchronization for `scoreboard` bindings (the vanilla client only mirrors
+		// displayed objectives, so the server pushes the referenced values instead).
+		ServerTickEvents.END_SERVER_TICK.register(VFXScoreboardSync::tick);
+		ServerPlayConnectionEvents.DISCONNECT.register((handler, server) -> VFXScoreboardSync.onPlayerLeft(handler.player));
+		ServerLifecycleEvents.SERVER_STOPPED.register(server -> VFXScoreboardSync.clear());
 	}
 
 	private static void syncToPlayer(final ServerPlayer player, final boolean joined) {

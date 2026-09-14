@@ -4,6 +4,7 @@ import dev.vfxweaver.effect.EasingFunction;
 import dev.vfxweaver.effect.EasingType;
 import dev.vfxweaver.effect.MathExpression;
 import dev.vfxweaver.effect.VFXDefinition;
+import dev.vfxweaver.effect.VFXScoreboardSync;
 import dev.vfxweaver.effect.VFXServerEffects;
 import dev.vfxweaver.network.VFXTriggerPayload;
 import dev.vfxweaver.resource.VFXDefinitionManager;
@@ -196,6 +197,7 @@ public final class VFXAPI {
 		String wireEasing = effectiveEasing.isInline() ? "" : effectiveEasing.name();
 		ServerPlayNetworking.send(player, VFXTriggerPayload.play(effectId, duration, instanceId, worldPos, entityUuids, params, wireEasing));
 		VFXServerEffects.get().record(player, effectId, duration, instanceId, worldPos, entityUuids, params, wireEasing);
+		VFXScoreboardSync.onEffectPlayed(player, definition, duration);
 		return true;
 	}
 
@@ -220,6 +222,10 @@ public final class VFXAPI {
 	public static void sendStop(final ServerPlayer player, final Identifier effectId) {
 		ServerPlayNetworking.send(player, VFXTriggerPayload.stop(effectId));
 		VFXServerEffects.get().stop(player, effectId);
+		VFXDefinition definition = VFXDefinitionManager.get().get(effectId);
+		if (definition != null) {
+			VFXScoreboardSync.onEffectStopped(player, definition);
+		}
 	}
 
 	/**

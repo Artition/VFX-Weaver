@@ -524,6 +524,21 @@ public class VFXDefinition {
 	}
 
 	/**
+	 * All {@code scoreboard} bindings declared by this definition — used by the server to know
+	 * which scoreboard values to synchronize to a client (see {@code VFXScoreboardSync}).
+	 */
+	public List<BoundParam> scoreboardBindings() {
+		List<BoundParam> result = new ArrayList<>();
+		for (ParamSpec spec : this.params.values()) {
+			BoundParam bound = spec.bound();
+			if (bound != null && bound.kind() == BoundParam.Kind.SCOREBOARD) {
+				result.add(bound);
+			}
+		}
+		return result;
+	}
+
+	/**
 	 * Builds a playable timeline for an instance of this effect.
 	 *
 	 * @param durationTicks the effective duration in ticks (payload value, or the definition default)
