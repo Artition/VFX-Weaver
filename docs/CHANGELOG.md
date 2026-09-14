@@ -2,6 +2,18 @@
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). The versions below are guide/feature-set versions of the mod (as they progressed historically, see `docs/GUIDE.md`), plus git release tags where applicable (`v1.0.x`, `gradle.properties` → `mod_version`). Add new entries at the top, in the same PR as the behavior change.
 
+## Unreleased / Guide v27
+### Added
+- **Cubic-Bézier easing curves** - standard CSS-style easing. Inline: `"easing": { "cubicBezier": [x1, y1, x2, y2] }`; named: `data/<namespace>/vfx_curves/<name>.json` with `{ "cubicBezier": [...] }`. Endpoints are fixed at (0,0)/(1,1); the y ordinates may leave 0..1 for anticipation/overshoot (e.g. ease-out-back = `[0.34, 1.56, 0.64, 1]`). Evaluated by solving the curve parameter for the given progress, so the motion is smooth instead of a piecewise-linear polyline.
+- **Multi-version builds** - the project now ships from one source for Minecraft `26.1.2` and `1.21.11` (Stonecutter; per-node dependencies and Loom). Effect behaviour, the datapack format and the network protocol are identical across both.
+
+### Fixed
+- **Custom easing curves silently degraded to LINEAR.** Named curves were resolved while a definition was parsed, which happens before the curve registry has loaded (reload listeners `prepare()` before `apply()`), so the reference fell back to LINEAR; inline curves also lost their control points over the network (only a name travels). Named curves now resolve lazily (cached, with a warning on a genuine miss), inline curves send a blank name so the client uses its own definition copy, and the client applies synced curves before definitions.
+- **Animated `start`/`end` parameters now pass the end value through the easing.** For a curve whose value at t=1 is not 1 (a triangle/wave), the final tick snapped to the raw `end` value instead of the eased one.
+- **`/vfx stop <collection>` now cancels the whole pending subtree**, including nested collections, instead of matching only a child's own definition id.
+- **Player-bound world overlays** (`pos_x/y/z` with `bind: player_x/y/z`) no longer jitter at the 20 Hz tick rate and are no longer offset by +0.5 block on X/Z: dynamic (bound/expression) positions use exact sub-block coordinates and the player position is interpolated per frame.
+- **Scoreboard bind diagnostics** - a `scoreboard` bind now logs once per objective (objective missing / no score for the holder / the read value) on the client, making a client scoreboard that did not sync diagnosable.
+
 ## Unreleased / Guide v26
 ### Added
 - **`camera_shake` `hand` param** - first-person hand multiplier (0..1, default 0.5): scales how strongly the camera-shake offset is re-applied to the held-item pose; at 0 the hand stays still while the world shakes, at 1 it moves together. The minimum across active shakes wins. `camera_roll` tilt is unaffected.
