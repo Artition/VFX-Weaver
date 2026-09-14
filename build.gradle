@@ -1,6 +1,15 @@
 plugins {
-	id 'net.fabricmc.fabric-loom' version "${loom_version}"
 	id 'maven-publish'
+	// Load the Loom artifact onto the plugin classpath; apply the right variant per node below.
+	id 'net.fabricmc.fabric-loom' version "${loom_version}" apply false
+}
+
+if (sc.current.parsed.matches('<26.1')) {
+	// Obfuscated target: use the remapping Loom so intermediary mod access wideners are remapped.
+	apply plugin: 'fabric-loom'
+} else {
+	// Unobfuscated target (26.x): no-remap Loom.
+	apply plugin: 'net.fabricmc.fabric-loom'
 }
 
 def minecraftVersion = property('deps.minecraft')
@@ -19,7 +28,11 @@ repositories {
 loom {
 	splitEnvironmentSourceSets()
 
-	accessWidenerPath = rootProject.file("src/main/resources/vfxweaver.accesswidener")
+	// The AW is written in the `official` namespace (unobfuscated 26.x). The remap node
+	// needs a `named` AW; that adaptation is Phase 1/2 (Task 2.3), so scope it to 26.x here.
+	if (sc.current.parsed.matches('>=26.1')) {
+		accessWidenerPath = rootProject.file("src/main/resources/vfxweaver.accesswidener")
+	}
 
 	mods {
 		"vfxweaver" {
@@ -31,8 +44,14 @@ loom {
 
 dependencies {
 	minecraft "com.mojang:minecraft:${minecraftVersion}"
-	implementation "net.fabricmc:fabric-loader:${loaderVersion}"
-	implementation "net.fabricmc.fabric-api:fabric-api:${fabricApiVersion}"
+	if (sc.current.parsed.matches('<26.1')) {
+		mappings loom.officialMojangMappings()
+		modImplementation "net.fabricmc:fabric-loader:${loaderVersion}"
+		modImplementation "net.fabricmc.fabric-api:fabric-api:${fabricApiVersion}"
+	} else {
+		implementation "net.fabricmc:fabric-loader:${loaderVersion}"
+		implementation "net.fabricmc.fabric-api:fabric-api:${fabricApiVersion}"
+	}
 }
 
 def expandProps = [
