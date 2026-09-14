@@ -1,6 +1,8 @@
 package dev.vfxweaver.effect;
 
 import java.util.Locale;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * An interpolation curve: maps a normalized progress value in {@code [0, 1]} to an eased value.
@@ -11,6 +13,7 @@ import java.util.Locale;
  * the client (built-in name or {@code namespace:path} curve id).
  */
 public final class EasingFunction {
+	private static final Logger LOGGER = LoggerFactory.getLogger("vfxweaver/easing");
 	private static final float EPSILON = 1.0e-6F;
 
 	private final String name;
@@ -54,6 +57,43 @@ public final class EasingFunction {
 	}
 
 	/**
+	 * Creates a standard cubic-Bézier easing curve with fixed endpoints (0,0) and (1,1) and the
+	 * two control points {@code (x1,y1)} / {@code (x2,y2)} — the same convention as the CSS
+	 * {@code cubic-bezier(x1,y1,x2,y2)} function. The y ordinates may exceed [0,1] for
+	 * anticipation/overshoot; e.g. ease-out-back = {@code 0.34, 1.56, 0.64, 1}.
+	 */
+	public static EasingFunction cubicBezier(final String name, final float x1, final float y1, final float x2, final float y2) {
+		return new EasingFunction(name, t -> bezierComponent(solveBezierT(x1, x2, t), y1, y2), null, null);
+	}
+
+	private static float bezierComponent(final float t, final float a1, final float a2) {
+		final float mt = 1.0F - t;
+		return 3.0F * mt * mt * t * a1 + 3.0F * mt * t * t * a2 + t * t * t;
+	}
+
+	/** Solves for the curve parameter t whose x equals {@code x} (bisection on [0,1]). */
+	private static float solveBezierT(final float x1, final float x2, final float x) {
+		if (x <= 0.0F) {
+			return 0.0F;
+		}
+		if (x >= 1.0F) {
+			return 1.0F;
+		}
+		float lo = 0.0F;
+		float hi = 1.0F;
+		float t = 0.5F;
+		for (int i = 0; i < 30; i++) {
+			t = (lo + hi) * 0.5F;
+			if (bezierComponent(t, x1, x2) < x) {
+				lo = t;
+			} else {
+				hi = t;
+			}
+		}
+		return t;
+	}
+
+	/**
 	 * Resolves an easing name to a function: a built-in {@link EasingType} first, then a custom
 	 * curve from the datapack registry. Unknown names fall back to {@link EasingType#LINEAR}.
 	 *
@@ -69,8 +109,31 @@ public final class EasingFunction {
 				return builtIn(type);
 			}
 		}
-		VFXCurve curve = VFXCurveManager.get().get(name.trim());
-		return curve != null ? curve.function() : builtIn(EasingType.LINEAR);
+		final String curveName = name.trim();
+		VFXCurve curve = VFXCurveManager.get().get(curveName);
+		if (curve != null) {
+			return curve.function();
+		}
+		// The curve may not be registered yet when a definition is parsed (reload listeners run
+		// prepare() before apply()), so resolve it lazily — but cache the hit and warn once on a
+		// miss instead of silently degrading to a linear identity.
+		final VFXCurve[] cache = new VFXCurve[1];
+		final boolean[] warned = new boolean[1];
+		return new EasingFunction(curveName, t -> {
+			VFXCurve resolved = cache[0];
+			if (resolved == null) {
+				resolved = VFXCurveManager.get().get(curveName);
+				if (resolved == null) {
+					if (!warned[0]) {
+						warned[0] = true;
+						LOGGER.warn("Easing curve '{}' is not registered; affected params will animate LINEAR", curveName);
+					}
+					return t;
+				}
+				cache[0] = resolved;
+			}
+			return resolved.function().apply(t);
+		}, null, null);
 	}
 
 	/**
@@ -82,14 +145,25 @@ public final class EasingFunction {
 	}
 
 	/**
+	 * True for a curve built from inline control points. Its control points are not carried over
+	 * the network (only the name is), so an inline curve cannot be reconstructed remotely — it
+	 * must be resolved from the receiving side's own definition.
+	 */
+	public boolean isInline() {
+		return "inline".equals(this.name);
+	}
+
+	/**
 	 * Applies the curve to the given progress value, clamped to {@code [0, 1]}.
 	 */
 	public float apply(final float progress) {
-		if (progress <= EPSILON) {
-			return this.ts == null ? 0.0F : this.vs[0];
-		}
-		if (progress >= 1.0F - EPSILON) {
-			return this.ts == null ? 1.0F : this.vs[this.vs.length - 1];
+		if (this.ts != null) {
+			if (progress <= EPSILON) {
+				return this.vs[0];
+			}
+			if (progress >= 1.0F - EPSILON) {
+				return this.vs[this.vs.length - 1];
+			}
 		}
 		return this.function.apply(progress);
 	}

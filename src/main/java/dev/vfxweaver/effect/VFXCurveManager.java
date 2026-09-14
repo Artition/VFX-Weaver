@@ -105,6 +105,15 @@ public class VFXCurveManager extends SimplePreparableReloadListener<Map<Identifi
 		for (Entry<Identifier, String> entry : raw.entrySet()) {
 			try {
 				JsonObject json = StrictJsonParser.parse(entry.getValue()).getAsJsonObject();
+				if (json.has("cubicBezier")) {
+					JsonArray bezier = GsonHelper.getAsJsonArray(json, "cubicBezier");
+					if (bezier.size() != 4) {
+						throw new IllegalArgumentException("'cubicBezier' must be [x1,y1,x2,y2]");
+					}
+					result.put(entry.getKey(), new VFXCurve(entry.getKey(), EasingFunction.cubicBezier(entry.getKey().toString(),
+							bezier.get(0).getAsFloat(), bezier.get(1).getAsFloat(), bezier.get(2).getAsFloat(), bezier.get(3).getAsFloat())));
+					continue;
+				}
 				float[] ts = new float[0];
 				float[] vs = new float[0];
 				if (json.has("points")) {

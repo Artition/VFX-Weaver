@@ -191,8 +191,11 @@ public final class VFXAPI {
 		params.putAll(overrides);
 		int duration = definition.isPersistent() ? -1 : definition.getDefaultDuration();
 		EasingFunction effectiveEasing = easing != null ? EasingFunction.builtIn(easing) : definition.getDefaultEasing();
-		ServerPlayNetworking.send(player, VFXTriggerPayload.play(effectId, duration, instanceId, worldPos, entityUuids, params, effectiveEasing.name()));
-		VFXServerEffects.get().record(player, effectId, duration, instanceId, worldPos, entityUuids, params, effectiveEasing.name());
+		// An inline curve cannot be reconstructed from its name over the network; send a blank name
+		// so the client falls back to its own definition default (which carries the same curve).
+		String wireEasing = effectiveEasing.isInline() ? "" : effectiveEasing.name();
+		ServerPlayNetworking.send(player, VFXTriggerPayload.play(effectId, duration, instanceId, worldPos, entityUuids, params, wireEasing));
+		VFXServerEffects.get().record(player, effectId, duration, instanceId, worldPos, entityUuids, params, wireEasing);
 		return true;
 	}
 

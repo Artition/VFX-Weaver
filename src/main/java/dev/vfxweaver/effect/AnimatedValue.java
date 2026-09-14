@@ -67,7 +67,15 @@ public class AnimatedValue {
 		if (now <= this.startTime) {
 			this.current = this.keyframes.get(0).value();
 		} else if (now >= this.endTime) {
-			this.current = this.keyframes.get(this.keyframes.size() - 1).value();
+			if (this.keyframes.size() >= 2 && this.keyframes.get(this.keyframes.size() - 2).easing() != null) {
+				// Pass the end through the segment's easing as well: for a curve whose value at
+				// t=1 is not 1 (e.g. a triangle/wave), snapping to the raw end value would jump.
+				Keyframe from = this.keyframes.get(this.keyframes.size() - 2);
+				Keyframe to = this.keyframes.get(this.keyframes.size() - 1);
+				this.current = from.value() + (to.value() - from.value()) * from.easing().apply(1.0F);
+			} else {
+				this.current = this.keyframes.get(this.keyframes.size() - 1).value();
+			}
 		} else {
 			for (int i = 0; i < this.keyframes.size() - 1; i++) {
 				Keyframe from = this.keyframes.get(i);

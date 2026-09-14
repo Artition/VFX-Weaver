@@ -233,8 +233,14 @@ public class VFXDefinition {
 		if (element.isJsonPrimitive() && element.getAsJsonPrimitive().isString()) {
 			return EasingFunction.fromString(element.getAsString());
 		}
-		if (element.isJsonObject() && element.getAsJsonObject().has("curve")) {
-			JsonArray curve = GsonHelper.getAsJsonArray(element.getAsJsonObject(), "curve");
+		if (element.isJsonObject() && element.getAsJsonObject().has("cubicBezier")) {
+			JsonArray bezier = GsonHelper.getAsJsonArray(element.getAsJsonObject(), "cubicBezier");
+			if (bezier.size() != 4) {
+				throw new IllegalArgumentException("'cubicBezier' must be [x1,y1,x2,y2]: " + element);
+			}
+			return EasingFunction.cubicBezier("inline", bezier.get(0).getAsFloat(), bezier.get(1).getAsFloat(), bezier.get(2).getAsFloat(), bezier.get(3).getAsFloat());
+		}
+		if (element.isJsonObject() && element.getAsJsonObject().has("curve")) {			JsonArray curve = GsonHelper.getAsJsonArray(element.getAsJsonObject(), "curve");
 			float[] ts = new float[curve.size()];
 			float[] vs = new float[curve.size()];
 			for (int i = 0; i < curve.size(); i++) {

@@ -7,6 +7,7 @@ import net.minecraft.client.Camera;
 import net.minecraft.client.DeltaTracker;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.GameRenderer;
+import net.minecraft.util.Mth;
 import net.minecraft.world.phys.Vec3;
 import org.joml.Matrix4f;
 //? if <26.1 {
@@ -54,6 +55,9 @@ public abstract class GameRendererMixin {
 		}
 
 		float deltaTicks = minecraft.isPaused() ? 0.0F : deltaTracker.getGameTimeDeltaTicks();
+		// Interpolate the player position across the current frame so player-bound overlays move
+		// smoothly instead of stepping at the 20 Hz game tick.
+		float partialTick = deltaTracker.getGameTimeDeltaPartialTick(false);
 
 		Camera camera = minecraft.gameRenderer.getMainCamera();
 		if (camera.isInitialized()) {
@@ -87,9 +91,9 @@ public abstract class GameRendererMixin {
 *///?} else {
 				(playerLevel.getOverworldClockTime() % 24000L) / 24000.0F,
 //?}
-				(float) player.getX(),
-				(float) player.getY(),
-				(float) player.getZ()
+				(float) Mth.lerp(partialTick, player.xo, player.getX()),
+				(float) Mth.lerp(partialTick, player.yo, player.getY()),
+				(float) Mth.lerp(partialTick, player.zo, player.getZ())
 			);
 		}
 		manager.advance(deltaTicks);

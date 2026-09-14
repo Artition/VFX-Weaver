@@ -92,7 +92,7 @@ public class VFXEffectManager {
 				return false;
 			});
 			for (ScheduledPlay play : due) {
-				this.play(play.definition().getId(), play.durationTicks(), 0L, play.position(), List.of(), Map.of(), play.easing(), play.depth(), 0, play.definition());
+				this.play(play.definition().getId(), play.durationTicks(), 0L, play.position(), List.of(), Map.of(), play.easing(), play.depth(), 0, play.definition(), play.collections());
 			}
 		}
 		for (VFXActiveEffect effect : this.active) {
@@ -136,7 +136,7 @@ public class VFXEffectManager {
 	 * @return the instance id, or {@code 0} when the effect was ignored
 	 */
 	public long play(final Identifier effectId, final int durationTicks, final Map<String, Float> params, final EasingType easing) {
-		return this.play(effectId, durationTicks, 0L, null, List.of(), params, EasingFunction.builtIn(easing), 0, 0, null);
+		return this.play(effectId, durationTicks, 0L, null, List.of(), params, EasingFunction.builtIn(easing), 0, 0, null, List.of());
 	}
 
 	/**
@@ -155,7 +155,7 @@ public class VFXEffectManager {
 	 * @return the instance id, or {@code 0} when the effect was ignored
 	 */
 	public long play(final Identifier effectId, final int durationTicks, final long instanceId, final @Nullable Vec3 position, final Map<String, Float> params, final EasingFunction easing) {
-		return this.play(effectId, durationTicks, instanceId, position, List.of(), params, easing, 0, 0, null);
+		return this.play(effectId, durationTicks, instanceId, position, List.of(), params, easing, 0, 0, null, List.of());
 	}
 
 	/**
@@ -163,7 +163,7 @@ public class VFXEffectManager {
 	 * easing function (used by the network receiver and by scheduled collection children).
 	 */
 	public long play(final Identifier effectId, final int durationTicks, final long instanceId, final @Nullable Vec3 position, final List<UUID> entityUuids, final Map<String, Float> params, final EasingFunction easing) {
-		return this.play(effectId, durationTicks, instanceId, position, entityUuids, params, easing, 0, 0, null);
+		return this.play(effectId, durationTicks, instanceId, position, entityUuids, params, easing, 0, 0, null, List.of());
 	}
 
 	/**
@@ -174,10 +174,10 @@ public class VFXEffectManager {
 	 * @param elapsedTicks how far into the timeline to seek, in ticks (0 = start fresh)
 	 */
 	public long play(final Identifier effectId, final int durationTicks, final int elapsedTicks, final long instanceId, final @Nullable Vec3 position, final List<UUID> entityUuids, final Map<String, Float> params, final EasingFunction easing) {
-		return this.play(effectId, durationTicks, instanceId, position, entityUuids, params, easing, 0, elapsedTicks, null);
+		return this.play(effectId, durationTicks, instanceId, position, entityUuids, params, easing, 0, elapsedTicks, null, List.of());
 	}
 
-	private long play(final Identifier effectId, final int durationTicks, final long instanceId, final @Nullable Vec3 position, final List<UUID> entityUuids, final Map<String, Float> params, final EasingFunction easing, final int depth, final int elapsedTicks, final @Nullable VFXDefinition predefined) {
+	private long play(final Identifier effectId, final int durationTicks, final long instanceId, final @Nullable Vec3 position, final List<UUID> entityUuids, final Map<String, Float> params, final EasingFunction easing, final int depth, final int elapsedTicks, final @Nullable VFXDefinition predefined, final List<Identifier> collections) {
 		VFXDefinition definition = predefined != null ? predefined : VFXDefinitionManager.get().get(effectId);
 		VFXEffectType type = definition != null ? definition.getType() : VFXEffectType.fromString(effectId.getPath());
 		if (type == null) {
@@ -190,6 +190,10 @@ public class VFXEffectManager {
 				return 0L;
 			}
 			int scheduledCount = 0;
+			// Ancestor chain of collections that scheduled these children: lets `/vfx stop <collection>`
+			// cancel the whole pending subtree (including nested collections) by its id.
+			List<Identifier> childCollections = new ArrayList<>(collections);
+			childCollections.add(effectId);
 			for (VFXDefinition.ChildEffect child : definition.getChildren()) {
 				if (this.scheduled.size() >= MAX_SCHEDULED_EFFECTS) {
 					LOGGER.warn("Scheduled VFX effect limit ({}) reached; dropping remaining collection children", MAX_SCHEDULED_EFFECTS);
@@ -206,7 +210,7 @@ public class VFXEffectManager {
 					// constant overrides.
 					childDef = childDef.withParams(child.params());
 				}
-				this.scheduled.add(new ScheduledPlay(this.clock + child.delay(), childDef, child.duration(), position, child.easing(), depth + 1));
+				this.scheduled.add(new ScheduledPlay(this.clock + child.delay(), childDef, child.duration(), position, child.easing(), depth + 1, childCollections));
 				scheduledCount++;
 			}
 			LOGGER.info("Scheduled {} child effect(s) from collection '{}'", scheduledCount, effectId);
@@ -327,7 +331,7 @@ public class VFXEffectManager {
 	 * definition's fade duration instead of disappearing instantly.
 	 */
 	public void stop(final Identifier effectId) {
-		this.scheduled.removeIf(play -> play.definition().getId().equals(effectId));
+		this.scheduled.removeIf(play -> play.definition().getId().equals(effectId) || play.collections().contains(effectId));
 		this.active.removeIf(effect -> {
 			if (!effect.getId().equals(effectId)) {
 				return false;
@@ -587,8 +591,10 @@ public class VFXEffectManager {
 
 	/**
 	 * A child effect waiting for its delay to elapse. Carries the (possibly derived) child
-	 * definition directly, so collection-level parameter specs are already merged in.
+	 * definition directly, so collection-level parameter specs are already merged in, plus the
+	 * ancestor collection ids that scheduled it (outermost first) so {@code stop(collectionId)}
+	 * can cancel the whole pending subtree.
 	 */
-	private record ScheduledPlay(float at, VFXDefinition definition, int durationTicks, @Nullable Vec3 position, EasingFunction easing, int depth) {
+	private record ScheduledPlay(float at, VFXDefinition definition, int durationTicks, @Nullable Vec3 position, EasingFunction easing, int depth, List<Identifier> collections) {
 	}
 }

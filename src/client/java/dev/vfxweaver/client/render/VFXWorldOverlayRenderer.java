@@ -1568,7 +1568,13 @@ public final class VFXWorldOverlayRenderer {
 				}
 				return List.copyOf(centered);
 			}
-			return List.of(new Vec3(effect.getParam("pos_x", 0.0F) + 0.5, effect.getParam("pos_y", 0.0F), effect.getParam("pos_z", 0.0F) + 0.5));
+			// Bound/expression-driven positions (e.g. player_x/y/z) are exact sub-block anchors;
+			// the block-centre (+0.5 on X/Z) convention only applies to static block coordinates.
+			boolean dynamic = effect.getTimeline().getBindings().containsKey("pos_x")
+				|| effect.getTimeline().getExpressions().containsKey("pos_x")
+				|| effect.getTimeline().getMultipliers().containsKey("pos_x");
+			double offset = dynamic ? 0.0 : 0.5;
+			return List.of(new Vec3(effect.getParam("pos_x", 0.0F) + offset, effect.getParam("pos_y", 0.0F), effect.getParam("pos_z", 0.0F) + offset));
 		}
 		if (list.isEmpty()) {
 			return List.of();
