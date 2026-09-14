@@ -16,7 +16,9 @@ import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
-import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
+//? if <26.1 {
+/*import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
+*///?}
 
 /**
  * Drives the effect clock and applies the post-processing chain right before the game GUI is
@@ -25,6 +27,15 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
  */
 @Mixin(GameRenderer.class)
 public abstract class GameRendererMixin {
+	/**
+	 * FOV actually used for the last gameplay frame (captured by the 1.21.11 {@code getFov} hook,
+	 * including the FOV-modifier/sprint modulation). Used to rebuild the view-rotation-projection
+	 * matrix so the screen bindings follow the rendered FOV; {@code -1} means "not captured yet".
+	 * 1.21.11 only.
+	 */
+	//? if <26.1
+	/*private static float vfxweaver$lastFov = -1.0F;*/
+
 	@Inject(
 		method = "render(Lnet/minecraft/client/DeltaTracker;Z)V",
 		at = @At(
@@ -48,8 +59,10 @@ public abstract class GameRendererMixin {
 		if (camera.isInitialized()) {
 			Vec3 camPos = camera.position();
 			//? if <26.1 {
-/*			float fov = minecraft.options.fov().get().floatValue();
-			Matrix4f viewRotProj = minecraft.gameRenderer.getProjectionMatrix(fov);
+/*			// Prefer the FOV captured by the getFov hook (rendered, modulated). It may be one frame
+			// stale because getFov can run after this hook, which is still better than the base option.
+			float renderedFov = vfxweaver$lastFov > 0.0F ? vfxweaver$lastFov : minecraft.options.fov().get().floatValue();
+			Matrix4f viewRotProj = minecraft.gameRenderer.getProjectionMatrix(renderedFov);
 			viewRotProj.mul(new Matrix4f().rotation(new Quaternionf(camera.rotation()).conjugate()));
 *///?} else {
 			Matrix4f viewRotProj = camera.getViewRotationProjectionMatrix(new Matrix4f());
@@ -122,9 +135,16 @@ public abstract class GameRendererMixin {
 	//? if <26.1 {
 /*	@Inject(method = "getFov(Lnet/minecraft/client/Camera;FZ)F", at = @At("RETURN"), cancellable = true)
 	private void vfxweaver$modifyFov(final Camera camera, final float partialTick, final boolean useFovSetting, final CallbackInfoReturnable<Float> cir) {
+		// getFov is also called for culling with useFovSetting=false; the FOV effect must only touch
+		// the gameplay FOV, so skip (and do not capture) the culling call.
+		if (!useFovSetting) {
+			return;
+		}
 		float delta = VFXEffectManager.get().getActiveFovDelta();
+		float fov = cir.getReturnValue() + delta;
+		vfxweaver$lastFov = fov;
 		if (delta != 0.0F) {
-			cir.setReturnValue(cir.getReturnValue() + delta);
+			cir.setReturnValue(fov);
 		}
 	}
 *///?}

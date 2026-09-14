@@ -922,7 +922,11 @@ public final class VFXWorldOverlayRenderer {
 		}
 
 		//? if <26.1 {
-/*		MultiBufferSource.BufferSource buffers = (MultiBufferSource.BufferSource) context.consumers();
+/*		// WorldRenderContext.consumers() is typed as MultiBufferSource; only the buffer-source
+		// variant supports the manual endBatch flush below. Skip the overlay for anything else.
+		if (!(context.consumers() instanceof MultiBufferSource.BufferSource buffers)) {
+			return;
+		}
 *///?} else {
 		MultiBufferSource.BufferSource buffers = context.bufferSource();
 //?}
