@@ -21,8 +21,12 @@ import java.util.List;
 import java.util.Map;
 import java.util.OptionalInt;
 import net.minecraft.client.renderer.MappableRingBuffer;
+//? if <26.1 {
+/*import net.minecraft.client.renderer.CachedOrthoProjectionMatrixBuffer;
+*///?} else {
 import net.minecraft.client.renderer.Projection;
 import net.minecraft.client.renderer.ProjectionMatrixBuffer;
+//?}
 import net.minecraft.resources.Identifier;
 import net.minecraft.util.Mth;
 import org.jspecify.annotations.Nullable;
@@ -49,9 +53,14 @@ public final class VFXPostProcessingManager {
 	private @Nullable TextureTarget stopMotionHold;
 	/** Last quantised hold slot per stop_motion effect (effect id -> slot). */
 	private final Map<Identifier, Integer> stopMotionSlots = new HashMap<>();
+	//? if >=26.1
 	private final Projection projection = new Projection();
 	private final Map<Identifier, VFXPass> passes = new HashMap<>();
+	//? if <26.1 {
+/*	private @Nullable CachedOrthoProjectionMatrixBuffer projectionMatrixBuffer;
+*///?} else {
 	private @Nullable ProjectionMatrixBuffer projectionMatrixBuffer;
+//?}
 	private int lastWidth;
 	private int lastHeight;
 	/** True until the history targets are (re)created; first feedback blend treats prev = current. */
@@ -121,11 +130,18 @@ public final class VFXPostProcessingManager {
 		}
 
 		this.ensureTargets(width, height);
+		//? if <26.1 {
+/*		if (this.projectionMatrixBuffer == null) {
+			this.projectionMatrixBuffer = new CachedOrthoProjectionMatrixBuffer("vfxweaver_post", 0.1F, 1000.0F, false);
+		}
+		GpuBufferSlice ortho = this.projectionMatrixBuffer.getBuffer(width, height);
+*///?} else {
 		this.projection.setSize(width, height);
 		if (this.projectionMatrixBuffer == null) {
 			this.projectionMatrixBuffer = new ProjectionMatrixBuffer("vfxweaver_post");
 		}
 		GpuBufferSlice ortho = this.projectionMatrixBuffer.getBuffer(this.projection);
+//?}
 
 		RenderSystem.backupProjectionMatrix();
 		RenderSystem.setProjectionMatrix(ortho, ProjectionType.ORTHOGRAPHIC);
