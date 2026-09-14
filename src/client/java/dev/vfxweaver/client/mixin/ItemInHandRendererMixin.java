@@ -27,7 +27,11 @@ public abstract class ItemInHandRendererMixin {
 	private static final float HAND_SHAKE_SCALE = 2.0F;
 
 	@Inject(
+		//? if >=26.2 {
+		/*method = "submitHandsWithItems(FLcom/mojang/blaze3d/vertex/PoseStack;Lnet/minecraft/client/renderer/SubmitNodeCollector;Lnet/minecraft/client/player/LocalPlayer;I)V",
+		*///?} else {
 		method = "renderHandsWithItems(FLcom/mojang/blaze3d/vertex/PoseStack;Lnet/minecraft/client/renderer/SubmitNodeCollector;Lnet/minecraft/client/player/LocalPlayer;I)V",
+		//?}
 		at = @At("HEAD")
 	)
 	private void vfxweaver$applyShakeToHandBegin(
@@ -55,7 +59,11 @@ public abstract class ItemInHandRendererMixin {
 	}
 
 	@Inject(
+		//? if >=26.2 {
+		/*method = "submitHandsWithItems(FLcom/mojang/blaze3d/vertex/PoseStack;Lnet/minecraft/client/renderer/SubmitNodeCollector;Lnet/minecraft/client/player/LocalPlayer;I)V",
+		*///?} else {
 		method = "renderHandsWithItems(FLcom/mojang/blaze3d/vertex/PoseStack;Lnet/minecraft/client/renderer/SubmitNodeCollector;Lnet/minecraft/client/player/LocalPlayer;I)V",
+		//?}
 		at = @At("RETURN")
 	)
 	private void vfxweaver$applyShakeToHandEnd(
