@@ -2,7 +2,7 @@
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). The versions below are guide/feature-set versions of the mod (as they progressed historically, see `docs/GUIDE.md`), plus git release tags where applicable (`v1.0.x`, `gradle.properties` → `mod_version`). Add new entries at the top, in the same PR as the behavior change.
 
-## Unreleased / Guide v27
+## v1.1.1 / Guide v27
 ### Added
 - **Cubic-Bézier easing curves** - standard CSS-style easing. Inline: `"easing": { "cubicBezier": [x1, y1, x2, y2] }`; named: `data/<namespace>/vfx_curves/<name>.json` with `{ "cubicBezier": [...] }`. Endpoints are fixed at (0,0)/(1,1); the y ordinates may leave 0..1 for anticipation/overshoot (e.g. ease-out-back = `[0.34, 1.56, 0.64, 1]`). Evaluated by solving the curve parameter for the given progress, so the motion is smooth instead of a piecewise-linear polyline.
 - **Multi-version builds** - the project now ships from one source for Minecraft `26.1.2` and `1.21.11` (Stonecutter; per-node dependencies and Loom). Effect behaviour, the datapack format and the network protocol are identical across both.
