@@ -26,7 +26,10 @@ import org.slf4j.LoggerFactory;
  * On a dedicated server the raw curves are sent to connecting clients via {@code VFXSyncPayload}
  * (see {@link #applySynced(Map)}). One malformed curve file is logged and skipped, the rest keep loading.
  */
-public class VFXCurveManager extends SimplePreparableReloadListener<Map<Identifier, String>> {
+public class VFXCurveManager extends SimplePreparableReloadListener<Map<Identifier, String>>
+		//? if <26.1
+		/*implements net.fabricmc.fabric.api.resource.IdentifiableResourceReloadListener*/
+		{
 	private static final Logger LOGGER = LoggerFactory.getLogger("vfxweaver/vfx-curves");
 	private static final FileToIdConverter FILE_CONVERTER = FileToIdConverter.json("vfx_curves");
 
@@ -37,6 +40,13 @@ public class VFXCurveManager extends SimplePreparableReloadListener<Map<Identifi
 
 	private VFXCurveManager() {
 	}
+
+	//? if <26.1 {
+	/*@Override
+	public Identifier getFabricId() {
+		return Identifier.fromNamespaceAndPath("vfxweaver", "vfx_curves");
+	}
+	*///?}
 
 	public static VFXCurveManager get() {
 		return INSTANCE;

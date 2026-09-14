@@ -14,7 +14,11 @@ import net.fabricmc.fabric.api.command.v2.ArgumentTypeRegistry;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
+//? if <26.1 {
+/*import net.fabricmc.fabric.api.resource.ResourceManagerHelper;
+*///?} else {
 import net.fabricmc.fabric.api.resource.v1.ResourceLoader;
+//?}
 import net.minecraft.commands.synchronization.SingletonArgumentInfo;
 import net.minecraft.resources.Identifier;
 import net.minecraft.server.MinecraftServer;
@@ -76,8 +80,12 @@ public class VFXMod implements ModInitializer {
 
 	public static void registerVfxDefinitionReloadListener() {
 		try {
+			//? if <26.1 {
+			/*ResourceManagerHelper.get(PackType.SERVER_DATA).registerReloadListener(VFXDefinitionManager.get());
+			*///?} else {
 			ResourceLoader.get(PackType.SERVER_DATA)
 				.registerReloadListener(id("vfx_definitions"), VFXDefinitionManager.get());
+			//?}
 		} catch (RuntimeException e) {
 			LOGGER.warn("Could not register VFX definition reload listener", e);
 		}
@@ -85,8 +93,12 @@ public class VFXMod implements ModInitializer {
 
 	public static void registerVfxCurveReloadListener() {
 		try {
+			//? if <26.1 {
+			/*ResourceManagerHelper.get(PackType.SERVER_DATA).registerReloadListener(VFXCurveManager.get());
+			*///?} else {
 			ResourceLoader.get(PackType.SERVER_DATA)
 				.registerReloadListener(id("vfx_curves"), VFXCurveManager.get());
+			//?}
 		} catch (RuntimeException e) {
 			LOGGER.warn("Could not register VFX curve reload listener", e);
 		}

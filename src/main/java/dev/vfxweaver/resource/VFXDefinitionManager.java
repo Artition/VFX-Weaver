@@ -29,7 +29,10 @@ import org.slf4j.LoggerFactory;
  * clients via {@code VFXSyncPayload} (see {@link #applySynced(Map)}), so datapack effects work
  * on clients that have no datapack themselves; single player loads them directly.
  */
-public class VFXDefinitionManager extends SimplePreparableReloadListener<Map<Identifier, String>> {
+public class VFXDefinitionManager extends SimplePreparableReloadListener<Map<Identifier, String>>
+		//? if <26.1
+		/*implements net.fabricmc.fabric.api.resource.IdentifiableResourceReloadListener*/
+		{
 	private static final Logger LOGGER = LoggerFactory.getLogger("vfxweaver/vfx-defs");
 	private static final FileToIdConverter FILE_CONVERTER = FileToIdConverter.json("vfx");
 
@@ -42,6 +45,13 @@ public class VFXDefinitionManager extends SimplePreparableReloadListener<Map<Ide
 
 	private VFXDefinitionManager() {
 	}
+
+	//? if <26.1 {
+	/*@Override
+	public Identifier getFabricId() {
+		return Identifier.fromNamespaceAndPath("vfxweaver", "vfx_definitions");
+	}
+	*///?}
 
 	public static VFXDefinitionManager get() {
 		return INSTANCE;
