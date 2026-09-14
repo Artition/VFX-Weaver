@@ -29,8 +29,8 @@ Stonecutter features that make this work (verified against its docs):
 - **Versioned subprojects** — `versions/<v>/`, one Gradle node per target; shared code in `src/`.
 - **Global string replacements** — reversible, whole-file find/replace, e.g. `Identifier` ⇄ `ResourceLocation`. Removes hundreds of per-line guards.
 - **Swaps / local replacements** — substitute a value/fragment per version (method calls, signatures).
-- **Versioned source overrides** — a file in `versions/<v>/src/...` fully replaces the common file of the same path (for genuinely divergent backends; reserved for 1.21.1).
-- **`//? if` conditions** — inline guards for the few places a whole-file override is overkill.
+- **Versioned source overrides** — Stonecutter generates the per-node processed sources under `versions/<v>/build/generated/`; dedicated override directories (`versions/<v>/src/…`) are an optional feature whose availability is confirmed in phase 0.
+- **`//? if` conditions** — inline guards, from a single line up to a whole-file closed scope (the mechanism for a fully divergent implementation, §5 Tier C).
 - **Per-node `gradle.properties`** — dependency/Java level per version.
 - **Resource processing** (`processResources` + `expand`) — metadata, access widener and mixin `compatibilityLevel` per version.
 
@@ -57,14 +57,14 @@ TOMvfx/
 │  └─ 1.21.11/gradle.properties
 ├─ src/main/…                       # SHARED (written against 26.1 API)
 ├─ src/client/…                     # SHARED
-└─ versions/<v>/src/…               # per-version overrides only (empty until needed)
+└─ versions/<v>/build/generated/…   # Stonecutter-generated processed sources (gitignored)
 ```
 
-The current `src/main` + `src/client` move to the root `src/` unchanged; `build.gradle`/`settings.gradle` are rewritten as Stonecutter controller files.
+The current `src/main` + `src/client` move to the root `src/` unchanged; `build.gradle`/`settings.gradle` are rewritten as Stonecutter controller files. Version-specific divergence is expressed **inside** the shared `src` with file-level `//? if` guards (see §5); Stonecutter writes the per-node processed copy under `versions/<v>/build/generated/`. Whether the optional versioned override directories (`versions/<v>/src/…`) are available is confirmed in phase 0; the design does not depend on them.
 
 ## 5. Seam model
 
-Version coupling is classified into three tiers. The rule of thumb: **A** never changes, **B** is handled by build-script replacements/swaps, **C** is a full versioned override (not needed for 1.21.11).
+Version coupling is classified into three tiers. The rule of thumb: **A** never changes, **B** is handled by build-script replacements/swaps, **C** is a whole-file version guard (not needed for 1.21.11).
 
 ### Tier A — version-independent (shared, no changes)
 
@@ -92,9 +92,9 @@ The per-node `build.gradle` invariant means replacements and swaps are **already
 
 These are handled by **global string replacements** (Identifier↔ResourceLocation) and a **small set of swaps** in `build.gradle`; no file duplication. Phase 1 begins by auditing `git diff` of the generated 1.21.11 sources for stray matches.
 
-### Tier C — divergent render stack (full `versions/<v>/src/…` override)
+### Tier C — divergent implementation (whole-file `//? if`)
 
-Not required for 1.21.11 (see §7 for what must be verified). Reserved for 1.21.1: `VFXPostProcessingManager`, `VFXShaderPrograms`, `render/*`, `mixin/*`.
+A file whose entire body differs is wrapped in a closed file-level condition (`//? if <cond {` … `//?}`); the alternative implementation can live in a sibling file with the inverse condition, so exactly one is active per node. Not required for 1.21.11 (see §7 for what must be verified). Reserved for 1.21.1: `VFXPostProcessingManager`, `VFXShaderPrograms`, `render/*`, `mixin/*`.
 
 ## 6. Feature workflow (the "add once" guarantee)
 
@@ -125,7 +125,7 @@ A genuinely new *render primitive* (e.g. a new geometry pass) is the only case t
 - access widener field names (`Particle.xd/yd/zd/friction/gravity`).
 - `ServerLifecycleEvents.SYNC_DATA_PACK_CONTENTS` parameter list; `CommandSourceStack.sendSuccess` signature.
 
-Anything that cannot be expressed as a replacement/swap gets a **versioned override file** (Tier C) — this is the escape hatch, not the default.
+Anything that cannot be expressed as a replacement/swap gets a **whole-file `//? if` guard** (Tier C) — this is the escape hatch, not the default.
 
 ## 8. Shaders
 
@@ -135,16 +135,17 @@ Anything that cannot be expressed as a replacement/swap gets a **versioned overr
 
 ## 9. Mixins and resources per version
 
-- Mixin classes live in shared `src/client/java`; version differences are `//? if` guarded inside them, or a versioned override where the target method differs structurally.
+- Mixin classes live in shared `src/client/java`; version differences are `//? if` guarded inside them, or a whole-file guard where the target method differs structurally.
 - `vfxweaver.client.mixins.json` and `vfxweaver.mixins.json`: `compatibilityLevel` is injected via `processResources` (`JAVA_21` vs `JAVA_25`) and version-specific entries added by condition if needed. Optionally use **Fletching Table** for mixin registration later — not required for v1.
-- `vfxweaver.accesswidener`: keep one file if the widened members are identical across versions; otherwise versioned files selected in `build.gradle` (documented Stonecutter pattern) and referenced in `fabric.mod.json` via `${aw_file}`.
+- `vfxweaver.accesswidener`: Stonecutter natively processes the Access Widener format (`#` comments), so a **single file** holds both variants behind `#? if` conditions (e.g. widen the `Particle` fields only where needed). No per-version aw files and no `${aw_file}` switch.
 - `fabric.mod.json`: `"minecraft"`, `"java"`, `"fabricloader"` are filled from per-node properties via `processResources expand`.
 
 ## 10. Build & CI
 
 - Local: `./gradlew build` builds all nodes; the active node for IDE/runClient is switched with Stonecutter's `Set active project to …` task (IntelliJ plugin available).
 - `runClient` is available per node for smoke testing (`/vfx play …`).
-- `.github/workflows/build.yml`: matrix over `{node, java}` (`26.1.2` → JDK 25, `1.21.11` → JDK 21); publish jars named `vfxweaver-<version>+<mc>.jar`.
+- **Replacement audit** (phase 1, and whenever a replacement changes): build the 1.21.11 node, then diff the generated sources (`versions/1.21.11/build/generated/…`) against the shared `src/`. A changed line is *legitimate* only if it is a pure `Identifier`↔`ResourceLocation` token swap or one of the declared swaps; **anything else is a stray** and must be reviewed. Automated gate: `git diff --stat` over the generated tree, review every file above a small noise threshold, plus a grep for the two expected tokens. Files that must never change opt out via a replacement identifier (`//~ !ident`).
+- `.github/workflows/build.yml`: matrix over `{node, java}` (`26.1.2` → JDK 25, `1.21.11` → JDK 21); Gradle comes from the pinned wrapper (currently 9.5.1, ≥ the Loom minimum); publish jars named `vfxweaver-<version>+<mc>.jar`.
 - `scripts/publish-maven.ps1` stays, extended to publish per-version artifacts.
 
 ## 11. Risks / mitigations
@@ -153,8 +154,9 @@ Anything that cannot be expressed as a replacement/swap gets a **versioned overr
 |---|---|
 | Loom 1.17-SNAPSHOT may not target 1.21.11 | One Loom per Gradle build (shared plugin classpath). Phase 0 proves it with a trivial two-node build before any port work; fallback = split into separate Gradle builds (structural, hence verified first). |
 | Global `Identifier`→`ResourceLocation` replacement hitting unintended text (comments/strings) | Replacement is word-scoped by Stonecutter string semantics; audit `git diff` of a 1.21.11 build before trusting. Use replacement identifiers to disable it in files that must not change. |
-| 1.21.11 render API differs more than expected | Compiler reveals it; each diff becomes either a swap or a Tier-C override. Budgeted; no architectural impact. |
-| 1.21.11 submit-node / render-state renames ripple into mixins | Add `//? if` guards or versioned mixin overrides; area is small (8 mixins). |
+| Loom 1.17-SNAPSHOT drift | It is the status quo and already proven for 26.1.2; the Gradle wrapper is pinned (9.5.1). Pin the resolved Loom once a fixed release covers both nodes. |
+| 1.21.11 render API differs more than expected | Compiler reveals it; each diff becomes either a swap or a Tier-C guard. Reduced by the phase-1 API probe (§13). |
+| 1.21.11 submit-node / render-state renames ripple into mixins | Add `//? if` guards or whole-file guards; area is small (8 mixins). |
 | Access widener field renames | Versioned aw file selected in `build.gradle`. |
 | `net.minecraft.resources.Identifier` appears in public API signatures (`VFXAPI`) | Client-facing API only uses `Identifier` as a parameter; renaming is transparent to consumers per-version. Protocol version unchanged. |
 
@@ -166,7 +168,8 @@ Anything that cannot be expressed as a replacement/swap gets a **versioned overr
 ## 13. Phases
 
 0. **Bootstrap + toolchain proof** — add Stonecutter (`settings.gradle`, controller `build.gradle`, per-node `gradle.properties`) with an empty 1.21.11 node; prove Loom `1.17-SNAPSHOT` can configure/resolve **both** nodes (JDK 25 for 26.1.2, JDK 21 for 1.21.11). Keep `26.1.2` building and running identically. Verify: `./gradlew build` green for 26.1.2; the 1.21.11 node resolves its dependencies (e.g. `./gradlew :1.21.11:dependencies`). If Loom cannot span both — stop and escalate (structural fallback, §11).
-1. **Main side 1.21.11** — add replacements/swaps; get `src/main` (API, network, command, resource) compiling. Verify: `:1.21.11:compileJava`, then audit `git diff` of generated 1.21.11 sources for stray replacements.
+1. **Main side 1.21.11** — add replacements/swaps; get `src/main` (API, network, command, resource) compiling. Verify: `:1.21.11:compileJava`, then run the §10 replacement audit.
+1a. **1.21.11 render API probe** — compile one small render file (e.g. `VFXShaderPrograms`) against the 1.21.11 mapped jar and `javap` the jar for the submit-node/render-state/event symbols listed in §7. Converts the unknowns into facts before porting the full client, cheaply.
 2. **1.21.11 client compiles** — resolve render/mixin divergences with guards/overrides. Verify: `:1.21.11:build`.
 3. **Runtime parity 1.21.11** — `runClient` smoke test: post effects, camera shake, block/entity overlays, commands, datapacks, network trigger. Verify: no log errors, effects render.
 4. **CI + docs** — build workflow matrix; update `docs/GUIDE.md` changelog, `README`, `AGENTS.md` (multi-version workflow section).
