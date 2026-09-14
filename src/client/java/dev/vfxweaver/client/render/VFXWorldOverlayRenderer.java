@@ -1,5 +1,9 @@
 package dev.vfxweaver.client.render;
 
+//? if >=26.2 {
+/*import com.mojang.blaze3d.GpuFormat;
+import com.mojang.blaze3d.PrimitiveTopology;
+*///?}
 import com.mojang.blaze3d.pipeline.BlendFunction;
 import com.mojang.blaze3d.pipeline.RenderPipeline;
 import com.mojang.blaze3d.pipeline.RenderTarget;
@@ -11,13 +15,17 @@ import com.mojang.blaze3d.pipeline.ColorTargetState;
 import com.mojang.blaze3d.pipeline.DepthStencilState;
 import com.mojang.blaze3d.platform.CompareOp;
 //?}
+//? if <26.2 {
 import com.mojang.blaze3d.shaders.UniformType;
+//?}
 import com.mojang.blaze3d.systems.CommandEncoder;
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.vertex.DefaultVertexFormat;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
+//? if <26.2 {
 import com.mojang.blaze3d.vertex.VertexFormat;
+//?}
 import dev.vfxweaver.client.effect.VFXEffectManager;
 import dev.vfxweaver.effect.VFXActiveEffect;
 import dev.vfxweaver.effect.VFXEffectType;
@@ -29,6 +37,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.function.BiConsumer;
 //? if <26.1 {
 /*import net.fabricmc.fabric.api.client.rendering.v1.world.WorldRenderContext;
 import net.fabricmc.fabric.api.client.rendering.v1.world.WorldRenderEvents;
@@ -40,7 +49,12 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.particle.Particle;
 import net.minecraft.client.particle.ParticleEngine;
+//? if <26.2 {
 import net.minecraft.client.renderer.MultiBufferSource;
+//?} else {
+/*import net.minecraft.client.renderer.BindGroupLayouts;
+import net.minecraft.client.renderer.SubmitNodeCollector;
+*///?}
 import net.minecraft.client.renderer.RenderPipelines;
 //? if <26.1 {
 /*import net.minecraft.client.renderer.block.model.BlockModelPart;
@@ -126,15 +140,62 @@ public final class VFXWorldOverlayRenderer {
 	 */
 	private static final List<RenderPipeline> IRIS_PIPELINES = new ArrayList<>(9);
 
+	/**
+	 * Version-neutral geometry sink: 26.1 accumulates into a {@code MultiBufferSource.BufferSource},
+	 * 26.2 submits to the {@code SubmitNodeCollector}. Emitters keep using the same
+	 * {@link VertexConsumer} API in both.
+	 */
+	private interface GeometrySink {
+		void emit(PoseStack poseStack, RenderType renderType, BiConsumer<PoseStack.Pose, VertexConsumer> draw);
+
+		/** Flushes accumulated geometry where ordering requires it (no-op once submissions defer). */
+		void flush(RenderType renderType);
+	}
+
+	//? if <26.2 {
+	private static GeometrySink bufferSink(final MultiBufferSource.BufferSource buffers) {
+		return new GeometrySink() {
+			@Override
+			public void emit(final PoseStack poseStack, final RenderType renderType, final BiConsumer<PoseStack.Pose, VertexConsumer> draw) {
+				draw.accept(poseStack.last(), buffers.getBuffer(renderType));
+			}
+
+			@Override
+			public void flush(final RenderType renderType) {
+				buffers.endBatch(renderType);
+			}
+		};
+	}
+	//?} else {
+	/*private static GeometrySink bufferSink(final SubmitNodeCollector collector) {
+		return new GeometrySink() {
+			@Override
+			public void emit(final PoseStack poseStack, final RenderType renderType, final BiConsumer<PoseStack.Pose, VertexConsumer> draw) {
+				collector.submitCustomGeometry(poseStack, renderType, draw::accept);
+			}
+
+			@Override
+			public void flush(final RenderType renderType) {
+			}
+		};
+	}
+	*///?}
+
 	private static RenderPipeline blockPipeline(final boolean alwaysVisible, final boolean cull, final String locationSuffix) {
 		RenderPipeline pipeline = RenderPipelines.register(
 			RenderPipeline.builder()
 				.withLocation(Identifier.fromNamespaceAndPath("vfxweaver", "world/block_" + locationSuffix))
 				.withVertexShader("core/position_color")
 				.withFragmentShader("core/position_color")
+				//? if <26.2 {
 				.withUniform("DynamicTransforms", UniformType.UNIFORM_BUFFER)
 				.withUniform("Projection", UniformType.UNIFORM_BUFFER)
 				.withVertexFormat(DefaultVertexFormat.POSITION_COLOR, VertexFormat.Mode.QUADS)
+				//?} else {
+				/*.withBindGroupLayout(BindGroupLayouts.MATRICES_PROJECTION)
+				.withVertexBinding(0, DefaultVertexFormat.POSITION_COLOR)
+				.withPrimitiveTopology(PrimitiveTopology.QUADS)
+				*///?}
 				//? if <26.1 {
 /*				.withDepthTestFunction(alwaysVisible ? DepthTestFunction.NO_DEPTH_TEST : DepthTestFunction.LEQUAL_DEPTH_TEST)
 				.withDepthWrite(false)
@@ -192,9 +253,15 @@ public final class VFXWorldOverlayRenderer {
 				.withLocation(Identifier.fromNamespaceAndPath("vfxweaver", "world/glow_" + suffix))
 				.withVertexShader("core/position_color")
 				.withFragmentShader("core/position_color")
+				//? if <26.2 {
 				.withUniform("DynamicTransforms", UniformType.UNIFORM_BUFFER)
 				.withUniform("Projection", UniformType.UNIFORM_BUFFER)
 				.withVertexFormat(DefaultVertexFormat.POSITION_COLOR, VertexFormat.Mode.QUADS)
+				//?} else {
+				/*.withBindGroupLayout(BindGroupLayouts.MATRICES_PROJECTION)
+				.withVertexBinding(0, DefaultVertexFormat.POSITION_COLOR)
+				.withPrimitiveTopology(PrimitiveTopology.QUADS)
+				*///?}
 				//? if <26.1 {
 /*				.withDepthTestFunction(alwaysVisible ? DepthTestFunction.NO_DEPTH_TEST : DepthTestFunction.LEQUAL_DEPTH_TEST)
 				.withDepthWrite(false)
@@ -231,9 +298,15 @@ public final class VFXWorldOverlayRenderer {
 				.withLocation(Identifier.fromNamespaceAndPath("vfxweaver", "world/block_depth_mask"))
 				.withVertexShader("core/position_color")
 				.withFragmentShader("core/position_color")
+				//? if <26.2 {
 				.withUniform("DynamicTransforms", UniformType.UNIFORM_BUFFER)
 				.withUniform("Projection", UniformType.UNIFORM_BUFFER)
 				.withVertexFormat(DefaultVertexFormat.POSITION_COLOR, VertexFormat.Mode.QUADS)
+				//?} else {
+				/*.withBindGroupLayout(BindGroupLayouts.MATRICES_PROJECTION)
+				.withVertexBinding(0, DefaultVertexFormat.POSITION_COLOR)
+				.withPrimitiveTopology(PrimitiveTopology.QUADS)
+				*///?}
 				//? if <26.1 {
 /*				.withDepthTestFunction(DepthTestFunction.NO_DEPTH_TEST)
 				.withDepthWrite(true)
@@ -241,7 +314,11 @@ public final class VFXWorldOverlayRenderer {
 				.withColorWrite(false)
 *///?} else {
 				.withDepthStencilState(new DepthStencilState(CompareOp.ALWAYS_PASS, true))
+				//? if <26.2 {
 				.withColorTargetState(new ColorTargetState(Optional.empty(), ColorTargetState.WRITE_NONE))
+				//?} else {
+				/*.withColorTargetState(new ColorTargetState(Optional.empty(), GpuFormat.RGBA8_UNORM, ColorTargetState.WRITE_NONE))
+				*///?}
 //?}
 				.build()
 		);
@@ -266,7 +343,11 @@ public final class VFXWorldOverlayRenderer {
 			if (depthScratch != null) {
 				depthScratch.destroyBuffers();
 			}
+			//? if <26.2 {
 			depthScratch = new TextureTarget("vfxweaver depth scratch", width, height, true);
+			//?} else {
+			/*depthScratch = new TextureTarget("vfxweaver depth scratch", width, height, true, GpuFormat.RGBA8_UNORM);
+			*///?}
 			depthScratchWidth = width;
 			depthScratchHeight = height;
 		}
@@ -693,9 +774,11 @@ public final class VFXWorldOverlayRenderer {
 			pose.translate(-0.5, -0.5, -0.5);
 			//? if <26.1 {
 /*			context.commandQueue().submitMovingBlock(pose, link);
-*///?} else {
+*///?} else if <26.2 {
 			context.submitNodeCollector().submitMovingBlock(pose, link);
-//?}
+//?} else {
+			/*context.submitNodeCollector().submitMovingBlock(pose, link, 0);
+			*///?}
 			pose.popPose();
 		}
 	}
@@ -934,8 +1017,13 @@ public final class VFXWorldOverlayRenderer {
 			}
 			return;
 		}
+		GeometrySink sink = bufferSink(buffers);
 *///?} else {
-		MultiBufferSource.BufferSource buffers = context.bufferSource();
+		//? if <26.2 {
+		GeometrySink sink = bufferSink(context.bufferSource());
+		//?} else {
+		/*GeometrySink sink = bufferSink(context.submitNodeCollector());
+		*///?}
 //?}
 		List<RenderType> drawn = new ArrayList<>(4);
 
@@ -944,22 +1032,22 @@ public final class VFXWorldOverlayRenderer {
 				if (effect.getType() == VFXEffectType.BLOCK_TINT) {
 					boolean through = effect.getParam("through_blocks", 1.0F) >= 0.5F;
 					RenderType type = through ? TINT_VISIBLE : TINT_OCCLUDED;
-					if (renderEffect(buffers, camera, effect, level, minecraft, type, 0.5F, 0.0F, false, TINT_OUTSET)) {
+					if (renderEffect(sink, camera, effect, level, minecraft, type, 0.5F, 0.0F, false, TINT_OUTSET)) {
 						drawn.add(type);
 					}
 				} else if (effect.getType() == VFXEffectType.LIGHT_BEAM) {
 					boolean through = effect.getParam("through_blocks", 0.0F) >= 0.5F;
-					if (renderLightBeams(buffers, camera, effect, level, through ? GLOW_VISIBLE : GLOW_OCCLUDED)) {
+					if (renderLightBeams(sink, camera, effect, level, through ? GLOW_VISIBLE : GLOW_OCCLUDED)) {
 						drawn.add(through ? GLOW_VISIBLE : GLOW_OCCLUDED);
 					}
 				} else if (effect.getType() == VFXEffectType.PULSE_RING) {
 					boolean through = effect.getParam("through_blocks", 0.0F) >= 0.5F;
-					if (renderPulseRings(buffers, camera, effect, level, through ? GLOW_VISIBLE : GLOW_OCCLUDED)) {
+					if (renderPulseRings(sink, camera, effect, level, through ? GLOW_VISIBLE : GLOW_OCCLUDED)) {
 						drawn.add(through ? GLOW_VISIBLE : GLOW_OCCLUDED);
 					}
 				} else if (effect.getType() == VFXEffectType.GUIDE_LINE) {
 					boolean through = effect.getParam("through_blocks", 0.0F) >= 0.5F;
-					if (renderGuideLines(buffers, camera, effect, level, through ? GLOW_VISIBLE : GLOW_OCCLUDED)) {
+					if (renderGuideLines(sink, camera, effect, level, through ? GLOW_VISIBLE : GLOW_OCCLUDED)) {
 						drawn.add(through ? GLOW_VISIBLE : GLOW_OCCLUDED);
 					}
 				} else if (effect.getType() == VFXEffectType.PARTICLES) {
@@ -971,8 +1059,17 @@ public final class VFXWorldOverlayRenderer {
 					float amount = shell ? width : width * 0.5F;
 					RenderType outlineType = shell ? OUTLINE_SHELL_OCCLUDED : OUTLINE_WALLS_OCCLUDED;
 					if (through) {
-						renderThroughOutline(buffers, camera, effect, level, minecraft, outlineType, amount, shell);
-					} else if (renderEffect(buffers, camera, effect, level, minecraft, outlineType, 1.0F, amount, shell, 0.0F)) {
+						//? if <26.2 {
+						renderThroughOutline(sink, camera, effect, level, minecraft, outlineType, amount, shell);
+						//?} else {
+						/*// 26.2 defers submitted geometry, so the clear-depth/stamp-mask trick can no
+						// longer bracket the draws; fall back to the always-visible pipeline.
+						RenderType throughType = shell ? OUTLINE_SHELL_VISIBLE : OUTLINE_WALLS_VISIBLE;
+						if (renderEffect(sink, camera, effect, level, minecraft, throughType, 1.0F, amount, shell, 0.0F)) {
+							drawn.add(throughType);
+						}
+						*///?}
+					} else if (renderEffect(sink, camera, effect, level, minecraft, outlineType, 1.0F, amount, shell, 0.0F)) {
 						drawn.add(outlineType);
 					}
 				}
@@ -983,7 +1080,7 @@ public final class VFXWorldOverlayRenderer {
 
 		try {
 			for (RenderType type : drawn) {
-				buffers.endBatch(type);
+				sink.flush(type);
 			}
 		} catch (Exception e) {
 			LOGGER.warn("Failed to flush world overlay buffers", e);
@@ -1002,7 +1099,7 @@ public final class VFXWorldOverlayRenderer {
 	 * centre (shell outline, reversed winding so back-face culling keeps only the far side).
 	 */
 	private static boolean renderEffect(
-		final MultiBufferSource.BufferSource buffers,
+		final GeometrySink sink,
 		final CameraRenderState camera,
 		final VFXActiveEffect effect,
 		final ClientLevel level,
@@ -1018,13 +1115,15 @@ public final class VFXWorldOverlayRenderer {
 			return false;
 		}
 		int color = argb(effect, alpha);
-		VertexConsumer buffer = buffers.getBuffer(renderType);
-		boolean drew = false;
+		List<Vec3> positions = effectPositions(effect, level);
+		if (positions.isEmpty()) {
+			return false;
+		}
 
 		PoseStack poseStack = new PoseStack();
 		poseStack.pushPose();
 		poseStack.translate(-camera.pos.x, -camera.pos.y, -camera.pos.z);
-		for (Vec3 vec : effectPositions(effect, level)) {
+		for (Vec3 vec : positions) {
 			poseStack.pushPose();
 			try {
 				// Slot vecs carry the block-centre offset on X/Z while model quads are
@@ -1038,36 +1137,36 @@ public final class VFXWorldOverlayRenderer {
 					poseStack.scale(scale, scale, scale);
 					poseStack.translate(-0.5F, -0.5F, -0.5F);
 				}
-				PoseStack.Pose pose = poseStack.last();
 				List<BakedQuad> quads = getModelQuads(minecraft, BlockPos.containing(vec.x, vec.y, vec.z));
-				if (amount > 0.0F) {
-					if (shell) {
-						if (quads.isEmpty()) {
-							emitCubeFill(buffer, pose, color, true, outset);
+				sink.emit(poseStack, renderType, (pose, buffer) -> {
+					if (amount > 0.0F) {
+						if (shell) {
+							if (quads.isEmpty()) {
+								emitCubeFill(buffer, pose, color, true, outset);
+							} else {
+								emitQuads(buffer, pose, quads, color, true, outset);
+							}
 						} else {
-							emitQuads(buffer, pose, quads, color, true, outset);
+							if (quads.isEmpty()) {
+								emitCubeWalls(buffer, pose, color, amount);
+							} else {
+								emitQuadWalls(buffer, pose, quads, color, amount);
+							}
 						}
 					} else {
 						if (quads.isEmpty()) {
-							emitCubeWalls(buffer, pose, color, amount);
+							emitCubeFill(buffer, pose, color, false, outset);
 						} else {
-							emitQuadWalls(buffer, pose, quads, color, amount);
+							emitQuads(buffer, pose, quads, color, false, outset);
 						}
 					}
-				} else {
-					if (quads.isEmpty()) {
-						emitCubeFill(buffer, pose, color, false, outset);
-					} else {
-						emitQuads(buffer, pose, quads, color, false, outset);
-					}
-				}
+				});
 			} finally {
 				poseStack.popPose();
 			}
-			drew = true;
 		}
 		poseStack.popPose();
-		return drew;
+		return true;
 	}
 
 	/**
@@ -1080,7 +1179,7 @@ public final class VFXWorldOverlayRenderer {
 	 * of the column.
 	 */
 	private static boolean renderLightBeams(
-		final MultiBufferSource.BufferSource buffers,
+		final GeometrySink sink,
 		final CameraRenderState camera,
 		final VFXActiveEffect effect,
 		final ClientLevel level,
@@ -1098,34 +1197,36 @@ public final class VFXWorldOverlayRenderer {
 		float softness = Mth.clamp(effect.getParam("softness", 0.6F), 0.0F, 4.0F);
 		int rgb = rgb(effect.getParam("red", 1.0F), effect.getParam("green", 0.95F), effect.getParam("blue", 0.75F));
 
-		VertexConsumer buffer = buffers.getBuffer(renderType);
-		boolean drew = false;
+		List<Vec3> positions = effectPositions(effect, level);
+		if (positions.isEmpty()) {
+			return false;
+		}
 		PoseStack poseStack = new PoseStack();
 		poseStack.pushPose();
 		poseStack.translate(-camera.pos.x, -camera.pos.y, -camera.pos.z);
-		PoseStack.Pose pose = poseStack.last();
 
 		// Concentric shells: the innermost is the bright core, each next shell sits a bit wider
 		// and fainter. More softness = more, thinner shells (a smooth gradient instead of two
 		// distinct tubes).
 		int layers = Math.max(2, Math.round(2.0F + softness * 4.0F));
-		for (Vec3 vec : effectPositions(effect, level)) {
-			float cx = (float) vec.x;
-			float cz = (float) vec.z;
-			float y0 = (float) vec.y;
-			float y1 = y0 + height;
-			for (int i = 0; i < layers; i++) {
-				float t = i / (float) (layers - 1);              // 0 = core .. 1 = outer edge
-				float shellR = radius * (0.25F + 0.85F * t);     // core at 0.25r, outermost ~1.1r
-				// Cubic alpha falloff: the outer shells fade much faster than the core, so the
-				// column keeps a strong centre and dissolves at the edge.
-				float shellA = intensity * (1.0F - t * t * t);
-				emitConeShell(buffer, pose, cx, cz, y0, y1, shellR, shellR * topScale, 8, topFade, bottomFade, shellA, rgb);
+		sink.emit(poseStack, renderType, (pose, buffer) -> {
+			for (Vec3 vec : positions) {
+				float cx = (float) vec.x;
+				float cz = (float) vec.z;
+				float y0 = (float) vec.y;
+				float y1 = y0 + height;
+				for (int i = 0; i < layers; i++) {
+					float t = i / (float) (layers - 1);              // 0 = core .. 1 = outer edge
+					float shellR = radius * (0.25F + 0.85F * t);     // core at 0.25r, outermost ~1.1r
+					// Cubic alpha falloff: the outer shells fade much faster than the core, so the
+					// column keeps a strong centre and dissolves at the edge.
+					float shellA = intensity * (1.0F - t * t * t);
+					emitConeShell(buffer, pose, cx, cz, y0, y1, shellR, shellR * topScale, 8, topFade, bottomFade, shellA, rgb);
+				}
 			}
-			drew = true;
-		}
+		});
 		poseStack.popPose();
-		return drew;
+		return true;
 	}
 
 	/** Number of segments around a {@code pulse_ring}. */
@@ -1138,7 +1239,7 @@ public final class VFXWorldOverlayRenderer {
 	 * (degrees, rotation about the world axes).
 	 */
 	private static boolean renderPulseRings(
-		final MultiBufferSource.BufferSource buffers,
+		final GeometrySink sink,
 		final CameraRenderState camera,
 		final VFXActiveEffect effect,
 		final ClientLevel level,
@@ -1156,16 +1257,18 @@ public final class VFXWorldOverlayRenderer {
 		float rotZ = (float) Math.toRadians(Mth.clamp(effect.getParam("rot_z", 0.0F), -360.0F, 360.0F));
 		int rgb = rgb(effect.getParam("red", 1.0F), effect.getParam("green", 0.35F), effect.getParam("blue", 0.1F));
 
-		VertexConsumer buffer = buffers.getBuffer(renderType);
-		boolean drew = false;
+		List<Vec3> positions = effectPositions(effect, level);
+		if (positions.isEmpty()) {
+			return false;
+		}
 		PoseStack poseStack = new PoseStack();
 		poseStack.pushPose();
 		poseStack.translate(-camera.pos.x, -camera.pos.y, -camera.pos.z);
-		PoseStack.Pose pose = poseStack.last();
 		float inner = Math.max(radius - thickness / 2.0F, 0.01F);
 		float outer = radius + thickness / 2.0F;
 
-		for (Vec3 vec : effectPositions(effect, level)) {
+		sink.emit(poseStack, renderType, (pose, buffer) -> {
+		for (Vec3 vec : positions) {
 			float cx = (float) vec.x;
 			float cz = (float) vec.z;
 			// Rings sit at a slot's vertical centre; static slot vecs keep the block base on Y.
@@ -1245,10 +1348,10 @@ public final class VFXWorldOverlayRenderer {
 				glowVertex(buffer, pose, ox1, oy1, oz1, intensity, rgb);
 				glowVertex(buffer, pose, ix1, iy1, iz1, intensity, rgb);
 			}
-			drew = true;
 		}
+		});
 		poseStack.popPose();
-		return drew;
+		return true;
 	}
 
 	/** Rotates a vector by yaw (Y), then pitch (X), then roll (Z), in degrees. */
@@ -1285,7 +1388,7 @@ public final class VFXWorldOverlayRenderer {
 	 * between the first two anchors, dashes crawling with {@code speed}.
 	 */
 	private static boolean renderGuideLines(
-		final MultiBufferSource.BufferSource buffers,
+		final GeometrySink sink,
 		final CameraRenderState camera,
 		final VFXActiveEffect effect,
 		final ClientLevel level,
@@ -1311,8 +1414,6 @@ public final class VFXWorldOverlayRenderer {
 		Vec3 b = positions.size() > 1 ? positions.get(1) : a.add(10.0, 0.0, 0.0);
 		float t = effect.getElapsed() / 20.0F;
 
-		VertexConsumer buffer = buffers.getBuffer(renderType);
-		boolean drew = false;
 		int segments = 48;
 		Vector3f[] pts = new Vector3f[segments + 1];
 		for (int i = 0; i <= segments; i++) {
@@ -1331,7 +1432,6 @@ public final class VFXWorldOverlayRenderer {
 		PoseStack poseStack = new PoseStack();
 		poseStack.pushPose();
 		poseStack.translate(-camera.pos.x, -camera.pos.y, -camera.pos.z);
-		PoseStack.Pose pose = poseStack.last();
 
 		// Cumulative arc-length and per-point side vectors.
 		float[] cum = new float[segments + 1];
@@ -1351,6 +1451,8 @@ public final class VFXWorldOverlayRenderer {
 		float pathLen = Math.max(cum[segments], 1.0e-4F);
 		float period = Math.max(dashLength + gap, 0.01F);
 		float hw = width / 2.0F;
+		boolean[] drew = {false};
+		sink.emit(poseStack, renderType, (pose, buffer) -> {
 		for (int i = 0; i < segments; i++) {
 			float a0 = dashAlpha(cum[i] / pathLen * 3.0F, dashLength, gap, t, speed);
 			float a1 = dashAlpha(cum[i + 1] / pathLen * 3.0F, dashLength, gap, t, speed);
@@ -1367,10 +1469,11 @@ public final class VFXWorldOverlayRenderer {
 				pts[i + 1].x + side[i + 1].x * hw, pts[i + 1].y, pts[i + 1].z + side[i + 1].z * hw, al1, rgb);
 			glowVertex(buffer, pose,
 				pts[i + 1].x - side[i + 1].x * hw, pts[i + 1].y, pts[i + 1].z - side[i + 1].z * hw, al1, rgb);
-			drew = true;
+			drew[0] = true;
 		}
+		});
 		poseStack.popPose();
-		return drew;
+		return drew[0];
 	}
 
 	/** Dash alpha along the ribbon: 1 inside each dash, 0 in the gaps, ramping at the edges. */
@@ -1481,8 +1584,9 @@ public final class VFXWorldOverlayRenderer {
 	 * mask, and the outline is drawn occluded against that - so it passes other blocks (their
 	 * depth was cleared) but never covers its own target. The original depth is restored after.
 	 */
+	//? if <26.2 {
 	private static void renderThroughOutline(
-		final MultiBufferSource.BufferSource buffers,
+		final GeometrySink sink,
 		final CameraRenderState camera,
 		final VFXActiveEffect effect,
 		final ClientLevel level,
@@ -1502,7 +1606,6 @@ public final class VFXWorldOverlayRenderer {
 			encoder.clearDepthTexture(main.getDepthTexture(), 1.0);
 
 			// Stamp the target blocks' volume into the fresh depth buffer.
-			VertexConsumer maskBuffer = buffers.getBuffer(BLOCK_DEPTH_MASK);
 			PoseStack poseStack = new PoseStack();
 			poseStack.pushPose();
 			poseStack.translate(-camera.pos.x, -camera.pos.y, -camera.pos.z);
@@ -1511,22 +1614,36 @@ public final class VFXWorldOverlayRenderer {
 				try {
 					// Same translate as renderEffect so the depth mask matches the outline volume.
 					poseStack.translate(vec.x - 0.5, vec.y, vec.z - 0.5);
-					emitCubeFill(maskBuffer, poseStack.last(), 0, false, 0.0F);
+					sink.emit(poseStack, BLOCK_DEPTH_MASK, (pose, buffer) -> emitCubeFill(buffer, pose, 0, false, 0.0F));
 				} finally {
 					poseStack.popPose();
 				}
 			}
 			poseStack.popPose();
-			buffers.endBatch(BLOCK_DEPTH_MASK);
+			sink.flush(BLOCK_DEPTH_MASK);
 
 			// Outline now only hides behind its own target's depth.
-			if (renderEffect(buffers, camera, effect, level, minecraft, outlineType, 1.0F, amount, shell, 0.0F)) {
-				buffers.endBatch(outlineType);
+			if (renderEffect(sink, camera, effect, level, minecraft, outlineType, 1.0F, amount, shell, 0.0F)) {
+				sink.flush(outlineType);
 			}
 		} finally {
 			main.copyDepthFrom(scratch);
 		}
 	}
+	//?} else {
+	/*private static void renderThroughOutline(
+		final GeometrySink sink,
+		final CameraRenderState camera,
+		final VFXActiveEffect effect,
+		final ClientLevel level,
+		final Minecraft minecraft,
+		final RenderType outlineType,
+		final float amount,
+		final boolean shell
+	) {
+		// Unused on 26.2: deferring submitted geometry can no longer bracket the depth swap.
+	}
+	*///?}
 
 	/** Static definition slots are block-anchored: block-centre X/Z, block base Y. */
 	private static Vec3 centeredSlot(final BlockPos pos) {

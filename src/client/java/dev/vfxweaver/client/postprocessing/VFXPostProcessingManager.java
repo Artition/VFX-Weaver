@@ -1,6 +1,9 @@
 package dev.vfxweaver.client.postprocessing;
 
 import com.mojang.blaze3d.ProjectionType;
+//? if >=26.2 {
+/*import com.mojang.blaze3d.GpuFormat;
+*///?}
 import com.mojang.blaze3d.buffers.GpuBuffer;
 import com.mojang.blaze3d.buffers.GpuBufferSlice;
 import com.mojang.blaze3d.buffers.Std140Builder;
@@ -19,6 +22,9 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+//? if >=26.2 {
+/*import java.util.Optional;
+*///?}
 import java.util.OptionalInt;
 import net.minecraft.client.renderer.MappableRingBuffer;
 //? if <26.1 {
@@ -248,23 +254,32 @@ public final class VFXPostProcessingManager {
 				if (this.pingPong[i] != null) {
 					this.pingPong[i].destroyBuffers();
 				}
-				this.pingPong[i] = new TextureTarget("vfxweaver pingpong " + i, width, height, false);
+				this.pingPong[i] = createTarget("vfxweaver pingpong " + i, width, height, false);
 			}
 			for (int i = 0; i < this.history.length; i++) {
 				if (this.history[i] != null) {
 					this.history[i].destroyBuffers();
 				}
-				this.history[i] = new TextureTarget("vfxweaver history " + i, width, height, false);
+				this.history[i] = createTarget("vfxweaver history " + i, width, height, false);
 			}
 			if (this.stopMotionHold != null) {
 				this.stopMotionHold.destroyBuffers();
 			}
-			this.stopMotionHold = new TextureTarget("vfxweaver stop motion hold", width, height, false);
+			this.stopMotionHold = createTarget("vfxweaver stop motion hold", width, height, false);
 			this.stopMotionSlots.clear();
 			this.historyDirty = true;
 			this.lastWidth = width;
 			this.lastHeight = height;
 		}
+	}
+
+	/** Creates a colour render target; 26.2 requires an explicit GPU format. */
+	private static TextureTarget createTarget(final String label, final int width, final int height, final boolean useDepth) {
+		//? if <26.2 {
+		return new TextureTarget(label, width, height, useDepth);
+		//?} else {
+		/*return new TextureTarget(label, width, height, useDepth, GpuFormat.RGBA8_UNORM);*/
+		//?}
 	}
 
 	private VFXPass pass(final VFXShaderPrograms.ProgramInfo info) {
@@ -312,13 +327,21 @@ public final class VFXPostProcessingManager {
 			final @Nullable RenderTarget history,
 			final @Nullable Float hold
 		) {
+			//? if <26.2 {
 			try (GpuBuffer.MappedView view = encoder.mapBuffer(this.samplerInfoUbo.currentBuffer(), false, true)) {
+			//?} else {
+			/*try (GpuBufferSlice.MappedView view = this.samplerInfoUbo.currentBuffer().map(false, true)) {
+			*///?}
 				Std140Builder.intoBuffer(view.data()).putVec2(output.width, output.height).putVec2(input.width, input.height);
 			}
 
 			if (this.configUbo != null && effect != null) {
 				float weight = effect.getWeight();
+				//? if <26.2 {
 				try (GpuBuffer.MappedView view = encoder.mapBuffer(this.configUbo.currentBuffer(), false, true)) {
+				//?} else {
+				/*try (GpuBufferSlice.MappedView view = this.configUbo.currentBuffer().map(false, true)) {
+				*///?}
 					Std140Builder builder = Std140Builder.intoBuffer(view.data());
 					for (String param : this.configParams) {
 						// Reserved "time" and "hold" parameters: never faded, filled from the
@@ -341,7 +364,11 @@ public final class VFXPostProcessingManager {
 			try (RenderPass renderPass = encoder.createRenderPass(
 					() -> "VFX post " + this.pipeline.getLocation(),
 					output.getColorTextureView(),
+					//? if <26.2 {
 					OptionalInt.empty()
+					//?} else {
+					/*Optional.empty()
+					*///?}
 				)) {
 				renderPass.setPipeline(this.pipeline);
 				RenderSystem.bindDefaultUniforms(renderPass);
@@ -353,7 +380,11 @@ public final class VFXPostProcessingManager {
 				if (history != null) {
 					renderPass.bindTexture("HistSampler", history.getColorTextureView(), samplerCache.getClampToEdge(FilterMode.LINEAR));
 				}
+				//? if <26.2 {
 				renderPass.draw(0, 3);
+				//?} else {
+				/*renderPass.draw(3, 1, 0, 0);
+				*///?}
 			}
 
 			this.samplerInfoUbo.rotate();

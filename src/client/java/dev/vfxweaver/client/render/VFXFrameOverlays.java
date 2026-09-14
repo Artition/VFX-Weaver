@@ -2,6 +2,10 @@ package dev.vfxweaver.client.render;
 
 import com.mojang.blaze3d.pipeline.BlendFunction;
 import com.mojang.blaze3d.pipeline.RenderPipeline;
+//? if >=26.2 {
+/*import com.mojang.blaze3d.PrimitiveTopology;
+import net.minecraft.client.renderer.BindGroupLayouts;
+*///?}
 //? if <26.1 {
 /*import com.mojang.blaze3d.platform.DepthTestFunction;
 *///?} else {
@@ -40,9 +44,15 @@ public final class VFXFrameOverlays {
 				.withLocation(Identifier.fromNamespaceAndPath("vfxweaver", "frame/" + suffix))
 				.withVertexShader("core/position_color")
 				.withFragmentShader("core/position_color")
+				//? if <26.2 {
 				.withUniform("DynamicTransforms", UniformType.UNIFORM_BUFFER)
 				.withUniform("Projection", UniformType.UNIFORM_BUFFER)
 				.withVertexFormat(DefaultVertexFormat.POSITION_COLOR, VertexFormat.Mode.QUADS)
+				//?} else {
+				/*.withBindGroupLayout(BindGroupLayouts.MATRICES_PROJECTION)
+				.withVertexBinding(0, DefaultVertexFormat.POSITION_COLOR)
+				.withPrimitiveTopology(PrimitiveTopology.QUADS)
+				*///?}
 				//? if <26.1 {
 /*				.withDepthTestFunction(alwaysVisible ? DepthTestFunction.NO_DEPTH_TEST : DepthTestFunction.LEQUAL_DEPTH_TEST)
 				.withDepthWrite(false)

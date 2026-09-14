@@ -6,6 +6,10 @@ import dev.vfxweaver.effect.VFXEffectType;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
+//? if >=26.2 {
+/*import com.mojang.blaze3d.pipeline.BindGroupLayout;
+import net.minecraft.client.renderer.BindGroupLayouts;
+*///?}
 import net.minecraft.client.renderer.RenderPipelines;
 import net.minecraft.resources.Identifier;
 import org.jspecify.annotations.Nullable;
@@ -42,6 +46,20 @@ public final class VFXShaderPrograms {
 
 	private static final Map<VFXEffectType, List<ProgramInfo>> PROGRAMS = new EnumMap<>(VFXEffectType.class);
 	private static @Nullable RenderPipeline copyPipeline;
+
+	//? if >=26.2 {
+	/*	// 26.2 moved sampler/uniform declarations to explicit bind-group layouts.
+	private static final BindGroupLayout HIST_SAMPLER_LAYOUT = BindGroupLayout.builder()
+		.withSampler("HistSampler")
+		.build();
+	private static final BindGroupLayout SAMPLER_INFO_LAYOUT = BindGroupLayout.builder()
+		.withUniform("SamplerInfo", UniformType.UNIFORM_BUFFER)
+		.build();
+	private static final BindGroupLayout SAMPLER_INFO_CONFIG_LAYOUT = BindGroupLayout.builder()
+		.withUniform("SamplerInfo", UniformType.UNIFORM_BUFFER)
+		.withUniform("Config", UniformType.UNIFORM_BUFFER)
+		.build();
+	*///?}
 
 	private VFXShaderPrograms() {
 	}
@@ -89,8 +107,13 @@ public final class VFXShaderPrograms {
 				.withLocation(Identifier.fromNamespaceAndPath("vfxweaver", "post/copy"))
 				.withVertexShader("core/screenquad")
 				.withFragmentShader(Identifier.fromNamespaceAndPath("vfxweaver", "post/copy"))
+				//? if <26.2 {
 				.withSampler("InSampler")
 				.withUniform("SamplerInfo", UniformType.UNIFORM_BUFFER)
+				//?} else {
+				/*.withBindGroupLayout(BindGroupLayouts.IN_SAMPLER)
+				.withBindGroupLayout(SAMPLER_INFO_LAYOUT)*/
+				//?}
 				.build()
 		);
 	}
@@ -139,10 +162,16 @@ public final class VFXShaderPrograms {
 			.withLocation(Identifier.fromNamespaceAndPath("vfxweaver", "post/" + shader))
 			.withVertexShader("core/screenquad")
 			.withFragmentShader(Identifier.fromNamespaceAndPath("vfxweaver", "post/" + shader))
+			//? if <26.2 {
 			.withSampler("InSampler")
 			.withSampler("HistSampler")
 			.withUniform("SamplerInfo", UniformType.UNIFORM_BUFFER)
 			.withUniform("Config", UniformType.UNIFORM_BUFFER);
+			//?} else {
+			/*.withBindGroupLayout(BindGroupLayouts.IN_SAMPLER)
+			.withBindGroupLayout(HIST_SAMPLER_LAYOUT)
+			.withBindGroupLayout(SAMPLER_INFO_CONFIG_LAYOUT);
+			*///?}
 		return RenderPipelines.register(builder.build());
 	}
 
@@ -154,9 +183,14 @@ public final class VFXShaderPrograms {
 				.withLocation(location)
 				.withVertexShader("core/screenquad")
 				.withFragmentShader(Identifier.fromNamespaceAndPath("vfxweaver", "post/" + shaders.get(i)))
+				//? if <26.2 {
 				.withSampler("InSampler")
 				.withUniform("SamplerInfo", UniformType.UNIFORM_BUFFER)
 				.withUniform("Config", UniformType.UNIFORM_BUFFER)
+				//?} else {
+				/*.withBindGroupLayout(BindGroupLayouts.IN_SAMPLER)
+				.withBindGroupLayout(SAMPLER_INFO_CONFIG_LAYOUT)
+				*///?}
 				.build();
 			RenderPipelines.register(pipeline);
 			String[] configParams = params.get(i);

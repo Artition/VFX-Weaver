@@ -59,7 +59,11 @@ public abstract class GameRendererMixin {
 		// smoothly instead of stepping at the 20 Hz game tick.
 		float partialTick = deltaTracker.getGameTimeDeltaPartialTick(false);
 
+		//? if <26.2 {
 		Camera camera = minecraft.gameRenderer.getMainCamera();
+		//?} else {
+		/*Camera camera = minecraft.gameRenderer.mainCamera();
+		*///?}
 		if (camera.isInitialized()) {
 			Vec3 camPos = camera.position();
 			//? if <26.1 {
@@ -100,7 +104,11 @@ public abstract class GameRendererMixin {
 		manager.update();
 
 		// Layer 1: above the world and the first-person hand, below the GUI (default).
+		//? if <26.2 {
 		VFXPostProcessingManager.get().process(manager, minecraft.getMainRenderTarget(), 1);
+		//?} else {
+		/*VFXPostProcessingManager.get().process(manager, minecraft.gameRenderer.mainRenderTarget(), 1);
+		*///?}
 	}
 
 	/**
@@ -116,7 +124,11 @@ public abstract class GameRendererMixin {
 		if (minecraft.level == null) {
 			return;
 		}
+		//? if <26.2 {
 		VFXPostProcessingManager.get().process(VFXEffectManager.get(), minecraft.getMainRenderTarget(), 0);
+		//?} else {
+		/*VFXPostProcessingManager.get().process(VFXEffectManager.get(), minecraft.gameRenderer.mainRenderTarget(), 0);
+		*///?}
 	}
 
 	/**
@@ -129,7 +141,11 @@ public abstract class GameRendererMixin {
 		if (minecraft.level == null) {
 			return;
 		}
+		//? if <26.2 {
 		VFXPostProcessingManager.get().process(VFXEffectManager.get(), minecraft.getMainRenderTarget(), 2);
+		//?} else {
+		/*VFXPostProcessingManager.get().process(VFXEffectManager.get(), minecraft.gameRenderer.mainRenderTarget(), 2);
+		*///?}
 	}
 
 	/**

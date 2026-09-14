@@ -2,6 +2,10 @@ package dev.vfxweaver.client.render;
 
 import com.mojang.blaze3d.pipeline.BlendFunction;
 import com.mojang.blaze3d.pipeline.RenderPipeline;
+//? if >=26.2 {
+/*import com.mojang.blaze3d.PrimitiveTopology;
+import net.minecraft.client.renderer.BindGroupLayouts;
+*///?}
 //? if <26.1 {
 /*import com.mojang.blaze3d.platform.DepthTestFunction;
 *///?} else {
@@ -86,9 +90,15 @@ public final class VFXEntityEffectRenderer {
 				.withLocation(Identifier.fromNamespaceAndPath("vfxweaver", "world/entity_" + suffix))
 				.withVertexShader(Identifier.fromNamespaceAndPath("vfxweaver", "core/entity_fx"))
 				.withFragmentShader(Identifier.fromNamespaceAndPath("vfxweaver", "core/entity_fx"))
-				.withSampler("Sampler0")
 				.withShaderDefine(define)
+				//? if <26.2 {
+				.withSampler("Sampler0")
 				.withVertexFormat(ENTITY_VERTEX_FORMAT, VertexFormat.Mode.QUADS)
+				//?} else {
+				/*.withBindGroupLayout(BindGroupLayouts.SAMPLER0)
+				.withVertexBinding(0, ENTITY_VERTEX_FORMAT)
+				.withPrimitiveTopology(PrimitiveTopology.QUADS)
+				*///?}
 				//? if <26.1 {
 /*				.withDepthTestFunction(alwaysVisible ? DepthTestFunction.NO_DEPTH_TEST : DepthTestFunction.LEQUAL_DEPTH_TEST)
 				.withDepthWrite(false)
@@ -120,9 +130,15 @@ public final class VFXEntityEffectRenderer {
 			.withLocation(Identifier.fromNamespaceAndPath("vfxweaver", "world/entity_outline_through"))
 			.withVertexShader(Identifier.fromNamespaceAndPath("vfxweaver", "core/entity_fx"))
 			.withFragmentShader(Identifier.fromNamespaceAndPath("vfxweaver", "core/entity_fx"))
-			.withSampler("Sampler0")
 			.withShaderDefine("OUTLINE")
+			//? if <26.2 {
+			.withSampler("Sampler0")
 			.withVertexFormat(ENTITY_VERTEX_FORMAT, VertexFormat.Mode.QUADS)
+			//?} else {
+			/*.withBindGroupLayout(BindGroupLayouts.SAMPLER0)
+			.withVertexBinding(0, ENTITY_VERTEX_FORMAT)
+			.withPrimitiveTopology(PrimitiveTopology.QUADS)
+			*///?}
 			//? if <26.1 {
 /*			.withDepthTestFunction(DepthTestFunction.NO_DEPTH_TEST)
 			.withDepthWrite(false)
