@@ -127,6 +127,23 @@ A genuinely new *render primitive* (e.g. a new geometry pass) is the only case t
 
 Anything that cannot be expressed as a replacement/swap gets a **whole-file `//? if` guard** (Tier C) — this is the escape hatch, not the default.
 
+### Measured 1.21.11 client-render gaps (Phase 2)
+
+`:1.21.11:compileClientJava` produces **190 errors**. 1.21.11 *does* have `RenderPipeline`,
+`MappableRingBuffer` and `RenderSetup`, but not the following symbols the 26.1 client uses:
+
+| Missing on 1.21.11 | Used by | Nature |
+|---|---|---|
+| `com.mojang.blaze3d.pipeline.ColorTargetState`, `DepthStencilState`, `com.mojang.blaze3d.platform.CompareOp` | post manager, entity/frame renderers, world overlay | render-pipeline builder API differs |
+| `net.minecraft.client.renderer.Projection`, `ProjectionMatrixBuffer` | `VFXPostProcessingManager` | post-projection API differs |
+| `CameraRenderState`, `LevelRenderContext` (Fabric) + `cardinalLighting`, `lightEngine` | `VFXWorldOverlayRenderer`, render mixins | 1.21.11 uses `WorldRenderEvents`/`WorldRenderContext` + `Camera`, not render states |
+| `BakedQuad`, `BlockStateModelPart` (expected packages) | `VFXWorldOverlayRenderer` | model geometry API package/name differs |
+| `getBlockStateModelSet()`, `getViewRotationProjectionMatrix(Matrix4f)`, `getOverworldClockTime()`, `DefaultVertexFormat.ENTITY`, `ItemInHandRenderer`/`AvatarRenderer` signatures | renderers + mixins | per-symbol renames/reshapes |
+
+Conclusion: the 1.21.11 **client render layer is a real port** (~8 files), not a near-port. The shared
+core, datapack and network stay identical, so the port is confined to `client/render/**`,
+`client/postprocessing/**`, `client/mixin/**` and the two shake classes' `Mth` usage.
+
 ## 8. Shaders
 
 - `26.1.2` post shaders are pipeline shaders (`.fsh` with `layout(std140) uniform Config { … }`), compiled directly from `assets/vfxweaver/shaders/post/`.
