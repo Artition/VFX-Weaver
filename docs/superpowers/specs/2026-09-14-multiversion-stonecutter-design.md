@@ -38,8 +38,8 @@ Stonecutter features that make this work (verified against its docs):
 
 | Node (`versions/<v>/`) | Minecraft | Loader | Fabric API | Java | Notes |
 |---|---|---|---|---|---|
-| `26.1.2` | `26.1.2` | `0.19.5` | `0.155.3+26.1.2` | 25 | baseline; `Identifier` |
-| `1.21.11` | `1.21.11` | `0.19.5` | `0.141.6+1.21.11` | 21 | `ResourceLocation` |
+| `26.1.2` | `26.1.2` | `0.19.5` | `0.155.3+26.1.2` | 25 | baseline |
+| `1.21.11` | `1.21.11` | `0.19.5` | `0.141.6+1.21.11` | 21 | same `Identifier` API (verified) |
 
 Loom is a **single value for the whole build** (`deps.loom` in the root `gradle.properties`), not per node: Stonecutter subprojects share one Gradle plugin classpath, so two Loom versions cannot coexist in one build. Use the newest Loom (`1.17-SNAPSHOT`) — Loom is backward-compatible with older Minecraft and must support `1.21.11`. Phase 0 proves this with a trivial build of both nodes before any port code is written; if `1.17-SNAPSHOT` cannot target `1.21.11`, the fallback is to split the build (separate Gradle builds per version) — a structural change, so it is verified first.
 
@@ -74,10 +74,11 @@ Version coupling is classified into three tiers. The rule of thumb: **A** never 
 
 | File | Divergence 1.21.11 vs 26.1.2 |
 |---|---|
-| every file with `net.minecraft.resources.Identifier` | `Identifier` → `ResourceLocation` (global string replacement, bidirectional) |
-| `command/VFXCommand` | permission check (`source.permissions().hasPermission(new Permission.HasCommandLevel(PermissionLevel.GAMEMASTERS))` → `source.hasPermission(2)`); `sendSuccess` supplier/flag signature |
-| `network/VFXPayloads` | same permission check on the serverbound receiver |
-| `network/VFXTriggerPayload` / `VFXSyncPayload` / `VFXRequestPayload` | `Identifier` rename only (`STREAM_CODEC`, `write/readIdentifier` → `…ResourceLocation`) |
+| ~~every file with `net.minecraft.resources.Identifier`~~ | **Corrected by implementation evidence:** 1.21.11 already uses `Identifier`; no rename is needed (no replacement). |
+| `network/VFXPayloads` | `PayloadTypeRegistry.clientboundPlay()/serverboundPlay()` → **`playS2C()/playC2S()`** |
+| `VFXMod`, `resource/VFXDefinitionManager`, `effect/VFXCurveManager` | `ResourceLoader.get(...).registerReloadListener(id, listener)` → **`ResourceManagerHelper.get(...).registerReloadListener(listener)`** (v0), listener implements `IdentifiableResourceReloadListener` |
+| ~~permission API (`net.minecraft.server.permissions.*`)~~ | **Corrected by implementation evidence:** 1.21.11 already has the permission API; no change. |
+| `network/VFXTriggerPayload` / `VFXSyncPayload` / `VFXRequestPayload` | no change (`Identifier` and codecs are identical) |
 | `VFXMod` | `ResourceLoader`/`ServerLifecycleEvents.SYNC_DATA_PACK_CONTENTS` signatures (verify) |
 | `client/VFXClient(API)` | `Identifier` rename; scoreboard API |
 | `api/*`, `resource/VFXDefinitionManager` | `Identifier` rename |
@@ -90,7 +91,7 @@ The per-node `build.gradle` invariant means replacements and swaps are **already
   - `VFXCommand`: `CommandSourceStack.sendSuccess(...)` argument shape → the 1.21.11 overload.
   - Any `import net.minecraft.server.permissions.*` → removed for 1.21.11.
 
-These are handled by **global string replacements** (Identifier↔ResourceLocation) and a **small set of swaps** in `build.gradle`; no file duplication. Phase 1 begins by auditing `git diff` of the generated 1.21.11 sources for stray matches.
+Two `//? if` guards (no global replacement, no swaps) handle the whole main side; no file duplication. Phase 1 verified `Identifier` and the permission API are identical on both targets.
 
 ### Tier C — divergent implementation (whole-file `//? if`)
 
@@ -114,8 +115,7 @@ A genuinely new *render primitive* (e.g. a new geometry pass) is the only case t
 
 1.21.11 is **post-render-rewrite** — the `RenderPipeline` system landed in 1.21.5 and 1.21.11 already has pipeline-backed `RenderType`/`RenderSetup`, `LevelRenderEvents`, submit nodes and render states. It is therefore close to 26.1.2; the *legacy* `RenderType`+immediate-GL stack belongs to 1.21.1 (deferred, §12) and must not drive this design. Verify each item against the mapped jar / compiler before assuming:
 
-- `Identifier` → `ResourceLocation` (confirmed direction).
-- new permission API (`net.minecraft.server.permissions.*`) → old `hasPermission(int)`.
+- **Corrected by implementation evidence (Phase 1):** 1.21.11 already uses `net.minecraft.resources.Identifier` and already has the `net.minecraft.server.permissions.*` API — **no rename and no permission swap**. The real main-side differences are only `PayloadTypeRegistry.playS2C()/playC2S()` and `ResourceManagerHelper` reload-listener registration.
 - `RenderPipelines.POST_PROCESSING_SNIPPET`, `RenderPipelines.MATRICES_FOG_LIGHT_DIR_SNIPPET` — presence/name.
 - `RenderSetup` / `RenderType.create(name, setup)` — presence/name.
 - `LevelRenderEvents` (fabric-rendering-v1) — present, event/context member names.
@@ -153,7 +153,7 @@ Anything that cannot be expressed as a replacement/swap gets a **whole-file `//?
 | Risk | Mitigation |
 |---|---|
 | Loom 1.17-SNAPSHOT may not target 1.21.11 | One Loom per Gradle build (shared plugin classpath). Phase 0 proves it with a trivial two-node build before any port work; fallback = split into separate Gradle builds (structural, hence verified first). |
-| Global `Identifier`→`ResourceLocation` replacement hitting unintended text (comments/strings) | Replacement is word-scoped by Stonecutter string semantics; audit `git diff` of a 1.21.11 build before trusting. Use replacement identifiers to disable it in files that must not change. |
+| ~~Global `Identifier`→`ResourceLocation` replacement hitting unintended text~~ | **Not needed** — 1.21.11 uses `Identifier` (Phase 1 evidence). |
 | Loom 1.17-SNAPSHOT drift | It is the status quo and already proven for 26.1.2; the Gradle wrapper is pinned (9.5.1). Pin the resolved Loom once a fixed release covers both nodes. |
 | 1.21.11 render API differs more than expected | Compiler reveals it; each diff becomes either a swap or a Tier-C guard. Reduced by the phase-1 API probe (§13). |
 | 1.21.11 submit-node / render-state renames ripple into mixins | Add `//? if` guards or whole-file guards; area is small (8 mixins). |

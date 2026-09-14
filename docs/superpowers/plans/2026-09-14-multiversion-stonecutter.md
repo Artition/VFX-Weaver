@@ -41,6 +41,25 @@
 
 ---
 
+## Implementation notes (actuals, Phase 0)
+
+Deviations that the executor must know (the snippets above are the original intent; these are what shipped):
+
+- **Loom plugin is selected per node.** `net.fabricmc.fabric-loom` is the *no-remap* plugin
+  (`LoomNoRemapGradlePlugin.NAME`); it requires mod access wideners in the `official` namespace and
+  works for unobfuscated 26.x. `1.21.11` is obfuscated and Fabric API ships *intermediary* AWs, so the
+  `<26.1` node applies the remap plugin `fabric-loom` instead. In `build.gradle`:
+  `id 'net.fabricmc.fabric-loom' version "${loom_version}" apply false`, then
+  `if (sc.current.parsed.matches('<26.1')) apply plugin: 'fabric-loom' else apply plugin: 'net.fabricmc.fabric-loom'`.
+- **The remap node has mappings and modImplementation deps:** `mappings loom.officialMojangMappings()`,
+  `modImplementation` for fabric-loader and fabric-api; the 26.1.2 node keeps plain `implementation`.
+- **`accessWidenerPath` is scoped to `>=26.1`** until Task 2.3 switches the AW header namespace.
+- **`jar { from(rootProject.file('LICENSE')) }`** — must read from the repo root, not the node dir.
+- `stonecutter.gradle` (generated, developer-local) is gitignored.
+- `settings.gradle` uses `create(getRootProject())` (Groovy parsing).
+
+---
+
 ## Phase 0 — Stonecutter bootstrap (26.1.2 must stay green)
 
 ### Task 0.1: Confirm baseline green
@@ -342,6 +361,10 @@ Expected: no exceptions in the log related to VFX.
 
 ## Phase 1 — 1.21.11: shared/main code compiles
 
+> **SUPERSEDED — see "Phase 1 actuals" at the end of this document.** Tasks 1.1 and 1.2 below are
+> obsolete: 1.21.11 already uses `Identifier` and already has the permission API. Only Task 1.3's
+> two API adaptations were needed. Kept for history; do not execute 1.1/1.2.
+
 ### Task 1.1: Global `Identifier` → `ResourceLocation` replacement
 
 **Files:**
@@ -459,14 +482,11 @@ git commit -m "build: swap permission API for pre-26.1 nodes"
 
 | 26.1.2 symbol | 1.21.11 symbol | Mechanism |
 |---|---|---|
-| `Identifier` | `ResourceLocation` | done (Task 1.1) |
-| `source.permissions().hasPermission(...)` | `source.hasPermission(2)` | done (Task 1.2) |
-| `IdentifierArgument` | `ResourceLocationArgument` | automatic via Task 1.1 replacement |
-| `net.minecraft.server.permissions.*` imports | (absent) | `//? if` guard |
-| `ResourceLoader.get(...).registerReloadListener(...)` | `ResourceManagerHelper.get(...).registerReloadListener(...)` **only if** the v1 `ResourceLoader` API is missing | verify first; prefer no change |
-| `ServerLifecycleEvents.SYNC_DATA_PACK_CONTENTS` | parameter list may include/exclude `CloseableResourceManager` | `//? if` on the lambda parameters |
-| `CommandSourceStack.sendSuccess(...)` | overload/supplier shape | swap or `//? if` |
-| `Vec3.STREAM_CODEC` | present since 1.20.5 — expected unchanged | verify |
+| `Identifier` | `Identifier` (identical) | none needed — verified |
+| `net.minecraft.server.permissions.*` | present | none needed — verified |
+| `PayloadTypeRegistry.clientboundPlay()/serverboundPlay()` | `playS2C()/playC2S()` | `//? if` guard |
+| `ResourceLoader.get(...).registerReloadListener(id, listener)` | `ResourceManagerHelper.get(...).registerReloadListener(listener)` + `IdentifiableResourceReloadListener` | `//? if` guard |
+| everything else in `src/main` | identical | verified by compile |
 
 - [ ] **Step 1: Compile the main source for 1.21.11**
 
@@ -669,24 +689,29 @@ git commit -m "build(client): adapt world/entity renderers for 1.21.11"
 
 ### Task 2.3: Mixins and the access widener
 
-**Files:** `src/client/java/dev/vfxweaver/client/mixin/*.java`, `src/main/resources/vfxweaver.accesswidener`.
+**Files:** `src/client/java/dev/vfxweaver/client/mixin/*.java`, `src/main/resources/vfxweaver.accesswidener`, `build.gradle`.
 
 - [ ] **Step 1: Compile**
 
 Run: `.\gradlew.bat :1.21.11:build --no-daemon`
 Expected: errors localized to mixin classes (descriptor strings, shadowed fields/methods).
 
-- [ ] **Step 2: Add the access widener condition if needed**
+- [ ] **Step 2: Re-enable the access widener for the remap node and switch its namespace**
 
-If a widened member does not exist on 1.21.11, guard it in the single aw file:
-
+Phase 0 scoped `accessWidenerPath` to `>=26.1` because the remap Loom node rejected the AW header
+namespace (`Namespace mismatch, expected named got official`). Now finish it:
+- Make `accessWidenerPath` unconditional in `build.gradle` (the header becomes version-specific below).
+- Give the AW file a versioned header (Stonecutter processes the `#` format):
 ```
-#? if >=26.1
-accessible field net/minecraft/client/particle/Particle xd D
+#? if <26.1
+accessWidener v2 named
+#?} else {
+accessWidener v2 official
 #?}
 ```
-
-(Repeat per member that is version-specific; Stonecutter processes the aw `#` syntax natively.)
+The 1.21.11 `named` (official Mojang) names for the widened `Particle` fields are the same
+(`net/minecraft/client/particle/Particle#xd/yd/zd/friction/gravity`), so the body is unchanged.
+- Verify the built `1.21.11` jar's AW header is `named` and `26.1.2`'s is `official`.
 
 - [ ] **Step 3: Fix mixins**
 
@@ -846,3 +871,21 @@ git commit -m "docs: document multi-version build workflow"
 
 - Minecraft 1.21.1 (legacy renderer) — separate spec, per `docs/superpowers/specs/2026-09-14-multiversion-stonecutter-design.md` §12.
 - Fletching Table (automatic mixin/entrypoint registration) — optional later.
+
+---
+
+## Phase 1 actuals (executed; supersedes Tasks 1.1–1.3)
+
+Executed on `refactor/multiversion-stonecutter`. Commits: `6125065` (network), `1350f35` (resource).
+
+- No `Identifier`→`ResourceLocation` replacement and no permission swap: 1.21.11 already uses
+  `Identifier` and the `net.minecraft.server.permissions.*` API (verified against the real jars).
+- `src/main/java/dev/vfxweaver/network/VFXPayloads.java`: `clientboundPlay()/serverboundPlay()` vs
+  `playS2C()/playC2S()` behind a `//? if <26.1` closed scope.
+- `VFXMod.java`, `VFXDefinitionManager.java`, `VFXCurveManager.java`: reload-listener registration
+  guarded — `ResourceManagerHelper` + `IdentifiableResourceReloadListener` (`vfx_definitions`,
+  `vfx_curves`) for `<26.1`, `ResourceLoader.registerReloadListener(id, …)` for `>=26.1`.
+- **Guard form matters:** the active node (`26.1.2`) compiles the root `src/` directly, so the
+  inactive branch is written as live code and the *active* branch's counterpart is `/* … */`-wrapped
+  in the on-disk source. A class-level `//? if` on an `implements` clause forces the `{` onto its own line.
+- Verified: `:1.21.11:compileJava` and `:26.1.2:build` both BUILD SUCCESSFUL; task review clean.
