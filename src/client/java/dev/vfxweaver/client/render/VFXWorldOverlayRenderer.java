@@ -201,7 +201,11 @@ public final class VFXWorldOverlayRenderer {
 				.withDepthWrite(false)
 				.withBlend(BlendFunction.TRANSLUCENT)
 *///?} else {
+				//? if <26.2 {
 				.withDepthStencilState(new DepthStencilState(alwaysVisible ? CompareOp.ALWAYS_PASS : CompareOp.LESS_THAN_OR_EQUAL, false))
+				//?} else {
+				/*.withDepthStencilState(new DepthStencilState(alwaysVisible ? CompareOp.ALWAYS_PASS : CompareOp.GREATER_THAN_OR_EQUAL, false))
+				*///?}
 				.withColorTargetState(new ColorTargetState(BlendFunction.TRANSLUCENT))
 //?}
 				.withCull(cull)
@@ -267,7 +271,11 @@ public final class VFXWorldOverlayRenderer {
 				.withDepthWrite(false)
 				.withBlend(BlendFunction.ADDITIVE)
 *///?} else {
+				//? if <26.2 {
 				.withDepthStencilState(new DepthStencilState(alwaysVisible ? CompareOp.ALWAYS_PASS : CompareOp.LESS_THAN_OR_EQUAL, false))
+				//?} else {
+				/*.withDepthStencilState(new DepthStencilState(alwaysVisible ? CompareOp.ALWAYS_PASS : CompareOp.GREATER_THAN_OR_EQUAL, false))
+				*///?}
 				.withColorTargetState(new ColorTargetState(BlendFunction.ADDITIVE))
 //?}
 				.withCull(false)
