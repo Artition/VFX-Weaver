@@ -7,6 +7,14 @@ on: [pull_request, push]
 jobs:
   build:
     runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - node: "26.1.2"
+            java: "25"
+          - node: "1.21.11"
+            java: "21"
     steps:
       - name: checkout repository
         uses: actions/checkout@v6
@@ -15,17 +23,17 @@ jobs:
       - name: setup jdk
         uses: actions/setup-java@v5
         with:
-          java-version: '25'
+          java-version: ${{ matrix.java }}
           distribution: 'microsoft'
       - name: make gradle wrapper executable
         run: chmod +x ./gradlew
-      - name: build
-        run: ./gradlew build
+      - name: build ${{ matrix.node }}
+        run: ./gradlew :${{ matrix.node }}:build
       - name: capture build artifacts
         uses: actions/upload-artifact@v7
         with:
-          name: Artifacts
-          path: build/libs/
+          name: Artifacts-${{ matrix.node }}
+          path: versions/${{ matrix.node }}/build/libs/
 
   release:
     # publish only on version tags, e.g. v1.0.0
@@ -40,8 +48,8 @@ jobs:
       - name: download build artifacts
         uses: actions/download-artifact@v7
         with:
-          name: Artifacts
           path: build/libs
+          merge-multiple: true
       - name: publish release
         uses: softprops/action-gh-release@v2
         with:
