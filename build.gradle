@@ -77,9 +77,10 @@ java {
 	targetCompatibility = JavaVersion.toVersion(javaVersion)
 }
 
+def modId = property('mod_id')
 jar {
-	from('LICENSE') {
-		rename { "${it}_${project.name}" }
+	from(rootProject.file('LICENSE')) {
+		rename { "${it}_${modId}" }
 	}
 }
 
