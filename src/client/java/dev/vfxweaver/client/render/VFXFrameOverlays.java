@@ -1,10 +1,14 @@
 package dev.vfxweaver.client.render;
 
 import com.mojang.blaze3d.pipeline.BlendFunction;
+import com.mojang.blaze3d.pipeline.RenderPipeline;
+//? if <26.1 {
+/*import com.mojang.blaze3d.platform.DepthTestFunction;
+*///?} else {
 import com.mojang.blaze3d.pipeline.ColorTargetState;
 import com.mojang.blaze3d.pipeline.DepthStencilState;
-import com.mojang.blaze3d.pipeline.RenderPipeline;
 import com.mojang.blaze3d.platform.CompareOp;
+//?}
 import com.mojang.blaze3d.shaders.UniformType;
 import com.mojang.blaze3d.vertex.DefaultVertexFormat;
 import com.mojang.blaze3d.vertex.PoseStack;
@@ -30,7 +34,7 @@ import org.joml.Vector3f;
  * board and the outline is a rectangular ring slightly further out.
  */
 public final class VFXFrameOverlays {
-	private static RenderPipeline quadPipeline(final CompareOp depthOp, final String suffix) {
+	private static RenderPipeline quadPipeline(final boolean alwaysVisible, final String suffix) {
 		return RenderPipelines.register(
 			RenderPipeline.builder()
 				.withLocation(Identifier.fromNamespaceAndPath("vfxweaver", "frame/" + suffix))
@@ -39,8 +43,14 @@ public final class VFXFrameOverlays {
 				.withUniform("DynamicTransforms", UniformType.UNIFORM_BUFFER)
 				.withUniform("Projection", UniformType.UNIFORM_BUFFER)
 				.withVertexFormat(DefaultVertexFormat.POSITION_COLOR, VertexFormat.Mode.QUADS)
-				.withDepthStencilState(new DepthStencilState(depthOp, false))
+				//? if <26.1 {
+/*				.withDepthTestFunction(alwaysVisible ? DepthTestFunction.NO_DEPTH_TEST : DepthTestFunction.LEQUAL_DEPTH_TEST)
+				.withDepthWrite(false)
+				.withBlend(BlendFunction.TRANSLUCENT)
+*///?} else {
+				.withDepthStencilState(new DepthStencilState(alwaysVisible ? CompareOp.ALWAYS_PASS : CompareOp.LESS_THAN_OR_EQUAL, false))
 				.withColorTargetState(new ColorTargetState(BlendFunction.TRANSLUCENT))
+//?}
 				.withCull(false)
 				.build()
 		);
@@ -48,11 +58,11 @@ public final class VFXFrameOverlays {
 
 	private static final RenderType QUAD_VISIBLE = RenderType.create(
 		"vfxweaver_frame_quad_visible",
-		RenderSetup.builder(quadPipeline(CompareOp.ALWAYS_PASS, "visible")).createRenderSetup()
+		RenderSetup.builder(quadPipeline(true, "visible")).createRenderSetup()
 	);
 	private static final RenderType QUAD_OCCLUDED = RenderType.create(
 		"vfxweaver_frame_quad_occluded",
-		RenderSetup.builder(quadPipeline(CompareOp.LESS_THAN_OR_EQUAL, "occluded")).createRenderSetup()
+		RenderSetup.builder(quadPipeline(false, "occluded")).createRenderSetup()
 	);
 
 	/** Tracks which overlay render types were fed during the current hand/frame stage batch. */

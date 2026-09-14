@@ -1,10 +1,14 @@
 package dev.vfxweaver.client.render;
 
 import com.mojang.blaze3d.pipeline.BlendFunction;
+import com.mojang.blaze3d.pipeline.RenderPipeline;
+//? if <26.1 {
+/*import com.mojang.blaze3d.platform.DepthTestFunction;
+*///?} else {
 import com.mojang.blaze3d.pipeline.ColorTargetState;
 import com.mojang.blaze3d.pipeline.DepthStencilState;
-import com.mojang.blaze3d.pipeline.RenderPipeline;
 import com.mojang.blaze3d.platform.CompareOp;
+//?}
 import com.mojang.blaze3d.vertex.DefaultVertexFormat;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
@@ -70,7 +74,13 @@ import org.slf4j.LoggerFactory;
 public final class VFXEntityEffectRenderer {
 	private static final Logger LOGGER = LoggerFactory.getLogger("vfxweaver/entity-fx-render");
 
-	private static RenderPipeline entityFxPipeline(final String suffix, final CompareOp depthOp, final String define) {
+	//? if <26.1 {
+/*	private static final VertexFormat ENTITY_VERTEX_FORMAT = DefaultVertexFormat.NEW_ENTITY;
+*///?} else {
+	private static final VertexFormat ENTITY_VERTEX_FORMAT = DefaultVertexFormat.ENTITY;
+//?}
+
+	private static RenderPipeline entityFxPipeline(final String suffix, final boolean alwaysVisible, final String define) {
 		return RenderPipelines.register(
 			RenderPipeline.builder(RenderPipelines.MATRICES_FOG_LIGHT_DIR_SNIPPET)
 				.withLocation(Identifier.fromNamespaceAndPath("vfxweaver", "world/entity_" + suffix))
@@ -78,20 +88,26 @@ public final class VFXEntityEffectRenderer {
 				.withFragmentShader(Identifier.fromNamespaceAndPath("vfxweaver", "core/entity_fx"))
 				.withSampler("Sampler0")
 				.withShaderDefine(define)
-				.withVertexFormat(DefaultVertexFormat.ENTITY, VertexFormat.Mode.QUADS)
-				.withDepthStencilState(new DepthStencilState(depthOp, false))
+				.withVertexFormat(ENTITY_VERTEX_FORMAT, VertexFormat.Mode.QUADS)
+				//? if <26.1 {
+/*				.withDepthTestFunction(alwaysVisible ? DepthTestFunction.NO_DEPTH_TEST : DepthTestFunction.LEQUAL_DEPTH_TEST)
+				.withDepthWrite(false)
+				.withBlend(BlendFunction.TRANSLUCENT)
+*///?} else {
+				.withDepthStencilState(new DepthStencilState(alwaysVisible ? CompareOp.ALWAYS_PASS : CompareOp.LESS_THAN_OR_EQUAL, false))
 				.withColorTargetState(new ColorTargetState(BlendFunction.TRANSLUCENT))
+//?}
 				.withCull(false)
 				.build()
 		);
 	}
 
 // Pipeline per (mode, through_blocks) combination; RenderTypes then memoize per entity texture.
-	private static final RenderPipeline TINT_MULTIPLY_VISIBLE_P = entityFxPipeline("tint_multiply_visible", CompareOp.ALWAYS_PASS, "TINT_MULTIPLY");
-	private static final RenderPipeline TINT_MULTIPLY_OCCLUDED_P = entityFxPipeline("tint_multiply_occluded", CompareOp.LESS_THAN_OR_EQUAL, "TINT_MULTIPLY");
-	private static final RenderPipeline TINT_MASK_VISIBLE_P = entityFxPipeline("tint_mask_visible", CompareOp.ALWAYS_PASS, "TINT_MASK");
-	private static final RenderPipeline TINT_MASK_OCCLUDED_P = entityFxPipeline("tint_mask_occluded", CompareOp.LESS_THAN_OR_EQUAL, "TINT_MASK");
-	private static final RenderPipeline OUTLINE_OCCLUDED_P = entityFxPipeline("outline_occluded", CompareOp.LESS_THAN_OR_EQUAL, "OUTLINE");
+	private static final RenderPipeline TINT_MULTIPLY_VISIBLE_P = entityFxPipeline("tint_multiply_visible", true, "TINT_MULTIPLY");
+	private static final RenderPipeline TINT_MULTIPLY_OCCLUDED_P = entityFxPipeline("tint_multiply_occluded", false, "TINT_MULTIPLY");
+	private static final RenderPipeline TINT_MASK_VISIBLE_P = entityFxPipeline("tint_mask_visible", true, "TINT_MASK");
+	private static final RenderPipeline TINT_MASK_OCCLUDED_P = entityFxPipeline("tint_mask_occluded", false, "TINT_MASK");
+	private static final RenderPipeline OUTLINE_OCCLUDED_P = entityFxPipeline("outline_occluded", false, "OUTLINE");
 
 	/**
 	 * Through-walls outline variant: opaque (no blending) so it routes into the solid feature
@@ -106,9 +122,15 @@ public final class VFXEntityEffectRenderer {
 			.withFragmentShader(Identifier.fromNamespaceAndPath("vfxweaver", "core/entity_fx"))
 			.withSampler("Sampler0")
 			.withShaderDefine("OUTLINE")
-			.withVertexFormat(DefaultVertexFormat.ENTITY, VertexFormat.Mode.QUADS)
+			.withVertexFormat(ENTITY_VERTEX_FORMAT, VertexFormat.Mode.QUADS)
+			//? if <26.1 {
+/*			.withDepthTestFunction(DepthTestFunction.NO_DEPTH_TEST)
+			.withDepthWrite(false)
+			.withoutBlend()
+*///?} else {
 			.withDepthStencilState(new DepthStencilState(CompareOp.ALWAYS_PASS, false))
 			.withColorTargetState(ColorTargetState.DEFAULT)
+//?}
 			.withCull(false)
 			.build()
 	);

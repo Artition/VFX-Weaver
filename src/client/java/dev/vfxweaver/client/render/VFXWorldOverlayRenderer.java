@@ -1,12 +1,16 @@
 package dev.vfxweaver.client.render;
 
 import com.mojang.blaze3d.pipeline.BlendFunction;
-import com.mojang.blaze3d.pipeline.ColorTargetState;
-import com.mojang.blaze3d.pipeline.DepthStencilState;
 import com.mojang.blaze3d.pipeline.RenderPipeline;
 import com.mojang.blaze3d.pipeline.RenderTarget;
 import com.mojang.blaze3d.pipeline.TextureTarget;
+//? if <26.1 {
+/*import com.mojang.blaze3d.platform.DepthTestFunction;
+*///?} else {
+import com.mojang.blaze3d.pipeline.ColorTargetState;
+import com.mojang.blaze3d.pipeline.DepthStencilState;
 import com.mojang.blaze3d.platform.CompareOp;
+//?}
 import com.mojang.blaze3d.shaders.UniformType;
 import com.mojang.blaze3d.systems.CommandEncoder;
 import com.mojang.blaze3d.systems.RenderSystem;
@@ -25,19 +29,36 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ThreadLocalRandom;
+//? if <26.1 {
+/*import net.fabricmc.fabric.api.client.rendering.v1.world.WorldRenderContext;
+import net.fabricmc.fabric.api.client.rendering.v1.world.WorldRenderEvents;
+*///?} else {
 import net.fabricmc.fabric.api.client.rendering.v1.level.LevelRenderContext;
 import net.fabricmc.fabric.api.client.rendering.v1.level.LevelRenderEvents;
+//?}
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.particle.Particle;
 import net.minecraft.client.particle.ParticleEngine;
 import net.minecraft.client.renderer.MultiBufferSource;
 import net.minecraft.client.renderer.RenderPipelines;
+//? if <26.1 {
+/*import net.minecraft.client.renderer.block.model.BlockModelPart;
+*///?} else {
 import net.minecraft.client.renderer.block.dispatch.BlockStateModelPart;
+//?}
 import net.minecraft.client.renderer.rendertype.RenderSetup;
 import net.minecraft.client.renderer.rendertype.RenderType;
+//? if <26.1 {
+/*import net.minecraft.client.renderer.state.CameraRenderState;
+*///?} else {
 import net.minecraft.client.renderer.state.level.CameraRenderState;
+//?}
+//? if <26.1 {
+/*import net.minecraft.client.renderer.block.model.BakedQuad;
+*///?} else {
 import net.minecraft.client.resources.model.geometry.BakedQuad;
+//?}
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.particles.DustParticleOptions;
@@ -105,7 +126,7 @@ public final class VFXWorldOverlayRenderer {
 	 */
 	private static final List<RenderPipeline> IRIS_PIPELINES = new ArrayList<>(9);
 
-	private static RenderPipeline blockPipeline(final CompareOp depthOp, final boolean cull, final String locationSuffix) {
+	private static RenderPipeline blockPipeline(final boolean alwaysVisible, final boolean cull, final String locationSuffix) {
 		RenderPipeline pipeline = RenderPipelines.register(
 			RenderPipeline.builder()
 				.withLocation(Identifier.fromNamespaceAndPath("vfxweaver", "world/block_" + locationSuffix))
@@ -114,8 +135,14 @@ public final class VFXWorldOverlayRenderer {
 				.withUniform("DynamicTransforms", UniformType.UNIFORM_BUFFER)
 				.withUniform("Projection", UniformType.UNIFORM_BUFFER)
 				.withVertexFormat(DefaultVertexFormat.POSITION_COLOR, VertexFormat.Mode.QUADS)
-				.withDepthStencilState(new DepthStencilState(depthOp, false))
+				//? if <26.1 {
+/*				.withDepthTestFunction(alwaysVisible ? DepthTestFunction.NO_DEPTH_TEST : DepthTestFunction.LEQUAL_DEPTH_TEST)
+				.withDepthWrite(false)
+				.withBlend(BlendFunction.TRANSLUCENT)
+*///?} else {
+				.withDepthStencilState(new DepthStencilState(alwaysVisible ? CompareOp.ALWAYS_PASS : CompareOp.LESS_THAN_OR_EQUAL, false))
 				.withColorTargetState(new ColorTargetState(BlendFunction.TRANSLUCENT))
+//?}
 				.withCull(cull)
 				.build()
 		);
@@ -125,41 +152,41 @@ public final class VFXWorldOverlayRenderer {
 
 	private static final RenderType TINT_VISIBLE = RenderType.create(
 		"vfxweaver_block_tint_visible",
-		RenderSetup.builder(blockPipeline(CompareOp.ALWAYS_PASS, false, "tint_visible")).createRenderSetup()
+		RenderSetup.builder(blockPipeline(true, false, "tint_visible")).createRenderSetup()
 	);
 
 	private static final RenderType TINT_OCCLUDED = RenderType.create(
 		"vfxweaver_block_tint_occluded",
-		RenderSetup.builder(blockPipeline(CompareOp.LESS_THAN_OR_EQUAL, false, "tint_occluded")).createRenderSetup()
+		RenderSetup.builder(blockPipeline(false, false, "tint_occluded")).createRenderSetup()
 	);
 
 	/** Wall outline: extruded quads, no culling needed. */
 	private static final RenderType OUTLINE_WALLS_VISIBLE = RenderType.create(
 		"vfxweaver_block_outline_walls_visible",
-		RenderSetup.builder(blockPipeline(CompareOp.ALWAYS_PASS, false, "outline_walls_visible")).createRenderSetup()
+		RenderSetup.builder(blockPipeline(true, false, "outline_walls_visible")).createRenderSetup()
 	);
 
 	private static final RenderType OUTLINE_WALLS_OCCLUDED = RenderType.create(
 		"vfxweaver_block_outline_walls_occluded",
-		RenderSetup.builder(blockPipeline(CompareOp.LESS_THAN_OR_EQUAL, false, "outline_walls_occluded")).createRenderSetup()
+		RenderSetup.builder(blockPipeline(false, false, "outline_walls_occluded")).createRenderSetup()
 	);
 
 	/** Shell outline: back-face culling + reversed winding = far side only, clipped by the block. */
 	private static final RenderType OUTLINE_SHELL_VISIBLE = RenderType.create(
 		"vfxweaver_block_outline_shell_visible",
-		RenderSetup.builder(blockPipeline(CompareOp.ALWAYS_PASS, true, "outline_shell_visible")).createRenderSetup()
+		RenderSetup.builder(blockPipeline(true, true, "outline_shell_visible")).createRenderSetup()
 	);
 
 	private static final RenderType OUTLINE_SHELL_OCCLUDED = RenderType.create(
 		"vfxweaver_block_outline_shell_occluded",
-		RenderSetup.builder(blockPipeline(CompareOp.LESS_THAN_OR_EQUAL, true, "outline_shell_occluded")).createRenderSetup()
+		RenderSetup.builder(blockPipeline(false, true, "outline_shell_occluded")).createRenderSetup()
 	);
 
 	/**
 	 * Additive "glow" pipeline shared by the world quad effects ({@code light_beam},
 	 * {@code pulse_ring}, {@code scan_sweep}, {@code guide_line}).
 	 */
-	private static RenderPipeline glowPipeline(final CompareOp depthOp, final String suffix) {
+	private static RenderPipeline glowPipeline(final boolean alwaysVisible, final String suffix) {
 		RenderPipeline pipeline = RenderPipelines.register(
 			RenderPipeline.builder()
 				.withLocation(Identifier.fromNamespaceAndPath("vfxweaver", "world/glow_" + suffix))
@@ -168,8 +195,14 @@ public final class VFXWorldOverlayRenderer {
 				.withUniform("DynamicTransforms", UniformType.UNIFORM_BUFFER)
 				.withUniform("Projection", UniformType.UNIFORM_BUFFER)
 				.withVertexFormat(DefaultVertexFormat.POSITION_COLOR, VertexFormat.Mode.QUADS)
-				.withDepthStencilState(new DepthStencilState(depthOp, false))
+				//? if <26.1 {
+/*				.withDepthTestFunction(alwaysVisible ? DepthTestFunction.NO_DEPTH_TEST : DepthTestFunction.LEQUAL_DEPTH_TEST)
+				.withDepthWrite(false)
+				.withBlend(BlendFunction.ADDITIVE)
+*///?} else {
+				.withDepthStencilState(new DepthStencilState(alwaysVisible ? CompareOp.ALWAYS_PASS : CompareOp.LESS_THAN_OR_EQUAL, false))
 				.withColorTargetState(new ColorTargetState(BlendFunction.ADDITIVE))
+//?}
 				.withCull(false)
 				.build()
 		);
@@ -179,12 +212,12 @@ public final class VFXWorldOverlayRenderer {
 
 	private static final RenderType GLOW_VISIBLE = RenderType.create(
 		"vfxweaver_world_glow_visible",
-		RenderSetup.builder(glowPipeline(CompareOp.ALWAYS_PASS, "visible")).createRenderSetup()
+		RenderSetup.builder(glowPipeline(true, "visible")).createRenderSetup()
 	);
 
 	private static final RenderType GLOW_OCCLUDED = RenderType.create(
 		"vfxweaver_world_glow_occluded",
-		RenderSetup.builder(glowPipeline(CompareOp.LESS_THAN_OR_EQUAL, "occluded")).createRenderSetup()
+		RenderSetup.builder(glowPipeline(false, "occluded")).createRenderSetup()
 	);
 
 	/**
@@ -201,8 +234,15 @@ public final class VFXWorldOverlayRenderer {
 				.withUniform("DynamicTransforms", UniformType.UNIFORM_BUFFER)
 				.withUniform("Projection", UniformType.UNIFORM_BUFFER)
 				.withVertexFormat(DefaultVertexFormat.POSITION_COLOR, VertexFormat.Mode.QUADS)
+				//? if <26.1 {
+/*				.withDepthTestFunction(DepthTestFunction.NO_DEPTH_TEST)
+				.withDepthWrite(true)
+				.withoutBlend()
+				.withColorWrite(false)
+*///?} else {
 				.withDepthStencilState(new DepthStencilState(CompareOp.ALWAYS_PASS, true))
 				.withColorTargetState(new ColorTargetState(Optional.empty(), ColorTargetState.WRITE_NONE))
+//?}
 				.build()
 		);
 		IRIS_PIPELINES.add(pipeline);
@@ -505,8 +545,13 @@ public final class VFXWorldOverlayRenderer {
 	}
 
 	public static void register() {
+		//? if <26.1 {
+/*		WorldRenderEvents.END_MAIN.register(VFXWorldOverlayRenderer::render);
+		WorldRenderEvents.BEFORE_ENTITIES.register(VFXWorldOverlayRenderer::collectSubmits);
+*///?} else {
 		LevelRenderEvents.AFTER_TRANSLUCENT_TERRAIN.register(VFXWorldOverlayRenderer::render);
 		LevelRenderEvents.COLLECT_SUBMITS.register(VFXWorldOverlayRenderer::collectSubmits);
+//?}
 	}
 
 	/**
@@ -514,13 +559,21 @@ public final class VFXWorldOverlayRenderer {
 	 * vanilla submit pipeline here, so every link renders as a REAL textured block (the same
 	 * path as falling blocks/piston moved blocks), following the anchors each frame.
 	 */
+	//? if <26.1 {
+/*	private static void collectSubmits(final WorldRenderContext context) {
+*///?} else {
 	private static void collectSubmits(final LevelRenderContext context) {
+//?}
 		Minecraft minecraft = Minecraft.getInstance();
 		if (minecraft.level == null) {
 			return;
 		}
 		ClientLevel level = minecraft.level;
+		//? if <26.1 {
+/*		CameraRenderState camera = context.worldState().cameraRenderState;
+*///?} else {
 		CameraRenderState camera = context.levelState().cameraRenderState;
+//?}
 		if (!camera.initialized) {
 			return;
 		}
@@ -543,7 +596,11 @@ public final class VFXWorldOverlayRenderer {
 	 * anchors both ends are pinned and the rope sags under gravity; with a single anchor the
 	 * chain hangs from it ({@code length} blocks) and can be pushed around by the player.
 	 */
+	//? if <26.1 {
+/*	private static void submitChain(final WorldRenderContext context, final VFXActiveEffect effect, final ClientLevel level, final Minecraft minecraft, final CameraRenderState camera) {
+*///?} else {
 	private static void submitChain(final LevelRenderContext context, final VFXActiveEffect effect, final ClientLevel level, final Minecraft minecraft, final CameraRenderState camera) {
+//?}
 		if (effect.getWeight() <= 0.0F) {
 			return;
 		}
@@ -611,8 +668,12 @@ public final class VFXWorldOverlayRenderer {
 			link.blockPos = lightPos;
 			link.randomSeedPos = lightPos;
 			link.biome = level.getBiome(lightPos);
+			//? if <26.1 {
+/*			link.level = level;
+*///?} else {
 			link.cardinalLighting = level.cardinalLighting();
 			link.lightEngine = level.getLightEngine();
+//?}
 			PoseStack pose = new PoseStack();
 			pose.pushPose();
 			// Submits are camera-relative: world coords minus the camera position.
@@ -630,7 +691,11 @@ public final class VFXWorldOverlayRenderer {
 				pose.scale(scale, scale * (float) stretch, scale);
 			}
 			pose.translate(-0.5, -0.5, -0.5);
+			//? if <26.1 {
+/*			context.commandQueue().submitMovingBlock(pose, link);
+*///?} else {
 			context.submitNodeCollector().submitMovingBlock(pose, link);
+//?}
 			pose.popPose();
 		}
 	}
@@ -833,7 +898,11 @@ public final class VFXWorldOverlayRenderer {
 		return block.defaultBlockState();
 	}
 
+	//? if <26.1 {
+/*	private static void render(final WorldRenderContext context) {
+*///?} else {
 	private static void render(final LevelRenderContext context) {
+//?}
 		List<VFXActiveEffect> effects = VFXEffectManager.get().getActiveWorldEffects();
 		if (effects.isEmpty()) {
 			return;
@@ -843,12 +912,20 @@ public final class VFXWorldOverlayRenderer {
 			return;
 		}
 		ClientLevel level = minecraft.level;
+		//? if <26.1 {
+/*		CameraRenderState camera = context.worldState().cameraRenderState;
+*///?} else {
 		CameraRenderState camera = context.levelState().cameraRenderState;
+//?}
 		if (!camera.initialized) {
 			return;
 		}
 
+		//? if <26.1 {
+/*		MultiBufferSource.BufferSource buffers = (MultiBufferSource.BufferSource) context.consumers();
+*///?} else {
 		MultiBufferSource.BufferSource buffers = context.bufferSource();
+//?}
 		List<RenderType> drawn = new ArrayList<>(4);
 
 		for (VFXActiveEffect effect : effects) {
@@ -1515,6 +1592,32 @@ public final class VFXWorldOverlayRenderer {
 		return List.copyOf(resolved);
 	}
 
+	//? if <26.1 {
+/*	private static List<BakedQuad> getModelQuads(final Minecraft minecraft, final BlockPos pos) {
+		try {
+			var state = minecraft.level.getBlockState(pos);
+			List<BlockModelPart> parts = new ArrayList<>();
+			minecraft.getModelManager().getBlockModelShaper().getBlockModel(state).collectParts(RAND, parts);
+			List<BakedQuad> quads = new ArrayList<>();
+			for (BlockModelPart part : parts) {
+				List<BakedQuad> own = part.getQuads(null);
+				if (own != null && !own.isEmpty()) {
+					quads.addAll(own);
+				}
+				for (Direction direction : Direction.values()) {
+					List<BakedQuad> sided = part.getQuads(direction);
+					if (sided != null && !sided.isEmpty()) {
+						quads.addAll(sided);
+					}
+				}
+			}
+			return quads;
+		} catch (Exception e) {
+			LOGGER.debug("Failed to collect model quads for block overlay at {}", pos, e);
+			return List.of();
+		}
+	}
+*///?} else {
 	private static List<BakedQuad> getModelQuads(final Minecraft minecraft, final BlockPos pos) {
 		try {
 			var state = minecraft.level.getBlockState(pos);
@@ -1539,6 +1642,7 @@ public final class VFXWorldOverlayRenderer {
 			return List.of();
 		}
 	}
+//?}
 
 	private static void emitQuads(
 		final VertexConsumer buffer,
