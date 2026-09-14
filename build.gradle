@@ -61,6 +61,7 @@ def expandProps = [
 		minecraft         : minecraftVersion,
 		java              : javaVersion,
 		compatibilityLevel: "JAVA_${javaVersion}",
+		loaderCompat      : property('deps.loader_compat'),
 		accessWidener     : sc.current.parsed.matches('<26.1') ? 'vfxweaver-named.accesswidener' : 'vfxweaver.accesswidener',
 ]
 
