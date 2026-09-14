@@ -28,10 +28,12 @@ repositories {
 loom {
 	splitEnvironmentSourceSets()
 
-	// The AW is written in the `official` namespace (unobfuscated 26.x). The remap node
-	// needs a `named` AW; that adaptation is Phase 1/2 (Task 2.3), so scope it to 26.x here.
+	// 26.x is unobfuscated: the AW uses the `official` namespace. Pre-26.1 nodes are remapped
+	// (Mojang mappings -> intermediary), so they need the `named` AW instead.
 	if (sc.current.parsed.matches('>=26.1')) {
 		accessWidenerPath = rootProject.file("src/main/resources/vfxweaver.accesswidener")
+	} else {
+		accessWidenerPath = rootProject.file("src/main/resources/vfxweaver-named.accesswidener")
 	}
 
 	mods {
@@ -59,12 +61,19 @@ def expandProps = [
 		minecraft         : minecraftVersion,
 		java              : javaVersion,
 		compatibilityLevel: "JAVA_${javaVersion}",
+		accessWidener     : sc.current.parsed.matches('<26.1') ? 'vfxweaver-named.accesswidener' : 'vfxweaver.accesswidener',
 ]
 
 tasks.matching { it.name in ['processResources', 'processClientResources'] }.configureEach {
 	inputs.properties(expandProps)
 	filesMatching('fabric.mod.json') { expand(expandProps) }
 	filesMatching('*.mixins.json') { expand(expandProps) }
+	// The two access wideners differ only in namespace; ship the one this node needs.
+	if (sc.current.parsed.matches('>=26.1')) {
+		exclude 'vfxweaver-named.accesswidener'
+	} else {
+		exclude 'vfxweaver.accesswidener'
+	}
 }
 
 tasks.withType(JavaCompile).configureEach {

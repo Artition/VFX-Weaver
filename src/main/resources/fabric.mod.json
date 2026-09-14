@@ -10,7 +10,7 @@
 	"license": "MIT",
 	"icon": "assets/vfxweaver/icon.png",
 	"environment": "*",
-	"accessWidener": "vfxweaver.accesswidener",
+	"accessWidener": "${accessWidener}",
 	"entrypoints": {
 		"main": [
 			"dev.vfxweaver.VFXMod"
