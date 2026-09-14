@@ -27,6 +27,17 @@ Requires JDK 25 in `JAVA_HOME` (the project compiles with `--release 25`, see `b
 
 After any change under `src/`, always run `./gradlew build` before committing — an agent's task is not done until the build passes.
 
+## Multi-version (Stonecutter)
+
+Supported nodes: `26.1.2` and `1.21.11`. Shared source lives in `src/`; per-node dependencies in
+`versions/<mc>/gradle.properties`. Build one node with `./gradlew :<mc>:build`, all nodes with
+`./gradlew build`.
+
+Adding a feature: write it once in `src/`. Only if it touches an API that differs between targets,
+guard it in place with a Stonecutter comment (`//? if <cond { ... //?}`). The **active node is
+`26.1.2`**, so the on-disk source is written in 26.1.2 form and the `1.21.11` branch is the one
+commented out in the working tree. Never fork a whole feature per version.
+
 ## Code style
 
 - Indentation is tabs, not spaces.

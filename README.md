@@ -6,7 +6,7 @@ A client-side VFX library/API for Minecraft on Fabric: screen post-processing (c
 
 | | |
 |---|---|
-| Minecraft | 26.1 – 26.1.2 (`~26.1`) |
+| Minecraft | 26.1.2, 1.21.11 |
 | Fabric Loader | >=0.19.3 |
 | Fabric API | required |
 | Java | 25+ (JDK 25, see below) |

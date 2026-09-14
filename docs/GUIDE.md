@@ -1183,3 +1183,6 @@ Guide version: 26 — see changelog below.
 - Param multiplier: `"param": { keyframes/start-end/constant/binding + "multiply": { "bind": "proximity", ... } }` — final value = base × multiplier (e.g. an animated dent fading with distance from a point).
 - `VFXAPI.playEffectId(...)` returns the instance id, `VFXAPI.stopEffect(long)` stops one specific instance; `sendStop(player, effectId, instanceId)` — over the network.
 - Network protocol version 4: the packet carries an optional position and instance id.
+
+- **v27**: build restructured for multiple Minecraft versions (Stonecutter). Adds a `1.21.11`
+  build alongside `26.1.2`; effect behavior, datapack format and network protocol are unchanged.
