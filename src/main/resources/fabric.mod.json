@@ -28,7 +28,7 @@
 	],
 	"depends": {
 		"fabricloader": "${loaderCompat}",
-		"minecraft": "~${minecraft}",
+		"minecraft": "${mcCompat}",
 		"java": ">=${java}",
 		"fabric-api": "*"
 	},
