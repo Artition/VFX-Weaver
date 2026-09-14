@@ -898,6 +898,9 @@ public final class VFXWorldOverlayRenderer {
 		return block.defaultBlockState();
 	}
 
+	//? if <26.1
+	/*private static boolean warnedNonBufferSource = false;*/
+
 	//? if <26.1 {
 /*	private static void render(final WorldRenderContext context) {
 *///?} else {
@@ -925,6 +928,10 @@ public final class VFXWorldOverlayRenderer {
 /*		// WorldRenderContext.consumers() is typed as MultiBufferSource; only the buffer-source
 		// variant supports the manual endBatch flush below. Skip the overlay for anything else.
 		if (!(context.consumers() instanceof MultiBufferSource.BufferSource buffers)) {
+			if (!warnedNonBufferSource) {
+				warnedNonBufferSource = true;
+				LOGGER.warn("World overlay skipped: context.consumers() is {} instead of MultiBufferSource.BufferSource", context.consumers().getClass().getName());
+			}
 			return;
 		}
 *///?} else {

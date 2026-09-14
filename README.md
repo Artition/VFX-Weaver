@@ -7,9 +7,9 @@ A client-side VFX library/API for Minecraft on Fabric: screen post-processing (c
 | | |
 |---|---|
 | Minecraft | 26.1.2, 1.21.11 |
-| Fabric Loader | >=0.19.3 |
+| Fabric Loader | >=0.19.5 |
 | Fabric API | required |
-| Java | 25+ (JDK 25, see below) |
+| Java | JDK 25 (26.1.2) / JDK 21 (1.21.11) |
 | Flashback | optional (records client-local effects into replays) |
 
 ## Quick start
@@ -20,7 +20,7 @@ cd TOMvfx
 ./gradlew build
 ```
 
-The built jar is in `build/libs/`. Building requires JDK 25 in `JAVA_HOME` (or `org.gradle.java.home` in `gradle.properties`) — an older JDK will not pick up `--release 25`.
+The built jar is in `build/libs/`. Building requires JDK 25 for the `26.1.2` node and JDK 21 for the `1.21.11` node in `JAVA_HOME` (or `org.gradle.java.home` in `gradle.properties`); a single JDK 25+ (e.g. 26) can build both via `--release`.
 
 Run a test client/server directly from the project:
 

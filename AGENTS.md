@@ -23,7 +23,7 @@ A full description of the domain model (effects, timelines, datapacks, network p
 ./gradlew runServer      # test server
 ```
 
-Requires JDK 25 in `JAVA_HOME` (the project compiles with `--release 25`, see `build.gradle`). If the build fails with `error: release version 25 not supported` — Gradle picked up the wrong JDK, not a code bug.
+The `26.1.2` node targets Java 25 and the `1.21.11` node targets Java 21; a single JDK 25+ (e.g. 26) can build both via `--release` (see `build.gradle`). If the build fails with `error: release version 25 not supported` — Gradle picked up the wrong JDK, not a code bug.
 
 After any change under `src/`, always run `./gradlew build` before committing — an agent's task is not done until the build passes.
 

@@ -1113,7 +1113,11 @@ Post-processing pipeline, world overlays, effect clock, load limits and fault to
 
 Versioned feature history — **[docs/CHANGELOG.md](CHANGELOG.md)**.
 
-Guide version: 26 — see changelog below.
+Guide version: 27 — see changelog below.
+
+### v27
+- Build restructured for multiple Minecraft versions (Stonecutter). Adds a `1.21.11`
+  build alongside `26.1.2`; effect behavior, datapack format and network protocol are unchanged.
 
 ### v26
 - World overlays: entity anchors gained `point` — the reference point on the entity: `feet` (default), `center` (bounding-box centre) or `eyes` (e.g. `{"entity": "@s", "point": "center"}`), so effects can attach to the middle/head of an entity instead of its feet.
@@ -1183,6 +1187,3 @@ Guide version: 26 — see changelog below.
 - Param multiplier: `"param": { keyframes/start-end/constant/binding + "multiply": { "bind": "proximity", ... } }` — final value = base × multiplier (e.g. an animated dent fading with distance from a point).
 - `VFXAPI.playEffectId(...)` returns the instance id, `VFXAPI.stopEffect(long)` stops one specific instance; `sendStop(player, effectId, instanceId)` — over the network.
 - Network protocol version 4: the packet carries an optional position and instance id.
-
-- **v27**: build restructured for multiple Minecraft versions (Stonecutter). Adds a `1.21.11`
-  build alongside `26.1.2`; effect behavior, datapack format and network protocol are unchanged.

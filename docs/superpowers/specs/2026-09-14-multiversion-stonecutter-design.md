@@ -154,14 +154,14 @@ core, datapack and network stay identical, so the port is confined to `client/re
 
 - Mixin classes live in shared `src/client/java`; version differences are `//? if` guarded inside them, or a whole-file guard where the target method differs structurally.
 - `vfxweaver.client.mixins.json` and `vfxweaver.mixins.json`: `compatibilityLevel` is injected via `processResources` (`JAVA_21` vs `JAVA_25`) and version-specific entries added by condition if needed. Optionally use **Fletching Table** for mixin registration later — not required for v1.
-- `vfxweaver.accesswidener`: Stonecutter natively processes the Access Widener format (`#` comments), so a **single file** holds both variants behind `#? if` conditions (e.g. widen the `Particle` fields only where needed). No per-version aw files and no `${aw_file}` switch.
+- `vfxweaver.accesswidener` (26.1 `official` namespace) and `vfxweaver-named.accesswidener` (pre-26.1 `named`/intermediary namespace): the two files differ only in the namespace header. `build.gradle` selects one per node via `loom.accessWidenerPath` and excludes the other from `processResources`, and `fabric.mod.json`'s `accessWidener` is expanded to the shipped file name. No `#? if` conditions inside the access widener.
 - `fabric.mod.json`: `"minecraft"`, `"java"`, `"fabricloader"` are filled from per-node properties via `processResources expand`.
 
 ## 10. Build & CI
 
 - Local: `./gradlew build` builds all nodes; the active node for IDE/runClient is switched with Stonecutter's `Set active project to …` task (IntelliJ plugin available).
 - `runClient` is available per node for smoke testing (`/vfx play …`).
-- **Replacement audit** (phase 1, and whenever a replacement changes): build the 1.21.11 node, then diff the generated sources (`versions/1.21.11/build/generated/…`) against the shared `src/`. A changed line is *legitimate* only if it is a pure `Identifier`↔`ResourceLocation` token swap or one of the declared swaps; **anything else is a stray** and must be reviewed. Automated gate: `git diff --stat` over the generated tree, review every file above a small noise threshold, plus a grep for the two expected tokens. Files that must never change opt out via a replacement identifier (`//~ !ident`).
+- **Replacement audit** — this branch introduced **zero** global replacements/swaps; all version divergence is inline `//? if` guards, so no automated audit is needed today. The audit becomes required as soon as a global replacement or swap is introduced: add `scripts/audit-replacements.ps1` (build the 1.21.11 node, diff `versions/1.21.11/build/generated/…` against the shared `src/`, and review every non-trivial changed line — only declared swaps are legitimate) and run it in CI.
 - `.github/workflows/build.yml`: matrix over `{node, java}` (`26.1.2` → JDK 25, `1.21.11` → JDK 21); Gradle comes from the pinned wrapper (currently 9.5.1, ≥ the Loom minimum); publish jars named `vfxweaver-<version>+<mc>.jar`.
 - `scripts/publish-maven.ps1` stays, extended to publish per-version artifacts.
 
