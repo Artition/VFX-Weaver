@@ -4,7 +4,12 @@ import dev.vfxweaver.client.effect.VFXEffectManager;
 import dev.vfxweaver.client.shake.CameraShakeManager;
 import dev.vfxweaver.client.shake.VFXCameraRoll;
 import net.minecraft.client.Camera;
+//? if >=26.1
 import net.minecraft.client.DeltaTracker;
+//? if <26.1 {
+/*import net.minecraft.world.level.Level;
+import net.minecraft.world.entity.Entity;
+*///?}
 import net.minecraft.world.phys.Vec3;
 import org.joml.Quaternionf;
 import org.joml.Vector3f;
@@ -54,6 +59,7 @@ public abstract class CameraMixin {
 	@Shadow
 	private float yRot;
 
+	//? if >=26.1 {
 	@Inject(method = "calculateFov(F)F", at = @At("RETURN"), cancellable = true)
 	private void vfxweaver$modifyFov(final float partialTick, final CallbackInfoReturnable<Float> cir) {
 		float delta = VFXEffectManager.get().getActiveFovDelta();
@@ -61,9 +67,21 @@ public abstract class CameraMixin {
 			cir.setReturnValue(cir.getReturnValue() + delta);
 		}
 	}
+	//?}
 
+	//? if <26.1 {
+/*	@Inject(method = "setup(Lnet/minecraft/world/level/Level;Lnet/minecraft/world/entity/Entity;ZZF)V", at = @At("TAIL"))
+	private void vfxweaver$applyShake(final Level level, final Entity entity, final boolean detached, final boolean mirror, final float partialTick, final CallbackInfo ci) {
+		vfxweaver$applyShake();
+	}
+*///?} else {
 	@Inject(method = "update(Lnet/minecraft/client/DeltaTracker;)V", at = @At("TAIL"))
 	private void vfxweaver$applyShake(final DeltaTracker deltaTracker, final CallbackInfo ci) {
+		vfxweaver$applyShake();
+	}
+//?}
+
+	private void vfxweaver$applyShake() {
 		float cameraRoll = VFXCameraRoll.compute(VFXEffectManager.get());
 		CameraShakeManager.Offset offset = CameraShakeManager.compute(VFXEffectManager.get());
 		if (offset.dx() == 0.0 && offset.dy() == 0.0 && offset.dz() == 0.0

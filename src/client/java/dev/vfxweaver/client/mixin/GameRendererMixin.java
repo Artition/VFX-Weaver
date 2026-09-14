@@ -9,10 +9,14 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.GameRenderer;
 import net.minecraft.world.phys.Vec3;
 import org.joml.Matrix4f;
+//? if <26.1 {
+/*import org.joml.Quaternionf;
+*///?}
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 /**
  * Drives the effect clock and applies the post-processing chain right before the game GUI is
@@ -43,7 +47,13 @@ public abstract class GameRendererMixin {
 		Camera camera = minecraft.gameRenderer.getMainCamera();
 		if (camera.isInitialized()) {
 			Vec3 camPos = camera.position();
+			//? if <26.1 {
+/*			float fov = minecraft.options.fov().get().floatValue();
+			Matrix4f viewRotProj = minecraft.gameRenderer.getProjectionMatrix(fov);
+			viewRotProj.mul(new Matrix4f().rotation(new Quaternionf(camera.rotation()).conjugate()));
+*///?} else {
 			Matrix4f viewRotProj = camera.getViewRotationProjectionMatrix(new Matrix4f());
+//?}
 			VFXWorldBindings.update((float) camPos.x, (float) camPos.y, (float) camPos.z, camera.yRot(), camera.xRot(), viewRotProj, deltaTicks);
 		}
 		if (minecraft.player != null) {
@@ -59,7 +69,11 @@ public abstract class GameRendererMixin {
 				player.getFoodData().getFoodLevel() / 20.0F,
 				speed,
 				Math.max(blockLight, skyLight) / 15.0F,
+				//? if <26.1 {
+/*				(playerLevel.getDayTime() % 24000L) / 24000.0F,
+*///?} else {
 				(playerLevel.getOverworldClockTime() % 24000L) / 24000.0F,
+//?}
 				(float) player.getX(),
 				(float) player.getY(),
 				(float) player.getZ()
@@ -100,4 +114,18 @@ public abstract class GameRendererMixin {
 		}
 		VFXPostProcessingManager.get().process(VFXEffectManager.get(), minecraft.getMainRenderTarget(), 2);
 	}
+
+	/**
+	 * Applies the {@code fov_modifier} effect. 26.1 exposes the delta through {@code Camera.calculateFov};
+	 * 1.21.11 computes the render FOV in {@code GameRenderer.getFov}, so the delta is added there instead.
+	 */
+	//? if <26.1 {
+/*	@Inject(method = "getFov(Lnet/minecraft/client/Camera;FZ)F", at = @At("RETURN"), cancellable = true)
+	private void vfxweaver$modifyFov(final Camera camera, final float partialTick, final boolean useFovSetting, final CallbackInfoReturnable<Float> cir) {
+		float delta = VFXEffectManager.get().getActiveFovDelta();
+		if (delta != 0.0F) {
+			cir.setReturnValue(cir.getReturnValue() + delta);
+		}
+	}
+*///?}
 }

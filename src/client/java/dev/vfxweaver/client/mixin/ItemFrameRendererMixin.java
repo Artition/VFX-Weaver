@@ -8,7 +8,11 @@ import java.util.UUID;
 import net.minecraft.client.renderer.SubmitNodeCollector;
 import net.minecraft.client.renderer.entity.ItemFrameRenderer;
 import net.minecraft.client.renderer.entity.state.ItemFrameRenderState;
+//? if <26.1 {
+/*import net.minecraft.client.renderer.state.CameraRenderState;
+*///?} else {
 import net.minecraft.client.renderer.state.level.CameraRenderState;
+//?}
 import net.minecraft.world.entity.decoration.ItemFrame;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
@@ -32,8 +36,13 @@ public abstract class ItemFrameRendererMixin {
 	@Inject(
 		method = "submit",
 		at = @At(
+			//? if <26.1 {
+/*			value = "INVOKE",
+			target = "Lnet/minecraft/client/renderer/SubmitNodeCollector;submitBlockModel(Lcom/mojang/blaze3d/vertex/PoseStack;Lnet/minecraft/client/renderer/rendertype/RenderType;Lnet/minecraft/client/renderer/block/model/BlockStateModel;FFFIII)V",
+*///?} else {
 			value = "INVOKE",
 			target = "Lnet/minecraft/client/renderer/block/BlockModelRenderState;submitWithZOffset(Lcom/mojang/blaze3d/vertex/PoseStack;Lnet/minecraft/client/renderer/SubmitNodeCollector;III)V",
+//?}
 			shift = At.Shift.BEFORE
 		),
 		require = 0
