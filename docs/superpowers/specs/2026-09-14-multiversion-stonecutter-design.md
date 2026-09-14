@@ -41,7 +41,9 @@ Stonecutter features that make this work (verified against its docs):
 | `26.1.2` | `26.1.2` | `0.19.5` | `0.155.3+26.1.2` | 25 | baseline; `Identifier` |
 | `1.21.11` | `1.21.11` | `0.19.5` | `0.141.6+1.21.11` | 21 | `ResourceLocation` |
 
-Loom: a single Loom version compatible with both targets is used if possible; otherwise a per-node `deps.loom` (risk §11). Verify in phase 0 before writing any port code.
+Loom is a **single value for the whole build** (`deps.loom` in the root `gradle.properties`), not per node: Stonecutter subprojects share one Gradle plugin classpath, so two Loom versions cannot coexist in one build. Use the newest Loom (`1.17-SNAPSHOT`) — Loom is backward-compatible with older Minecraft and must support `1.21.11`. Phase 0 proves this with a trivial build of both nodes before any port code is written; if `1.17-SNAPSHOT` cannot target `1.21.11`, the fallback is to split the build (separate Gradle builds per version) — a structural change, so it is verified first.
+
+Java *is* per node (`deps.java` → `options.release` / `sourceCompatibility`): `25` for 26.1.2, `21` for 1.21.11.
 
 ## 4. Repository layout
 
@@ -80,7 +82,15 @@ Version coupling is classified into three tiers. The rule of thumb: **A** never 
 | `client/VFXClient(API)` | `Identifier` rename; scoreboard API |
 | `api/*`, `resource/VFXDefinitionManager` | `Identifier` rename |
 
-These are handled by **global string replacements** (Identifier↔ResourceLocation) and a **small set of swaps** in `build.gradle`; no file duplication.
+The per-node `build.gradle` invariant means replacements and swaps are **already per node** (the controller runs once per node). Two safety rules:
+
+- A replacement can be given an **identifier** and disabled inside a specific file (`replacements.string(cond, 'ident') { … }` + `//~ !ident`), so a file that must not be touched opts out explicitly.
+- One-off critical signatures use **swaps** instead of text replacements, to avoid accidental matches. Concrete swaps for 1.21.11:
+  - `VFXCommand` / `VFXPayloads`: `source.permissions().hasPermission(new Permission.HasCommandLevel(PermissionLevel.GAMEMASTERS))` → `source.hasPermission(2)`.
+  - `VFXCommand`: `CommandSourceStack.sendSuccess(...)` argument shape → the 1.21.11 overload.
+  - Any `import net.minecraft.server.permissions.*` → removed for 1.21.11.
+
+These are handled by **global string replacements** (Identifier↔ResourceLocation) and a **small set of swaps** in `build.gradle`; no file duplication. Phase 1 begins by auditing `git diff` of the generated 1.21.11 sources for stray matches.
 
 ### Tier C — divergent render stack (full `versions/<v>/src/…` override)
 
@@ -102,7 +112,7 @@ A genuinely new *render primitive* (e.g. a new geometry pass) is the only case t
 
 ## 7. Expected 1.21.11 divergences (verify at implementation)
 
-The 1.21.11 render stack is the post-26.1-pipeline stack and is expected to be close to 26.1.2. Verify each against the mapped jar / compiler before assuming:
+1.21.11 is **post-render-rewrite** — the `RenderPipeline` system landed in 1.21.5 and 1.21.11 already has pipeline-backed `RenderType`/`RenderSetup`, `LevelRenderEvents`, submit nodes and render states. It is therefore close to 26.1.2; the *legacy* `RenderType`+immediate-GL stack belongs to 1.21.1 (deferred, §12) and must not drive this design. Verify each item against the mapped jar / compiler before assuming:
 
 - `Identifier` → `ResourceLocation` (confirmed direction).
 - new permission API (`net.minecraft.server.permissions.*`) → old `hasPermission(int)`.
@@ -134,14 +144,14 @@ Anything that cannot be expressed as a replacement/swap gets a **versioned overr
 
 - Local: `./gradlew build` builds all nodes; the active node for IDE/runClient is switched with Stonecutter's `Set active project to …` task (IntelliJ plugin available).
 - `runClient` is available per node for smoke testing (`/vfx play …`).
-- `.github/workflows/build.yml`: matrix over the supported nodes; publish jars named `vfxweaver-<version>+<mc>.jar`.
+- `.github/workflows/build.yml`: matrix over `{node, java}` (`26.1.2` → JDK 25, `1.21.11` → JDK 21); publish jars named `vfxweaver-<version>+<mc>.jar`.
 - `scripts/publish-maven.ps1` stays, extended to publish per-version artifacts.
 
 ## 11. Risks / mitigations
 
 | Risk | Mitigation |
 |---|---|
-| A single Loom version may not support both 1.21.11 and 26.1.2 | Verify in phase 0 with a trivial build; if needed use a per-node `deps.loom`. Blocks phase 0, not later phases. |
+| Loom 1.17-SNAPSHOT may not target 1.21.11 | One Loom per Gradle build (shared plugin classpath). Phase 0 proves it with a trivial two-node build before any port work; fallback = split into separate Gradle builds (structural, hence verified first). |
 | Global `Identifier`→`ResourceLocation` replacement hitting unintended text (comments/strings) | Replacement is word-scoped by Stonecutter string semantics; audit `git diff` of a 1.21.11 build before trusting. Use replacement identifiers to disable it in files that must not change. |
 | 1.21.11 render API differs more than expected | Compiler reveals it; each diff becomes either a swap or a Tier-C override. Budgeted; no architectural impact. |
 | 1.21.11 submit-node / render-state renames ripple into mixins | Add `//? if` guards or versioned mixin overrides; area is small (8 mixins). |
@@ -155,8 +165,8 @@ Anything that cannot be expressed as a replacement/swap gets a **versioned overr
 
 ## 13. Phases
 
-0. **Bootstrap** — add Stonecutter (`settings.gradle`, controller `build.gradle`, per-node `gradle.properties`); keep `26.1.2` building and running identically. Verify: `./gradlew build` green for 26.1.2, jar unchanged in behavior.
-1. **Version list + 1.21.11 node compiles (main side)** — add replacements/swaps; get `src/main` (API, network, command, resource) compiling for 1.21.11. Verify: `:1.21.11:compileJava`.
+0. **Bootstrap + toolchain proof** — add Stonecutter (`settings.gradle`, controller `build.gradle`, per-node `gradle.properties`) with an empty 1.21.11 node; prove Loom `1.17-SNAPSHOT` can configure/resolve **both** nodes (JDK 25 for 26.1.2, JDK 21 for 1.21.11). Keep `26.1.2` building and running identically. Verify: `./gradlew build` green for 26.1.2; the 1.21.11 node resolves its dependencies (e.g. `./gradlew :1.21.11:dependencies`). If Loom cannot span both — stop and escalate (structural fallback, §11).
+1. **Main side 1.21.11** — add replacements/swaps; get `src/main` (API, network, command, resource) compiling. Verify: `:1.21.11:compileJava`, then audit `git diff` of generated 1.21.11 sources for stray replacements.
 2. **1.21.11 client compiles** — resolve render/mixin divergences with guards/overrides. Verify: `:1.21.11:build`.
 3. **Runtime parity 1.21.11** — `runClient` smoke test: post effects, camera shake, block/entity overlays, commands, datapacks, network trigger. Verify: no log errors, effects render.
 4. **CI + docs** — build workflow matrix; update `docs/GUIDE.md` changelog, `README`, `AGENTS.md` (multi-version workflow section).
