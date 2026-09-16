@@ -1,9 +1,9 @@
 # TOM Post Effects (vfxweaver) — Usage Guide
 
-A client-side VFX library for Minecraft 26.1–26.1.2 (Fabric). Screen post-processing (ping-pong FBO), camera shake, world overlays (block tint/outline), entity effects (tint/outline by UUID), keyframe animation, world/camera/player bindings, datapacks, network triggers and a public Java API.
+A client-side VFX library for Minecraft 26.2 / 26.1.x / 1.21.11 (Fabric). Screen post-processing (ping-pong FBO), camera shake, world overlays (block tint/outline), entity effects (tint/outline by UUID), keyframe animation, world/camera/player bindings, datapacks, network triggers and a public Java API.
 
-- Guide version: 24 (v1.1.0 effects batch, see [docs/CHANGELOG.md](CHANGELOG.md) for history)
-- Mod: `vfxweaver-1.1.0.jar`, requires Fabric API
+- Guide version: 29 (see [docs/CHANGELOG.md](CHANGELOG.md) for history)
+- Mod: `vfxweaver-1.1.2.jar` (one jar per Minecraft line), requires Fabric API
 
 Files: `data/<namespace>/vfx/<name>.json` and `data/<namespace>/vfx_curves/<name>.json`. After edits — `/reload`. The effect id = `<namespace>:<name>`. On a dedicated server, definitions and curves are automatically synced to clients on player join and after `/reload`, so custom (datapack) effects work for all players, not just on the server.
 
@@ -66,6 +66,7 @@ How to read this section:
 
 - Every parameter is a float. Most "intensity-like" parameters are `0..1`, where `0` = off.
 - **Built-in animation:** many built-in effects animate their main parameter from the listed value **down to 0** over the effect duration (so the effect fades out on its own). When you override such a parameter (command param-map / `value` / API), it becomes a **constant** - no auto-fade - unless you animate it yourself (keyframes / `start`+`end` / `expr`).
+- **Chaining animation segments ("from here"):** a live keyframe with a **negative time** starts its segment at the current moment, pinning whatever value the parameter has right now - so you can build variations without knowing the value. Ramp a blur up and let it hold (`/vfx play vfxweaver:blur {radius:4.0}` on a persistent definition, or a long duration), then call `VFXAPI.sendKeyframe(player, effect, "radius", -20, 0.0F, easing)` to fade it out from where it stands over 20 ticks. Because it stays one running instance and one continuous curve, nothing is applied twice. Use a **persistent** effect (or a duration long enough to cover the segment) - a finished effect is removed before the new segment can play.
 - Every effect also accepts `screen_layer` (screen effects only): `0` = under the first-person hand and GUI, `1` = above the hand, below the GUI (default), `2` = above everything including the GUI.
 - Examples are copy-pasteable commands. For datapack files, put the params into `"params": { ... }` (see [3. Datapack format](#3-datapack-format)).
 
@@ -1117,6 +1118,9 @@ Post-processing pipeline, world overlays, effect clock, load limits and fault to
 Versioned feature history — **[docs/CHANGELOG.md](CHANGELOG.md)**.
 
 Guide version: 27 — see changelog below.
+
+### v29
+- Live keyframes accept a **negative time** ("from here"): the value the parameter has right now is pinned at the current time and the segment runs to the new value over `|time|` ticks, so animation variations chain without the caller knowing the current value - `sendKeyframe(player, effect, "radius", -20, 0.0F, easing)` fades a held blur back out from wherever it stands.
 
 ### v28
 - Math expressions gained more functions: `floor`, `ceil`, `round`, `fract`, `sign`, `clamp(x, lo, hi)`, `lerp`/`mix(a, b, t)`, `step(edge, x)`, `smoothstep(e0, e1, x)`, `mod(a, b)`, `tan`, `atan(y)` / `atan(y, x)` (= atan2), `exp`, `log` (natural). Argument counts are now validated when the expression is compiled (a wrong count used to fail while evaluating).

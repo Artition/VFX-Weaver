@@ -42,7 +42,7 @@ Run a test client/server directly from the project:
 
 ## Usage
 
-The full guide on commands (`/vfx play`, `/vfx playat`, `/vfx playentity`, `/vfx stop`, `/vfx set`, `/vfx key`, `/vfx list`), built-in effect types and the datapack format (`data/<namespace>/vfx/<effect>.json`) is in **[docs/GUIDE.md](docs/GUIDE.md)**.
+The full guide on commands (`/vfx play`, `/vfx playat`, `/vfx playentity`, `/vfx stop`, `/vfx set`, `/vfx list`), built-in effect types and the datapack format (`data/<namespace>/vfx/<effect>.json`) is in **[docs/GUIDE.md](docs/GUIDE.md)**.
 
 Minimal Java API example:
 

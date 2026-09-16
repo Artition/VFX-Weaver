@@ -2,6 +2,10 @@
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). The versions below are guide/feature-set versions of the mod (as they progressed historically, see `docs/GUIDE.md`), plus git release tags where applicable (`v1.0.x`, `gradle.properties` → `mod_version`). Add new entries at the top, in the same PR as the behavior change.
 
+## Unreleased / Guide v29
+### Added
+- **Chained animation segments ("from here")** - a live keyframe with a **negative time** pins the value the parameter has right now at the current time and runs the segment to the new value over `|time|` ticks, so animation variations chain without the caller knowing the current value: ramp a blur up and let it hold, then `sendKeyframe(player, effect, "radius", -20, 0.0F, easing)` fades it back out from where it stands. The effect stays a single running instance with one continuous curve (nothing is applied twice), and the wire format is unchanged - only the meaning of a negative `time` is new.
+
 ## v1.1.2 / Guide v28
 ### Added
 - **Client-local anchored playback** - `VFXAPI.playEffect`/`playEffectId` now accept an optional world position (`Vec3`) and an optional entity-UUID list when playing locally (no packet), so screen-space effects (`dent`, `shockwave`, `vortex`, ...) land where the event happened instead of at the definition's default spot; the position re-anchors the definition's spatial world bindings (`screen_x`, `screen_y`, `proximity`, ...), exactly like `/vfx playat`. `VFXAPI.moveEffect(effectId, instanceId, worldPos)` re-anchors a running instance locally - call it every tick to follow a moving point or entity. Positions win over the definition's entity anchors; with a null position the supplied UUIDs are zipped with the definition's entity anchors in declaration order (datapack `entity_selector`s stay server-side, so a client-side caller resolves the entities itself). Anchored local plays are recorded into Flashback replays with their anchor.

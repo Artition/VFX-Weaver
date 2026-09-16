@@ -243,11 +243,18 @@ public class VFXTimeline {
 
 	/**
 	 * Adds or replaces a keyframe of the parameter on a live copy of its animation (used by
-	 * {@code /vfx key}). When the parameter has no animation yet, a step animation starting
-	 * at the keyframe is created.
+	 * {@code /vfx set} + the network {@code KEYFRAME} action). When the parameter has no animation
+	 * yet, a step animation starting at the keyframe is created.
+	 *
+	 * <p><b>Negative {@code time} means "from here":</b> the value the parameter has right now is
+	 * pinned at the current elapsed time, and the animation then runs to {@code value} over
+	 * {@code |time|} ticks. This makes consecutive animation segments chain seamlessly without the
+	 * caller knowing the current value, e.g. ramp {@code radius} 0 -&gt; 4 and later send
+	 * {@code time = -20, value = 0} to fade that blur out from wherever it stands.</p>
 	 *
 	 * @param name    parameter name
-	 * @param time    keyframe time in ticks from the effect start
+	 * @param time    keyframe time in ticks from the effect start, or a negative tick count to
+	 *                start the segment at the current time (see above)
 	 * @param value   keyframe value
 	 * @param easing  easing curve towards the next keyframe
 	 */
@@ -256,9 +263,17 @@ public class VFXTimeline {
 		if (base == null) {
 			base = this.values.get(name);
 		}
+		final boolean fromNow = time < 0.0F;
+		// A negative time counts from the current moment; the constructor sorts the frames anyway.
+		final float at = fromNow ? this.elapsed - time : time;
 		List<Keyframe> frames = base != null ? new ArrayList<>(base.getKeyframes()) : new ArrayList<>();
-		frames.removeIf(frame -> Float.compare(frame.time(), time) == 0);
-		frames.add(new Keyframe(time, value, easing));
+		if (fromNow) {
+			// Pin what is on screen right now so the new segment starts where the previous one stands.
+			frames.removeIf(frame -> Float.compare(frame.time(), this.elapsed) == 0);
+			frames.add(new Keyframe(this.elapsed, this.getValue(name, value), easing));
+		}
+		frames.removeIf(frame -> Float.compare(frame.time(), at) == 0);
+		frames.add(new Keyframe(at, value, easing));
 		if (frames.size() < 2) {
 			// Single keyframe: hold the value before it (step function).
 			frames.add(new Keyframe(Float.MAX_VALUE, value));

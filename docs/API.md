@@ -54,6 +54,9 @@ void sendSetParamExpr(ServerPlayer player, Identifier effectId, String param, St
 void sendMove(ServerPlayer player, Identifier effectId, long instanceId, Vec3 worldPos);
 
 // Adds/replaces a keyframe of a parameter of a running effect.
+// A negative timeTicks means "from here": the value the parameter has right now is pinned at the
+// current time and the animation runs to `value` over |timeTicks| ticks - so animation segments
+// chain without knowing the current value (ramp a blur up, later send -20/0 to fade it back out).
 void sendKeyframe(ServerPlayer player, Identifier effectId, String param, int timeTicks, float value, EasingType easing);
 ```
 
@@ -145,7 +148,7 @@ Updated on every `/reload` (see `VFXDefinitionManager.prepare`/`apply`); one bro
 |---|---|---|
 | `protocolVersion` | byte | Current value — `VFXTriggerPayload.PROTOCOL_VERSION` (6). The client **silently ignores** the packet on a version mismatch (see `VFXClient.handleTrigger`). |
 | `effectId` | `Identifier` | Effect id (built-in or datapack) |
-| `action` | `VFXAction` (`PLAY`/`STOP`/`SET_PARAM`/`KEYFRAME`/`SET_EXPR`/`MOVE`) | `SET_PARAM`/`KEYFRAME` apply to **running** effect instances: `params` carries exactly one `name → value` entry, for `KEYFRAME` the frame time is in `durationTicks`, the segment easing in `easing`; `SET_EXPR` uses `exprParam`+`exprSource`; `MOVE` uses `position` + `instanceId` |
+| `action` | `VFXAction` (`PLAY`/`STOP`/`SET_PARAM`/`KEYFRAME`/`SET_EXPR`/`MOVE`) | `SET_PARAM`/`KEYFRAME` apply to **running** effect instances: `params` carries exactly one `name → value` entry, for `KEYFRAME` the frame time is in `durationTicks` (negative = start the segment at the current time and run over `|time|` ticks), the segment easing in `easing`; `SET_EXPR` uses `exprParam`+`exprSource`; `MOVE` uses `position` + `instanceId` |
 | `durationTicks` | varint | 0 = definition default, negative = persistent (only for `PLAY`) |
 | `elapsedTicks` | varint | Resume offset: how far into the timeline the effect already is (only for `PLAY`, 0 = start fresh). Used when the server re-applies effects after a reconnect. |
 | `params` | `Map<String, Float>` | Constant overrides, numbers only |

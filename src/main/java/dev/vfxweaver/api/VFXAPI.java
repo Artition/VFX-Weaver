@@ -380,10 +380,15 @@ public final class VFXAPI {
 	 * Adds or replaces a keyframe of a parameter on a running effect on the player's client.
 	 * Ignored (with a client-side log warning) when the effect is not currently running.
 	 *
+	 * <p>A <b>negative {@code time}</b> means "from here": the value the parameter has right now is
+	 * pinned at the current time and the animation runs to {@code value} over {@code |time|} ticks,
+	 * so segments chain without the caller knowing the current value (ramp a blur up, later send
+	 * {@code time = -20, value = 0} to fade it out from wherever it stands).</p>
+	 *
 	 * @param player  the receiving player
 	 * @param effectId effect id
 	 * @param param   parameter name
-	 * @param time    keyframe time in ticks from the effect start
+	 * @param time    keyframe time in ticks from the effect start, or negative for "from now"
 	 * @param value   keyframe value
 	 * @param easing  easing curve towards the next keyframe
 	 */
@@ -399,7 +404,7 @@ public final class VFXAPI {
 	 * @param player  the receiving player
 	 * @param effectId effect id
 	 * @param param   parameter name
-	 * @param time    keyframe time in ticks from the effect start
+	 * @param time    keyframe time in ticks from the effect start, or negative for "from now"
 	 * @param value   keyframe value
 	 * @param easing  easing curve name (built-in or custom datapack curve)
 	 */
