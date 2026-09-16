@@ -8,6 +8,7 @@ import dev.vfxweaver.effect.EasingType;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.function.BooleanSupplier;
 import net.minecraft.client.Minecraft;
 import net.minecraft.resources.Identifier;
 import net.minecraft.world.phys.Vec3;
@@ -62,11 +63,44 @@ public class VFXClientAPI implements VFXLocalDispatcher {
 
 	@Override
 	public boolean moveEffect(final Identifier effectId, final long instanceId, final Vec3 worldPos) {
+		return applyLive(() -> VFXEffectManager.get().move(effectId, instanceId, worldPos));
+	}
+
+	@Override
+	public boolean setParam(final Identifier effectId, final String name, final float value) {
+		return applyLive(() -> VFXEffectManager.get().setParam(effectId, name, value));
+	}
+
+	@Override
+	public boolean setParamExpr(final Identifier effectId, final String name, final String exprSource) {
+		return applyLive(() -> VFXEffectManager.get().setExpression(effectId, name, exprSource));
+	}
+
+	@Override
+	public boolean setKeyframe(final Identifier effectId, final String name, final int time, final float value, final @Nullable EasingType easing) {
+		// A null easing means linear for a keyframe (there is no "definition default" per segment).
+		EasingFunction easingFunction = easing == null ? EasingFunction.builtIn(EasingType.LINEAR) : EasingFunction.builtIn(easing);
+		return applyLive(() -> VFXEffectManager.get().setKeyframe(effectId, name, time, value, easingFunction));
+	}
+
+	@Override
+	public boolean setKeyframe(final Identifier effectId, final String name, final int time, final float value, final String easing) {
+		// Named curves resolve through the same path the network action uses (blank = linear).
+		EasingFunction easingFunction = EasingFunction.fromString(easing);
+		return applyLive(() -> VFXEffectManager.get().setKeyframe(effectId, name, time, value, easingFunction));
+	}
+
+	/**
+	 * Runs a live edit on the render thread. Called from the render thread it returns the effect
+	 * manager's result; otherwise the edit is queued and {@code true} means "accepted" (a queued
+	 * edit that turns out to reference an unknown effect fails silently on the render thread).
+	 */
+	private static boolean applyLive(final BooleanSupplier edit) {
 		Minecraft minecraft = Minecraft.getInstance();
 		if (minecraft.isSameThread()) {
-			return VFXEffectManager.get().move(effectId, instanceId, worldPos);
+			return edit.getAsBoolean();
 		}
-		minecraft.execute(() -> VFXEffectManager.get().move(effectId, instanceId, worldPos));
+		minecraft.execute(edit::getAsBoolean);
 		return true;
 	}
 

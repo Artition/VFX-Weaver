@@ -114,6 +114,27 @@ Notes:
 - Client-local plays with a position are recorded into Flashback replays with the same anchor, so
   a replay reproduces the effect where it originally happened.
 
+#### Live control (client-local)
+
+The live edits the network exposes also work locally, so a pure client-side mod never needs a
+server round-trip:
+
+```java
+// Constant override of a parameter on every running instance (starts one when none is running).
+boolean setParam(Identifier effectId, String name, float value);
+
+// Swap a parameter for a live math expression (same syntax as the JSON "expr" field).
+boolean setParamExpr(Identifier effectId, String name, String exprSource);
+
+// Add/replace a keyframe. A negative time means "from here": pin the value the parameter has now
+// and run the segment to `value` over |time| ticks, so animation variations chain seamlessly.
+boolean setKeyframe(Identifier effectId, String name, int time, float value, @Nullable EasingType easing);
+boolean setKeyframe(Identifier effectId, String name, int time, float value, String easing); // named curve
+```
+
+Like `moveEffect`, these return `true` when applied on the render thread or queued for it. A `null`
+(or blank) easing means linear - a keyframe segment has no "definition default".
+
 ### `VFXAPI.EffectRequest` (fluent builder)
 
 ```java

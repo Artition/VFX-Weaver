@@ -74,6 +74,54 @@ public interface VFXLocalDispatcher {
 	boolean moveEffect(Identifier effectId, long instanceId, Vec3 worldPos);
 
 	/**
+	 * Live-overrides a parameter of every running instance of the effect locally, without
+	 * restarting its timeline. When no instance is running, a persistent instance is started with
+	 * the override baked in (same behaviour as {@code VFXAPI.sendSetParam}).
+	 *
+	 * @param effectId effect id
+	 * @param name     parameter name
+	 * @param value    the new constant value
+	 * @return {@code true} when the request was applied or queued (see {@link #moveEffect})
+	 */
+	boolean setParam(Identifier effectId, String name, float value);
+
+	/**
+	 * Live-replaces a parameter of every running instance of the effect with a math expression
+	 * (same syntax as the JSON {@code expr} field; see {@code MathExpression} for the available
+	 * variables and functions).
+	 *
+	 * @param effectId   effect id
+	 * @param name       parameter name
+	 * @param exprSource expression source; {@code null} or an invalid source falls back to 0
+	 * @return {@code true} when at least one running instance was found (or the request was queued)
+	 */
+	boolean setParamExpr(Identifier effectId, String name, String exprSource);
+
+	/**
+	 * Adds or replaces a keyframe of a parameter on every running instance of the effect. A
+	 * <b>negative {@code time}</b> means "from here": the value the parameter has right now is
+	 * pinned at the current time and the animation runs to {@code value} over {@code |time|} ticks
+	 * (see {@code VFXTimeline#setKeyframe}).
+	 *
+	 * @param effectId effect id
+	 * @param name     parameter name
+	 * @param time     keyframe time in ticks from the effect start, or negative for "from now"
+	 * @param value    keyframe value
+	 * @param easing   easing curve towards the next keyframe ({@code null} = linear)
+	 * @return {@code true} when at least one running instance was found (or the request was queued)
+	 */
+	boolean setKeyframe(Identifier effectId, String name, int time, float value, @Nullable EasingType easing);
+
+	/**
+	 * Adds or replaces a keyframe of a parameter, with a named easing curve (built-in name such as
+	 * {@code ease_out_cubic}, or a datapack curve id).
+	 *
+	 * @param easing easing curve name
+	 * @return {@code true} when at least one running instance was found (or the request was queued)
+	 */
+	boolean setKeyframe(Identifier effectId, String name, int time, float value, String easing);
+
+	/**
 	 * Stops all running instances of the given effect.
 	 */
 	void stopEffect(Identifier effectId);

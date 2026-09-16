@@ -176,6 +176,56 @@ public final class VFXAPI {
 	}
 
 	/**
+	 * Live-overrides a parameter of every running instance of the effect on this client, without
+	 * restarting its timeline - the local (no packet) counterpart of
+	 * {@link #sendSetParam(ServerPlayer, Identifier, String, float)}. When no instance is running,
+	 * a persistent instance is started with the override baked in, so it also works standalone.
+	 *
+	 * @param effectId effect id
+	 * @param name     parameter name
+	 * @param value    the new constant value
+	 * @return {@code true} when the request was applied or queued (see {@link #moveEffect})
+	 */
+	public static boolean setParam(final Identifier effectId, final String name, final float value) {
+		return localDispatcher != null && localDispatcher.setParam(effectId, name, value);
+	}
+
+	/**
+	 * Live-replaces a parameter of every running instance with a math expression on this client -
+	 * the local counterpart of {@link #sendSetParamExpr(ServerPlayer, Identifier, String, String)}.
+	 * Same syntax as the JSON {@code expr} field (see {@code docs/GUIDE.md}); {@code null} or an
+	 * invalid source falls back to 0.
+	 *
+	 * @return {@code true} when the request was applied or queued
+	 */
+	public static boolean setParamExpr(final Identifier effectId, final String name, final String exprSource) {
+		return localDispatcher != null && localDispatcher.setParamExpr(effectId, name, exprSource);
+	}
+
+	/**
+	 * Adds or replaces a keyframe of a parameter on every running instance on this client - the
+	 * local counterpart of {@link #sendKeyframe(ServerPlayer, Identifier, String, int, float, EasingType)}.
+	 *
+	 * <p>A <b>negative {@code time}</b> means "from here": the value the parameter has right now is
+	 * pinned and the segment runs to {@code value} over {@code |time|} ticks, so animation
+	 * variations chain without knowing the current value.</p>
+	 *
+	 * @param easing easing towards the next keyframe; {@code null} means linear
+	 * @return {@code true} when the request was applied or queued
+	 */
+	public static boolean setKeyframe(final Identifier effectId, final String name, final int time, final float value, final @Nullable EasingType easing) {
+		return localDispatcher != null && localDispatcher.setKeyframe(effectId, name, time, value, easing);
+	}
+
+	/**
+	 * Same as {@link #setKeyframe(Identifier, String, int, float, EasingType)} but with a named
+	 * easing curve (a built-in name such as {@code ease_out_cubic}, or a datapack curve id).
+	 */
+	public static boolean setKeyframe(final Identifier effectId, final String name, final int time, final float value, final String easing) {
+		return localDispatcher != null && localDispatcher.setKeyframe(effectId, name, time, value, easing);
+	}
+
+	/**
 	 * Stops all running instances of an effect locally (client-side only).
 	 */
 	public static boolean stopEffect(final Identifier effectId) {

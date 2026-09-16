@@ -137,8 +137,11 @@ gone — no Stonecutter replacement is needed anymore).
 ## Public API and datapack surface (do not break)
 
 - `VFXAPI` (`docs/API.md`): server network triggers (`sendEffect`/`sendStop`/`sendSetParam`/…),
-  client-local playback (`playEffect`/`playEffectId`/`moveEffect`/`stopEffect`), the fluent
-  `EffectRequest`, and the `VFXLocalDispatcher` bridge the client registers.
+  client-local playback and live control (`playEffect`/`playEffectId`/`moveEffect`/`setParam`/
+  `setParamExpr`/`setKeyframe`/`stopEffect` — everything the network does also works locally, so a
+  pure client-side mod never needs a server), the fluent `EffectRequest`, and the
+  `VFXLocalDispatcher` bridge the client registers (every new network action needs its counterpart
+  there).
 - The network protocol `vfxweaver:vfx_trigger` / `vfx_request` / `vfx_sync`:
   `VFXTriggerPayload.PROTOCOL_VERSION` must be bumped on any wire-breaking change.
 - The datapack effect format `data/<namespace>/vfx/<effect>.json`: parameter specs (constant,

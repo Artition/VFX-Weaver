@@ -439,9 +439,10 @@ public class VFXEffectManager {
 
 	/**
 	 * Live-overrides a parameter with a built-in easing type (wraps it into an easing function).
+	 * A null type means linear.
 	 */
 	public boolean setKeyframe(final Identifier effectId, final String name, final float time, final float value, final EasingType easing) {
-		return setKeyframe(effectId, name, time, value, EasingFunction.builtIn(easing));
+		return setKeyframe(effectId, name, time, value, easing == null ? EasingFunction.builtIn(EasingType.LINEAR) : EasingFunction.builtIn(easing));
 	}
 
 	/**
