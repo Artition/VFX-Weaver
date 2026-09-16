@@ -1118,6 +1118,10 @@ Versioned feature history — **[docs/CHANGELOG.md](CHANGELOG.md)**.
 
 Guide version: 27 — see changelog below.
 
+### v28
+- Math expressions gained more functions: `floor`, `ceil`, `round`, `fract`, `sign`, `clamp(x, lo, hi)`, `lerp`/`mix(a, b, t)`, `step(edge, x)`, `smoothstep(e0, e1, x)`, `mod(a, b)`, `tan`, `atan(y)` / `atan(y, x)` (= atan2), `exp`, `log` (natural). Argument counts are now validated when the expression is compiled (a wrong count used to fail while evaluating).
+- The client-local Java API can anchor effects: `VFXAPI.playEffect`/`playEffectId` take an optional world position and entity-UUID list, and `VFXAPI.moveEffect(effectId, instanceId, pos)` re-anchors a running instance - no packet involved. The position re-anchors spatial bindings (`screen_x`, `screen_y`, `proximity`, ...) like `/vfx playat`, so point effects (`dent`, `shockwave`, `vortex`) can be placed at an event and follow it.
+
 ### v27
 - Build restructured for multiple Minecraft versions (Stonecutter). Adds a `1.21.11`
   build alongside `26.1.2`; effect behavior, datapack format and network protocol are unchanged.
