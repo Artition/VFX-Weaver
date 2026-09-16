@@ -13,9 +13,15 @@ import java.util.List;
  * <p>Available variables: {@code t} (ticks since effect start), {@code x}/{@code y}/{@code z}
  * (world/camera coordinates), {@code pi}, {@code e}.
  *
- * <p>Available functions: {@code sin}, {@code cos}, {@code abs}, {@code min}, {@code max},
- * {@code pow}, {@code sqrt}, {@code random()} (0..1, deterministic per instance seed),
+ * <p>Available functions:
+ * {@code sin}, {@code cos}, {@code tan}, {@code atan(y)}, {@code atan(y, x)} (= atan2),
+ * {@code abs}, {@code sign}, {@code floor}, {@code ceil}, {@code round}, {@code fract},
+ * {@code sqrt}, {@code pow}, {@code exp}, {@code log} (natural), {@code mod(a, b)} (positive),
+ * {@code min}, {@code max}, {@code clamp(x, lo, hi)}, {@code lerp}/{@code mix(a, b, t)},
+ * {@code step(edge, x)}, {@code smoothstep(e0, e1, x)},
+ * {@code random()} (0..1, deterministic per instance seed),
  * {@code noise(x,y,z)} (3D simplex noise in -1..1).
+ * Argument counts are validated when the expression is compiled.
  */
 public final class MathExpression {
 	/** A random-ish 0..1 value derived from a seed and a call counter (deterministic per instance). */
@@ -229,15 +235,54 @@ public final class MathExpression {
 		@Override
 		public float eval(final Ctx ctx) {
 			return switch (this.fn) {
-				case 0 -> (float) Math.sin(arg(ctx, 0));
-				case 1 -> (float) Math.cos(arg(ctx, 0));
-				case 2 -> Math.abs(arg(ctx, 0));
-				case 3 -> Math.min(arg(ctx, 0), arg(ctx, 1));
-				case 4 -> Math.max(arg(ctx, 0), arg(ctx, 1));
-				case 5 -> (float) Math.pow(arg(ctx, 0), arg(ctx, 1));
-				case 6 -> (float) Math.sqrt(arg(ctx, 0));
-				case 7 -> ctx.random();
-				case 8 -> (float) SimplexNoise.noise(arg(ctx, 0), arg(ctx, 1), arg(ctx, 2));
+				case FN_SIN -> (float) Math.sin(arg(ctx, 0));
+				case FN_COS -> (float) Math.cos(arg(ctx, 0));
+				case FN_TAN -> (float) Math.tan(arg(ctx, 0));
+				case FN_ATAN -> this.args.size() == 2
+					? (float) Math.atan2(arg(ctx, 0), arg(ctx, 1))
+					: (float) Math.atan(arg(ctx, 0));
+				case FN_ABS -> Math.abs(arg(ctx, 0));
+				case FN_SIGN -> Math.signum(arg(ctx, 0));
+				case FN_FLOOR -> (float) Math.floor(arg(ctx, 0));
+				case FN_CEIL -> (float) Math.ceil(arg(ctx, 0));
+				case FN_ROUND -> (float) Math.round(arg(ctx, 0));
+				case FN_FRACT -> {
+					float v = arg(ctx, 0);
+					yield v - (float) Math.floor(v);
+				}
+				case FN_SQRT -> (float) Math.sqrt(arg(ctx, 0));
+				case FN_POW -> (float) Math.pow(arg(ctx, 0), arg(ctx, 1));
+				case FN_EXP -> (float) Math.exp(arg(ctx, 0));
+				case FN_LOG -> (float) Math.log(arg(ctx, 0));
+				case FN_MOD -> {
+					float a = arg(ctx, 0);
+					float b = arg(ctx, 1);
+					// Positive modulo (like GLSL mod), unlike Java's sign-preserving %.
+					yield b == 0.0F ? 0.0F : ((a % b) + b) % b;
+				}
+				case FN_MIN -> Math.min(arg(ctx, 0), arg(ctx, 1));
+				case FN_MAX -> Math.max(arg(ctx, 0), arg(ctx, 1));
+				case FN_CLAMP -> {
+					float hi = arg(ctx, 2);
+					float lo = arg(ctx, 1);
+					yield Math.max(lo, Math.min(hi, arg(ctx, 0)));
+				}
+				case FN_LERP -> {
+					float a = arg(ctx, 0);
+					yield a + (arg(ctx, 1) - a) * arg(ctx, 2);
+				}
+				case FN_STEP -> arg(ctx, 1) < arg(ctx, 0) ? 0.0F : 1.0F;
+				case FN_SMOOTHSTEP -> {
+					float e0 = arg(ctx, 0);
+					float e1 = arg(ctx, 1);
+					float x = arg(ctx, 2);
+					float t = e1 == e0
+						? (x < e0 ? 0.0F : 1.0F)
+						: Math.max(0.0F, Math.min(1.0F, (x - e0) / (e1 - e0)));
+					yield t * t * (3.0F - 2.0F * t);
+				}
+				case FN_RANDOM -> ctx.random();
+				case FN_NOISE -> (float) SimplexNoise.noise(arg(ctx, 0), arg(ctx, 1), arg(ctx, 2));
 				default -> Float.NaN;
 			};
 		}
@@ -257,6 +302,34 @@ public final class MathExpression {
 	private static final int FN_SQRT = 6;
 	private static final int FN_RANDOM = 7;
 	private static final int FN_NOISE = 8;
+	private static final int FN_TAN = 9;
+	private static final int FN_ATAN = 10;
+	private static final int FN_SIGN = 12;
+	private static final int FN_FLOOR = 13;
+	private static final int FN_CEIL = 14;
+	private static final int FN_ROUND = 15;
+	private static final int FN_FRACT = 16;
+	private static final int FN_EXP = 17;
+	private static final int FN_LOG = 18;
+	private static final int FN_MOD = 19;
+	private static final int FN_CLAMP = 20;
+	private static final int FN_LERP = 21;
+	private static final int FN_STEP = 22;
+	private static final int FN_SMOOTHSTEP = 23;
+
+	/**
+	 * Number of arguments each function expects; validated while compiling the expression. A
+	 * negative value means a range: {@code -1} accepts one or two (see {@code atan}).
+	 */
+	private static int arity(final int fn) {
+		return switch (fn) {
+			case FN_RANDOM -> 0;
+			case FN_ATAN -> -1; // atan(y) / atan(y, x) = atan2
+			case FN_MIN, FN_MAX, FN_POW, FN_MOD, FN_STEP -> 2;
+			case FN_CLAMP, FN_LERP, FN_SMOOTHSTEP, FN_NOISE -> 3;
+			default -> 1;
+		};
+	}
 
 	// ---------------------------------------------------------------------------------------
 	// Recursive Descent Parser
@@ -386,11 +459,25 @@ public final class MathExpression {
 			int fn = switch (name) {
 				case "sin" -> FN_SIN;
 				case "cos" -> FN_COS;
+				case "tan" -> FN_TAN;
+				case "atan" -> FN_ATAN;
 				case "abs" -> FN_ABS;
+				case "sign" -> FN_SIGN;
+				case "floor" -> FN_FLOOR;
+				case "ceil" -> FN_CEIL;
+				case "round" -> FN_ROUND;
+				case "fract" -> FN_FRACT;
+				case "sqrt" -> FN_SQRT;
+				case "pow" -> FN_POW;
+				case "exp" -> FN_EXP;
+				case "log" -> FN_LOG;
+				case "mod" -> FN_MOD;
 				case "min" -> FN_MIN;
 				case "max" -> FN_MAX;
-				case "pow" -> FN_POW;
-				case "sqrt" -> FN_SQRT;
+				case "clamp" -> FN_CLAMP;
+				case "lerp", "mix" -> FN_LERP;
+				case "step" -> FN_STEP;
+				case "smoothstep" -> FN_SMOOTHSTEP;
 				case "random" -> FN_RANDOM;
 				case "noise" -> FN_NOISE;
 				default -> throw new IllegalArgumentException("Unknown function: " + name);
@@ -400,7 +487,7 @@ public final class MathExpression {
 			skipWs();
 			if (this.i < this.src.length() && this.src.charAt(this.i) == ')') {
 				this.i++;
-				return new FnNode(fn, args);
+				return new FnNode(fn, checkedArity(name, fn, args));
 			}
 			while (true) {
 				args.add(parseExpression());
@@ -419,7 +506,20 @@ public final class MathExpression {
 				}
 				throw new IllegalArgumentException("Expected ',' or ')' in argument list");
 			}
-			return new FnNode(fn, args);
+			return new FnNode(fn, checkedArity(name, fn, args));
+		}
+
+		/**
+		 * Rejects a wrong argument count while compiling, instead of failing per frame when the
+		 * argument node is read during evaluation.
+		 */
+		private static List<Node> checkedArity(final String name, final int fn, final List<Node> args) {
+			int expected = arity(fn);
+			boolean bad = expected < 0 ? args.size() < 1 || args.size() > 2 : args.size() != expected;
+			if (bad) {
+				throw new IllegalArgumentException("Function '" + name + "' expects " + (expected < 0 ? "1 or 2" : expected) + " argument(s), got " + args.size());
+			}
+			return args;
 		}
 
 		private void skipWs() {

@@ -854,9 +854,12 @@ Slot order is preserved, so `guide_line` endpoints can mix static and anchored e
 	// 6) Math expression (compiled to an AST when the instance is created,
 	//    evaluated every frame). Variables: t (ticks since start), x/y/z (camera coords),
 	//    pi, e. Player variables: health, hunger, speed (blocks/s), light_level,
-	//    time_of_day, player_x/y/z. Functions: sin, cos, abs, min, max, pow, sqrt,
-	//    random() (0..1), noise(x,y,z) (simplex 3D, -1..1). random()/noise() are unique
-	//    per instance.
+	//    time_of_day, player_x/y/z. Functions: sin, cos, tan, atan(y), atan(y, x) (= atan2),
+	//    abs, sign, floor, ceil, round, fract, sqrt, pow, exp, log (natural), mod(a, b),
+	//    min, max, clamp(x, lo, hi), lerp/mix(a, b, t), step(edge, x),
+	//    smoothstep(e0, e1, x), random() (0..1), noise(x,y,z) (simplex 3D, -1..1).
+	//    random()/noise() are unique per instance; argument counts are checked when the
+	//    expression is compiled.
 	"intensity": { "expr": "abs(sin(t * 0.1)) * 0.8 + random() * 0.2" }
 }
 ```
