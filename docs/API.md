@@ -75,6 +75,39 @@ boolean stopEffect(long instanceId);              // one specific instance
 boolean stopAllEffects();
 ```
 
+#### Anchored local playback
+
+A client-local play can be anchored to a world position and/or to entities, so an effect lands
+where the event happened instead of at the definition's default spot (e.g. `dent`, `shockwave`,
+`vortex` centred on a hit). This is the local equivalent of `/vfx playat` / a network
+`sendEffect(player, id, pos, ...)` — no packet is involved.
+
+```java
+// Anchor to a world point: replaces the definition's position slots and re-anchors the spatial
+// world bindings (screen_x, screen_y, proximity, ...) to that point.
+boolean playEffect(Identifier effectId, int durationTicks, Vec3 position, Map<String, Float> params, @Nullable EasingType easing);
+boolean playEffect(Identifier effectId, int durationTicks, Vec3 position, Map<String, Float> params); // linear easing
+long playEffectId(Identifier effectId, int durationTicks, Vec3 position, Map<String, Float> params, @Nullable EasingType easing);
+
+// Anchor to entities: when `position` is null and the definition declares entity-anchored
+// positions, the UUIDs are zipped with them in declaration order and the effect follows those
+// entities. Datapack `entity_selector`s resolve on the server only, so a client-side caller finds
+// the entities itself and passes their UUIDs here.
+boolean playEffect(Identifier effectId, int durationTicks, @Nullable Vec3 position, List<UUID> entityUuids, Map<String, Float> params, @Nullable EasingType easing);
+long playEffectId(Identifier effectId, int durationTicks, @Nullable Vec3 position, List<UUID> entityUuids, Map<String, Float> params, @Nullable EasingType easing);
+
+// Re-anchor a running instance locally (the local equivalent of the network MOVE action). Call it
+// every tick to make an anchored effect follow a moving point or entity.
+boolean moveEffect(Identifier effectId, long instanceId, Vec3 worldPos);
+```
+
+Notes:
+- A non-null `position` wins over the definition's entity anchors (same rule as the network path).
+- If a definition declares entity anchors and a local play passes no UUIDs, the play is rejected
+  (the placeholder slots would otherwise render at the world origin) — logged once.
+- Client-local plays with a position are recorded into Flashback replays with the same anchor, so
+  a replay reproduces the effect where it originally happened.
+
 ### `VFXAPI.EffectRequest` (fluent builder)
 
 ```java

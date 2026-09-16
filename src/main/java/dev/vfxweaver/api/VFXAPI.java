@@ -87,6 +87,94 @@ public final class VFXAPI {
 	}
 
 	/**
+	 * Plays an effect locally on this client, anchored to a world position.
+	 *
+	 * <p>The position replaces the definition's position slots and re-anchors its spatial world
+	 * bindings ({@code screen_x}, {@code screen_y}, {@code proximity}, ...) to that point, so a
+	 * screen-space effect such as {@code dent}, {@code shockwave} or {@code vortex} lands where the
+	 * event happened. This is the client-side equivalent of {@code /vfx playat} - no packet is
+	 * sent, so it works while playing on a server that does not have the mod.</p>
+	 *
+	 * @param effectId      effect id (built-in or datapack-defined)
+	 * @param durationTicks duration in ticks
+	 * @param position      world position to anchor the effect to
+	 * @param params        parameter overrides (empty for defaults)
+	 * @param easing        easing curve (may be null for the definition default)
+	 * @return {@code true} when the effect was started
+	 */
+	public static boolean playEffect(final Identifier effectId, final int durationTicks, final Vec3 position, final Map<String, Float> params, final @Nullable EasingType easing) {
+		return playEffectId(effectId, durationTicks, position, params, easing) != 0L;
+	}
+
+	/**
+	 * Plays an anchored effect locally with linear easing.
+	 */
+	public static boolean playEffect(final Identifier effectId, final int durationTicks, final Vec3 position, final Map<String, Float> params) {
+		return playEffect(effectId, durationTicks, position, params, EasingType.LINEAR);
+	}
+
+	/**
+	 * Plays an anchored effect locally and returns its instance id, so it can later be re-anchored
+	 * with {@link #moveEffect(Identifier, long, Vec3)} or stopped with {@link #stopEffect(long)}.
+	 *
+	 * @return the instance id, or {@code 0} on failure
+	 */
+	public static long playEffectId(final Identifier effectId, final int durationTicks, final Vec3 position, final Map<String, Float> params, final @Nullable EasingType easing) {
+		if (localDispatcher == null) {
+			VFXLog.warnOnce(LOGGER, "api:no-client", "playEffectId({}) called without a client; use sendEffect() instead", effectId);
+			return 0L;
+		}
+		return localDispatcher.playEffect(effectId, durationTicks, position, params, easing);
+	}
+
+	/**
+	 * Plays an effect locally, anchored to a world position and to entities.
+	 *
+	 * <p>When {@code position} is null and the definition declares entity-anchored positions, the
+	 * supplied UUIDs are zipped with them in declaration order, so the effect follows those
+	 * entities (the same mechanism the server uses after resolving an {@code entity_selector}).
+	 * The caller resolves the entities itself - datapack selectors are server-side only. A non-null
+	 * {@code position} wins over the definition's anchors.</p>
+	 *
+	 * @param effectId      effect id (built-in or datapack-defined)
+	 * @param durationTicks duration in ticks
+	 * @param position      world position to anchor the effect to (may be null)
+	 * @param entityUuids   UUIDs for the definition's entity anchors, in declaration order
+	 * @param params        parameter overrides (empty for defaults)
+	 * @param easing        easing curve (may be null for the definition default)
+	 * @return {@code true} when the effect was started
+	 */
+	public static boolean playEffect(final Identifier effectId, final int durationTicks, final @Nullable Vec3 position, final List<UUID> entityUuids, final Map<String, Float> params, final @Nullable EasingType easing) {
+		return playEffectId(effectId, durationTicks, position, entityUuids, params, easing) != 0L;
+	}
+
+	/**
+	 * Plays an entity-anchored effect locally and returns its instance id.
+	 *
+	 * @return the instance id, or {@code 0} on failure
+	 */
+	public static long playEffectId(final Identifier effectId, final int durationTicks, final @Nullable Vec3 position, final List<UUID> entityUuids, final Map<String, Float> params, final @Nullable EasingType easing) {
+		if (localDispatcher == null) {
+			VFXLog.warnOnce(LOGGER, "api:no-client", "playEffectId({}) called without a client; use sendEffect() instead", effectId);
+			return 0L;
+		}
+		return localDispatcher.playEffect(effectId, durationTicks, position, entityUuids, params, easing);
+	}
+
+	/**
+	 * Re-anchors a running effect instance to a new world position locally (no packet). Calling it
+	 * every tick makes an anchored effect follow a moving point or entity.
+	 *
+	 * @param effectId   the effect id the instance belongs to
+	 * @param instanceId the instance id returned by {@link #playEffectId(Identifier, int, Vec3, Map, EasingType)}
+	 * @param worldPos   the new world position
+	 * @return {@code true} when a matching instance was found
+	 */
+	public static boolean moveEffect(final Identifier effectId, final long instanceId, final Vec3 worldPos) {
+		return localDispatcher != null && localDispatcher.moveEffect(effectId, instanceId, worldPos);
+	}
+
+	/**
 	 * Stops all running instances of an effect locally (client-side only).
 	 */
 	public static boolean stopEffect(final Identifier effectId) {
@@ -372,12 +460,15 @@ public final class VFXAPI {
 	}
 
 	/**
-	 * Plays an effect locally with a fluent request. Only duration, params and easing apply to
-	 * local playback - use {@link #sendEffect(ServerPlayer, Identifier, EffectRequest)} for
-	 * entity targets.
+	 * Plays an effect locally with a fluent request. Duration, params, easing and entity targets
+	 * apply; use the {@link #playEffectId(Identifier, int, Vec3, List, Map, EasingType)} overloads
+	 * to anchor a local play to a world position as well.
 	 */
 	public static boolean playEffect(final Identifier effectId, final EffectRequest request) {
-		return playEffect(effectId, request.durationTicks, request.params, request.easing);
+		if (request.entityUuids.isEmpty()) {
+			return playEffect(effectId, request.durationTicks, request.params, request.easing);
+		}
+		return playEffect(effectId, request.durationTicks, null, request.entityUuids, request.params, request.easing);
 	}
 
 	/**

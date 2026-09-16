@@ -1,6 +1,7 @@
 package dev.vfxweaver.client.flashback;
 
 import dev.vfxweaver.client.effect.VFXEffectManager;
+import dev.vfxweaver.effect.EasingFunction;
 import dev.vfxweaver.effect.EasingType;
 import dev.vfxweaver.effect.VFXActiveEffect;
 import dev.vfxweaver.effect.VFXCurveManager;
@@ -20,6 +21,7 @@ import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.client.Minecraft;
 import net.minecraft.network.RegistryFriendlyByteBuf;
 import net.minecraft.resources.Identifier;
+import net.minecraft.world.phys.Vec3;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -215,7 +217,7 @@ public final class FlashbackCompat {
 				Map<String, Float> params = snapshotParams(timeline);
 				submitCustomTaskMethod.invoke(recorder, (Consumer<Object>) writer -> {
 					try {
-						writeAction(writer, id, duration, params, EasingType.LINEAR);
+						writeAction(writer, id, duration, params, EasingType.LINEAR, null);
 					} catch (Throwable t) {
 						LOGGER.warn("Failed to write snapshot of running VFX effect '{}' into Flashback replay", id, t);
 					}
@@ -253,6 +255,16 @@ public final class FlashbackCompat {
 	 * {@code effectId, durationTicks, easing, params} order of the network trigger.
 	 */
 	public static void recordPlay(final Identifier effectId, final int durationTicks, final Map<String, Float> params, final EasingType easing) {
+		recordPlay(effectId, durationTicks, params, easing, null);
+	}
+
+	/**
+	 * Same as {@link #recordPlay(Identifier, int, Map, EasingType)} but anchored: a non-null
+	 * {@code position} is written into the replay action, so a replay re-creates the effect at the
+	 * same world point. The anchor block is optional and trailing, so replays recorded by an older
+	 * build (which never wrote it) still decode.
+	 */
+	public static void recordPlay(final Identifier effectId, final int durationTicks, final Map<String, Float> params, final EasingType easing, final @Nullable Vec3 position) {
 		if (!enabled || durationTicks < 0) {
 			return;
 		}
@@ -268,7 +280,7 @@ public final class FlashbackCompat {
 					}
 					submitCustomTaskMethod.invoke(recorder, (Consumer<Object>) writer -> {
 						try {
-							writeAction(writer, effectId, durationTicks, params, easing);
+							writeAction(writer, effectId, durationTicks, params, easing, position);
 						} catch (Throwable t) {
 							LOGGER.warn("Failed to write VFX effect '{}' into Flashback replay", effectId, t);
 						}
@@ -336,7 +348,7 @@ public final class FlashbackCompat {
 	/**
 	 * Writes one replay action via the {@code ReplayWriter} handed to us by Flashback's recorder.
 	 */
-	private static void writeAction(final Object writer, final Identifier effectId, final int durationTicks, final Map<String, Float> params, final EasingType easing) throws Exception {
+	private static void writeAction(final Object writer, final Identifier effectId, final int durationTicks, final Map<String, Float> params, final EasingType easing, final @Nullable Vec3 position) throws Exception {
 		boolean started = false;
 		try {
 			startActionMethod.invoke(writer, action);
@@ -349,6 +361,14 @@ public final class FlashbackCompat {
 			for (Map.Entry<String, Float> entry : params.entrySet()) {
 				buf.writeUtf(entry.getKey());
 				buf.writeFloat(entry.getValue());
+			}
+			// Optional trailing anchor: absent in recordings written by an older build, which the
+			// reader tolerates (it only reads this when bytes remain).
+			buf.writeBoolean(position != null);
+			if (position != null) {
+				buf.writeDouble(position.x());
+				buf.writeDouble(position.y());
+				buf.writeDouble(position.z());
 			}
 		} finally {
 			if (started) {
@@ -379,9 +399,18 @@ public final class FlashbackCompat {
 		for (int i = 0; i < paramCount; i++) {
 			params.put(buf.readUtf(), buf.readFloat());
 		}
-		Minecraft.getInstance().execute(() ->
-			VFXEffectManager.get().play(effectId, durationTicks, params, EasingType.fromString(easingName))
-		);
+		Vec3 anchor = null;
+		if (buf.isReadable() && buf.readBoolean()) {
+			anchor = new Vec3(buf.readDouble(), buf.readDouble(), buf.readDouble());
+		}
+		final Vec3 anchorPos = anchor;
+		Minecraft.getInstance().execute(() -> {
+			if (anchorPos == null) {
+				VFXEffectManager.get().play(effectId, durationTicks, params, EasingType.fromString(easingName));
+			} else {
+				VFXEffectManager.get().play(effectId, durationTicks, 0L, anchorPos, params, EasingFunction.builtIn(EasingType.fromString(easingName)));
+			}
+		});
 	}
 
 	/**
