@@ -213,7 +213,7 @@ public class VFXEffectManager {
 				this.scheduled.add(new ScheduledPlay(this.clock + child.delay(), childDef, child.duration(), position, child.easing(), depth + 1, childCollections));
 				scheduledCount++;
 			}
-			LOGGER.info("Scheduled {} child effect(s) from collection '{}'", scheduledCount, effectId);
+			LOGGER.debug("Scheduled {} child effect(s) from collection '{}'", scheduledCount, effectId);
 			if (definition.getSound() != null) {
 				// Collections have no timeline of their own, so volume/pitch/position use defaults.
 				playSound(definition.getSound(), 1.0F, 1.0F, null);
@@ -321,7 +321,7 @@ public class VFXEffectManager {
 				}
 				snapshot.append(name).append("=bind(").append(timeline.getMultipliers().get(name).kind()).append(")");
 			}
-			LOGGER.info("Started VFX effect '{}' (instance {}) for {} ticks: {}", effectId, id, persistent ? "forever" : duration, snapshot);
+			LOGGER.debug("Started VFX effect '{}' (instance {}) for {} ticks: {}", effectId, id, persistent ? "forever" : duration, snapshot);
 		}
 		return id;
 	}

@@ -3,6 +3,7 @@ package dev.vfxweaver.network;
 import dev.vfxweaver.api.VFXAPI;
 import dev.vfxweaver.effect.EasingType;
 import dev.vfxweaver.resource.VFXDefinitionManager;
+import dev.vfxweaver.util.VFXLog;
 import java.util.List;
 import net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry;
 import net.fabricmc.fabric.api.networking.v1.PlayerLookup;
@@ -46,15 +47,15 @@ public final class VFXPayloads {
 	 */
 	private static void handleRequest(final VFXRequestPayload payload, final ServerPlayNetworking.Context context) {
 		if (payload.protocolVersion() != VFXTriggerPayload.PROTOCOL_VERSION) {
-			LOGGER.warn("Ignoring VFX request from {}: protocol version mismatch (client={}, server={})", context.player(), payload.protocolVersion(), VFXTriggerPayload.PROTOCOL_VERSION);
+			VFXLog.warnOnce(LOGGER, "net:protocol:" + context.player().getUUID(), "Ignoring VFX request from {}: protocol version mismatch (client={}, server={})", context.player(), payload.protocolVersion(), VFXTriggerPayload.PROTOCOL_VERSION);
 			return;
 		}
 		if (VFXDefinitionManager.get().get(payload.effectId()) == null) {
-			LOGGER.warn("Ignoring VFX request from {}: unknown effect '{}'", context.player(), payload.effectId());
+			VFXLog.warnOnce(LOGGER, "net:unknown-effect:" + payload.effectId(), "Ignoring VFX request from {}: unknown effect '{}'", context.player(), payload.effectId());
 			return;
 		}
 		if (payload.broadcast() && !hasVfxPermission(context.player())) {
-			LOGGER.warn("Ignoring VFX broadcast request for '{}': {} lacks gamemaster permissions", payload.effectId(), context.player());
+			VFXLog.warnOnce(LOGGER, "net:permission:" + payload.effectId(), "Ignoring VFX broadcast request for '{}': {} lacks gamemaster permissions", payload.effectId(), context.player());
 			return;
 		}
 		if (payload.broadcast()) {

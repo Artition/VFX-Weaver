@@ -96,7 +96,7 @@ public class VFXClient implements ClientModInitializer {
 			}
 			VFXCurveManager.get().applySynced(payload.curves());
 			VFXDefinitionManager.get().applySynced(payload.definitions());
-			LOGGER.info("Received VFX sync: {} definitions, {} curves", payload.definitions().size(), payload.curves().size());
+			LOGGER.debug("Received VFX sync: {} definitions, {} curves", payload.definitions().size(), payload.curves().size());
 		});
 	}
 
@@ -106,7 +106,7 @@ public class VFXClient implements ClientModInitializer {
 				LOGGER.warn("Ignoring VFX packet from server: protocol version mismatch (server={}, client={})", payload.protocolVersion(), VFXTriggerPayload.PROTOCOL_VERSION);
 				return;
 			}
-			LOGGER.info("Received VFX packet: action={}, effect={}, duration={}, instance={}, easing={}, params={}", payload.action(), payload.effectId(), payload.durationTicks(), payload.instanceId(), payload.easing(), payload.params().keySet());
+			LOGGER.debug("Received VFX packet: action={}, effect={}, duration={}, instance={}, easing={}, params={}", payload.action(), payload.effectId(), payload.durationTicks(), payload.instanceId(), payload.easing(), payload.params().keySet());
 			if (payload.action() == VFXAction.STOP) {
 				FlashbackCompat.recordStop(payload.effectId());
 				if (payload.instanceId() != 0L) {

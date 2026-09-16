@@ -8,6 +8,7 @@ import dev.vfxweaver.effect.VFXScoreboardSync;
 import dev.vfxweaver.effect.VFXServerEffects;
 import dev.vfxweaver.network.VFXTriggerPayload;
 import dev.vfxweaver.resource.VFXDefinitionManager;
+import dev.vfxweaver.util.VFXLog;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -52,7 +53,7 @@ public final class VFXAPI {
 	 */
 	public static boolean playEffect(final Identifier effectId, final int durationTicks, final Map<String, Float> params, final @Nullable EasingType easing) {
 		if (localDispatcher == null) {
-			LOGGER.warn("playEffect({}) called without a client; use sendEffect() instead", effectId);
+			VFXLog.warnOnce(LOGGER, "api:no-client", "playEffect({}) called without a client; use sendEffect() instead", effectId);
 			return false;
 		}
 		localDispatcher.playEffect(effectId, durationTicks, params, easing);
@@ -79,7 +80,7 @@ public final class VFXAPI {
 	 */
 	public static long playEffectId(final Identifier effectId, final int durationTicks, final Map<String, Float> params, final @Nullable EasingType easing) {
 		if (localDispatcher == null) {
-			LOGGER.warn("playEffectId({}) called without a client; use sendEffect() instead", effectId);
+			VFXLog.warnOnce(LOGGER, "api:no-client", "playEffectId({}) called without a client; use sendEffect() instead", effectId);
 			return 0L;
 		}
 		return localDispatcher.playEffect(effectId, durationTicks, params, easing);
@@ -179,7 +180,7 @@ public final class VFXAPI {
 	) {
 		VFXDefinition definition = VFXDefinitionManager.get().get(effectId);
 		if (definition == null) {
-			LOGGER.warn("sendEffect({}) failed: unknown effect", effectId);
+			VFXLog.warnOnce(LOGGER, "api:unknown-effect:" + effectId, "sendEffect({}) failed: unknown effect", effectId);
 			return false;
 		}
 		Map<String, Float> params = new HashMap<>();

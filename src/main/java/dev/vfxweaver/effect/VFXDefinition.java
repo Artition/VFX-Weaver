@@ -4,6 +4,7 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonPrimitive;
+import dev.vfxweaver.util.VFXLog;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -583,11 +584,12 @@ public class VFXDefinition {
 		// Overrides for parameters the definition does not declare (e.g. through_blocks on the
 		// built-in entity/block effects) must still land in the timeline — renderers read them
 		// with getParam(name, fallback), so silently dropping them made such parameters inert.
-		// Logged once per play so map-makers notice typos like "through_bloks".
+		// Warned once per (effect, parameter) so map-makers notice typos like "through_bloks"
+		// without a caller that sets the parameter every tick flooding the log.
 		for (Map.Entry<String, Float> entry : overrides.entrySet()) {
 			if (!values.containsKey(entry.getKey())) {
 				values.put(entry.getKey(), AnimatedValue.constant(entry.getValue()));
-				LOGGER.info("Effect '{}' received an override for undeclared parameter '{}' (applied as a constant)", this.getId(), entry.getKey());
+				VFXLog.warnOnce(LOGGER, "def:undeclared:" + this.getId() + ":" + entry.getKey(), "Effect '{}' received an override for undeclared parameter '{}' (applied as a constant)", this.getId(), entry.getKey());
 			}
 		}
 		return new VFXTimeline(duration, values, bindings, multipliers, expressions);

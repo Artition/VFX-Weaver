@@ -409,7 +409,7 @@ public final class FlashbackCompat {
 		Minecraft.getInstance().execute(() -> {
 			VFXDefinitionManager.get().applySynced(definitions);
 			VFXCurveManager.get().applySynced(curves);
-			LOGGER.info("Replay applied {} VFX definitions and {} curves", definitions.size(), curves.size());
+			LOGGER.debug("Replay applied {} VFX definitions and {} curves", definitions.size(), curves.size());
 		});
 	}
 
