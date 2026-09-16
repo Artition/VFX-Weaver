@@ -136,7 +136,7 @@ public class VFXEffectManager {
 	 * @return the instance id, or {@code 0} when the effect was ignored
 	 */
 	public long play(final Identifier effectId, final int durationTicks, final Map<String, Float> params, final EasingType easing) {
-		return this.play(effectId, durationTicks, 0L, null, List.of(), params, EasingFunction.builtIn(easing), 0, 0, null, List.of());
+		return this.play(effectId, durationTicks, 0L, null, List.of(), params, easing == null ? null : EasingFunction.builtIn(easing), 0, 0, null, List.of());
 	}
 
 	/**

@@ -67,7 +67,9 @@ public interface VFXLocalDispatcher {
 	 * @param effectId   the effect id the instance belongs to
 	 * @param instanceId the instance id returned when the effect was played
 	 * @param worldPos   the new world position
-	 * @return {@code true} when a matching instance was moved
+	 * @return {@code true} when the request was applied (called on the render thread) or queued for
+	 *         it; a queued request that turns out to reference an unknown instance fails silently
+	 *         on the render thread
 	 */
 	boolean moveEffect(Identifier effectId, long instanceId, Vec3 worldPos);
 

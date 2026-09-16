@@ -21,29 +21,40 @@ import org.jspecify.annotations.Nullable;
 public class VFXClientAPI implements VFXLocalDispatcher {
 	@Override
 	public long playEffect(final Identifier effectId, final int durationTicks, final Map<String, Float> params, final EasingType easing) {
-		long instanceId = VFXEffectManager.get().allocateInstanceId();
-		Minecraft.getInstance().execute(() -> {
-			VFXEffectManager.get().play(effectId, durationTicks, instanceId, null, params, EasingFunction.builtIn(easing));
-			FlashbackCompat.recordPlay(effectId, durationTicks, params, easing);
-		});
-		return instanceId;
+		return this.schedulePlay(effectId, durationTicks, null, List.of(), params, easing);
 	}
 
 	@Override
 	public long playEffect(final Identifier effectId, final int durationTicks, final @Nullable Vec3 position, final Map<String, Float> params, final @Nullable EasingType easing) {
-		long instanceId = VFXEffectManager.get().allocateInstanceId();
-		Minecraft.getInstance().execute(() -> {
-			VFXEffectManager.get().play(effectId, durationTicks, instanceId, position, params, EasingFunction.builtIn(easing));
-			FlashbackCompat.recordPlay(effectId, durationTicks, params, easing, position);
-		});
-		return instanceId;
+		return this.schedulePlay(effectId, durationTicks, position, List.of(), params, easing);
 	}
 
 	@Override
 	public long playEffect(final Identifier effectId, final int durationTicks, final @Nullable Vec3 position, final List<UUID> entityUuids, final Map<String, Float> params, final @Nullable EasingType easing) {
+		return this.schedulePlay(effectId, durationTicks, position, entityUuids, params, easing);
+	}
+
+	/**
+	 * Allocates the instance id synchronously (so it can be returned to the caller) and schedules
+	 * the play on the render thread. A null easing is passed through as a null function: the
+	 * effect manager then falls back to the definition's default easing.
+	 */
+	private long schedulePlay(
+		final Identifier effectId,
+		final int durationTicks,
+		final @Nullable Vec3 position,
+		final List<UUID> entityUuids,
+		final Map<String, Float> params,
+		final @Nullable EasingType easing
+	) {
 		long instanceId = VFXEffectManager.get().allocateInstanceId();
+		EasingFunction easingFunction = easing == null ? null : EasingFunction.builtIn(easing);
 		Minecraft.getInstance().execute(() -> {
-			VFXEffectManager.get().play(effectId, durationTicks, instanceId, position, entityUuids, params, EasingFunction.builtIn(easing));
+			if (entityUuids.isEmpty()) {
+				VFXEffectManager.get().play(effectId, durationTicks, instanceId, position, params, easingFunction);
+			} else {
+				VFXEffectManager.get().play(effectId, durationTicks, instanceId, position, entityUuids, params, easingFunction);
+			}
 			FlashbackCompat.recordPlay(effectId, durationTicks, params, easing, position);
 		});
 		return instanceId;

@@ -264,7 +264,7 @@ public final class FlashbackCompat {
 	 * same world point. The anchor block is optional and trailing, so replays recorded by an older
 	 * build (which never wrote it) still decode.
 	 */
-	public static void recordPlay(final Identifier effectId, final int durationTicks, final Map<String, Float> params, final EasingType easing, final @Nullable Vec3 position) {
+	public static void recordPlay(final Identifier effectId, final int durationTicks, final Map<String, Float> params, final @Nullable EasingType easing, final @Nullable Vec3 position) {
 		if (!enabled || durationTicks < 0) {
 			return;
 		}
@@ -348,7 +348,7 @@ public final class FlashbackCompat {
 	/**
 	 * Writes one replay action via the {@code ReplayWriter} handed to us by Flashback's recorder.
 	 */
-	private static void writeAction(final Object writer, final Identifier effectId, final int durationTicks, final Map<String, Float> params, final EasingType easing, final @Nullable Vec3 position) throws Exception {
+	private static void writeAction(final Object writer, final Identifier effectId, final int durationTicks, final Map<String, Float> params, final @Nullable EasingType easing, final @Nullable Vec3 position) throws Exception {
 		boolean started = false;
 		try {
 			startActionMethod.invoke(writer, action);
@@ -356,7 +356,8 @@ public final class FlashbackCompat {
 			RegistryFriendlyByteBuf buf = (RegistryFriendlyByteBuf) friendlyByteBufMethod.invoke(writer);
 			buf.writeIdentifier(effectId);
 			buf.writeVarInt(durationTicks);
-			buf.writeUtf(easing.name());
+			// A blank easing name means "no override" (the playback uses the definition default).
+			buf.writeUtf(easing == null ? "" : easing.name());
 			buf.writeVarInt(params.size());
 			for (Map.Entry<String, Float> entry : params.entrySet()) {
 				buf.writeUtf(entry.getKey());
@@ -399,18 +400,21 @@ public final class FlashbackCompat {
 		for (int i = 0; i < paramCount; i++) {
 			params.put(buf.readUtf(), buf.readFloat());
 		}
+		// A blank easing name means "no override": pass null so the effect manager applies the
+		// definition's default easing instead of falling back to LINEAR.
+		EasingType easing = easingName.isBlank() ? null : EasingType.fromString(easingName);
+		// Optional trailing anchor. The flag is read only when bytes remain, so recordings written
+		// before the anchor existed still decode; this relies on Flashback handing us a buffer that
+		// holds exactly this action's payload (no trailing framing).
 		Vec3 anchor = null;
 		if (buf.isReadable() && buf.readBoolean()) {
 			anchor = new Vec3(buf.readDouble(), buf.readDouble(), buf.readDouble());
 		}
 		final Vec3 anchorPos = anchor;
-		Minecraft.getInstance().execute(() -> {
-			if (anchorPos == null) {
-				VFXEffectManager.get().play(effectId, durationTicks, params, EasingType.fromString(easingName));
-			} else {
-				VFXEffectManager.get().play(effectId, durationTicks, 0L, anchorPos, params, EasingFunction.builtIn(EasingType.fromString(easingName)));
-			}
-		});
+		final EasingFunction easingFunction = easing == null ? null : EasingFunction.builtIn(easing);
+		Minecraft.getInstance().execute(() ->
+			VFXEffectManager.get().play(effectId, durationTicks, 0L, anchorPos, params, easingFunction)
+		);
 	}
 
 	/**

@@ -97,7 +97,7 @@ public final class VFXAPI {
 	 *
 	 * @param effectId      effect id (built-in or datapack-defined)
 	 * @param durationTicks duration in ticks
-	 * @param position      world position to anchor the effect to
+	 * @param position      world position to anchor the effect to (null leaves the definition's own positions)
 	 * @param params        parameter overrides (empty for defaults)
 	 * @param easing        easing curve (may be null for the definition default)
 	 * @return {@code true} when the effect was started
@@ -168,7 +168,8 @@ public final class VFXAPI {
 	 * @param effectId   the effect id the instance belongs to
 	 * @param instanceId the instance id returned by {@link #playEffectId(Identifier, int, Vec3, Map, EasingType)}
 	 * @param worldPos   the new world position
-	 * @return {@code true} when a matching instance was found
+	 * @return {@code true} when the request was applied (called on the render thread) or queued for
+	 *         it; a queued request that turns out to reference an unknown instance fails silently
 	 */
 	public static boolean moveEffect(final Identifier effectId, final long instanceId, final Vec3 worldPos) {
 		return localDispatcher != null && localDispatcher.moveEffect(effectId, instanceId, worldPos);
@@ -461,8 +462,8 @@ public final class VFXAPI {
 
 	/**
 	 * Plays an effect locally with a fluent request. Duration, params, easing and entity targets
-	 * apply; use the {@link #playEffectId(Identifier, int, Vec3, List, Map, EasingType)} overloads
-	 * to anchor a local play to a world position as well.
+	 * apply; use {@code playEffectId(Identifier, int, Vec3, List, Map, EasingType)} to anchor a
+	 * local play to a world position as well.
 	 */
 	public static boolean playEffect(final Identifier effectId, final EffectRequest request) {
 		if (request.entityUuids.isEmpty()) {

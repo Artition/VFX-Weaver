@@ -105,6 +105,9 @@ Notes:
 - A non-null `position` wins over the definition's entity anchors (same rule as the network path).
 - If a definition declares entity anchors and a local play passes no UUIDs, the play is rejected
   (the placeholder slots would otherwise render at the world origin) — logged once.
+- A `null` easing keeps its meaning on this path: the definition's default easing is used.
+- `moveEffect` returns `true` when the request was applied (already on the render thread) or queued;
+  a queued request that references an unknown instance fails silently.
 - Client-local plays with a position are recorded into Flashback replays with the same anchor, so
   a replay reproduces the effect where it originally happened.
 
