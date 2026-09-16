@@ -1,59 +1,197 @@
 # AGENTS.md
 
-Instructions for AI agents (Claude, Copilot, etc.) working in this repository.
+Instructions for AI agents (Claude, Copilot, etc.) working in this repository. Read this before
+touching code — most mistakes here were made by ignoring one of the rules below.
 
 ## What this project is
 
-A Fabric mod for Minecraft ~26.1 (a client-side VFX library). Java sources are split by side:
+A client-side Fabric VFX library/API for Minecraft (screen post-processing, camera effects, world
+overlays, entity effects, datapack-defined effects, a server→client trigger and a public Java API
+for other mods). Java sources are split by side:
 
 ```
-src/main/java/dev/vfxweaver/          — shared code (server + client): API, commands, datapack effects, network
-src/client/java/dev/vfxweaver/client/ — client only: rendering, post-processing, shaders, camera shake
-src/main/resources/               — fabric.mod.json, mixins, lang, assets (shared)
-src/client/resources/             — client mixins, shaders (assets/vfxweaver/shaders)
+src/main/java/dev/vfxweaver/            shared (both sides): Java API, commands, datapack model,
+                                        network payloads, expr evaluator, noise
+src/client/java/dev/vfxweaver/client/   client only: renderers, post-processing, shaders, mixins,
+                                        camera shake, Iris/Flashback compatibility
+src/main/resources/                     fabric.mod.json, vfxweaver.mixins.json, access wideners,
+                                        built-in effects (data/vfxweaver/vfx/*.json), lang
+src/client/resources/                   vfxweaver.client.mixins.json, shaders
+versions/<mc>/gradle.properties         per-node dependencies (see "Multi-version")
+docs/                                   GUIDE.md (user guide), API.md, ARCHITECTURE.md, CHANGELOG.md
+.github/workflows/build.yml             CI: builds every node; publishes the release on `v*` tags
 ```
 
-A full description of the domain model (effects, timelines, datapacks, network protocol) is in `docs/GUIDE.md`.
+The domain model (effects, timelines, datapacks, network protocol, API) is described in
+`docs/GUIDE.md` and `docs/API.md`; internal design notes are in `docs/ARCHITECTURE.md`.
 
 ## Build and verify
 
 ```bash
-./gradlew build          # compile + jar into build/libs/
-./gradlew runClient      # test client
-./gradlew runServer      # test server
+./gradlew :26.1.2:build :1.21.11:build :26.2:build   # all supported nodes
+./gradlew :<node>:build                              # one node
+./gradlew runClient                                  # dev client (active node)
 ```
 
-The `26.2` and `26.1.2` nodes target Java 25 and the `1.21.11` node targets Java 21; a single JDK 25+ (e.g. 26) can build all of them via `--release` (see `build.gradle`). If the build fails with `error: release version 25 not supported` — Gradle picked up the wrong JDK, not a code bug.
+`26.2` and `26.1.2` target Java 25, `1.21.11` targets Java 21; one JDK 25+ (e.g. 26) builds all of
+them via `--release` (see `build.gradle`). `error: release version 25 not supported` means Gradle
+picked up the wrong JDK, not a code bug.
 
-After any change under `src/`, always run `./gradlew build` before committing — an agent's task is not done until the build passes.
+**Definition of done:** every node builds (`BUILD SUCCESSFUL`). Never commit a change that only
+compiles for the node you happen to be looking at — the shared source multiplies by three.
+
+There is **no test suite** (`test NO-SOURCE`). Verify in this order:
+
+1. **Build all nodes.**
+2. **Compile-time-visible behaviour** — for MC-free classes (`MathExpression`, `EasingFunction`,
+   `VFXTimeline`, …) compile a throwaway `main()` against the built classes and assert:
+   `javac -cp versions/<node>/build/classes/java/main -d <tmp> Check.java` then
+   `java -cp "versions/<node>/build/classes/java/main;<tmp>" Check` (use JDK 25+;
+   `C:\Program Files\Java\jdk-26` had one on the dev box).
+3. **Mixins** — the build does **not** validate mixin targets (no refmap on 26.x: "No refMap
+   loaded"), so a wrong target crashes at game start. Verify statically against the node's real jar:
+   `javap -classpath <node deobf jar> <TargetClass>` and compare the exact descriptor/call site.
+   Deobf jars live in `~/.gradle/caches/fabric-loom/minecraftMaven/net/minecraft/*-deobf/<mc>/`.
+4. **Runtime** — in-game testing is the only way to confirm rendering; ask the user to test rather
+   than claiming a visual change works.
 
 ## Multi-version (Stonecutter)
 
-Supported nodes: `26.2`, `26.1.2` and `1.21.11`. Shared source lives in `src/`; per-node dependencies in
-`versions/<mc>/gradle.properties`. Build one node with `./gradlew :<mc>:build`, all nodes with
-`./gradlew build`.
+Supported nodes: **`26.2`, `26.1.2`, `1.21.11`**. Shared source lives in `src/`; per-node values in
+`versions/<mc>/gradle.properties`:
 
-Adding a feature: write it once in `src/`. Only if it touches an API that differs between targets,
-guard it in place with a Stonecutter comment (`//? if <cond { ... //?}`). The **active node is
-`26.1.2`**, so the on-disk source is written in 26.1.2 form and the `1.21.11`/`26.2` branches are the
-ones commented out in the working tree. Never fork a whole feature per version.
+| property | meaning |
+|---|---|
+| `deps.minecraft` | Minecraft version built against |
+| `deps.loader` | Fabric Loader used for compile/dev |
+| `deps.loader_compat` | expanded into `fabric.mod.json` `fabricloader` (the floor users may run) |
+| `deps.mc_compat` | expanded into `fabric.mod.json` `minecraft` (the supported range) |
+| `deps.fabric_api` | Fabric API version |
+| `deps.java` | `--release` / `java` requirement |
+
+`build.gradle` expands those into `fabric.mod.json` and `*.mixins.json`
+(`${version}`, `${minecraft}`, `${mcCompat}`, `${loaderCompat}`, `${java}`, `${compatibilityLevel}`,
+`${accessWidener}`) and picks per node: the Loom variant (`>=26.1` is **unobfuscated** and uses
+`net.fabricmc.fabric-loom`; `<26.1` is remapped and uses `fabric-loom`), the access widener
+(`vfxweaver.accesswidener` official for `>=26.1`, `vfxweaver-named.accesswidener` for `<26.1` — they
+differ only in namespace, only one is shipped) and the resource excludes.
+
+Guarding rules:
+
+- Write a feature once in `src/`; guard only the statements that differ, in place:
+  `//? if <cond { … //?} else { /* … */ //?}` (nested guards work).
+- The **active node is `26.1.2`** (`stonecutter.gradle`): the on-disk text is the 26.1.2 form, the
+  `1.21.11`/`26.2` branches are the commented ones. When you edit a guarded block, make sure you
+  edited the right side — the active branch is what compiles now.
+- Real condition boundaries in use right now: `<26.1` / `>=26.1` (the remapped 1.21.11 node versus the
+  unobfuscated 26.x nodes) and `<26.2` / `>=26.2` (26.1.2 versus 26.2 API deltas). If you add a node
+  whose API splits differently, introduce a boundary that matches it and keep the older ones intact.
+- Never fork a whole file per version, and never add a node without adding it to
+  `.github/workflows/build.yml` (the matrix is what ships release jars).
+
+## Version-specific API deltas (the part that bites)
+
+Differences found while porting; re-verify with `javap` before trusting these:
+
+| 26.1.2 | 26.2 |
+|---|---|
+| `Builder.withSampler(String)` / `withUniform(String, UniformType)` | `withBindGroupLayout(BindGroupLayouts.X)` / composed `BindGroupLayout`s |
+| `Builder.withVertexFormat(fmt, VertexFormat.Mode.QUADS)` | `withVertexBinding(0, fmt).withPrimitiveTopology(PrimitiveTopology.QUADS)` |
+| `GpuBuffer.MappedView`, `encoder.mapBuffer(buf, …)` | `GpuBufferSlice.MappedView`, `buf.map(…)` |
+| `new TextureTarget(label, w, h, depth)` | `new TextureTarget(label, w, h, depth, GpuFormat.RGBA8_UNORM)` |
+| `new ColorTargetState(BlendFunction.X)` | `new ColorTargetState(Optional.empty(), GpuFormat.RGBA8_UNORM, WRITE_NONE)` |
+| `RenderPass.draw(0, 3)` | `RenderPass.draw(vertexCount, instanceCount, firstVertex, firstInstance)` |
+| `GameRenderer.getMainCamera()` / `Minecraft.getMainRenderTarget()` | `gameRenderer.mainCamera()` / `gameRenderer.mainRenderTarget()` |
+| `MultiBufferSource(.BufferSource)`, `LevelRenderContext.bufferSource()` | `SubmitNodeCollector`, `LevelRenderContext.submitNodeCollector()` |
+| depth test `CompareOp.LESS_THAN_OR_EQUAL` | **reversed depth** → `GREATER_THAN_OR_EQUAL` for the same occlusion |
+| `ItemInHandRenderer.renderHandsWithItems(...)` | `submitHandsWithItems(...)` (same descriptor) |
+
+`1.21.11` vs `26.x`: `WorldRenderEvents` (`<26.1`, END_MAIN/BEFORE_ENTITIES) versus
+`LevelRenderEvents` (`>=26.1`, AFTER_TRANSLUCENT_TERRAIN/COLLECT_SUBMITS); the obfuscated node needs
+the remapping Loom. All three supported nodes use `Identifier` (the old `ResourceLocation` name is
+gone — no Stonecutter replacement is needed anymore).
+
+## Client hooks (where things are wired)
+
+- `GameRendererMixin` — effect clock (`manager.advance`/`update`) plus the three post-processing
+  layers (layer 0 inside `renderLevel`, layer 1 and 2 in `render`); the per-node injection points
+  differ, see the guards.
+- `VFXWorldOverlayRenderer.register()` — world overlays (`block_tint`, `block_outline`,
+  `light_beam`, `pulse_ring`, `guide_line`, `particles`, `block_chain`) on `LevelRenderEvents`
+  (`>=26.1`) or `WorldRenderEvents` (`<26.1`).
+- `ItemInHandRendererMixin`, `AvatarRendererMixin`, `ItemFrameRendererMixin`,
+  `LivingEntityRendererMixin` (+ the two render-state mixins) — first-person/entity frame effects.
+- `CameraMixin` — FOV; `VFXPostProcessingManager` + `VFXShaderPrograms` — the pass chain (one shared
+  implementation for all nodes; no per-version branch on `main`); shaders live in
+  `assets/vfxweaver/shaders/post/*` (screen passes) and `core/*` (world/entity geometry).
+
+## Logging
+
+- Per-request/per-frame messages are `DEBUG`. `INFO` is reserved for once-per-session or
+  per-reload summaries (`client initialized`, `Loaded N effect definitions`, **not** "effect
+  started").
+- A warning that a caller could repeat every tick must go through
+  `VFXLog.warnOnce(logger, key, message, args)` (bounded key set) — never a bare `LOGGER.warn` on a
+  hot path. An integration firing `sendSetParam` every tick must not be able to flood the log.
+
+## Public API and datapack surface (do not break)
+
+- `VFXAPI` (`docs/API.md`): server network triggers (`sendEffect`/`sendStop`/`sendSetParam`/…),
+  client-local playback (`playEffect`/`playEffectId`/`moveEffect`/`stopEffect`), the fluent
+  `EffectRequest`, and the `VFXLocalDispatcher` bridge the client registers.
+- The network protocol `vfxweaver:vfx_trigger` / `vfx_request` / `vfx_sync`:
+  `VFXTriggerPayload.PROTOCOL_VERSION` must be bumped on any wire-breaking change.
+- The datapack effect format `data/<namespace>/vfx/<effect>.json`: parameter specs (constant,
+  `start`/`end`, `keyframes`, `bind`, `expr`, `multiply`), `positions` entries (`[x,y,z]` or
+  `{"entity": "<selector>", "point": "feet|center|eyes", "dir": "none|look", "offset": […],
+  "distance": n}`), `children`/collections, `sound`, `particle`/`shape`, `block`. Additive changes
+  are fine; renaming or removing a field is not.
+- `expr` functions live in `MathExpression`; a new function must be added in three places (name →
+  id in the parser, `arity()` table, the eval `switch`) and documented in the class javadoc and
+  `docs/GUIDE.md`. Argument counts are validated at compile time.
 
 ## Code style
 
 - Indentation is tabs, not spaces.
-- Method parameters and local variables that are not reassigned should be marked `final` (see any class in `effect/` or `client/`).
-- Public classes and non-trivial public methods should have Javadoc (description + `@param`/`@return` where not obvious from the signature).
-- Stateless utility classes should be `final class` with a private constructor (see `SimplexNoise`, `VFXShaderPrograms`, `VFXWorldBindings`).
-- Singletons (managers) use a private constructor + static `get()` (see `VFXEffectManager`, `VFXDefinitionManager`, `VFXPostProcessingManager`).
-- Any collection that grows from external/network/datapack input must be bounded by a constant (see `MAX_ACTIVE_EFFECTS`, `MAX_SCHEDULED_EFFECTS`, `MAX_COLLECTION_DEPTH` in `VFXEffectManager`) — do not add new unbounded lists/maps without an explicit limit.
-- Datapack parsing (`VFXDefinition.parse`, `VFXDefinitionManager.prepare`): any new exception thrown while parsing a single file must be caught inside `prepare()`, otherwise one broken JSON file will take down loading of all effects (we hit this before — see git log).
+- Method parameters and locals that are not reassigned are `final`.
+- Public classes and non-trivial public methods have Javadoc (`@param`/`@return` where not obvious).
+- Stateless helpers are `final class` with a private constructor (`SimplexNoise`, `VFXShaderPrograms`,
+  `VFXWorldBindings`); managers are singletons with a private constructor + static `get()`
+  (`VFXEffectManager`, `VFXDefinitionManager`, `VFXPostProcessingManager`).
+- Every collection fed by network/datapack input is bounded by a constant
+  (`MAX_ACTIVE_EFFECTS`, `MAX_SCHEDULED_EFFECTS`, `MAX_COLLECTION_DEPTH`, `VFXLog`'s key cap).
+- Datapack parsing (`VFXDefinition.parse`, `VFXDefinitionManager.prepare`): catch per-file parse
+  errors inside `prepare()` — one broken JSON must not take down every definition.
 
 ## What must not be broken without discussion
 
-- The datapack JSON effect format (`data/<namespace>/vfx/<effect>.json`) and the network protocol `vfxweaver:vfx_trigger` — backward compatibility matters; the protocol version (`VFXTriggerPayload.PROTOCOL_VERSION`) must be bumped on any breaking change.
-- The public Java API (`VFXAPI`) — used by other mods.
+- The datapack effect format and the network protocol (backward compatibility; bump
+  `PROTOCOL_VERSION` on a breaking change).
+- The public Java API (`VFXAPI`) — other mods compile against it; add overloads, don't change
+  signatures.
+- The per-node `minecraft`/`fabricloader` ranges: widening a range claims support for versions we
+  may not have tested; narrowing one drops users.
 
-## Documentation
+## Release
 
-- User guide (commands, effect types, datapacks, Java API) — `docs/GUIDE.md`. When effect/command/API behavior changes, update its changelog at the bottom of the file (see the existing `**vN**: ...` format).
-- Commit and branch conventions — `CONTRIBUTING.md`.
+1. Bump `mod_version` in `gradle.properties` (+ changelog/docs, see below).
+2. Commit, then tag and push: `git tag v<version> && git push origin v<version>`.
+3. CI (`.github/workflows/build.yml`) builds **every node in the matrix** and publishes a GitHub
+   release with the jars. If you added a Minecraft node, add it to the matrix first — otherwise its
+   jar silently misses the release.
+4. Modrinth is updated manually, **one version per Minecraft line** (a mixed version listing hands
+   users the wrong jar): version number = `mod_version`, `game_versions` = that line only
+   (`26.2` / `26.1`, `26.1.1`, `26.1.2` / `1.21.11`), file = `vfxweaver-<version>+<node>.jar`.
+   Modrinth files are immutable: to change a released jar you must add the new one and delete the
+   old (a version refuses to be left without files, and an upload reusing an existing file name in
+   that version is rejected).
+
+## Documentation to update with behaviour changes
+
+- `docs/GUIDE.md` — commands/effect params/datapack fields, **and** its changelog at the bottom
+  (`### vN` entries).
+- `docs/API.md` — Java API / packet layout.
+- `docs/CHANGELOG.md` — the release entry (keep it to what users see).
+- `README.md` (Requirements table) and the Modrinth project body when the supported Minecraft /
+  Fabric Loader ranges change.
+- Commit and branch conventions: `CONTRIBUTING.md`.
