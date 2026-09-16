@@ -1122,6 +1122,7 @@ Guide version: 27 — see changelog below.
 ### v29
 - Live keyframes accept a **negative time** ("from here"): the value the parameter has right now is pinned at the current time and the segment runs to the new value over `|time|` ticks, so animation variations chain without the caller knowing the current value - `sendKeyframe(player, effect, "radius", -20, 0.0F, easing)` fades a held blur back out from wherever it stands.
 - The live edits are now available **client-side without a packet**: `VFXAPI.setParam`, `VFXAPI.setParamExpr` and `VFXAPI.setKeyframe` mirror the network actions (`sendSetParam`, `sendSetParamExpr`, `sendKeyframe`) locally, next to the already-local `playEffect`/`playEffectId`/`moveEffect`/`stopEffect` - a pure client-side mod can drive effects end to end.
+- Live edits are **recorded into Flashback replays**: `setParam`, `setParamExpr` and `setKeyframe` (local and server-driven) replay along with the original play, so an effect animated while recording keeps its animation on playback.
 
 ### v28
 - Math expressions gained more functions: `floor`, `ceil`, `round`, `fract`, `sign`, `clamp(x, lo, hi)`, `lerp`/`mix(a, b, t)`, `step(edge, x)`, `smoothstep(e0, e1, x)`, `mod(a, b)`, `tan`, `atan(y)` / `atan(y, x)` (= atan2), `exp`, `log` (natural). Argument counts are now validated when the expression is compiled (a wrong count used to fail while evaluating).

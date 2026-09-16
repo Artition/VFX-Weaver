@@ -124,6 +124,12 @@ gone — no Stonecutter replacement is needed anymore).
 - `CameraMixin` — FOV; `VFXPostProcessingManager` + `VFXShaderPrograms` — the pass chain (one shared
   implementation for all nodes; no per-version branch on `main`); shaders live in
   `assets/vfxweaver/shaders/post/*` (screen passes) and `core/*` (world/entity geometry).
+- `FlashbackCompat` — records plays, stops **and live edits** into Flashback replays through one
+  custom action (`vfxweaver:effect_trigger`): a real duration is a play, `-2` a stop, `-3`/`-4`/`-5`
+  set-param/keyframe/set-expr (see `ACTION_*`). Recording is wired on both paths — the local API
+  (`VFXClientAPI`) and the network receiver (`VFXClient`) — so anything the network can do is
+  replayed too. When you add a live edit, record it here as well and keep old recordings decodable
+  (append fields, or add a new sentinel; never reorder the existing payload).
 
 ## Logging
 

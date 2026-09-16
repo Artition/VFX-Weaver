@@ -304,6 +304,94 @@ public final class FlashbackCompat {
 	}
 
 	/**
+	 * Sentinel values written into the trigger action's {@code durationTicks} field: a real
+	 * duration is a play, negative values are the live edits (a stop is {@code -2} for
+	 * compatibility with recordings written before the other sentinels existed).
+	 */
+	private static final int ACTION_STOP = -2;
+	private static final int ACTION_SET_PARAM = -3;
+	private static final int ACTION_KEYFRAME = -4;
+	private static final int ACTION_SET_EXPR = -5;
+
+	/** Records a live parameter override ({@code setParam}) into the active replay. */
+	public static void recordSetParam(final Identifier effectId, final String name, final float value) {
+		recordEdit(effectId, ACTION_SET_PARAM, buf -> {
+			buf.writeUtf(name);
+			buf.writeFloat(value);
+		});
+	}
+
+	/**
+	 * Records a live keyframe ({@code setKeyframe}) into the active replay. A negative {@code time}
+	 * ("from here") is written verbatim and reproduces the same relative segment on playback.
+	 */
+	public static void recordKeyframe(final Identifier effectId, final String name, final int time, final float value, final @Nullable String easing) {
+		recordEdit(effectId, ACTION_KEYFRAME, buf -> {
+			buf.writeUtf(name);
+			buf.writeVarInt(time);
+			buf.writeFloat(value);
+			buf.writeUtf(easing == null ? "" : easing);
+		});
+	}
+
+	/** Records a live expression swap ({@code setParamExpr}) into the active replay. */
+	public static void recordSetExpr(final Identifier effectId, final String name, final @Nullable String exprSource) {
+		recordEdit(effectId, ACTION_SET_EXPR, buf -> {
+			buf.writeUtf(name);
+			buf.writeUtf(exprSource == null ? "" : exprSource);
+		});
+	}
+
+	/**
+	 * Queues one live-edit action into the active replay, if one is running.
+	 */
+	private static void recordEdit(final Identifier effectId, final int sentinel, final Consumer<RegistryFriendlyByteBuf> payload) {
+		if (!enabled) {
+			return;
+		}
+		try {
+			Minecraft.getInstance().execute(() -> {
+				try {
+					Object recorder = recorderField.get(null);
+					if (recorder == null || !((Boolean) readyToWriteMethod.invoke(recorder))) {
+						return;
+					}
+					submitCustomTaskMethod.invoke(recorder, (Consumer<Object>) writer -> {
+						try {
+							writeEdit(writer, effectId, sentinel, payload);
+						} catch (Throwable t) {
+							LOGGER.warn("Failed to write VFX edit '{}' into Flashback replay", effectId, t);
+						}
+					});
+				} catch (Throwable t) {
+					LOGGER.warn("Failed to record VFX edit '{}' into Flashback replay", effectId, t);
+				}
+			});
+		} catch (Throwable t) {
+			LOGGER.warn("Failed to queue VFX edit '{}' for Flashback replay recording", effectId, t);
+		}
+	}
+
+	/**
+	 * Writes one live-edit action: the effect id, the sentinel and whatever the payload writes.
+	 */
+	private static void writeEdit(final Object writer, final Identifier effectId, final int sentinel, final Consumer<RegistryFriendlyByteBuf> payload) throws Exception {
+		boolean started = false;
+		try {
+			startActionMethod.invoke(writer, action);
+			started = true;
+			RegistryFriendlyByteBuf buf = (RegistryFriendlyByteBuf) friendlyByteBufMethod.invoke(writer);
+			buf.writeIdentifier(effectId);
+			buf.writeVarInt(sentinel);
+			payload.accept(buf);
+		} finally {
+			if (started) {
+				finishActionMethod.invoke(writer, action);
+			}
+		}
+	}
+
+	/**
 	 * Records a server-triggered effect stop into the active Flashback replay, so a stop issued
 	 * mid-event also replays. Encoded as the trigger action with the {@code -2} duration sentinel.
 	 */
@@ -326,7 +414,7 @@ public final class FlashbackCompat {
 								started = true;
 								RegistryFriendlyByteBuf buf = (RegistryFriendlyByteBuf) friendlyByteBufMethod.invoke(writer);
 								buf.writeIdentifier(effectId);
-								buf.writeVarInt(-2);
+								buf.writeVarInt(ACTION_STOP);
 							} finally {
 								if (started) {
 									finishActionMethod.invoke(writer, action);
@@ -386,8 +474,29 @@ public final class FlashbackCompat {
 	private static void handlePlayback(final RegistryFriendlyByteBuf buf) {
 		Identifier effectId = buf.readIdentifier();
 		int durationTicks = buf.readVarInt();
-		if (durationTicks == -2) {
+		if (durationTicks == ACTION_STOP) {
 			Minecraft.getInstance().execute(() -> VFXEffectManager.get().stop(effectId));
+			return;
+		}
+		if (durationTicks == ACTION_SET_PARAM) {
+			String name = buf.readUtf();
+			float value = buf.readFloat();
+			Minecraft.getInstance().execute(() -> VFXEffectManager.get().setParam(effectId, name, value));
+			return;
+		}
+		if (durationTicks == ACTION_KEYFRAME) {
+			String name = buf.readUtf();
+			int time = buf.readVarInt();
+			float value = buf.readFloat();
+			String easingName = buf.readUtf();
+			EasingFunction keyframeEasing = EasingFunction.fromString(easingName);
+			Minecraft.getInstance().execute(() -> VFXEffectManager.get().setKeyframe(effectId, name, time, value, keyframeEasing));
+			return;
+		}
+		if (durationTicks == ACTION_SET_EXPR) {
+			String name = buf.readUtf();
+			String exprSource = buf.readUtf();
+			Minecraft.getInstance().execute(() -> VFXEffectManager.get().setExpression(effectId, name, exprSource.isBlank() ? null : exprSource));
 			return;
 		}
 		String easingName = buf.readUtf();

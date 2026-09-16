@@ -116,6 +116,7 @@ public class VFXClient implements ClientModInitializer {
 					LOGGER.warn("Ignoring VFX packet: SET_EXPR without a parameter name");
 					return;
 				}
+				FlashbackCompat.recordSetExpr(payload.effectId(), payload.exprParam(), payload.exprSource());
 				if (!VFXEffectManager.get().setExpression(payload.effectId(), payload.exprParam(), payload.exprSource())) {
 					LOGGER.warn("VFX set_expr: effect '{}' is not running", payload.effectId());
 				}
@@ -137,11 +138,15 @@ public class VFXClient implements ClientModInitializer {
 				}
 				Map.Entry<String, Float> entry = payload.params().entrySet().iterator().next();
 				if (payload.action() == VFXAction.SET_PARAM) {
+					FlashbackCompat.recordSetParam(payload.effectId(), entry.getKey(), entry.getValue());
 					if (!VFXEffectManager.get().setParam(payload.effectId(), entry.getKey(), entry.getValue())) {
 						LOGGER.warn("VFX set_param: effect '{}' is not running", payload.effectId());
 					}
-				} else if (!VFXEffectManager.get().setKeyframe(payload.effectId(), entry.getKey(), payload.durationTicks(), entry.getValue(), EasingFunction.fromString(payload.easing()))) {
-					LOGGER.warn("VFX keyframe: effect '{}' is not running", payload.effectId());
+				} else {
+					FlashbackCompat.recordKeyframe(payload.effectId(), entry.getKey(), payload.durationTicks(), entry.getValue(), payload.easing());
+					if (!VFXEffectManager.get().setKeyframe(payload.effectId(), entry.getKey(), payload.durationTicks(), entry.getValue(), EasingFunction.fromString(payload.easing()))) {
+						LOGGER.warn("VFX keyframe: effect '{}' is not running", payload.effectId());
+					}
 				}
 			} else {
 				FlashbackCompat.recordServerPlay(payload.effectId(), payload.durationTicks(), payload.params(), payload.easing());

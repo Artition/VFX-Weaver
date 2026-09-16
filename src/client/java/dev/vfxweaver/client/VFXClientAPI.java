@@ -68,11 +68,13 @@ public class VFXClientAPI implements VFXLocalDispatcher {
 
 	@Override
 	public boolean setParam(final Identifier effectId, final String name, final float value) {
+		FlashbackCompat.recordSetParam(effectId, name, value);
 		return applyLive(() -> VFXEffectManager.get().setParam(effectId, name, value));
 	}
 
 	@Override
 	public boolean setParamExpr(final Identifier effectId, final String name, final String exprSource) {
+		FlashbackCompat.recordSetExpr(effectId, name, exprSource);
 		return applyLive(() -> VFXEffectManager.get().setExpression(effectId, name, exprSource));
 	}
 
@@ -80,6 +82,7 @@ public class VFXClientAPI implements VFXLocalDispatcher {
 	public boolean setKeyframe(final Identifier effectId, final String name, final int time, final float value, final @Nullable EasingType easing) {
 		// A null easing means linear for a keyframe (there is no "definition default" per segment).
 		EasingFunction easingFunction = easing == null ? EasingFunction.builtIn(EasingType.LINEAR) : EasingFunction.builtIn(easing);
+		FlashbackCompat.recordKeyframe(effectId, name, time, value, easing == null ? null : easing.name());
 		return applyLive(() -> VFXEffectManager.get().setKeyframe(effectId, name, time, value, easingFunction));
 	}
 
@@ -87,6 +90,7 @@ public class VFXClientAPI implements VFXLocalDispatcher {
 	public boolean setKeyframe(final Identifier effectId, final String name, final int time, final float value, final String easing) {
 		// Named curves resolve through the same path the network action uses (blank = linear).
 		EasingFunction easingFunction = EasingFunction.fromString(easing);
+		FlashbackCompat.recordKeyframe(effectId, name, time, value, easing);
 		return applyLive(() -> VFXEffectManager.get().setKeyframe(effectId, name, time, value, easingFunction));
 	}
 
