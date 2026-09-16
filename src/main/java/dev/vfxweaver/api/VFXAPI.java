@@ -13,6 +13,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import net.minecraft.resources.Identifier;
@@ -223,6 +224,41 @@ public final class VFXAPI {
 	 */
 	public static boolean setKeyframe(final Identifier effectId, final String name, final int time, final float value, final String easing) {
 		return localDispatcher != null && localDispatcher.setKeyframe(effectId, name, time, value, easing);
+	}
+
+	/**
+	 * Registers effect definitions supplied as JSON, without a datapack.
+	 *
+	 * <p>The main use is a <b>client-only companion mod</b>: a mod-provided datapack under
+	 * {@code data/<namespace>/vfx/} loads on a client only in single player (Fabric does not reload
+	 * {@code SERVER_DATA} packs on a multiplayer client), and a server that runs this mod replaces
+	 * the whole definition set over {@code vfxweaver:vfx_sync}. Definitions registered here live in
+	 * a separate local layer: usable immediately, surviving both a datapack reload and a server
+	 * sync, and only ever visible to this client (a client's local definitions are never synced to
+	 * other players). The datapack/server layer wins for the same id, so a server can still
+	 * override a locally registered effect.</p>
+	 *
+	 * <p>Each entry is parsed with exactly the datapack validation: a broken entry is logged,
+	 * reported by {@code /vfx validate} and skipped without affecting the others, and the layer is
+	 * bounded so a caller cannot grow it without limit. Safe to call from client init.</p>
+	 *
+	 * @param rawJson effect id to definition JSON (the same shape as a datapack file)
+	 * @return the ids that were rejected (empty when every entry registered)
+	 */
+	public static Set<Identifier> registerDefinitions(final Map<Identifier, String> rawJson) {
+		return VFXDefinitionManager.get().registerLocal(rawJson);
+	}
+
+	/**
+	 * Removes a definition registered with {@link #registerDefinitions(Map)}, e.g. when the mod
+	 * that owned it is no longer active. Built-in, datapack and server-synced definitions are not
+	 * affected.
+	 *
+	 * @param id the effect id to remove
+	 * @return {@code true} when a locally registered definition with that id existed
+	 */
+	public static boolean unregisterDefinition(final Identifier id) {
+		return VFXDefinitionManager.get().unregisterLocal(id);
 	}
 
 	/**

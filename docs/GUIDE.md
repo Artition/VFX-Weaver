@@ -1119,6 +1119,9 @@ Versioned feature history — **[docs/CHANGELOG.md](CHANGELOG.md)**.
 
 Guide version: 27 — see changelog below.
 
+### v30
+- New Java API for client-only mods: `VFXAPI.registerDefinitions(Map)` / `VFXAPI.unregisterDefinition(id)` register effect definitions from code. They live in a local layer that survives `/reload` and a server sync (a datapack shipped by a client-side mod only loads in single player, and a server sync used to replace the whole definition set), stay private to this client, and use the same validation as datapack files.
+
 ### v29
 - Live keyframes accept a **negative time** ("from here"): the value the parameter has right now is pinned at the current time and the segment runs to the new value over `|time|` ticks, so animation variations chain without the caller knowing the current value - `sendKeyframe(player, effect, "radius", -20, 0.0F, easing)` fades a held blur back out from wherever it stands.
 - The live edits are now available **client-side without a packet**: `VFXAPI.setParam`, `VFXAPI.setParamExpr` and `VFXAPI.setKeyframe` mirror the network actions (`sendSetParam`, `sendSetParamExpr`, `sendKeyframe`) locally, next to the already-local `playEffect`/`playEffectId`/`moveEffect`/`stopEffect` - a pure client-side mod can drive effects end to end.

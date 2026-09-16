@@ -145,9 +145,16 @@ gone — no Stonecutter replacement is needed anymore).
 - `VFXAPI` (`docs/API.md`): server network triggers (`sendEffect`/`sendStop`/`sendSetParam`/…),
   client-local playback and live control (`playEffect`/`playEffectId`/`moveEffect`/`setParam`/
   `setParamExpr`/`setKeyframe`/`stopEffect` — everything the network does also works locally, so a
-  pure client-side mod never needs a server), the fluent `EffectRequest`, and the
-  `VFXLocalDispatcher` bridge the client registers (every new network action needs its counterpart
-  there).
+  pure client-side mod never needs a server), `registerDefinitions`/`unregisterDefinition` (see the
+  definition-layer rule below), the fluent `EffectRequest`, and the `VFXLocalDispatcher` bridge the
+  client registers (every new network action needs its counterpart there).
+- `VFXDefinitionManager` keeps **two layers**: the datapack/server set (`definitions`, replaced by
+  `apply` on `/reload` and by `applySynced` on a server sync) and the code-registered local set
+  (`registerLocal`/`unregisterLocal`, written through `VFXAPI.registerDefinitions`). Never let a
+  reload or a sync drop the local layer, keep `getRawDefinitions()` datapack-only (a client's local
+  definitions must not be synced to other players), and keep the datapack/server layer winning for
+  the same id. A new read path must consult both layers (`get`/`contains`/`getDefinitions`/
+  `getParseErrors` do).
 - The network protocol `vfxweaver:vfx_trigger` / `vfx_request` / `vfx_sync`:
   `VFXTriggerPayload.PROTOCOL_VERSION` must be bumped on any wire-breaking change.
 - The datapack effect format `data/<namespace>/vfx/<effect>.json`: parameter specs (constant,

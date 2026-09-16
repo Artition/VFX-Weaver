@@ -8,8 +8,11 @@ import java.io.Reader;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import net.minecraft.resources.FileToIdConverter;
 import net.minecraft.resources.Identifier;
 import net.minecraft.server.packs.resources.Resource;
@@ -28,6 +31,10 @@ import org.slf4j.LoggerFactory;
  * datapack file. On a dedicated server the raw datapack definitions are sent to connecting
  * clients via {@code VFXSyncPayload} (see {@link #applySynced(Map)}), so datapack effects work
  * on clients that have no datapack themselves; single player loads them directly.
+ *
+ * <p>Definitions registered in code ({@link #registerLocal(Map)}) live in a separate local layer
+ * that a datapack reload or a server sync never replaces, which is how a client-only mod can own
+ * effect ids while playing on a server. The datapack/server layer wins for the same id.</p>
  */
 public class VFXDefinitionManager extends SimplePreparableReloadListener<Map<Identifier, String>>
 		//? if <26.1
@@ -42,6 +49,17 @@ public class VFXDefinitionManager extends SimplePreparableReloadListener<Map<Ide
 	private volatile Map<Identifier, VFXDefinition> definitions = new LinkedHashMap<>();
 	/** Effect ids whose datapack JSON failed to parse, mapped to the error message. */
 	private volatile Map<Identifier, String> parseErrors = Map.of();
+
+	/**
+	 * Code-registered definitions (the "local" layer): written through
+	 * {@code VFXAPI.registerDefinitions}, typically by a client-only mod. It is deliberately
+	 * separate from {@link #definitions} so a datapack reload ({@link #apply}) or a server sync
+	 * ({@link #applySynced}) cannot delete it. The datapack/server layer wins for the same id.
+	 */
+	private static final int MAX_LOCAL_DEFINITIONS = 256;
+	private final Map<Identifier, String> localRaw = new ConcurrentHashMap<>();
+	private final Map<Identifier, VFXDefinition> localDefinitions = new ConcurrentHashMap<>();
+	private final Map<Identifier, String> localErrors = new ConcurrentHashMap<>();
 
 	private VFXDefinitionManager() {
 	}
@@ -58,21 +76,27 @@ public class VFXDefinitionManager extends SimplePreparableReloadListener<Map<Ide
 	}
 
 	/**
-	 * Returns the effect definition for the given id (built-in or datapack), or {@code null}.
+	 * Returns the effect definition for the given id (built-in, datapack, server-synced or
+	 * code-registered), or {@code null}. The datapack/server layer wins over a local registration
+	 * for the same id.
 	 */
 	public VFXDefinition get(final Identifier id) {
-		return this.definitions.get(id);
+		VFXDefinition loaded = this.definitions.get(id);
+		return loaded != null ? loaded : this.localDefinitions.get(id);
 	}
 
 	/**
-	 * All currently known effect definitions.
+	 * All currently known effect definitions: the datapack/server set plus the code-registered
+	 * ones (the datapack/server entry wins on a collision).
 	 */
 	public Map<Identifier, VFXDefinition> getDefinitions() {
-		return Map.copyOf(this.definitions);
+		Map<Identifier, VFXDefinition> merged = new LinkedHashMap<>(this.localDefinitions);
+		merged.putAll(this.definitions);
+		return Map.copyOf(merged);
 	}
 
 	public boolean contains(final Identifier id) {
-		return this.definitions.containsKey(id);
+		return this.definitions.containsKey(id) || this.localDefinitions.containsKey(id);
 	}
 
 	/**
@@ -116,13 +140,12 @@ public class VFXDefinitionManager extends SimplePreparableReloadListener<Map<Ide
 		int loadedCount = 0;
 		for (Entry<Identifier, String> entry : raw.entrySet()) {
 			try {
-				JsonObject json = StrictJsonParser.parse(entry.getValue()).getAsJsonObject();
-				merged.put(entry.getKey(), VFXDefinition.parse(entry.getKey(), json));
+				merged.put(entry.getKey(), parseDefinition(entry.getKey(), entry.getValue()));
 				loadedCount++;
 			} catch (JsonParseException | IllegalStateException | IllegalArgumentException e) {
 				// A single bad definition is logged and skipped so the rest keep loading.
 				// The error is recorded so /vfx list can surface which file is broken.
-				errors.put(entry.getKey(), e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName());
+				errors.put(entry.getKey(), errorMessage(e));
 				LOGGER.error("Couldn't parse VFX definition '{}'", entry.getKey(), e);
 			}
 		}
@@ -132,11 +155,67 @@ public class VFXDefinitionManager extends SimplePreparableReloadListener<Map<Ide
 	}
 
 	/**
-	 * The datapack effect ids that failed to parse on the last reload, mapped to their error
-	 * messages. Used by {@code /vfx list} to surface broken files.
+	 * Registers definitions supplied in code (the local layer). Every entry is parsed with exactly
+	 * the datapack validation; a bad entry is logged, recorded for {@code /vfx validate} and
+	 * skipped so the others still register. The layer is bounded by {@link #MAX_LOCAL_DEFINITIONS}
+	 * and is never touched by a datapack reload or a server sync.
+	 *
+	 * @param rawJson effect id to definition JSON
+	 * @return the ids that were rejected (empty when everything registered)
+	 */
+	public Set<Identifier> registerLocal(final Map<Identifier, String> rawJson) {
+		Set<Identifier> failed = new LinkedHashSet<>();
+		for (Entry<Identifier, String> entry : rawJson.entrySet()) {
+			Identifier id = entry.getKey();
+			if (!this.localDefinitions.containsKey(id) && this.localDefinitions.size() >= MAX_LOCAL_DEFINITIONS) {
+				LOGGER.warn("Local VFX definition limit ({}) reached; '{}' is ignored", MAX_LOCAL_DEFINITIONS, id);
+				failed.add(id);
+				continue;
+			}
+			try {
+				this.localDefinitions.put(id, parseDefinition(id, entry.getValue()));
+				this.localErrors.remove(id);
+			} catch (JsonParseException | IllegalStateException | IllegalArgumentException e) {
+				this.localErrors.put(id, errorMessage(e));
+				failed.add(id);
+				LOGGER.error("Couldn't parse local VFX definition '{}'", id, e);
+			}
+		}
+		return Set.copyOf(failed);
+	}
+
+	/**
+	 * Removes a definition registered through {@link #registerLocal(Map)}. Datapack, built-in and
+	 * server-synced definitions are not affected.
+	 *
+	 * @return {@code true} when a local definition with that id existed
+	 */
+	public boolean unregisterLocal(final Identifier id) {
+		this.localErrors.remove(id);
+		return this.localDefinitions.remove(id) != null;
+	}
+
+	/** Parses one definition with the datapack validation rules; throws on a bad entry. */
+	private static VFXDefinition parseDefinition(final Identifier id, final String json) {
+		JsonObject object = StrictJsonParser.parse(json).getAsJsonObject();
+		return VFXDefinition.parse(id, object);
+	}
+
+	private static String errorMessage(final Throwable e) {
+		return e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
+	}
+
+	/**
+	 * Every effect id that failed to parse (datapack, server-synced or code-registered), mapped to
+	 * its error message. Used by {@code /vfx list} and {@code /vfx validate}.
 	 */
 	public Map<Identifier, String> getParseErrors() {
-		return this.parseErrors;
+		if (this.localErrors.isEmpty()) {
+			return this.parseErrors;
+		}
+		Map<Identifier, String> merged = new LinkedHashMap<>(this.parseErrors);
+		merged.putAll(this.localErrors);
+		return Map.copyOf(merged);
 	}
 
 	/**

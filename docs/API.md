@@ -161,6 +161,40 @@ VFXDefinitionManager.get().getDefinitions();      // Map<Identifier, VFXDefiniti
 
 Updated on every `/reload` (see `VFXDefinitionManager.prepare`/`apply`); one broken datapack entry is logged and skipped, the rest load normally.
 
+### Registering definitions from code
+
+A **client-only mod cannot own definitions through a datapack**: Fabric does not reload mod-provided
+`SERVER_DATA` packs on a multiplayer client (so `data/<ns>/vfx/*.json` only loads in single player),
+and a server running this mod replaces the whole definition set over `vfxweaver:vfx_sync`. Register
+them from code instead:
+
+```java
+// Client init (or any time). Same JSON shape as a datapack file; each entry is parsed with the
+// same validation - a broken entry is logged, reported by /vfx validate and skipped, and the
+// layer is bounded. Returns the ids that were rejected (empty = all good).
+Set<Identifier> failed = VFXAPI.registerDefinitions(Map.of(
+    Identifier.fromNamespaceAndPath("mymod", "burst"), """
+        { "type": "particles", "duration": 40, "shape": "sphere", "params": { "rate": 80, "radius": 1.5 } }
+        """,
+    Identifier.fromNamespaceAndPath("mymod", "ring"), """
+        { "type": "particles", "duration": 60, "shape": "ring", "params": { "rate": 60, "radius": 2.0 } }
+        """));
+
+boolean removed = VFXAPI.unregisterDefinition(Identifier.fromNamespaceAndPath("mymod", "burst"));
+```
+
+Semantics:
+
+- **Usable immediately** and it **survives `/reload` and a server sync** — local definitions live in a
+  layer of their own; `applySynced` only replaces the datapack/server set. (A local definition was
+  previously lost on joining a server, and `playEffect("mymod:thing", ...)` then failed to resolve.)
+- **Private to this client**: a client's local definitions are never synced to other players
+  (`getRawDefinitions()`, the payload source, stays datapack-only).
+- **The datapack/server layer wins** for the same id, so a server can still override a local effect.
+- Registered ids show up in `getDefinitions()`, `contains()`, `/vfx list` and (when broken) in
+  `getParseErrors()` / `/vfx validate`.
+- No protocol or datapack-format change; purely additive API.
+
 ## Network protocol
 
 ### Clientbound: `vfxweaver:vfx_trigger` (`VFXTriggerPayload`)
