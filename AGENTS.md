@@ -128,7 +128,12 @@ gone — no Stonecutter replacement is needed anymore).
   in `VFXShaderPrograms.registerPost(...)` must be the **same set in the same order** (the offsets
   are positional, so a mismatch silently shifts values; the uniform *name* must match too or MC logs
   "Found unknown but potentially supported uniform …" at startup). Adding a parameter therefore means
-  editing the shader, the `registerPost` list and the built-in JSON together.
+  editing the shader, the `registerPost` list and the built-in JSON together. **Never name a uniform
+  after a GLSL built-in** (`length`, `mix`, `step`, `mod`, `clamp`, …): a uniform called `length`
+  shadows the built-in `length()` and the shader silently fails to compile, after which MC drops
+  every resource pack and the game shows a black screen. The unknown-uniform warning from a
+  param/uniform name mismatch is cosmetic - UBO values are written positionally - so prefer keeping
+  the shader's own name over "fixing" it by renaming.
 - `FlashbackCompat` — records plays, stops **and live edits** into Flashback replays through one
   custom action (`vfxweaver:effect_trigger`): a real duration is a play, `-2` a stop, `-3`/`-4`/`-5`
   set-param/keyframe/set-expr (see `ACTION_*`). Recording is wired on both paths — the local API

@@ -13,7 +13,9 @@ layout(std140) uniform Config {
     float center_x;
     float center_y;
     float count;
-    float length;
+    // NB: this uniform cannot be called `length` - a uniform with that name shadows the built-in
+    // length() function and the shader fails to compile ("cannot call a non-function").
+    float line_length;
     float length_rand;
     float pos_rand;
     float width;
@@ -59,7 +61,7 @@ void main() {
     // Random length: the configured length (a fraction of the ray to the border) is
     // scaled by the sector random value; length_rand (0..1) controls how much.
     float randomFactor = mix(1.0, rand, clamp(length_rand, 0.0, 1.0));
-    float lineLen = clamp(length, 0.0, 1.0) * borderDist * randomFactor;
+    float lineLen = clamp(line_length, 0.0, 1.0) * borderDist * randomFactor;
 
     // Lines emanate from the screen border and point inward towards the centre.
     float inner = max(borderDist - lineLen, 0.0);
