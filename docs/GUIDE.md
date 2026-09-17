@@ -1100,7 +1100,7 @@ Effects sent via `VFXAPI.sendEffect` are remembered server-side: if the player r
 
 ## 8. Flashback compatibility
 
-[Flashback](https://modrinth.com/mod/flashback) is an optional companion (a soft dependency — the mod works fine without it). When Flashback is installed, **client-local effects** (started on the client, e.g. via `VFXAPI.playEffect` or other mods calling it) are automatically written into the replay as custom Flashback actions, so they appear in the replay at the exact tick they were played. Server-triggered effects travel as `vfxweaver:vfx_trigger` packets, which Flashback captures and replays on its own.
+[Flashback](https://modrinth.com/mod/flashback) is an optional companion (a soft dependency — the mod works fine without it). When Flashback is installed, **every effect the client starts** — client-local ones (`VFXAPI.playEffect` and friends) as well as server-triggered ones — is written into the replay as a custom Flashback action, so it appears at the exact tick it was played, along with any live edits and the datapack definitions it needs. (Flashback cannot replay our custom payload packets on its own, which is why the client records server-triggered effects too.)
 
 Things to know:
 
@@ -1121,6 +1121,7 @@ Versioned feature history — **[docs/CHANGELOG.md](CHANGELOG.md)**.
 Guide version: 27 — see changelog below.
 
 ### v31
+- Replay recording works again with current Flashback versions: the compatibility layer registered two custom actions, which Flashback rejects (it keys actions by class, and both reflection proxies share one class) - that aborted the whole init, so nothing was recorded. Plays, stops, live edits and the definitions snapshot now share one action.
 - `speed_lines`: new `pos_rand` param (default 1.0) - the per-line angular position is jittered inside its own slice, so the spacing is uneven instead of one line per equal sector (`0` restores the even spacing). `seed` drives the position as well as the length, so animating it churns the layout.
 - `pulse_ring`: `thickness: 0` now really means zero - the ring is not drawn at all (previously it was clamped to a 0.05 minimum and showed as a hairline).
 

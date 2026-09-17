@@ -134,12 +134,16 @@ gone — no Stonecutter replacement is needed anymore).
   every resource pack and the game shows a black screen. The unknown-uniform warning from a
   param/uniform name mismatch is cosmetic - UBO values are written positionally - so prefer keeping
   the shader's own name over "fixing" it by renaming.
-- `FlashbackCompat` — records plays, stops **and live edits** into Flashback replays through one
+- `FlashbackCompat` — records plays, stops **and live edits** into Flashback replays through **one**
   custom action (`vfxweaver:effect_trigger`): a real duration is a play, `-2` a stop, `-3`/`-4`/`-5`
-  set-param/keyframe/set-expr (see `ACTION_*`). Recording is wired on both paths — the local API
-  (`VFXClientAPI`) and the network receiver (`VFXClient`) — so anything the network can do is
-  replayed too. When you add a live edit, record it here as well and keep old recordings decodable
-  (append fields, or add a new sentinel; never reorder the existing payload).
+  set-param/keyframe/set-expr (see `ACTION_*`), and the datapack definitions snapshot is marked by
+  the reserved `vfxweaver:definitions` id as the first payload field. Register **exactly one**
+  action: Flashback keys its registry by the action class and two reflection proxies over the same
+  interface share one generated class, so a second `register` throws `Action already registered`
+  and the whole init aborts (recording silently stops working). Recording is wired on both paths —
+  the local API (`VFXClientAPI`) and the network receiver (`VFXClient`) — so anything the network
+  can do is replayed too. When you add a live edit, record it here as well and keep old recordings
+  decodable (append fields, or add a new sentinel; never reorder the existing payload).
 
 ## Logging
 

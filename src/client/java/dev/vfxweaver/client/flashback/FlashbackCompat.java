@@ -36,8 +36,12 @@ import org.slf4j.LoggerFactory;
  * <p>Recording: {@link #recordPlay}/{@link #recordStop} queue a {@code Recorder.submitCustomTask}
  * that writes the effect trigger into the current replay, and the recording-start snapshot writes
  * the synced datapack definitions/curves plus every already-running effect. Playback: the
- * registered actions' {@code handle} decodes the payloads and re-triggers everything through
+ * registered action's {@code handle} decodes the payloads and re-triggers everything through
  * {@link VFXEffectManager} on the render thread (the handler runs on the replay server thread).
+ * Everything travels through a <b>single</b> action: plays, stops and live edits are told apart by
+ * a sentinel in the duration field, and the definitions snapshot by the reserved
+ * {@code vfxweaver:definitions} id - registering a second action is not possible, because
+ * Flashback keys its action registry by the proxy class and both proxies would share one class.
  *
  * <p>Both client-local plays and server-triggered ones are recorded - Flashback does not replay
  * unknown custom payload packets on its own, so without this the server-triggered effects would be
@@ -46,6 +50,7 @@ import org.slf4j.LoggerFactory;
 public final class FlashbackCompat {
 	private static final Logger LOGGER = LoggerFactory.getLogger("vfxweaver/flashback");
 	private static final Identifier ACTION_NAME = Identifier.fromNamespaceAndPath("vfxweaver", "effect_trigger");
+	/** Reserved id written as the first field of a payload that carries the definitions snapshot. */
 	private static final Identifier ACTION_DEFS_NAME = Identifier.fromNamespaceAndPath("vfxweaver", "definitions");
 	/** Safety cap on the number of params decoded from a replay file. */
 	private static final int MAX_PARAMS = 32;
@@ -59,7 +64,6 @@ public final class FlashbackCompat {
 	private static @Nullable Class<?> replayWriterClass;
 	private static @Nullable Class<?> flashbackClass;
 	private static @Nullable Object action;
-	private static @Nullable Object defsAction;
 	// Reflective handles resolved once during init to avoid per-call getMethod/getField lookups.
 	private static @Nullable Field recorderField;
 	private static @Nullable Method readyToWriteMethod;
@@ -89,11 +93,14 @@ public final class FlashbackCompat {
 			recorderClass = Class.forName("com.moulberry.flashback.record.Recorder");
 			replayWriterClass = Class.forName("com.moulberry.flashback.io.ReplayWriter");
 			flashbackClass = Class.forName("com.moulberry.flashback.Flashback");
-			action = Proxy.newProxyInstance(actionClass.getClassLoader(), new Class<?>[]{actionClass}, new ActionHandler(false));
-			defsAction = Proxy.newProxyInstance(actionClass.getClassLoader(), new Class<?>[]{actionClass}, new ActionHandler(true));
+			action = Proxy.newProxyInstance(actionClass.getClassLoader(), new Class<?>[]{actionClass}, new ActionHandler());
+			// Exactly ONE action is registered on purpose: Flashback keys its action registry by the
+			// proxy class, and two proxies with the same interfaces share one generated class, so a
+			// second registration fails ("Action already registered") and silently disables replay
+			// recording. The definitions snapshot therefore travels through this action too, marked
+			// by a reserved id in the payload.
 			Method register = registryClass.getMethod("register", actionClass);
 			register.invoke(null, action);
-			register.invoke(null, defsAction);
 			recorderField = flashbackClass.getField("RECORDER");
 			readyToWriteMethod = recorderClass.getMethod("readyToWrite");
 			submitCustomTaskMethod = recorderClass.getMethod("submitCustomTask", Consumer.class);
@@ -170,9 +177,11 @@ public final class FlashbackCompat {
 				try {
 					boolean started = false;
 					try {
-						startActionMethod.invoke(writer, defsAction);
+						startActionMethod.invoke(writer, action);
 						started = true;
 						RegistryFriendlyByteBuf buf = (RegistryFriendlyByteBuf) friendlyByteBufMethod.invoke(writer);
+						// Reserved marker id: tells the reader this payload is the definitions snapshot.
+						buf.writeIdentifier(ACTION_DEFS_NAME);
 						buf.writeVarInt(definitions.size());
 						for (Map.Entry<Identifier, String> entry : definitions.entrySet()) {
 							buf.writeIdentifier(entry.getKey());
@@ -185,7 +194,7 @@ public final class FlashbackCompat {
 						}
 					} finally {
 						if (started) {
-							finishActionMethod.invoke(writer, defsAction);
+							finishActionMethod.invoke(writer, action);
 						}
 					}
 				} catch (Throwable t) {
@@ -473,6 +482,11 @@ public final class FlashbackCompat {
 	 */
 	private static void handlePlayback(final RegistryFriendlyByteBuf buf) {
 		Identifier effectId = buf.readIdentifier();
+		if (effectId.equals(ACTION_DEFS_NAME)) {
+			// The definitions snapshot travels through the same action, marked by a reserved id.
+			handleDefinitions(buf);
+			return;
+		}
 		int durationTicks = buf.readVarInt();
 		if (durationTicks == ACTION_STOP) {
 			Minecraft.getInstance().execute(() -> VFXEffectManager.get().stop(effectId));
@@ -557,16 +571,10 @@ public final class FlashbackCompat {
 
 	/**
 	 * {@link InvocationHandler} for the {@code com.moulberry.flashback.action.Action} proxy:
-	 * dispatches {@code name()} and {@code handle(ReplayServer, RegistryFriendlyByteBuf)}.
-	 * The {@code definitions} flavour carries the synced datapack content instead of a play.
+	 * dispatches {@code name()} and {@code handle(ReplayServer, RegistryFriendlyByteBuf)}. One
+	 * action carries every payload - plays, stops, live edits and the definitions snapshot.
 	 */
 	private static final class ActionHandler implements InvocationHandler {
-		private final boolean definitions;
-
-		ActionHandler(final boolean definitions) {
-			this.definitions = definitions;
-		}
-
 		@Override
 		public Object invoke(final Object proxy, final Method method, final Object[] args) throws Throwable {
 			String name = method.getName();
@@ -574,20 +582,15 @@ public final class FlashbackCompat {
 				return switch (name) {
 					case "hashCode" -> System.identityHashCode(proxy);
 					case "equals" -> proxy == args[0];
-					case "toString" -> "vfxweaver Flashback action " + (this.definitions ? ACTION_DEFS_NAME : ACTION_NAME);
+					case "toString" -> "vfxweaver Flashback action " + ACTION_NAME;
 					default -> throw new UnsupportedOperationException("Unsupported Object method: " + method);
 				};
 			}
 			if ("name".equals(name)) {
-				return this.definitions ? ACTION_DEFS_NAME : ACTION_NAME;
+				return ACTION_NAME;
 			}
 			if ("handle".equals(name)) {
-				RegistryFriendlyByteBuf buf = (RegistryFriendlyByteBuf) args[1];
-				if (this.definitions) {
-					handleDefinitions(buf);
-				} else {
-					handlePlayback(buf);
-				}
+				handlePlayback((RegistryFriendlyByteBuf) args[1]);
 				return null;
 			}
 			throw new UnsupportedOperationException("Unsupported Action method: " + method);
