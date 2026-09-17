@@ -326,8 +326,9 @@ Swirls pixels into a funnel around a point.
 | `count` | 50 | Number of lines (10..200) |
 | `length` | 0.5 | Fraction of the ray to the border each line covers |
 | `length_rand` | 0.7 | Per-line length variance: 0 = all equal, 1 = fully random |
+| `pos_rand` | 1.0 | Per-line angular position variance: 0 = lines evenly spaced around the centre, 1 = each line may sit anywhere inside its own slice (uneven spacing, no overlap) |
 | `width` | 0.5 | Line thickness |
-| `seed` | 0 | Line layout seed; animate via `expr` (e.g. `"t * 2.0"`) to make lines swap chaotically |
+| `seed` | 0 | Layout seed: drives each line's length **and** its position; animate via `expr` (e.g. `"t * 2.0"`) to make the layout churn |
 | `color_r/g/b` | 1 / 1 / 1 | Line colour |
 | `intensity` | 1 (fades to 0) | Visibility |
 
@@ -1118,6 +1119,9 @@ Post-processing pipeline, world overlays, effect clock, load limits and fault to
 Versioned feature history — **[docs/CHANGELOG.md](CHANGELOG.md)**.
 
 Guide version: 27 — see changelog below.
+
+### v31
+- `speed_lines`: new `pos_rand` param (default 1.0) - the per-line angular position is jittered inside its own slice, so the spacing is uneven instead of one line per equal sector (`0` restores the even spacing). `seed` drives the position as well as the length, so animating it churns the layout.
 
 ### v30
 - New Java API for client-only mods: `VFXAPI.registerDefinitions(Map)` / `VFXAPI.unregisterDefinition(id)` register effect definitions from code. They live in a local layer that survives `/reload` and a server sync (a datapack shipped by a client-side mod only loads in single player, and a server sync used to replace the whole definition set), stay private to this client, and use the same validation as datapack files.

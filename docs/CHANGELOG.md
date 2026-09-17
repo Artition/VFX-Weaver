@@ -2,6 +2,10 @@
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). The versions below are guide/feature-set versions of the mod (as they progressed historically, see `docs/GUIDE.md`), plus git release tags where applicable (`v1.0.x`, `gradle.properties` → `mod_version`). Add new entries at the top, in the same PR as the behavior change.
 
+## Unreleased / Guide v31
+### Changed
+- **`speed_lines` lines are no longer evenly spaced** - a new `pos_rand` param (default 1.0) jitters each line's angular position inside its own slice, so the layout is uneven instead of one line per equal sector. `seed` now drives a line's position as well as its length (animating it churns the whole layout), `pos_rand: 0` restores the old even spacing, and a line pushed against a slice boundary is measured to the nearest centre so it is not cut off. Also fixed the shader's uniform name for the line length (`line_length` -> `length`, matching the param), which used to log "Found unknown but potentially supported uniform line_length" at every startup.
+
 ## v1.1.3 / Guide v30
 ### Added
 - **Code-registered effect definitions (for client-only mods)** - `VFXAPI.registerDefinitions(Map<Identifier, String>)` and `VFXAPI.unregisterDefinition(Identifier)` add definitions at runtime with exactly the datapack validation, in a separate local layer that survives `/reload` and a server sync. Before this a client-only companion mod could not own effect ids on a server at all: a mod-provided `data/<ns>/vfx/*.json` only loads on a multiplayer client in single player (Fabric never reloads `SERVER_DATA` packs there), and `VFXDefinitionManager.applySynced` replaced the whole definition set on join, so `playEffect("mymod:thing", ...)` could not resolve. Local definitions stay private to the client (never synced to other players), the datapack/server layer wins for the same id, and broken entries are logged, skipped and surfaced by `/vfx validate`.

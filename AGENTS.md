@@ -123,7 +123,12 @@ gone — no Stonecutter replacement is needed anymore).
   `LivingEntityRendererMixin` (+ the two render-state mixins) — first-person/entity frame effects.
 - `CameraMixin` — FOV; `VFXPostProcessingManager` + `VFXShaderPrograms` — the pass chain (one shared
   implementation for all nodes; no per-version branch on `main`); shaders live in
-  `assets/vfxweaver/shaders/post/*` (screen passes) and `core/*` (world/entity geometry).
+  `assets/vfxweaver/shaders/post/*` (screen passes) and `core/*` (world/entity geometry). A post
+  shader's parameter block is a std140 UBO: the fields in the shader's `Config` block and the names
+  in `VFXShaderPrograms.registerPost(...)` must be the **same set in the same order** (the offsets
+  are positional, so a mismatch silently shifts values; the uniform *name* must match too or MC logs
+  "Found unknown but potentially supported uniform …" at startup). Adding a parameter therefore means
+  editing the shader, the `registerPost` list and the built-in JSON together.
 - `FlashbackCompat` — records plays, stops **and live edits** into Flashback replays through one
   custom action (`vfxweaver:effect_trigger`): a real duration is a play, `-2` a stop, `-3`/`-4`/`-5`
   set-param/keyframe/set-expr (see `ACTION_*`). Recording is wired on both paths — the local API

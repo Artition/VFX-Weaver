@@ -13,8 +13,9 @@ layout(std140) uniform Config {
     float center_x;
     float center_y;
     float count;
-    float line_length;
+    float length;
     float length_rand;
+    float pos_rand;
     float width;
     float seed;
     float color_r;
@@ -58,7 +59,7 @@ void main() {
     // Random length: the configured length (a fraction of the ray to the border) is
     // scaled by the sector random value; length_rand (0..1) controls how much.
     float randomFactor = mix(1.0, rand, clamp(length_rand, 0.0, 1.0));
-    float lineLen = clamp(line_length, 0.0, 1.0) * borderDist * randomFactor;
+    float lineLen = clamp(length, 0.0, 1.0) * borderDist * randomFactor;
 
     // Lines emanate from the screen border and point inward towards the centre.
     float inner = max(borderDist - lineLen, 0.0);
@@ -68,9 +69,16 @@ void main() {
     // tapering to a point towards the centre, with a sharp (step) edge.
     float linePos = clamp((dist - inner) / max(lineLen, 1.0e-4), 0.0, 1.0);
     float taper = linePos;
-    float localAngle = (normAngle - segIndex * segmentSize) / segmentSize;
     float w = clamp(width, 0.0, 1.0);
-    float widthMask = step(abs(localAngle - 0.5) * 2.0, w * taper);
+    // Uneven spacing: each line's angular centre is jittered inside its own sector by a per-sector
+    // random value (seeded, so animating seed slides the lines around). pos_rand scales it:
+    // 0 = the old even spacing, 1 = the line may sit anywhere in its sector. The offset is measured
+    // to the NEAREST centre (wrapped), so a line pushed against a sector boundary is not cut off.
+    float posRand = fract(sin(segIndex * 91.173 + seed * 41.331) * 24634.6345);
+    float lineCenter = (segIndex + 0.5 + (posRand - 0.5) * clamp(pos_rand, 0.0, 1.0)) * segmentSize;
+    float angularDelta = (normAngle - lineCenter) / segmentSize;
+    angularDelta -= floor(angularDelta + 0.5);
+    float widthMask = step(abs(angularDelta) * 2.0, w * taper);
 
     // Hard radial clip: only the [inner, borderDist] band is drawn.
     float distMask = step(inner, dist) * (1.0 - step(borderDist, dist));
