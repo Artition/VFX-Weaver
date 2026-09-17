@@ -551,7 +551,7 @@ A glowing ring around each position. With `billboard:1` (default) the ring alway
 | Param | Default | Description |
 |---|---|---|
 | `radius` | 0 -> 6 | Current ring radius, blocks (animate 0 -> max) |
-| `thickness` | 0.5 | Ring band width, blocks |
+| `thickness` | 0.5 | Ring band width, blocks (`0` = no band, the ring is not drawn) |
 | `billboard` | 1 | 1 = always faces the camera, 0 = fixed orientation by rot_* |
 | `rot_x` | 0 | Fixed ring-plane pitch (degrees, -360..360, when billboard:0) |
 | `rot_y` | 0 | Fixed ring-plane yaw (degrees, -360..360, when billboard:0) |
@@ -1122,6 +1122,7 @@ Guide version: 27 — see changelog below.
 
 ### v31
 - `speed_lines`: new `pos_rand` param (default 1.0) - the per-line angular position is jittered inside its own slice, so the spacing is uneven instead of one line per equal sector (`0` restores the even spacing). `seed` drives the position as well as the length, so animating it churns the layout.
+- `pulse_ring`: `thickness: 0` now really means zero - the ring is not drawn at all (previously it was clamped to a 0.05 minimum and showed as a hairline).
 
 ### v30
 - New Java API for client-only mods: `VFXAPI.registerDefinitions(Map)` / `VFXAPI.unregisterDefinition(id)` register effect definitions from code. They live in a local layer that survives `/reload` and a server sync (a datapack shipped by a client-side mod only loads in single player, and a server sync used to replace the whole definition set), stay private to this client, and use the same validation as datapack files.

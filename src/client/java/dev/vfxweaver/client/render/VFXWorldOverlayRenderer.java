@@ -1258,7 +1258,11 @@ public final class VFXWorldOverlayRenderer {
 			return false;
 		}
 		float radius = Mth.clamp(effect.getParam("radius", 6.0F), 0.0F, 64.0F);
-		float thickness = Mth.clamp(effect.getParam("thickness", 0.5F), 0.05F, 4.0F);
+		// A zero thickness means "no band at all" - drawing a hairline instead would be surprising.
+		float thickness = Mth.clamp(effect.getParam("thickness", 0.5F), 0.0F, 4.0F);
+		if (thickness <= 0.0F) {
+			return false;
+		}
 		boolean billboard = effect.getParam("billboard", 1.0F) >= 0.5F;
 		float rotX = (float) Math.toRadians(Mth.clamp(effect.getParam("rot_x", 0.0F), -360.0F, 360.0F));
 		float rotY = (float) Math.toRadians(Mth.clamp(effect.getParam("rot_y", 0.0F), -360.0F, 360.0F));
