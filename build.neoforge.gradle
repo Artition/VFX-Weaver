@@ -1,5 +1,6 @@
 plugins {
 	id 'java-library'
+	id 'net.neoforged.moddev' version '2.0.147'
 }
 
 // Stonecutter constant: which loader this node targets, so shared sources can branch with
@@ -12,3 +13,78 @@ stonecutter {
 
 version = "${property('mod_version')}+${sc.current.project}"
 base.archivesName = property('mod_id').toString()
+
+def minecraftVersion = property('deps.minecraft')
+def javaVersion = (property('deps.java') as String).toInteger()
+
+// NeoForge has no environment-splitting source sets, so the client half of the shared tree is
+// compiled into its own source set (the same split Loom's splitEnvironmentSourceSets gives the
+// Fabric nodes) and both source sets are registered on the mod below.
+sourceSets {
+	client {
+		java.srcDir rootProject.file('src/client/java')
+		resources.srcDir rootProject.file('src/client/resources')
+		compileClasspath += sourceSets.main.output + sourceSets.main.compileClasspath
+		runtimeClasspath += sourceSets.main.output
+	}
+}
+
+neoForge {
+	version = property('deps.neo_loader')
+	validateAccessTransformers = true
+
+	mods {
+		register(property('mod_id').toString()) {
+			sourceSet sourceSets.main
+			sourceSet sourceSets.client
+		}
+	}
+
+	runs {
+		client {
+			client()
+			sourceSet = sourceSets.client
+		}
+		server {
+			server()
+			programArgument '--nogui'
+		}
+	}
+}
+
+def expandProps = [
+		version     : project.version,
+		minecraft   : minecraftVersion,
+		java        : javaVersion,
+		neoCompat   : property('deps.mc_compat'),
+		loaderCompat: property('deps.loader_compat'),
+]
+
+tasks.matching { it.name in ['processResources', 'processClientResources'] }.configureEach {
+	inputs.properties(expandProps)
+	filesMatching('META-INF/neoforge.mods.toml') { expand(expandProps) }
+	filesMatching('*.mixins.json') { expand(expandProps) }
+	// The Fabric metadata and access wideners must not end up in the NeoForge jar.
+	exclude 'fabric.mod.json'
+	exclude 'vfxweaver.accesswidener'
+	exclude 'vfxweaver-named.accesswidener'
+}
+
+tasks.withType(JavaCompile).configureEach {
+	it.options.release = javaVersion
+}
+
+java {
+	withSourcesJar()
+	sourceCompatibility = JavaVersion.toVersion(javaVersion)
+	targetCompatibility = JavaVersion.toVersion(javaVersion)
+}
+
+// Loom packages the client source set for us on the Fabric side; ModDevGradle does not.
+jar {
+	from sourceSets.client.output
+}
+
+tasks.named('createMinecraftArtifacts') {
+	dependsOn 'stonecutterGenerate'
+}
