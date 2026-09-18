@@ -640,7 +640,7 @@ A line of **real block-model links** between two anchors (like `guide_line`, but
 | `arc` | 0 | Bows the path up (+) or down/hanging (−) at the midpoint, blocks (same as `guide_line`); ignored in physics mode |
 | `scale` | 1 | Link block size (0.1..4) |
 | `align` | 1 | 1 = each link's Y axis is rotated to the local path direction (chain follows the curve), 0 = upright blocks |
-| `physics` | 0 | 1 = verlet rope simulation: gravity sag, swept world collision (links catch on and slide along blocks), the local player pushes links away, `sway` wind wobble. With two anchors both ends are pinned; with one anchor the chain hangs from it (`length` blocks) |
+| `physics` | 0 | 1 = verlet rope simulation: gravity sag, swept world collision with surface friction (links catch and settle on blocks — the contacted block's own friction decides how much they grip: stone 0.6/tick, ice 0.98/tick), the local player pushes links away, `sway` wind wobble. With two anchors both ends are pinned; with one anchor the chain hangs from it (`length` blocks) |
 | `length` | auto | Total chain length in blocks (physics mode). Single anchor: hanging length, default 6. Two anchors: unset (0) = the span distance; more than the span = deeper sag; less than the span = taut (links stretch) |
 | `sway` | 0.3 | Wind wobble amplitude in physics mode (0..1) |
 
@@ -666,7 +666,7 @@ Links are capped at 512 per effect; rendering happens in the vanilla submit pipe
 }
 ```
 
-Physics is a client-side visual simulation (verlet rope at a fixed tick rate) — it does not affect the server world or other entities beyond the push interaction with the local player. Physics chains slide along terrain instead of sticking: each joint sweeps the path since its previous position and is pushed back out through the face it entered, keeping its tangential velocity — so links rest on surfaces without sinking, a joint that spawns inside a wall comes free, and a moving anchor drags the chain across the ground. Multi-box collision shapes are approximated by their union box.
+Physics is a client-side visual simulation (verlet rope at a fixed tick rate) — it does not affect the server world or other entities beyond the push interaction with the local player. Physics chains settle on terrain instead of gliding forever: each joint sweeps the path since its previous position and is pushed back out through the face it entered (a pure displacement that injects no velocity), then on contact loses its inward velocity and has its tangential velocity damped each tick by the contacted block's own friction (`Block#getFriction`: stone and air 0.6, ice 0.98) — so a rope grips stone, glides on ice, rests on surfaces without sinking, a joint that spawns inside a wall comes free, and a moving anchor drags the chain across the ground. Multi-box collision shapes are approximated by their union box.
 
 The built-in `vfxweaver:block_chain` demo hangs a 6-link `minecraft:iron_chain` from the local player (`pos_x/y/z` bound to `player_x/y/z`, `physics: 1`), so plain `/vfx play vfxweaver:block_chain` works without a datapack — the same self-anchoring pattern the `vfxweaver:particles` demo uses.
 

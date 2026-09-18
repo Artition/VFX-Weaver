@@ -385,6 +385,13 @@ public final class VFXWorldOverlayRenderer {
 	private static final int MAX_PARTICLES_PER_FRAME = 256;
 	private static final int MAX_AIMED_PARTICLES = 1024;
 	private static final int MAX_CHAIN_LINKS = 512;
+	/**
+	 * How far past a rope joint's resolved contact surface the friction probe samples the block,
+	 * blocks. The resolver parks the joint {@code padding} (0.1) outside the surface, so a probe
+	 * of 0.15 always lands just inside the contacted block (and stays inside thin shapes such as
+	 * snow layers and carpets).
+	 */
+	private static final double CHAIN_CONTACT_PROBE = 0.15;
 	/** Verlet rope simulation state per running {@code block_chain} instance (physics mode). */
 	private static final Map<Long, ChainSim> CHAIN_SIMS = new HashMap<>();
 	// [diag] temporary: last INFO diagnostic timestamp (nanos) per chain instance. Remove after the
@@ -394,8 +401,9 @@ public final class VFXWorldOverlayRenderer {
 	/**
 	 * Verlet rope for a physics chain: {@code pos}/{@code prev} per JOINT (connection point,
 	 * one more than rendered links), {@code renderPrev} snapshots the last tick for render
-	 * interpolation. Integrated at a fixed 1-tick timestep with gravity, world collision,
-	 * player push and pinned anchor ends.
+	 * interpolation. Integrated at a fixed 1-tick timestep with gravity, world collision (with
+	 * block-derived surface friction, see {@link #contactFriction}), player push and pinned
+	 * anchor ends.
 	 */
 	private static final class ChainSim {
 		float lastAge;
@@ -875,15 +883,26 @@ public final class VFXWorldOverlayRenderer {
 				}
 			}
 			// World collision: sweep the joint's movement and eject it through the face it entered
-			// (so a fast joint cannot tunnel through a block), then drop the inward normal
-			// component of its velocity so it keeps the tangential part and slides along the
-			// surface while a moving anchor drags it.
+			// (so a fast joint cannot tunnel through a block). The push is a PURE DISPLACEMENT:
+			// pos and prev shift by the same correction (the player-push idiom), so depenetration
+			// itself injects no velocity. On contact the inward normal component is dropped and
+			// the tangential part is damped by the contacted block's own friction (stone 0.6
+			// grips, ice 0.98 glides; see contactFriction), so a rope that once moved actually
+			// comes to rest instead of gliding forever - while a moving anchor still drags it.
 			for (int i = 1; i < sim.joints - (pinnedB ? 1 : 0); i++) {
 				final Vec3 p = sim.pos[i];
 				final Vec3 resolved = VFXWorldCollision.resolve(level, p, 0.1, sim.prev[i]);
+				final boolean contact = resolved != p;
+				final Vec3 correction = contact ? resolved.subtract(p) : Vec3.ZERO;
+				final Vec3 vel = p.subtract(sim.prev[i]);
+				final Vec3 n = contact ? correction.normalize() : Vec3.ZERO;
+				final double vn = contact ? vel.dot(n) : 0.0;
+				// Drop the inward normal component, then damp the tangential part by the surface.
+				final Vec3 tangential = contact && vn < 0.0 ? vel.subtract(n.scale(vn)) : vel;
+				final double friction = contact ? contactFriction(level, resolved, n) : 1.0;
 				// [diag] temporary: one INFO line per 2s per chain instance for the first resolved
-				// joint (pos/prev, whether the query returned shapes, the ejection and the result).
-				// Remove after the diagnostic round.
+				// joint (pos/prev, contact, ejection and the tangential speed before/after
+				// friction). Remove after the diagnostic round.
 				if (i == 1) {
 					final long now = System.nanoTime();
 					final Long last = CHAIN_DIAG.get(key);
@@ -892,18 +911,18 @@ public final class VFXWorldOverlayRenderer {
 						if (CHAIN_DIAG.size() > 256) {
 							CHAIN_DIAG.clear();
 						}
-						LOGGER.info("[diag] chain={} pos={} prev={} queryShapes={} delta={} resolved={}",
-							key, p, sim.prev[i], VFXWorldCollision.hasCollision(level, p, 0.1), resolved.subtract(p), resolved);
+						LOGGER.info("[diag] chain={} pos={} prev={} queryShapes={} contact={} delta={} resolved={} tBefore={} tAfter={}",
+							key, p, sim.prev[i], VFXWorldCollision.hasCollision(level, p, 0.1), contact, correction, resolved,
+							tangential.length(), tangential.scale(friction).length());
 					}
 				}
-				if (resolved == p) {
+				if (!contact) {
 					continue;
 				}
-				final Vec3 vel = p.subtract(sim.prev[i]);
-				final Vec3 n = resolved.subtract(p).normalize();
-				final double vn = vel.dot(n);
-				sim.pos[i] = resolved;
-				sim.prev[i] = resolved.subtract(vn < 0.0 ? vel.subtract(n.scale(vn)) : vel);
+				// Pure displacement, then set the post-contact velocity (normal removed, friction
+				// applied) through prev.
+				sim.pos[i] = p.add(correction);
+				sim.prev[i] = sim.pos[i].subtract(tangential.scale(friction));
 			}
 			// Player push: joints near the local player are shoved radially away. Both pos and
 			// prev shift equally - a pure displacement with no velocity injection, otherwise the
@@ -945,6 +964,21 @@ public final class VFXWorldOverlayRenderer {
 			);
 		}
 		return render;
+	}
+
+	/**
+	 * Fraction of the rope joint's tangential velocity kept per contacting tick, taken from the
+	 * friction of the block it just hit. Probes {@link #CHAIN_CONTACT_PROBE} blocks inside the
+	 * surface along {@code -normal} and reads {@link Block#getFriction()} (the block's own
+	 * slipperiness: stone/air default 0.6, ice 0.98). So a joint sliding on stone loses 40% of its
+	 * tangential speed per contacting tick and stops in a fraction of a second, while the same
+	 * joint on ice keeps ~98% and glides - the same friction vanilla entities feel on the ground.
+	 * Clamped to {@code [0, 1]} so a custom block can never add speed.
+	 */
+	private static double contactFriction(final ClientLevel level, final Vec3 contact, final Vec3 normal) {
+		final Vec3 inside = contact.subtract(normal.scale(CHAIN_CONTACT_PROBE));
+		final BlockState state = level.getBlockState(BlockPos.containing(inside.x, inside.y, inside.z));
+		return Mth.clamp(state.getBlock().getFriction(), 0.0F, 1.0F);
 	}
 
 	/**
