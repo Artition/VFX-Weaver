@@ -638,16 +638,27 @@ public final class VFXWorldOverlayRenderer {
 	 */
 	private static void collectSubmits() {
 		Minecraft minecraft = Minecraft.getInstance();
-		if (minecraft.level == null) {
-			return;
-		}
 		ClientLevel level = minecraft.level;
 		CameraRenderState camera = VFXClientRenderHooks.camera();
 		SubmitNodeCollector collector = VFXClientRenderHooks.collector();
-		if (camera == null || !camera.initialized || collector == null) {
+		List<VFXActiveEffect> worldEffects = level == null ? List.of() : VFXEffectManager.get().getActiveWorldEffects(); // [diag]
+		int chains = 0; // [diag]
+		for (VFXActiveEffect active : worldEffects) { // [diag]
+			if (active.getType() == VFXEffectType.BLOCK_CHAIN) { // [diag]
+				chains++; // [diag]
+			}
+		}
+		LOGGER.info("[diag] collectSubmits: level={} camera={} initialized={} collector={} worldEffects={} chains={}", // [diag]
+			level != null, camera, camera != null && camera.initialized, collector == null ? "null" : collector.getClass().getName(), worldEffects.size(), chains); // [diag]
+		if (level == null) {
+			LOGGER.info("[diag] collectSubmits: early return, minecraft.level is null"); // [diag]
 			return;
 		}
-		for (VFXActiveEffect effect : VFXEffectManager.get().getActiveWorldEffects()) {
+		if (camera == null || !camera.initialized || collector == null) {
+			LOGGER.info("[diag] collectSubmits: early return, camera={} initialized={} collector={}", camera, camera != null && camera.initialized, collector == null ? "null" : collector.getClass().getName()); // [diag]
+			return;
+		}
+		for (VFXActiveEffect effect : worldEffects) {
 			if (effect.getType() != VFXEffectType.BLOCK_CHAIN) {
 				continue;
 			}
@@ -668,14 +679,17 @@ public final class VFXWorldOverlayRenderer {
 	 */
 	private static void submitChain(final SubmitNodeCollector collector, final VFXActiveEffect effect, final ClientLevel level, final Minecraft minecraft, final CameraRenderState camera) {
 		if (effect.getWeight() <= 0.0F) {
+			LOGGER.info("[diag] submitChain {}: early return, weight={}", effect.getId(), effect.getWeight()); // [diag]
 			return;
 		}
 		List<Vec3> anchors = effectPositions(effect, level);
 		if (anchors.isEmpty()) {
+			LOGGER.info("[diag] submitChain {}: early return, anchors empty", effect.getId()); // [diag]
 			return;
 		}
 		BlockState state = resolveChainBlock(effect);
 		if (state == null) {
+			LOGGER.info("[diag] submitChain {}: early return, chain block state null", effect.getId()); // [diag]
 			return;
 		}
 		Vec3 a = anchors.get(0);
@@ -709,6 +723,7 @@ public final class VFXWorldOverlayRenderer {
 			Vec3 delta = (b != null ? b : a.add(10.0, -3.0, 0.0)).subtract(a);
 			double length = delta.length();
 			if (length < 1.0e-4) {
+				LOGGER.info("[diag] submitChain {}: early return, zero-length geometric path", effect.getId()); // [diag]
 				return;
 			}
 			// Geometric mode also renders SEGMENTS between joints spanning anchor to anchor.
@@ -724,6 +739,7 @@ public final class VFXWorldOverlayRenderer {
 		// middle of the next, rotated to the segment direction and stretched to the segment
 		// length — so links stay connected even at sharp bends, and a taut chain fills its span.
 		int links = jointPositions.length - 1;
+		LOGGER.info("[diag] submitChain {}: submitting links={} via collector={}", effect.getId(), links, collector.getClass().getName()); // [diag]
 		for (int i = 0; i < links; i++) {
 			Vec3 startJ = jointPositions[i];
 			Vec3 endJ = jointPositions[i + 1];
@@ -764,6 +780,7 @@ public final class VFXWorldOverlayRenderer {
 			*///?}
 			pose.popPose();
 		}
+		LOGGER.info("[diag] submitChain {}: anchors={} state={} links={} call=submitMovingBlock returned", effect.getId(), anchors.size(), state, links); // [diag]
 	}
 
 	/**
