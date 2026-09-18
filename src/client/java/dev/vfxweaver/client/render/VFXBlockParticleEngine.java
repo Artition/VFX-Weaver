@@ -396,22 +396,37 @@ public final class VFXBlockParticleEngine {
 		display.setPos(position.x, position.y, position.z);
 		final float spin = particle.spec.spin();
 		applyTransform(display, particle.spec.size(), particle.rotation - spin + spin * fraction);
+		// Re-anchor the one-tick interpolation window to the current tick every frame (the setter
+		// forces the synched-data update), so the display slerps from the previously rendered
+		// transformation to this frame's target instead of holding it until the next entity tick.
+		display.setTransformationInterpolationDelay(0);
 		// Pin the old position to the value just set, so the frame renders this exact interpolation
 		// instead of a second (vanilla) lerp between this and the previous tick's target.
 		display.setOldPosAndRot();
 	}
 
 	/**
-	 * Applies the spec's scale and the spin yaw (around the world Y axis) to a display, centring
-	 * the model on the particle. Both models are corner-origin (a block display's pivot is its
-	 * bottom-north-west corner; an item display's default {@code ItemDisplayContext.NONE} draws the
-	 * raw corner-origin item model), so a unit model is translated by half its scaled size — rotated
-	 * with it — to put its centre on the display's position.
+	 * Applies the spec's scale and the spin yaw (around the world Y axis) to a display, centred on
+	 * the particle. The two display kinds have different pivots:
+	 *
+	 * <p>A {@link Display.BlockDisplay} draws the raw block model (geometry spans 0..1), so its
+	 * pivot is the bottom-north-west corner; it must be translated by half its scaled size to put
+	 * its centre on the display's position. {@link Transformation} composes as {@code translation *
+	 * leftRotation * scale * rightRotation} (a point is transformed right-to-left), so the translation
+	 * must be pre-rotated by the spin or the model would orbit instead of spinning in place.</p>
+	 *
+	 * <p>A {@link Display.ItemDisplay} is already centred: {@code ItemDisplayContext.NONE} selects
+	 * {@link net.minecraft.client.resources.model.cuboid.ItemTransform#NO_TRANSFORM}, whose
+	 * {@code apply} translates the model by {@code (-0.5, -0.5, -0.5)} in
+	 * {@code ItemStackRenderState}, and the item renderer adds a 180° Y flip — both inside this
+	 * transformation, so the item's centre is at the display origin and needs no translation.</p>
 	 */
 	private static void applyTransform(final Display display, final float size, final float rotationDegrees) {
 		final Quaternionf rotation = new Quaternionf().rotationY((float) Math.toRadians(rotationDegrees));
 		final Vector3f scale = new Vector3f(size, size, size);
-		final Vector3f translation = rotation.transform(new Vector3f(0.5F * size, 0.5F * size, 0.5F * size)).negate();
+		final Vector3f translation = display instanceof Display.ItemDisplay
+			? new Vector3f()
+			: rotation.transform(new Vector3f(0.5F * size, 0.5F * size, 0.5F * size)).negate();
 		display.setTransformation(new Transformation(translation, rotation, scale, new Quaternionf()));
 	}
 
@@ -443,6 +458,11 @@ public final class VFXBlockParticleEngine {
 			display.setBrightnessOverride(Brightness.unpack(spec.brightness()));
 		}
 		applyTransform(display, spec.size(), rotation);
+		// Make the display interpolate its transformation over exactly one tick. Without this the
+		// render state is only rebuilt on the entity tick, so a transformation refreshed every frame
+		// still renders as the old ~20 Hz stepped spin.
+		display.setTransformationInterpolationDuration(1);
+		display.setTransformationInterpolationDelay(0);
 		return display;
 	}
 
