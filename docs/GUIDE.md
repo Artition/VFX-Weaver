@@ -648,7 +648,12 @@ Everything else (shape, `rate`, positions/bindings, aimed mode) works exactly as
 | `bounce` | 0 | Restitution of the normal velocity on contact (`0` = no bounce, `1` = full bounce). |
 | `size` | 0.25 | Model scale (1 = one full block). |
 | `life` | 60 | Lifetime in ticks. |
-| `spin` | 0 | Tumble angular speed per tick, in degrees, about a random axis (in model mode this replaces the helix-phase meaning of `spin`). `0` gives a static but randomly oriented model. |
+| `spin` | 0 | Rotation angular speed per tick, in degrees (in model mode this replaces the helix-phase meaning of `spin`). `0` gives a static model. |
+| `spin_random` | 1.0 | `0..1`: how random the initial orientation (and, in tumble mode, the rotation axis) is. `0` = strictly upright and identical for every particle, deterministic; `1` = fully random. |
+| `spin_friction` | 1.0 | `0..1`: how much the contacted block's own friction damps the tumble on contact. `0` = the spin never decays; `1` = the full block friction. Tumble mode only. |
+| `spin_roll` | 0.5 | `0..1`: how much tangential impact speed feeds the tumble on contact. `0` = no roll transfer. Tumble mode only. |
+
+The **rotation mode** and the **rotation axis** (`spin_mode`, `spin_axis`) are preset fields (see [3.5](#35-blockitem-particle-presets-vfx_particles)) — the effect params above tune the three 0..1 values on top of whichever preset the effect names. A model with the defaults (`spin_mode: tumble`, `spin_axis: random`) reproduces the physical tumbling described above.
 
 `brightness` behaves exactly like a block display's brightness (`net.minecraft.util.Brightness`): `-1` follows the world, anything else pins that packed light (`block << 4 | sky << 20`) on the particle's display entity. So `brightness: 15` makes the particles glow at full block+sky light even in a pitch-black room, which is how you get readable "fireflies" or embers at night.
 
@@ -1055,9 +1060,42 @@ A preset draws a block **or** an item — exactly one of the two is required. Th
 | `bounce` | float | 0.0 | Normal-velocity restitution on contact (0..1) |
 | `size` | float | 0.25 | Model scale (1 = one full block) |
 | `life` | int | 60 | Lifetime in ticks |
-| `spin` | float | 0.0 | Tumble angular speed per tick, in degrees, about a random axis |
+| `spin` | float | 0.0 | Rotation angular speed per tick, in degrees |
+| `spin_mode` | string | `"tumble"` | Rotation model: `tumble` (physical full-3D spin, the default), `yaw` (uniform spin about one axis) or `none` (no rotation: upright, no contact response) |
+| `spin_axis` | string or `[x, y, z]` | `"random"` | Rotation axis: `"random"`, `"x"`, `"y"`, `"z"` or a vector `[x, y, z]`. For `yaw` it is the spin axis (world Y when random/unset); for `tumble` it fixes the base axis instead of drawing one per particle |
+| `spin_random` | float | 1.0 | `0..1`: how random the initial orientation and tumble axis are (0 = strictly upright and identical for every particle) |
+| `spin_friction` | float | 1.0 | `0..1`: how much the contacted block's friction damps the tumble on contact (0 = never decays) |
+| `spin_roll` | float | 0.5 | `0..1`: how much tangential impact speed feeds the tumble on contact (0 = no roll transfer) |
 
-A preset only supplies defaults: a `particles` effect that names it can still override any of these with the matching effect params.
+A preset only supplies defaults: a `particles` effect that names it can still override any of these with the matching effect params (`spin`, `spin_random`, `spin_friction`, `spin_roll`).
+
+Three copy-paste rotation recipes (drop each into `data/<namespace>/vfx_particles/<name>.json` and name it from a `particles` effect with `"particle": "<namespace>:<name>"`):
+
+**1. Tumbling cubes** — the default physical model: random orientation, end-over-end tumble about a random axis, contact damping and roll:
+
+```json
+{ "block": "minecraft:oak_planks", "brightness": [15, 15], "gravity": 1.0, "friction": 0.94,
+  "collide": 1.0, "bounce": 0.35, "size": 0.35, "life": 80,
+  "spin": 12, "spin_mode": "tumble", "spin_axis": "random",
+  "spin_random": 1.0, "spin_friction": 1.0, "spin_roll": 0.5 }
+```
+
+**2. Spinning top** — a clean uniform spin about world Y (the pre-tumble behaviour), upright start, no contact roll:
+
+```json
+{ "block": "minecraft:oak_planks", "gravity": 1.0, "friction": 0.94,
+  "collide": 1.0, "bounce": 0.1, "size": 0.35, "life": 120,
+  "spin": 24, "spin_mode": "yaw", "spin_axis": "y",
+  "spin_random": 0.0, "spin_friction": 0.0, "spin_roll": 0.0 }
+```
+
+**3. No rotation** — a static, strictly upright model (contact still moves it, the model just never turns):
+
+```json
+{ "block": "minecraft:oak_planks", "gravity": 1.0, "friction": 0.94,
+  "collide": 1.0, "bounce": 0.0, "size": 0.35, "life": 100,
+  "spin_mode": "none" }
+```
 
 **Two-layer rule and the Java API.** Like effect definitions, presets have two layers: the datapack set (reloaded with `/reload`) and a code-registered local set written with `VFXAPI.registerBlockParticle(id, spec)`. The local layer survives `/reload` and is private to this client; the datapack layer wins for the same id. `VFXAPI.unregisterBlockParticle(id)` removes a local preset and `VFXAPI.blockParticle(id)` looks one up. Both layers are capped at 256 entries, and a broken file is reported by `/vfx validate` without affecting the rest. `VFXAPI.spawnBlockParticle(spec, position, velocity)` spawns a single block particle immediately on the client (no packet, no effect instance); see [docs/API.md](API.md).
 
@@ -1220,6 +1258,9 @@ Post-processing pipeline, world overlays, effect clock, load limits and fault to
 Versioned feature history — **[docs/CHANGELOG.md](CHANGELOG.md)**.
 
 Guide version: 27 — see changelog below.
+
+### v36
+- **Block/item particle rotation is now fully configurable** — presets (and the Java spec builder) gained `spin_mode` (`tumble` = the physical full-3D spin, `yaw` = a uniform spin about one axis, `none` = no rotation), `spin_axis` (`random`/`x`/`y`/`z`/`[x, y, z]`), `spin_random` (how random the start orientation and tumble axis are; `0` = strictly upright and identical for every particle), `spin_friction` (how strongly the contacted block's friction damps the spin; `0` = never decays) and `spin_roll` (how much tangential impact speed feeds the tumble; `0` = no roll transfer). The `spin`/`spin_random`/`spin_friction`/`spin_roll` effect params override a named preset's values; the defaults (`tumble`/`random`/`1.0`/`1.0`/`0.5`) reproduce the previous tumbling behaviour exactly.
 
 ### v35
 - **Block/item particles tumble like real falling cubes** — `spin` is now the magnitude of a full 3D angular velocity about a random axis (degrees/tick) with a random initial orientation, instead of a yaw around world Y. The orientation is integrated per tick and slerped for rendering; contact damps the tumble by the contacted block's friction so a cube lands and settles. `spin = 0` gives a static but randomly oriented model.

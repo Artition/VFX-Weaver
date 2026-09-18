@@ -123,6 +123,36 @@ item mode rather than a second engine:
 - Bounds: one display entity per live particle, capped by the existing per-instance/global caps and
   removed on death, effect stop and level change; an unusable block warns once, never per frame.
 
+### 6. Rotation configuration (amended 2026-09-18)
+
+Rotation is a first-class, fully configurable part of the spec. New optional fields (preset JSON,
+`VFXBlockParticleSpec` builder, and the numeric `particles` params where applicable):
+
+| field | type | default | meaning |
+|---|---|---|---|
+| `spin_mode` | string | `tumble` | `tumble` = physical full-3D tumbling (the current behaviour); `yaw` = uniform spin around one axis (the older behaviour); `none` = no rotation |
+| `spin_axis` | string or `[x,y,z]` | `random` | `random` / `x` / `y` / `z` / a vector `[x,y,z]`; for `yaw` it is the spin axis (world Y when unset), for `tumble` it fixes the base axis instead of drawing one per particle |
+| `spin_random` | float `0..1` | `1.0` | how random the initial orientation and the tumble axis are (`0` = strictly upright and identical for every particle, deterministic) |
+| `spin_friction` | float `0..1` | `1.0` | multiplier applied to the contacted block's friction when damping the spin on contact (`0` = the spin never decays) |
+| `spin_roll` | float `0..1` | `0.5` | how much tangential impact speed feeds the tumble (`0` = no roll transfer; replaces the hardcoded `CONTACT_ROLL_TRANSFER`) |
+
+Engine semantics (`VFXBlockParticleEngine`):
+
+- `none`: identity orientation, no angular velocity, no contact response (ignores `spin_random`/
+  `spin_friction`/`spin_roll`).
+- `yaw`: rotates around `spin_axis` (world Y when unset) at `spin` degrees/tick — the pre-tumble
+  behaviour — still respecting `spin_random` for the initial tilt.
+- `tumble` (default): the current physical model (orientation + angular velocity), with the
+  angular-velocity axis taken from `spin_axis` when fixed, otherwise drawn per particle and blended
+  toward world Y as `spin_random` goes to 0; the initial orientation randomness is scaled by
+  `spin_random`.
+- Contact: angular velocity damped by `mix(1.0, blockFriction, spin_friction)`; roll transfer scaled
+  by `spin_roll`. Both apply to `tumble` only.
+
+The defaults (`tumble`/`random`/`1.0`/`1.0`/`0.5`) reproduce the pre-amendment behaviour exactly, so
+existing presets are unchanged. `spin_mode`/`spin_axis` live in the preset + API spec only: effect
+params are numeric timelines, so an effect selects `yaw`/`none` by naming a preset.
+
 ## Verification
 
 - All six nodes build; no other behaviour changes.

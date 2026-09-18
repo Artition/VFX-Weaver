@@ -9,6 +9,7 @@ import java.io.IOException;
 import java.io.Reader;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.concurrent.ConcurrentHashMap;
@@ -22,6 +23,8 @@ import net.minecraft.util.StrictJsonParser;
 import net.minecraft.util.profiling.ProfilerFiller;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.state.BlockState;
+import org.joml.Vector3f;
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -219,8 +222,66 @@ public class VFXBlockParticleManager extends SimplePreparableReloadListener<Map<
 			.bounce(optFloat(object, "bounce", 0.0F))
 			.size(optFloat(object, "size", 0.25F))
 			.life(optInt(object, "life", 60))
-			.spin(optFloat(object, "spin", 0.0F));
+			.spin(optFloat(object, "spin", 0.0F))
+			.spinMode(parseSpinMode(object.get("spin_mode")))
+			.spinAxis(parseSpinAxis(object.get("spin_axis")))
+			.spinRandom(clamp01(optFloat(object, "spin_random", 1.0F)))
+			.spinFriction(clamp01(optFloat(object, "spin_friction", 1.0F)))
+			.spinRoll(clamp01(optFloat(object, "spin_roll", 0.5F)));
 		return builder.build();
+	}
+
+	/**
+	 * Parses {@code spin_mode}: {@code tumble} (default), {@code yaw} or {@code none}, case-insensitive.
+	 * An unknown value is a per-file parse error.
+	 */
+	private static VFXBlockParticleSpec.SpinMode parseSpinMode(final @Nullable JsonElement element) {
+		if (element == null || element.isJsonNull()) {
+			return VFXBlockParticleSpec.SpinMode.TUMBLE;
+		}
+		final VFXBlockParticleSpec.SpinMode mode = VFXBlockParticleSpec.SpinMode.byName(element.getAsString());
+		if (mode == null) {
+			throw new IllegalArgumentException("'spin_mode' must be tumble, yaw or none: " + element);
+		}
+		return mode;
+	}
+
+	/**
+	 * Parses {@code spin_axis}: {@code random} (default), {@code x}, {@code y}, {@code z} or a
+	 * {@code [x, y, z]} array. Returns {@code null} for a random axis; an unknown name or a
+	 * zero-length vector is a per-file parse error.
+	 */
+	private static @Nullable Vector3f parseSpinAxis(final @Nullable JsonElement element) {
+		if (element == null || element.isJsonNull()) {
+			return null;
+		}
+		if (element.isJsonArray()) {
+			final JsonArray array = element.getAsJsonArray();
+			if (array.size() != 3) {
+				throw new IllegalArgumentException("'spin_axis' must be random, x, y, z or an array of [x, y, z]");
+			}
+			final Vector3f axis = new Vector3f(array.get(0).getAsFloat(), array.get(1).getAsFloat(), array.get(2).getAsFloat());
+			if (axis.lengthSquared() < 1.0e-8F) {
+				throw new IllegalArgumentException("'spin_axis' vector must be non-zero");
+			}
+			return axis.normalize();
+		}
+		switch (element.getAsString().trim().toLowerCase(Locale.ROOT)) {
+			case "random":
+				return null;
+			case "x":
+				return new Vector3f(1.0F, 0.0F, 0.0F);
+			case "y":
+				return new Vector3f(0.0F, 1.0F, 0.0F);
+			case "z":
+				return new Vector3f(0.0F, 0.0F, 1.0F);
+			default:
+				throw new IllegalArgumentException("'spin_axis' must be random, x, y, z or an array of [x, y, z]: " + element);
+		}
+	}
+
+	private static float clamp01(final float value) {
+		return Math.max(0.0F, Math.min(1.0F, value));
 	}
 
 	/**

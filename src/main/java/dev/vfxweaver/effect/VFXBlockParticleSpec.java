@@ -1,5 +1,6 @@
 package dev.vfxweaver.effect;
 
+import java.util.Locale;
 import java.util.Map;
 import net.minecraft.commands.arguments.blocks.BlockStateParser;
 import net.minecraft.core.registries.BuiltInRegistries;
@@ -9,6 +10,7 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
+import org.joml.Vector3f;
 import org.jspecify.annotations.Nullable;
 
 /**
@@ -24,16 +26,30 @@ import org.jspecify.annotations.Nullable;
  * ({@code block &lt;&lt; 4 | sky &lt;&lt; 20}, produced by the version's pack helper) applied to every
  * vertex of the model regardless of the surrounding light.</p>
  *
- * @param block    the block model drawn by the particle, or {@code null} for an item spec
- * @param brightness packed light override, or {@link #NO_BRIGHTNESS} for world light
- * @param gravity  downward acceleration per tick, as a multiple of {@link #GRAVITY_STEP}
- * @param friction air drag per tick, {@code 0..1} (1 = no drag)
- * @param collide  surface friction on contact, {@code 0..1}; {@code 0} disables world collision
- * @param bounce   restitution of the normal velocity on contact, {@code 0..1}
- * @param size     model scale (the natural block model is one block)
- * @param life     lifetime in ticks
- * @param spin     tumble angular speed per tick, in degrees, about a random axis
- * @param item     the item model drawn by the particle, or {@link ItemStack#EMPTY} for a block spec
+ * <p>Rotation is configured by {@link #spinMode()} (tumble / yaw / none), {@link #spinAxis()}
+ * (a fixed axis, or {@code null} for a random one), and the {@code spinRandom} / {@code spinFriction} /
+ * {@code spinRoll} tuning below.</p>
+ *
+ * @param block        the block model drawn by the particle, or {@code null} for an item spec
+ * @param brightness   packed light override, or {@link #NO_BRIGHTNESS} for world light
+ * @param gravity      downward acceleration per tick, as a multiple of {@link #GRAVITY_STEP}
+ * @param friction     air drag per tick, {@code 0..1} (1 = no drag)
+ * @param collide      surface friction on contact, {@code 0..1}; {@code 0} disables world collision
+ * @param bounce       restitution of the normal velocity on contact, {@code 0..1}
+ * @param size         model scale (the natural block model is one block)
+ * @param life         lifetime in ticks
+ * @param spin         rotation angular speed per tick, in degrees
+ * @param item         the item model drawn by the particle, or {@link ItemStack#EMPTY} for a block spec
+ * @param spinMode     how the model rotates: {@link SpinMode#TUMBLE} (physical, default),
+ *                     {@link SpinMode#YAW} (uniform spin about one axis) or {@link SpinMode#NONE}
+ * @param spinAxis     fixed rotation axis, or {@code null} for a random axis (a {@code yaw} spec
+ *                     with a {@code null} axis spins about world Y)
+ * @param spinRandom   {@code 0..1}: how random the initial orientation and the tumble axis are
+ *                     (0 = strictly upright and identical for every particle)
+ * @param spinFriction {@code 0..1}: how much the contacted block's friction damps the tumble on
+ *                     contact (0 = the spin never decays)
+ * @param spinRoll     {@code 0..1}: how much tangential impact speed feeds the tumble on contact
+ *                     (0 = no roll transfer)
  */
 public record VFXBlockParticleSpec(
 	@Nullable BlockState block,
@@ -45,10 +61,51 @@ public record VFXBlockParticleSpec(
 	float size,
 	int life,
 	float spin,
-	ItemStack item
+	ItemStack item,
+	SpinMode spinMode,
+	@Nullable Vector3f spinAxis,
+	float spinRandom,
+	float spinFriction,
+	float spinRoll
 ) {
+	/** How a model particle rotates. */
+	public enum SpinMode {
+		/** Physical tumbling: full 3D orientation with angular velocity (the default). */
+		TUMBLE,
+		/** Uniform spin around one axis (the pre-tumble behaviour). */
+		YAW,
+		/** No rotation at all: upright, no angular velocity, no contact response. */
+		NONE;
+
+		/**
+		 * Case-insensitive lookup of a {@code spin_mode} name.
+		 *
+		 * @param name the mode name ({@code tumble}/{@code yaw}/{@code none})
+		 * @return the mode, or {@code null} for an unknown name
+		 */
+		public static @Nullable SpinMode byName(final @Nullable String name) {
+			if (name == null) {
+				return null;
+			}
+			switch (name.trim().toLowerCase(Locale.ROOT)) {
+				case "tumble":
+					return TUMBLE;
+				case "yaw":
+					return YAW;
+				case "none":
+					return NONE;
+				default:
+					return null;
+			}
+		}
+	}
+
 	public VFXBlockParticleSpec {
 		item = item == null ? ItemStack.EMPTY : item;
+		spinMode = spinMode == null ? SpinMode.TUMBLE : spinMode;
+		spinRandom = clamp(spinRandom, 0.0F, 1.0F);
+		spinFriction = clamp(spinFriction, 0.0F, 1.0F);
+		spinRoll = clamp(spinRoll, 0.0F, 1.0F);
 	}
 	/** Brightness sentinel meaning "use the world light at the particle position". */
 	public static final int NO_BRIGHTNESS = -1;
@@ -66,6 +123,9 @@ public record VFXBlockParticleSpec(
 	private static final float DEFAULT_SIZE = 0.25F;
 	private static final int DEFAULT_LIFE = 60;
 	private static final float DEFAULT_SPIN = 0.0F;
+	private static final float DEFAULT_SPIN_RANDOM = 1.0F;
+	private static final float DEFAULT_SPIN_FRICTION = 1.0F;
+	private static final float DEFAULT_SPIN_ROLL = 0.5F;
 
 	/** @return {@code true} when the particle draws a block model */
 	public boolean hasBlock() {
@@ -110,8 +170,9 @@ public record VFXBlockParticleSpec(
 	/**
 	 * Lay effect parameter overrides over this spec: every key present in {@code params} replaces
 	 * the corresponding field. {@code brightness} is a light level ({@code -1} = world light);
-	 * {@code life} is clamped to {@code [1, MAX_LIFE]} and the rest to their physical ranges.
-	 * Parameters the effect does not declare are absent from the map and keep this spec's value.
+	 * {@code life} is clamped to {@code [1, MAX_LIFE]}, {@code spin} to {@code [-3600, 3600]} and
+	 * {@code spin_random}/{@code spin_friction}/{@code spin_roll} to {@code [0, 1]}. Parameters the
+	 * effect does not declare are absent from the map and keep this spec's value.
 	 *
 	 * @param params effect parameter values (may be empty)
 	 * @return the overridden spec, or {@code this} when nothing applies
@@ -128,6 +189,9 @@ public record VFXBlockParticleSpec(
 		float newSize = this.size;
 		int newLife = this.life;
 		float newSpin = this.spin;
+		float newSpinRandom = this.spinRandom;
+		float newSpinFriction = this.spinFriction;
+		float newSpinRoll = this.spinRoll;
 		Float value;
 		if ((value = params.get("brightness")) != null) {
 			final int level = value.intValue();
@@ -154,12 +218,22 @@ public record VFXBlockParticleSpec(
 		if ((value = params.get("spin")) != null) {
 			newSpin = clamp(value, -3600.0F, 3600.0F);
 		}
+		if ((value = params.get("spin_random")) != null) {
+			newSpinRandom = clamp(value, 0.0F, 1.0F);
+		}
+		if ((value = params.get("spin_friction")) != null) {
+			newSpinFriction = clamp(value, 0.0F, 1.0F);
+		}
+		if ((value = params.get("spin_roll")) != null) {
+			newSpinRoll = clamp(value, 0.0F, 1.0F);
+		}
 		if (newBrightness == this.brightness && newGravity == this.gravity && newFriction == this.friction
 			&& newCollide == this.collide && newBounce == this.bounce && newSize == this.size
-			&& newLife == this.life && newSpin == this.spin) {
+			&& newLife == this.life && newSpin == this.spin && newSpinRandom == this.spinRandom
+			&& newSpinFriction == this.spinFriction && newSpinRoll == this.spinRoll) {
 			return this;
 		}
-		return new VFXBlockParticleSpec(this.block, newBrightness, newGravity, newFriction, newCollide, newBounce, newSize, newLife, newSpin, this.item);
+		return new VFXBlockParticleSpec(this.block, newBrightness, newGravity, newFriction, newCollide, newBounce, newSize, newLife, newSpin, this.item, this.spinMode, this.spinAxis, newSpinRandom, newSpinFriction, newSpinRoll);
 	}
 
 	/**
@@ -252,6 +326,11 @@ public record VFXBlockParticleSpec(
 		private float size = DEFAULT_SIZE;
 		private int life = DEFAULT_LIFE;
 		private float spin = DEFAULT_SPIN;
+		private SpinMode spinMode = SpinMode.TUMBLE;
+		private @Nullable Vector3f spinAxis = null;
+		private float spinRandom = DEFAULT_SPIN_RANDOM;
+		private float spinFriction = DEFAULT_SPIN_FRICTION;
+		private float spinRoll = DEFAULT_SPIN_ROLL;
 
 		private Builder(final @Nullable BlockState block) {
 			this.block = block;
@@ -314,9 +393,36 @@ public record VFXBlockParticleSpec(
 			return this;
 		}
 
+		/** @param value the rotation mode ({@code null} = {@link SpinMode#TUMBLE}) */
+		public Builder spinMode(final @Nullable SpinMode value) {
+			this.spinMode = value == null ? SpinMode.TUMBLE : value;
+			return this;
+		}
+
+		/** @param value the fixed rotation axis, or {@code null} for a random one */
+		public Builder spinAxis(final @Nullable Vector3f value) {
+			this.spinAxis = value;
+			return this;
+		}
+
+		public Builder spinRandom(final float value) {
+			this.spinRandom = clamp(value, 0.0F, 1.0F);
+			return this;
+		}
+
+		public Builder spinFriction(final float value) {
+			this.spinFriction = clamp(value, 0.0F, 1.0F);
+			return this;
+		}
+
+		public Builder spinRoll(final float value) {
+			this.spinRoll = clamp(value, 0.0F, 1.0F);
+			return this;
+		}
+
 		/** @return the built immutable spec */
 		public VFXBlockParticleSpec build() {
-			return new VFXBlockParticleSpec(this.block, this.brightness, this.gravity, this.friction, this.collide, this.bounce, this.size, this.life, this.spin, this.item);
+			return new VFXBlockParticleSpec(this.block, this.brightness, this.gravity, this.friction, this.collide, this.bounce, this.size, this.life, this.spin, this.item, this.spinMode, this.spinAxis, this.spinRandom, this.spinFriction, this.spinRoll);
 		}
 	}
 }

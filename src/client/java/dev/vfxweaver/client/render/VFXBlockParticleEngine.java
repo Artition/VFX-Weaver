@@ -51,11 +51,15 @@ import org.slf4j.LoggerFactory;
  * submit-pipeline rendering (and its pose/light bookkeeping) is gone; the linear physics
  * (gravity/drag/collision) is unchanged.</p>
  *
- * <p>Each particle has a random full-3D initial orientation and a random tumble axis; the spec's
- * {@code spin} (degrees/tick) is the magnitude of its angular velocity (stored as radians/tick).
- * A contact with a surface damps the angular velocity by that block's friction, so a cube lands
- * and settles instead of spinning forever. The rendered orientation is the slerp of the previous
- * and current tick by the fractional tick.</p>
+ * <p>Rotation follows the spec's {@link VFXBlockParticleSpec.SpinMode}: {@code tumble} (default)
+ * gives every particle a random full-3D initial orientation scaled by {@code spin_random} and an
+ * angular velocity of {@code spin} degrees/tick about {@code spin_axis} (or a random per-particle
+ * axis when {@code spin_axis = random}); {@code yaw} spins uniformly about one fixed axis (world Y
+ * when unset); {@code none} leaves the model upright with no angular velocity and no contact
+ * response. In tumble mode a contact damps the angular velocity by the contacted block's friction
+ * scaled by {@code spin_friction} (0 = never decays) and feeds {@code spin_roll} of the tangential
+ * slip into the tumble, so a cube lands and settles instead of spinning forever. The rendered
+ * orientation is the slerp of the previous and current tick by the fractional tick.</p>
  *
  * <p>State is per running effect instance (keyed by {@link VFXActiveEffect#getInstanceId()}) plus a
  * single bucket for API one-shot spawns. Integration is a fixed 1-tick step driven by the shared
@@ -79,8 +83,6 @@ public final class VFXBlockParticleEngine {
 	private static final double MIN_COLLISION_PADDING = 0.01;
 	/** The spec's {@code spin} is degrees/tick; the engine stores angular velocity in radians/tick. */
 	private static final float DEG_TO_RAD = (float) (Math.PI / 180.0);
-	/** Fraction of the tangential slip converted to roll on contact, in radians/tick per block/tick. */
-	private static final float CONTACT_ROLL_TRANSFER = 0.5F;
 	/** Slip (blocks/tick) cap for the contact roll bleed, so a fast slide cannot spin a cube up absurdly. */
 	private static final float MAX_ROLL_SLIP = 1.0F;
 
@@ -395,24 +397,31 @@ public final class VFXBlockParticleEngine {
 					vy = ty * retain - normal.y * vn * bounce;
 					vz = tz * retain - normal.z * vn * bounce;
 					// A little of the tangential slip becomes roll about n x v_t, so a cube that
-					// lands skidding rolls instead of sliding flat. Optional heuristic: capped and
-					// zero when there is no slip (a particle spawned embedded in geometry has none).
-					final double slip = Math.sqrt(tx * tx + ty * ty + tz * tz);
-					if (slip > 1.0e-4) {
-						final float invSlip = (float) (1.0 / slip);
-						final float ax = (float) (normal.y * tz - normal.z * ty) * invSlip;
-						final float ay = (float) (normal.z * tx - normal.x * tz) * invSlip;
-						final float az = (float) (normal.x * ty - normal.y * tx) * invSlip;
-						final float gain = (float) Math.min(slip, MAX_ROLL_SLIP) * CONTACT_ROLL_TRANSFER;
-						particle.angularVelocity.x += gain * ax;
-						particle.angularVelocity.y += gain * ay;
-						particle.angularVelocity.z += gain * az;
+					// lands skidding rolls instead of sliding flat. The transfer is the spec's
+					// spin_roll (0 = off); it is a capped heuristic, zero when there is no slip (a
+					// particle spawned embedded in geometry has none). Tumble mode only.
+					if (spec.spinMode() == VFXBlockParticleSpec.SpinMode.TUMBLE) {
+						final double slip = Math.sqrt(tx * tx + ty * ty + tz * tz);
+						if (slip > 1.0e-4) {
+							final float invSlip = (float) (1.0 / slip);
+							final float ax = (float) (normal.y * tz - normal.z * ty) * invSlip;
+							final float ay = (float) (normal.z * tx - normal.x * tz) * invSlip;
+							final float az = (float) (normal.x * ty - normal.y * tx) * invSlip;
+							final float gain = (float) Math.min(slip, MAX_ROLL_SLIP) * spec.spinRoll();
+							particle.angularVelocity.x += gain * ax;
+							particle.angularVelocity.y += gain * ay;
+							particle.angularVelocity.z += gain * az;
+						}
 					}
 				}
 				// A touched surface damps the tumble by its own friction (stone 0.6 grips, ice
-				// 0.98 glides - the same rule the block_chain rope uses), so a cube settles.
-				final float surfaceFriction = (float) VFXWorldOverlayRenderer.contactFriction(level, resolved, normal);
-				particle.angularVelocity.mul(surfaceFriction);
+				// 0.98 glides - the same rule the block_chain rope uses), scaled by spin_friction
+				// (0 = the spin never decays), so a cube settles. Yaw/none ignore contact rotation.
+				if (spec.spinMode() == VFXBlockParticleSpec.SpinMode.TUMBLE) {
+					final float surfaceFriction = (float) VFXWorldOverlayRenderer.contactFriction(level, resolved, normal);
+					final float damping = 1.0F + spec.spinFriction() * (surfaceFriction - 1.0F);
+					particle.angularVelocity.mul(damping);
+				}
 				next = resolved;
 			}
 		}
@@ -522,8 +531,8 @@ public final class VFXBlockParticleEngine {
 			return;
 		}
 		final ThreadLocalRandom random = ThreadLocalRandom.current();
-		final Quaternionf orientation = randomOrientation(random);
-		final Vector3f angularVelocity = randomAngularVelocity(random, spec.spin());
+		final Quaternionf orientation = initialOrientation(random, spec);
+		final Vector3f angularVelocity = initialAngularVelocity(random, spec);
 		final Display display = createDisplay(level, spec, orientation);
 		if (display == null) {
 			return;
@@ -545,27 +554,59 @@ public final class VFXBlockParticleEngine {
 	}
 
 	/**
-	 * A random full-3D orientation: three random Euler angles folded into one quaternion. Not the
-	 * Haar-uniform distribution on SO(3), but visually indistinguishable for a particle.
+	 * The particle's starting orientation: identity for {@code none} and when {@code spin_random}
+	 * is 0 (every particle strictly upright), otherwise three random Euler angles folded into one
+	 * quaternion, scaled by {@code spin_random}. Not the Haar-uniform distribution on SO(3), but
+	 * visually indistinguishable for a particle.
 	 */
-	private static Quaternionf randomOrientation(final ThreadLocalRandom random) {
+	private static Quaternionf initialOrientation(final ThreadLocalRandom random, final VFXBlockParticleSpec spec) {
+		if (spec.spinMode() == VFXBlockParticleSpec.SpinMode.NONE || spec.spinRandom() <= 0.0F) {
+			return new Quaternionf();
+		}
 		final float twoPi = (float) (Math.PI * 2.0);
+		final float randomAmount = spec.spinRandom();
 		return new Quaternionf().rotateXYZ(
-			random.nextFloat() * twoPi,
-			random.nextFloat() * twoPi,
-			random.nextFloat() * twoPi
+			random.nextFloat() * twoPi * randomAmount,
+			random.nextFloat() * twoPi * randomAmount,
+			random.nextFloat() * twoPi * randomAmount
 		);
 	}
 
 	/**
-	 * A random tumble: a random unit axis times the spec's {@code spin} magnitude. {@code spin} is
-	 * degrees/tick; the returned angular velocity is radians/tick, so the integration angle per tick
-	 * is the spin converted to radians. Zero spin yields a static (but randomly oriented) particle.
+	 * The particle's initial angular velocity (radians/tick). {@code none} and {@code spin = 0}
+	 * yield a static (but possibly randomly oriented) particle. {@code yaw} spins about the fixed
+	 * {@code spin_axis} (world Y when unset); {@code tumble} spins about {@code spin_axis} when
+	 * fixed, otherwise about a random per-particle axis blended toward world Y as
+	 * {@code spin_random} goes to 0 (so 0 is deterministic and every particle shares the axis).
 	 */
-	private static Vector3f randomAngularVelocity(final ThreadLocalRandom random, final float spinDegrees) {
-		if (spinDegrees == 0.0F) {
+	private static Vector3f initialAngularVelocity(final ThreadLocalRandom random, final VFXBlockParticleSpec spec) {
+		if (spec.spin() == 0.0F || spec.spinMode() == VFXBlockParticleSpec.SpinMode.NONE) {
 			return new Vector3f();
 		}
+		final float speed = spec.spin() * DEG_TO_RAD;
+		final Vector3f fixed = spec.spinAxis();
+		if (spec.spinMode() == VFXBlockParticleSpec.SpinMode.YAW) {
+			final Vector3f axis = fixed != null ? new Vector3f(fixed).normalize() : new Vector3f(0.0F, 1.0F, 0.0F);
+			return axis.mul(speed);
+		}
+		if (fixed != null) {
+			return new Vector3f(fixed).normalize().mul(speed);
+		}
+		final Vector3f axis = randomUnitVector(random);
+		final float randomAmount = spec.spinRandom();
+		if (randomAmount < 1.0F) {
+			axis.mul(randomAmount).add(0.0F, 1.0F - randomAmount, 0.0F);
+			if (axis.lengthSquared() < 1.0e-8F) {
+				axis.set(0.0F, 1.0F, 0.0F);
+			} else {
+				axis.normalize();
+			}
+		}
+		return axis.mul(speed);
+	}
+
+	/** A uniformly distributed random unit vector (rejection sampling in the cube). */
+	private static Vector3f randomUnitVector(final ThreadLocalRandom random) {
 		float x;
 		float y;
 		float z;
@@ -577,8 +618,7 @@ public final class VFXBlockParticleEngine {
 			lenSqr = x * x + y * y + z * z;
 		} while (lenSqr < 1.0e-6F);
 		final float inv = (float) (1.0 / Math.sqrt(lenSqr));
-		final float speed = spinDegrees * DEG_TO_RAD;
-		return new Vector3f(x * inv * speed, y * inv * speed, z * inv * speed);
+		return new Vector3f(x * inv, y * inv, z * inv);
 	}
 
 	private static void removeDisplays(final Bucket bucket) {
@@ -683,6 +723,9 @@ public final class VFXBlockParticleEngine {
 		putParam(params, effect, "size");
 		putParam(params, effect, "life");
 		putParam(params, effect, "spin");
+		putParam(params, effect, "spin_random");
+		putParam(params, effect, "spin_friction");
+		putParam(params, effect, "spin_roll");
 		return params;
 	}
 
