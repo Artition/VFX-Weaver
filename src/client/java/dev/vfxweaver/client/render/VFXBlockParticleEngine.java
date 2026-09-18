@@ -44,11 +44,18 @@ import org.slf4j.LoggerFactory;
  * {@link Display.BlockDisplay} for a block spec and a {@link Display.ItemDisplay} for an item spec
  * — added to the {@link ClientLevel} with {@link ClientLevel#addEntity}. The entity's brightness
  * override is the spec's packed brightness (world light when {@code -1}), its transformation
- * carries the spec's {@code size} scale and the {@code spin} yaw around the world Y axis, and its
+ * carries the spec's {@code size} scale and the particle's tumbling orientation, and its
  * position/rotation are refreshed every frame from the interpolated simulation state (with the
  * old position pinned via {@link net.minecraft.world.entity.Entity#setOldPosAndRot}) so vanilla
  * renders smooth motion instead of the stepped submits the engine used before. The previous
- * submit-pipeline rendering (and its pose/light bookkeeping) is gone; the physics is unchanged.</p>
+ * submit-pipeline rendering (and its pose/light bookkeeping) is gone; the linear physics
+ * (gravity/drag/collision) is unchanged.</p>
+ *
+ * <p>Each particle has a random full-3D initial orientation and a random tumble axis; the spec's
+ * {@code spin} (degrees/tick) is the magnitude of its angular velocity (stored as radians/tick).
+ * A contact with a surface damps the angular velocity by that block's friction, so a cube lands
+ * and settles instead of spinning forever. The rendered orientation is the slerp of the previous
+ * and current tick by the fractional tick.</p>
  *
  * <p>State is per running effect instance (keyed by {@link VFXActiveEffect#getInstanceId()}) plus a
  * single bucket for API one-shot spawns. Integration is a fixed 1-tick step driven by the shared
@@ -70,6 +77,12 @@ public final class VFXBlockParticleEngine {
 	private static final float MAX_CATCHUP_TICKS = 8.0F;
 	/** Smallest collision query half-extent, so a tiny particle still depenetrates. */
 	private static final double MIN_COLLISION_PADDING = 0.01;
+	/** The spec's {@code spin} is degrees/tick; the engine stores angular velocity in radians/tick. */
+	private static final float DEG_TO_RAD = (float) (Math.PI / 180.0);
+	/** Fraction of the tangential slip converted to roll on contact, in radians/tick per block/tick. */
+	private static final float CONTACT_ROLL_TRANSFER = 0.5F;
+	/** Slip (blocks/tick) cap for the contact roll bleed, so a fast slide cannot spin a cube up absurdly. */
+	private static final float MAX_ROLL_SLIP = 1.0F;
 
 	private static final Map<Long, Bucket> EFFECT_BUCKETS = new HashMap<>();
 	private static final Bucket STANDALONE = new Bucket();
@@ -99,16 +112,23 @@ public final class VFXBlockParticleEngine {
 		Vec3 prev;
 		Vec3 velocity;
 		float age;
-		float rotation;
+		/** Current orientation; a full 3D rotation, not a yaw. */
+		final Quaternionf orientation;
+		/** Orientation at the start of the current tick, slerped from for display interpolation. */
+		final Quaternionf prevOrientation;
+		/** Angular velocity in radians per tick; its direction is the (body-fixed) tumble axis. */
+		final Vector3f angularVelocity;
 		final VFXBlockParticleSpec spec;
 		final @Nullable Display display;
 
-		Particle(final VFXBlockParticleSpec spec, final Vec3 position, final Vec3 velocity, final float rotation, final @Nullable Display display) {
+		Particle(final VFXBlockParticleSpec spec, final Vec3 position, final Vec3 velocity, final Quaternionf orientation, final Vector3f angularVelocity, final @Nullable Display display) {
 			this.spec = spec;
 			this.pos = position;
 			this.prev = position;
 			this.velocity = velocity;
-			this.rotation = rotation;
+			this.orientation = new Quaternionf(orientation);
+			this.prevOrientation = new Quaternionf(orientation);
+			this.angularVelocity = new Vector3f(angularVelocity);
 			this.display = display;
 		}
 	}
@@ -196,7 +216,7 @@ public final class VFXBlockParticleEngine {
 
 		final String shape = effect.getShape() == null ? "sphere" : effect.getShape();
 		final ThreadLocalRandom random = ThreadLocalRandom.current();
-		// The block-mode 'spin' param is the particle yaw (degrees/tick); the shape keeps elapsed.
+		// The block-mode 'spin' param is the tumble speed (degrees/tick); the shape keeps elapsed.
 		final float elapsed = effect.getElapsed() / 20.0F;
 		for (int i = 0; i < count; i++) {
 			final Vec3 position = VFXWorldOverlayRenderer.sampleShape(shape, anchors, radius, height, turns, elapsed, random);
@@ -253,7 +273,7 @@ public final class VFXBlockParticleEngine {
 	/**
 	 * Advances the engine by the shared clock: drops buckets whose effect stopped (removing their
 	 * displays), then integrates every particle at a fixed 1-tick step (gravity, air drag,
-	 * collision/bounce, lifetime, spin) and drives every display entity from the interpolated
+	 * collision/bounce, lifetime, tumble) and drives every display entity from the interpolated
 	 * simulation state.
 	 *
 	 * @param level           the client level (collision source)
@@ -289,7 +309,7 @@ public final class VFXBlockParticleEngine {
 				integrateBucket(level, STANDALONE);
 			}
 		}
-		// Refresh every display entity from prev -> pos (and prev rotation -> rotation) by the
+		// Refresh every display entity from prev -> pos (and prev orientation -> orientation) by the
 		// leftover tick fraction, pinning the old position so vanilla renders exactly this value.
 		final float fraction = Mth.clamp(accumulator, 0.0F, 1.0F);
 		for (final Bucket bucket : EFFECT_BUCKETS.values()) {
@@ -348,6 +368,7 @@ public final class VFXBlockParticleEngine {
 		final VFXBlockParticleSpec spec = particle.spec;
 		particle.age += 1.0F;
 		particle.prev = particle.pos;
+		particle.prevOrientation.set(particle.orientation);
 		double vx = particle.velocity.x;
 		double vy = particle.velocity.y - VFXBlockParticleSpec.GRAVITY_STEP * spec.gravity();
 		double vz = particle.velocity.z;
@@ -373,13 +394,37 @@ public final class VFXBlockParticleEngine {
 					vx = tx * retain - normal.x * vn * bounce;
 					vy = ty * retain - normal.y * vn * bounce;
 					vz = tz * retain - normal.z * vn * bounce;
+					// A little of the tangential slip becomes roll about n x v_t, so a cube that
+					// lands skidding rolls instead of sliding flat. Optional heuristic: capped and
+					// zero when there is no slip (a particle spawned embedded in geometry has none).
+					final double slip = Math.sqrt(tx * tx + ty * ty + tz * tz);
+					if (slip > 1.0e-4) {
+						final float invSlip = (float) (1.0 / slip);
+						final float ax = (float) (normal.y * tz - normal.z * ty) * invSlip;
+						final float ay = (float) (normal.z * tx - normal.x * tz) * invSlip;
+						final float az = (float) (normal.x * ty - normal.y * tx) * invSlip;
+						final float gain = (float) Math.min(slip, MAX_ROLL_SLIP) * CONTACT_ROLL_TRANSFER;
+						particle.angularVelocity.x += gain * ax;
+						particle.angularVelocity.y += gain * ay;
+						particle.angularVelocity.z += gain * az;
+					}
 				}
+				// A touched surface damps the tumble by its own friction (stone 0.6 grips, ice
+				// 0.98 glides - the same rule the block_chain rope uses), so a cube settles.
+				final float surfaceFriction = (float) VFXWorldOverlayRenderer.contactFriction(level, resolved, normal);
+				particle.angularVelocity.mul(surfaceFriction);
 				next = resolved;
 			}
 		}
 		particle.velocity = new Vec3(vx, vy, vz);
 		particle.pos = next;
-		particle.rotation += spec.spin();
+		// Integrate the orientation about the (body-fixed) tumble axis. joml's rotateAxis uses the
+		// axis direction (normalised internally) and the given angle, so the raw angular-velocity
+		// vector works: angle = |w| * dt with dt = 1 tick.
+		final float speed = particle.angularVelocity.length();
+		if (speed > 1.0e-6F) {
+			particle.orientation.rotateAxis(speed, particle.angularVelocity.x, particle.angularVelocity.y, particle.angularVelocity.z);
+		}
 	}
 
 	/** Positions and rotates one particle's display entity at the interpolated simulation state. */
@@ -394,8 +439,9 @@ public final class VFXBlockParticleEngine {
 			Mth.lerp(fraction, particle.prev.z, particle.pos.z)
 		);
 		display.setPos(position.x, position.y, position.z);
-		final float spin = particle.spec.spin();
-		applyTransform(display, particle.spec.size(), particle.rotation - spin + spin * fraction);
+		// Slerp the orientation by the leftover tick fraction so the tumble is smooth between ticks.
+		final Quaternionf orientation = new Quaternionf(particle.prevOrientation).slerp(particle.orientation, fraction);
+		applyTransform(display, particle.spec.size(), orientation);
 		// Re-anchor the one-tick interpolation window to the current tick every frame (the setter
 		// forces the synched-data update), so the display slerps from the previously rendered
 		// transformation to this frame's target instead of holding it until the next entity tick.
@@ -406,32 +452,34 @@ public final class VFXBlockParticleEngine {
 	}
 
 	/**
-	 * Applies the spec's scale and the spin yaw (around the world Y axis) to a display, centred on
-	 * the particle. The two display kinds have different pivots:
+	 * Applies the spec's scale and the particle's orientation to a display, centred on the particle.
+	 * The two display kinds have different pivots:
 	 *
 	 * <p>A {@link Display.BlockDisplay} draws the raw block model (geometry spans 0..1), so its
 	 * pivot is the bottom-north-west corner; it must be translated by half its scaled size to put
 	 * its centre on the display's position. {@link Transformation} composes as {@code translation *
 	 * leftRotation * scale * rightRotation} (a point is transformed right-to-left), so the translation
-	 * must be pre-rotated by the spin or the model would orbit instead of spinning in place.</p>
+	 * must be pre-rotated by the orientation or the model would orbit instead of spinning in place.
+	 * With the centre {@code c = (0.5, 0.5, 0.5) * size}, {@code T = -L * c} maps {@code c} to the
+	 * display origin for any orientation.</p>
 	 *
 	 * <p>A {@link Display.ItemDisplay} is already centred: {@code ItemDisplayContext.NONE} selects
 	 * {@link net.minecraft.client.resources.model.cuboid.ItemTransform#NO_TRANSFORM}, whose
 	 * {@code apply} translates the model by {@code (-0.5, -0.5, -0.5)} in
 	 * {@code ItemStackRenderState}, and the item renderer adds a 180° Y flip — both inside this
-	 * transformation, so the item's centre is at the display origin and needs no translation.</p>
+	 * transformation, so the item's centre is at the display origin and needs no translation. (That
+	 * built-in flip is the item's own base orientation; the tumble composes on top of it.)</p>
 	 */
-	private static void applyTransform(final Display display, final float size, final float rotationDegrees) {
-		final Quaternionf rotation = new Quaternionf().rotationY((float) Math.toRadians(rotationDegrees));
+	private static void applyTransform(final Display display, final float size, final Quaternionf orientation) {
 		final Vector3f scale = new Vector3f(size, size, size);
 		final Vector3f translation = display instanceof Display.ItemDisplay
 			? new Vector3f()
-			: rotation.transform(new Vector3f(0.5F * size, 0.5F * size, 0.5F * size)).negate();
-		display.setTransformation(new Transformation(translation, rotation, scale, new Quaternionf()));
+			: orientation.transform(new Vector3f(0.5F * size, 0.5F * size, 0.5F * size)).negate();
+		display.setTransformation(new Transformation(translation, new Quaternionf(orientation), scale, new Quaternionf()));
 	}
 
 	/** Creates and adds the display entity for one particle; {@code null} when the spec cannot draw. */
-	private static @Nullable Display createDisplay(final ClientLevel level, final VFXBlockParticleSpec spec, final float rotation) {
+	private static @Nullable Display createDisplay(final ClientLevel level, final VFXBlockParticleSpec spec, final Quaternionf orientation) {
 		final Display display;
 		if (spec.hasItem()) {
 			//? if <26.2 {
@@ -457,7 +505,7 @@ public final class VFXBlockParticleEngine {
 		if (spec.brightness() >= 0) {
 			display.setBrightnessOverride(Brightness.unpack(spec.brightness()));
 		}
-		applyTransform(display, spec.size(), rotation);
+		applyTransform(display, spec.size(), orientation);
 		// Make the display interpolate its transformation over exactly one tick. Without this the
 		// render state is only rebuilt on the entity tick, so a transformation refreshed every frame
 		// still renders as the old ~20 Hz stepped spin.
@@ -473,8 +521,10 @@ public final class VFXBlockParticleEngine {
 		if (!isRenderable(spec)) {
 			return;
 		}
-		final float rotation = (float) (ThreadLocalRandom.current().nextDouble() * 360.0);
-		final Display display = createDisplay(level, spec, rotation);
+		final ThreadLocalRandom random = ThreadLocalRandom.current();
+		final Quaternionf orientation = randomOrientation(random);
+		final Vector3f angularVelocity = randomAngularVelocity(random, spec.spin());
+		final Display display = createDisplay(level, spec, orientation);
 		if (display == null) {
 			return;
 		}
@@ -490,8 +540,45 @@ public final class VFXBlockParticleEngine {
 			display.discard();
 			return;
 		}
-		bucket.particles.add(new Particle(spec, position, velocity, rotation, display));
+		bucket.particles.add(new Particle(spec, position, velocity, orientation, angularVelocity, display));
 		liveCount++;
+	}
+
+	/**
+	 * A random full-3D orientation: three random Euler angles folded into one quaternion. Not the
+	 * Haar-uniform distribution on SO(3), but visually indistinguishable for a particle.
+	 */
+	private static Quaternionf randomOrientation(final ThreadLocalRandom random) {
+		final float twoPi = (float) (Math.PI * 2.0);
+		return new Quaternionf().rotateXYZ(
+			random.nextFloat() * twoPi,
+			random.nextFloat() * twoPi,
+			random.nextFloat() * twoPi
+		);
+	}
+
+	/**
+	 * A random tumble: a random unit axis times the spec's {@code spin} magnitude. {@code spin} is
+	 * degrees/tick; the returned angular velocity is radians/tick, so the integration angle per tick
+	 * is the spin converted to radians. Zero spin yields a static (but randomly oriented) particle.
+	 */
+	private static Vector3f randomAngularVelocity(final ThreadLocalRandom random, final float spinDegrees) {
+		if (spinDegrees == 0.0F) {
+			return new Vector3f();
+		}
+		float x;
+		float y;
+		float z;
+		float lenSqr;
+		do {
+			x = random.nextFloat() * 2.0F - 1.0F;
+			y = random.nextFloat() * 2.0F - 1.0F;
+			z = random.nextFloat() * 2.0F - 1.0F;
+			lenSqr = x * x + y * y + z * z;
+		} while (lenSqr < 1.0e-6F);
+		final float inv = (float) (1.0 / Math.sqrt(lenSqr));
+		final float speed = spinDegrees * DEG_TO_RAD;
+		return new Vector3f(x * inv * speed, y * inv * speed, z * inv * speed);
 	}
 
 	private static void removeDisplays(final Bucket bucket) {

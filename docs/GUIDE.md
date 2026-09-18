@@ -631,7 +631,7 @@ Aimed stream example — accelerating shot from one block to another (put both p
 }
 ```
 
-**Block and item mode.** Instead of a vanilla particle, the emitter can spawn **real block or item models** (full 3D model, textures, lighting and occlusion). Each particle is a **client-side display entity** — a `BlockDisplay` or `ItemDisplay` added to the client level — so vanilla interpolates its motion (smooth, no stepped submits) and its brightness, scale and `spin` are the display entity's own brightness override / transformation. Pick a single model inline, or a reusable preset:
+**Block and item mode.** Instead of a vanilla particle, the emitter can spawn **real block or item models** (full 3D model, textures, lighting and occlusion). Each particle is a **client-side display entity** — a `BlockDisplay` or `ItemDisplay` added to the client level — so vanilla interpolates its motion (smooth, no stepped submits) and its brightness, scale and tumbling orientation are the display entity's own brightness override / transformation. A model particle spawns in a random 3D orientation and, when `spin` is non-zero, tumbles about a random axis like a real falling cube; on landing, the contacted block's friction damps the tumble until it settles. Pick a single model inline, or a reusable preset:
 
 - `"particle": "block"` with `"block": "<block state>"` — an inline block spec. The `block` field accepts a full block state string, e.g. `"minecraft:oak_stairs[facing=east]"` (default `minecraft:stone`).
 - `"particle": "item"` with `"item": "<item id>"` — an inline item spec, e.g. `"item": "minecraft:skeleton_skull"` or `"minecraft:diamond_sword"`. This is how you get a **skull/head particle**: the block form of a skull has no baked block model (a block-entity renderer draws it), but the item form does. See the preset form below for a reusable item spec.
@@ -648,7 +648,7 @@ Everything else (shape, `rate`, positions/bindings, aimed mode) works exactly as
 | `bounce` | 0 | Restitution of the normal velocity on contact (`0` = no bounce, `1` = full bounce). |
 | `size` | 0.25 | Model scale (1 = one full block). |
 | `life` | 60 | Lifetime in ticks. |
-| `spin` | 0 | Yaw rotation per tick, degrees (in model mode this replaces the helix-phase meaning of `spin`). |
+| `spin` | 0 | Tumble angular speed per tick, in degrees, about a random axis (in model mode this replaces the helix-phase meaning of `spin`). `0` gives a static but randomly oriented model. |
 
 `brightness` behaves exactly like a block display's brightness (`net.minecraft.util.Brightness`): `-1` follows the world, anything else pins that packed light (`block << 4 | sky << 20`) on the particle's display entity. So `brightness: 15` makes the particles glow at full block+sky light even in a pitch-black room, which is how you get readable "fireflies" or embers at night.
 
@@ -1055,7 +1055,7 @@ A preset draws a block **or** an item — exactly one of the two is required. Th
 | `bounce` | float | 0.0 | Normal-velocity restitution on contact (0..1) |
 | `size` | float | 0.25 | Model scale (1 = one full block) |
 | `life` | int | 60 | Lifetime in ticks |
-| `spin` | float | 0.0 | Yaw rotation per tick, in degrees |
+| `spin` | float | 0.0 | Tumble angular speed per tick, in degrees, about a random axis |
 
 A preset only supplies defaults: a `particles` effect that names it can still override any of these with the matching effect params.
 
@@ -1220,6 +1220,9 @@ Post-processing pipeline, world overlays, effect clock, load limits and fault to
 Versioned feature history — **[docs/CHANGELOG.md](CHANGELOG.md)**.
 
 Guide version: 27 — see changelog below.
+
+### v35
+- **Block/item particles tumble like real falling cubes** — `spin` is now the magnitude of a full 3D angular velocity about a random axis (degrees/tick) with a random initial orientation, instead of a yaw around world Y. The orientation is integrated per tick and slerped for rendering; contact damps the tumble by the contacted block's friction so a cube lands and settles. `spin = 0` gives a static but randomly oriented model.
 
 ### v34
 - **Block/item particles render as client-side display entities** — the model-particle engine no longer submits model geometry itself: each live particle now drives a `BlockDisplay`/`ItemDisplay` entity, so vanilla interpolates its motion (the reported jerky stepping is gone), `spin` is a clean yaw around the world Y axis with the model's own upright orientation preserved (the reported odd-axis spin is gone), and brightness uses the display's brightness override exactly like a real block display. The submit-path rendering (and its per-frame pose/light bookkeeping) was removed; the physics, presets, datapack/API surface and params are unchanged.

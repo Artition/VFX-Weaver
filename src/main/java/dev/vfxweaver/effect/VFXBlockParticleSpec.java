@@ -32,7 +32,7 @@ import org.jspecify.annotations.Nullable;
  * @param bounce   restitution of the normal velocity on contact, {@code 0..1}
  * @param size     model scale (the natural block model is one block)
  * @param life     lifetime in ticks
- * @param spin     model yaw rotation per tick, in degrees
+ * @param spin     tumble angular speed per tick, in degrees, about a random axis
  * @param item     the item model drawn by the particle, or {@link ItemStack#EMPTY} for a block spec
  */
 public record VFXBlockParticleSpec(

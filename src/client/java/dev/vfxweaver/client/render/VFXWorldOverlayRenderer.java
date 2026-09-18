@@ -962,9 +962,10 @@ public final class VFXWorldOverlayRenderer {
 	 * slipperiness: stone/air default 0.6, ice 0.98). So a joint sliding on stone loses 40% of its
 	 * tangential speed per contacting tick and stops in a fraction of a second, while the same
 	 * joint on ice keeps ~98% and glides - the same friction vanilla entities feel on the ground.
-	 * Clamped to {@code [0, 1]} so a custom block can never add speed.
+	 * Clamped to {@code [0, 1]} so a custom block can never add speed. Shared with the block-particle
+	 * engine, which uses it to damp a particle's tumble on contact.
 	 */
-	private static double contactFriction(final ClientLevel level, final Vec3 contact, final Vec3 normal) {
+	static double contactFriction(final ClientLevel level, final Vec3 contact, final Vec3 normal) {
 		final Vec3 inside = contact.subtract(normal.scale(CHAIN_CONTACT_PROBE));
 		final BlockState state = level.getBlockState(BlockPos.containing(inside.x, inside.y, inside.z));
 		return Mth.clamp(state.getBlock().getFriction(), 0.0F, 1.0F);
