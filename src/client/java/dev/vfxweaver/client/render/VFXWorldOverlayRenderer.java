@@ -83,7 +83,6 @@ import net.minecraft.util.Mth;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.phys.Vec3;
-import net.minecraft.world.phys.shapes.VoxelShape;
 import org.joml.Quaternionf;
 import org.joml.Vector3f;
 import org.joml.Vector3fc;
@@ -758,13 +757,21 @@ public final class VFXWorldOverlayRenderer {
 				pose.scale(scale, scale * (float) stretch, scale);
 			}
 			pose.translate(-0.5, -0.5, -0.5);
-			//? if <26.2 {
-			collector.submitMovingBlock(pose, link);
-			//?} else {
-			/*collector.submitMovingBlock(pose, link, 0);
-			*///?}
+			submitMovingBlock(collector, pose, link);
 			pose.popPose();
 		}
+	}
+
+	/**
+	 * Submits one moving block model through the per-line submit API. Shared by the chain links and,
+	 * later, by the block-particle engine.
+	 */
+	static void submitMovingBlock(final SubmitNodeCollector collector, final PoseStack pose, final MovingBlockRenderState link) {
+		//? if <26.2 {
+		collector.submitMovingBlock(pose, link);
+		//?} else {
+		/*collector.submitMovingBlock(pose, link, 0);
+		*///?}
 	}
 
 	/**
@@ -864,12 +871,13 @@ public final class VFXWorldOverlayRenderer {
 					}
 				}
 			}
-			// World collision: push links out of solid blocks along the smallest penetration
-			// axis, dropping the normal velocity so they slide along the surface and are still
-			// dragged by a moving anchor instead of re-entering.
+			// World collision: sweep the joint's movement and eject it through the face it entered
+			// (so a fast joint cannot tunnel through a block), then drop the inward normal
+			// component of its velocity so it keeps the tangential part and slides along the
+			// surface while a moving anchor drags it.
 			for (int i = 1; i < sim.joints - (pinnedB ? 1 : 0); i++) {
 				final Vec3 p = sim.pos[i];
-				final Vec3 resolved = resolveChainCollision(level, p);
+				final Vec3 resolved = VFXWorldCollision.resolve(level, p, 0.1, sim.prev[i]);
 				if (resolved == p) {
 					continue;
 				}
@@ -877,7 +885,7 @@ public final class VFXWorldOverlayRenderer {
 				final Vec3 n = resolved.subtract(p).normalize();
 				final double vn = vel.dot(n);
 				sim.pos[i] = resolved;
-				sim.prev[i] = resolved.subtract(vn < 0.0 ? Vec3.ZERO : vel.subtract(n.scale(vn)));
+				sim.prev[i] = resolved.subtract(vn < 0.0 ? vel.subtract(n.scale(vn)) : vel);
 			}
 			// Player push: joints near the local player are shoved radially away. Both pos and
 			// prev shift equally - a pure displacement with no velocity injection, otherwise the
@@ -919,46 +927,6 @@ public final class VFXWorldOverlayRenderer {
 			);
 		}
 		return render;
-	}
-
-	/**
-	 * Pushes a rope joint out of the solid block it overlaps, along the smallest penetration
-	 * axis (the minimum translation vector), leaving a small padding so the joint rests just
-	 * outside the collision surface. Returns the point unchanged when it is in open space.
-	 *
-	 * @param level the client level the rope lives in
-	 * @param p the joint position to resolve
-	 * @return the depenetrated position, or {@code p} when it does not overlap a solid block
-	 */
-	private static Vec3 resolveChainCollision(final ClientLevel level, final Vec3 p) {
-		final BlockPos bp = BlockPos.containing(p.x, p.y, p.z);
-		final VoxelShape shape = level.getBlockState(bp).getCollisionShape(level, bp);
-		if (shape.isEmpty()) {
-			return p;
-		}
-		// ponytail: uses the collision shape's union bounding box, so multi-box shapes (stairs,
-		// fences, walls) are approximated by their union box. Switch to per-voxel shapes if it
-		// ever shows in game.
-		final AABB box = shape.bounds().move(bp).inflate(0.1);
-		if (!box.contains(p.x, p.y, p.z)) {
-			return p;
-		}
-		final double xMin = p.x - box.minX;
-		final double xMax = box.maxX - p.x;
-		final double yMin = p.y - box.minY;
-		final double yMax = box.maxY - p.y;
-		final double zMin = p.z - box.minZ;
-		final double zMax = box.maxZ - p.z;
-		final double x = Math.min(xMin, xMax);
-		final double y = Math.min(yMin, yMax);
-		final double z = Math.min(zMin, zMax);
-		if (x <= y && x <= z) {
-			return new Vec3(xMin < xMax ? box.minX : box.maxX, p.y, p.z);
-		}
-		if (y <= z) {
-			return new Vec3(p.x, yMin < yMax ? box.minY : box.maxY, p.z);
-		}
-		return new Vec3(p.x, p.y, zMin < zMax ? box.minZ : box.maxZ);
 	}
 
 	/**
