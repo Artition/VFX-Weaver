@@ -34,6 +34,18 @@ vfxweaver is a client-side VFX library for a Fabric mod: the server triggers eff
 - **`CameraShakeManager`/`CameraMixin`** (client) — sums the noise of all active `camera_shake` effects into a position/rotation offset, applied by a mixin to `Camera`.
 - **`VFXWorldBindings`** (main, but data lives on the client only) — computes `bind` params (`screen_x`, `proximity`, `look`, `distance`, `look_x/y/z`, `player_x/y/z`, `camera_yaw_delta`/`pitch_delta` and player state: `health`/`hunger`/`speed`/`light_level`/`time_of_day`) relative to the current camera frame and the player snapshot.
 
+## Loader platform layer
+
+The core systems above are loader-agnostic — they never import `net.fabricmc.*` or `net.neoforged.*`; the loader is reached only through the platform packages:
+
+- **`VFXPlatform`** (main) — loader name and mod-loaded queries (`isModLoaded`, `name`).
+- **`VFXNetwork`** (main) — payload registration and transport (`registerCommon`, `sendToPlayer`, `allPlayers`) plus the client-receiver dispatch table (`registerClientReceive`/`dispatchClient`).
+- **`VFXLoaderEvents`** (main) — server lifecycle, tick, command registration, datapack reload and player-join wiring (including the definition/curve sync).
+- **`VFXClientNetwork`** (client) — registers the client-bound receivers on the loader's client networking API and forwards them to `VFXNetwork.dispatchClient`.
+- **`VFXClientRenderHooks`** (client) — client lifecycle/tick/join events and the world-overlay render-event plumbing, capturing the camera and geometry sink so `VFXWorldOverlayRenderer` stays loader-agnostic.
+
+The entry points are guarded per loader: `VFXMod` (Fabric `ModInitializer`) and `VFXNeoForgeMod` (`@Mod`) on the common side, and `VFXClient` (`ClientModInitializer` / `@Mod(dist = Dist.CLIENT)`) on the client. **Client-only safety:** all client code stays in `src/client` and `src/main` never references it, so the dedicated server never loads a client class.
+
 ## Data flow per frame
 
 1. `GameRendererMixin.vfxweaver$render` (injection before `FogRenderer.endFrame`) — called once per frame:

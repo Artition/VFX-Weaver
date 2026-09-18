@@ -144,6 +144,36 @@ when a NeoForge line changes. Loader-specific code lives **only** in `dev.vfxwea
 | World overlays (26.2) | `RenderLevelStageEvent.AfterTranslucentBlocks` (+ `getPoseStack()`, `getLevelRenderState()`); geometry via `SubmitCustomGeometryEvent.getSubmitNodeCollector()` |
 | Access transformer | `META-INF/accesstransformer.cfg`, e.g. `public net.minecraft.client.particle.Particle xd` — the five `Particle` fields are `protected double xd/yd/zd` + `protected float gravity/friction` |
 
+### Adding loader-guarded code
+
+The loader APIs never leak out of two packages: `dev.vfxweaver.platform` (main) and
+`dev.vfxweaver.client.platform` (client). Every `net.fabricmc.*` / `net.neoforged.*` import lives
+there and nowhere else — the render, datapack, API, command and payload code is loader-agnostic and
+must not name a loader type.
+
+- Platform inventory: core `VFXPlatform` (loader name, `isModLoaded`), `VFXNetwork` (payload
+  registration + transport), `VFXLoaderEvents` (server lifecycle, commands, datapack reload, player
+  join); client `VFXClientNetwork` (client-bound receivers) and `VFXClientRenderHooks` (client
+  lifecycle + world-overlay render events). The two entry points are guarded too: `VFXMod`
+  (Fabric `ModInitializer`) with `VFXNeoForgeMod` (`@Mod`), and the client `VFXClient`
+  (`ClientModInitializer`) with `@Mod(dist = Dist.CLIENT)`.
+- Add a guarded body with the in-place guard `//? if fabric { … //?} else { /* … */ //?}` (or
+  `//? if neoforge`) directly where the two APIs differ. The Fabric branch is the live text on the
+  active node, the NeoForge branch is the commented one, and a guarded block is only compiled by
+  the node that selects it — the NeoForge branch is never compiled by a Fabric node, so run
+  `./gradlew :26.2-neoforge:build` (it produces the NeoForge jar) as well as the Fabric build.
+- `src/main` must never reference `src/client`: the common source set compiles into the dedicated
+  server, where a client class is a `NoClassDefFoundError` at start. Client-only wiring goes in
+  `*.client.platform` and is reached through the guarded client entry point.
+- A new loader symbol is only real once `javap -classpath <loader jar> <Class>` shows the exact
+  signature on the targeted version — never add a loader call from memory or generated docs.
+  NeoForge on 26.x also needs `META-INF/neoforge.mods.toml` and
+  `META-INF/accesstransformer.cfg`; the AT parser splits a line on whitespace, so a method
+  descriptor must be attached to the name with no space (`... method(...)`, not `... method (...)`).
+- Access widening is per loader and never ships on the other: `*.accesswidener` (Fabric AW) for the
+  Fabric jar, `META-INF/accesstransformer.cfg` (NeoForge AT) for the NeoForge jar; each is excluded
+  from the other's jar.
+
 ## Client hooks (where things are wired)
 
 - `GameRendererMixin` — effect clock (`manager.advance`/`update`) plus the three post-processing
