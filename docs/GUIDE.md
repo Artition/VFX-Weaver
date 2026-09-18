@@ -631,12 +631,13 @@ Aimed stream example — accelerating shot from one block to another (put both p
 }
 ```
 
-**Block mode.** Instead of a vanilla particle, the emitter can spawn **real block models** (full 3D model, textures, lighting and occlusion — the same submit path `block_chain` uses). Pick a single block inline, or a reusable preset:
+**Block and item mode.** Instead of a vanilla particle, the emitter can spawn **real block or item models** (full 3D model, textures, lighting and occlusion — blocks go through the same submit path `block_chain` uses, items through the same path dropped items and item frames use). Pick a single model inline, or a reusable preset:
 
-- `"particle": "block"` with `"block": "<block state>"` — an inline spec. The `block` field accepts a full block state string, e.g. `"minecraft:oak_stairs[facing=east]"` (default `minecraft:stone`).
-- `"particle": "<namespace>:<preset>"` — a preset from `data/<namespace>/vfx_particles/<name>.json` or registered through `VFXAPI.registerBlockParticle`. An unknown preset is treated as a vanilla particle id; with no such particle nothing is emitted and the mod logs one warning (the documented fallback).
+- `"particle": "block"` with `"block": "<block state>"` — an inline block spec. The `block` field accepts a full block state string, e.g. `"minecraft:oak_stairs[facing=east]"` (default `minecraft:stone`).
+- `"particle": "item"` with `"item": "<item id>"` — an inline item spec, e.g. `"item": "minecraft:skeleton_skull"` or `"minecraft:diamond_sword"`. This is how you get a **skull/head particle**: the block form of a skull has no baked block model (a block-entity renderer draws it), but the item form does. See the preset form below for a reusable item spec.
+- `"particle": "<namespace>:<preset>"` — a preset from `data/<namespace>/vfx_particles/<name>.json` or registered through `VFXAPI.registerBlockParticle`. A preset is block- or item-based; both render and share the physics below. An unknown preset is treated as a vanilla particle id; with no such particle nothing is emitted and the mod logs one warning (the documented fallback).
 
-Everything else (shape, `rate`, positions/bindings, aimed mode) works exactly as above. The block's physics and light are taken from the spec and overridden per effect by these params:
+Everything else (shape, `rate`, positions/bindings, aimed mode) works exactly as above. The model's physics and light are taken from the spec and overridden per effect by these params:
 
 | Param | Default (inline/preset) | Description |
 |---|---|---|
@@ -647,7 +648,7 @@ Everything else (shape, `rate`, positions/bindings, aimed mode) works exactly as
 | `bounce` | 0 | Restitution of the normal velocity on contact (`0` = no bounce, `1` = full bounce). |
 | `size` | 0.25 | Model scale (1 = one full block). |
 | `life` | 60 | Lifetime in ticks. |
-| `spin` | 0 | Yaw rotation per tick, degrees (in block mode this replaces the helix-phase meaning of `spin`). |
+| `spin` | 0 | Yaw rotation per tick, degrees (in model mode this replaces the helix-phase meaning of `spin`). |
 
 `brightness` behaves exactly like a block display's brightness (`Display.Brightness`): `-1` follows the world, anything else pins the packed light `block << 4 | sky << 20` on every vertex. So `brightness: 15` makes the particles glow at full block+sky light even in a pitch-black room, which is how you get readable "fireflies" or embers at night.
 
@@ -668,6 +669,25 @@ Copy-paste — a burst of glowing stone blocks that fall, bounce and spin:
 }
 ```
 
+Copy-paste — **skeleton-head particles flying out of the player** (item mode; the preset form of the same thing is in [3.5](#35-blockitem-particle-presets-vfx_particles)):
+
+```json
+{
+	"type": "particles",
+	"particle": "item",
+	"item": "minecraft:skeleton_skull",
+	"shape": "sphere",
+	"duration": 200,
+	"easing": "ease_out_cubic",
+	"positions": [{ "entity": "@s", "point": "eyes" }],
+	"params": {
+		"rate": 40.0, "radius": 0.5, "speed": 0.35, "vel_y": 0.3, "spread": 0.9,
+		"brightness": 15, "gravity": 0.9, "friction": 0.95, "collide": 1.0,
+		"bounce": 0.35, "size": 0.45, "life": 100, "spin": 12
+	}
+}
+```
+
 Or through a preset id (define the file, then just name it from the effect):
 
 ```json
@@ -675,7 +695,7 @@ Or through a preset id (define the file, then just name it from the effect):
   "params": { "rate": 20, "pos_x": { "bind": "player_x" }, "pos_y": { "bind": "player_y" }, "pos_z": { "bind": "player_z" } } }
 ```
 
-Block particles are capped (2048 live particles, 512 per effect instance, 256 spawned per frame per effect) and simulated at a fixed tick step, so a runaway emitter cannot flood the frame. They are client-side only: nothing about them touches the server world.
+Model particles (block or item) are capped (2048 live particles, 512 per effect instance, 256 spawned per frame per effect) and simulated at a fixed tick step, so a runaway emitter cannot flood the frame. They are client-side only: nothing about them touches the server world.
 
 #### `block_chain`
 A line of **real block-model links** between two anchors (like `guide_line`, but made of blocks) — the `block` definition field picks the block, links render with full vanilla textures/lighting and follow moving anchors every frame.
@@ -851,9 +871,10 @@ Files: `data/<namespace>/vfx/<name>.json`. After edits — `/reload`. Effect id 
 | `volume` | param (see §3.2) | 1.0 | Sound volume (reserved param, can be a constant, animation, bind or expression) |
 | `pitch` | param (see §3.2) | 1.0 | Sound pitch (reserved param) |
 | `positions` | array `[x,y,z]` or objects | — | World coordinate list for world overlays (`block_tint`/`block_outline`/`light_beam`/`pulse_ring`/`guide_line`/`particles`). Each entry is either a plain `[x,y,z]` array or an entity anchor `{"entity": "<selector>", "offset": [x,y,z]}` — see below. If not set — `params.pos_x/y/z` is used. Not used for entity effects (targets are set by UUID). Static entries anchor to a block (the effect uses the block's centre on X/Z); entity anchors and Java-API moves use exact sub-block coordinates. |
-| `particle` | string | — | Particle for the `particles` effect: a vanilla id (e.g. `"minecraft:end_rod"`, `"dust"`), the literal `"block"` (inline block mode, uses the `block` field) or a `vfx_particles` preset id. See the `particles` subsection in [2.2](#22-world-overlays-block-geometry). |
+| `particle` | string | — | Particle for the `particles` effect: a vanilla id (e.g. `"minecraft:end_rod"`, `"dust"`), the literal `"block"` (inline block mode, uses the `block` field), the literal `"item"` (inline item mode, uses the `item` field) or a `vfx_particles` preset id. See the `particles` subsection in [2.2](#22-world-overlays-block-geometry). |
 | `shape` | string | — | Emission shape for the `particles` effect: `sphere`/`ring`/`helix`/`line`/`cube`/`point`. |
 | `block` | string | — | Block state for the `block_chain` effect (e.g. `"minecraft:iron_chain"`) or the inline `particles` block mode (e.g. `"minecraft:oak_stairs[facing=east]"`); see the `block_chain`/`particles` subsections in [2.2](#22-world-overlays-block-geometry). |
+| `item` | string | — | Item id for the inline `particles` item mode (e.g. `"minecraft:skeleton_skull"`), used when `particle` is the literal `"item"`; see the `particles` subsection in [2.2](#22-world-overlays-block-geometry). |
 | `entity_selector` | string | — | Entity selector (e.g. `"@e[type=minecraft:zombie,distance=..10]"`) that the server resolves into target UUIDs on every play. Lets you trigger an entity effect with plain `/vfx play` (no `playentity`): the effect finds its own targets. For entity effects (`entity_tint`/`entity_outline`). |
 
 **Entity-anchored positions.** A `positions` entry may be an object instead of a `[x,y,z]` array: `{"entity": "<selector>", "offset": [x,y,z], "point": "center", "dir": "look", "distance": 24}`. The `offset` is optional and relative to the resolved anchor point; `point` selects the reference point on the entity — `feet` (default), `center` (bounding-box centre) or `eyes`; `dir` + `distance` optionally push the anchor along an entity direction (`look` = the tracked entity's live look direction, e.g. eyes + look × 24 = a target where the entity is looking — a laser). The server resolves each selector once per play (first match wins, `/vfx play` fails if an anchor matches nothing); the client substitutes the tracked entity's current anchor-point position every frame, so the effect follows a moving entity:
@@ -1007,18 +1028,26 @@ Besides the built-in names you can define your own curves: a named datapack file
 
 Such a value can be used in any `easing` field — the effect definition, an individual keyframe or a collection child effect.
 
-### 3.5 Block-particle presets (`vfx_particles`)
+### 3.5 Block/item-particle presets (`vfx_particles`)
 
-Reusable block-particle definitions live in `data/<namespace>/vfx_particles/<name>.json`, id `<namespace>:<name>`. A `particles` effect names one with `"particle": "<namespace>:<name>"` (see the `particles` block mode in [2.2](#22-world-overlays-block-geometry)). Presets are client-local: they are **never synced to other players**, so a preset only exists where its file (or registration) does.
+Reusable model-particle definitions live in `data/<namespace>/vfx_particles/<name>.json`, id `<namespace>:<name>`. A `particles` effect names one with `"particle": "<namespace>:<name>"` (see the `particles` block and item mode in [2.2](#22-world-overlays-block-geometry)). Presets are client-local: they are **never synced to other players**, so a preset only exists where its file (or registration) does.
 
 ```json
 { "block": "minecraft:stone", "brightness": [15, 15], "gravity": 0.8, "friction": 0.94,
   "collide": 1.0, "bounce": 0.2, "size": 0.35, "life": 60, "spin": 12 }
 ```
 
+A preset draws a block **or** an item — exactly one of the two is required. The item form is the reusable version of the skull example above:
+
+```json
+{ "item": "minecraft:skeleton_skull", "brightness": [15, 15], "gravity": 0.9, "friction": 0.95,
+  "collide": 1.0, "bounce": 0.35, "size": 0.45, "life": 100, "spin": 12 }
+```
+
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `block` | string | — (required) | Block state drawn by each particle, e.g. `minecraft:oak_planks` or `minecraft:oak_stairs[facing=east]` |
+| `block` | string | — (one of `block`/`item`) | Block state drawn by each particle, e.g. `minecraft:oak_planks` or `minecraft:oak_stairs[facing=east]` |
+| `item` | string | — (one of `block`/`item`) | Item id drawn by each particle, e.g. `minecraft:skeleton_skull` or `minecraft:diamond_sword`; the alternative to `block`. An unknown item is a per-file parse error. |
 | `brightness` | int or `[blockLight, skyLight]` | -1 | `-1` = world light; `0..15` = that light level on both channels; `[b, s]` = separate block/sky levels. Block-display semantics (see the explanation in the `particles` block mode). |
 | `gravity` | float | 1.0 | Downward acceleration per tick (× 0.04) |
 | `friction` | float | 0.94 | Air drag multiplier per tick (0..1) |
@@ -1191,6 +1220,9 @@ Post-processing pipeline, world overlays, effect clock, load limits and fault to
 Versioned feature history — **[docs/CHANGELOG.md](CHANGELOG.md)**.
 
 Guide version: 27 — see changelog below.
+
+### v33
+- **Item-model particles** — the `particles` effect can now emit real **item** models next to block models: `"particle": "item"` with an `item` id (e.g. `"minecraft:skeleton_skull"`), or a `vfx_particles` preset that declares `"item"` instead of `"block"` (exactly one is required). This is how a skull/head particle works — the block form has no baked block model, the item form does. Items render through the same submit path dropped items and item frames use, with the same brightness (`-1` = world light), gravity, friction, collision/bounce, size, lifetime and spin as block particles. `VFXBlockParticleSpec.item(ItemStack)` builds the spec from code.
 
 ### v32
 - **Block-model particles** — the `particles` effect can now emit real block models instead of vanilla particles: `"particle": "block"` with a `block` state, or a reusable preset id declared in `data/<namespace>/vfx_particles/<name>.json` (and registerable from code with `VFXAPI.registerBlockParticle`). Each particle has block-display brightness (`-1` = world light, `[blockLight, skyLight]`), gravity, air friction, optional world collision with surface friction and bounce, size, lifetime and spin. `VFXAPI.spawnBlockParticle` spawns one immediately on the client. They render through the same submit path as `block_chain`, so they work under shaderpacks.

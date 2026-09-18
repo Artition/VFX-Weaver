@@ -76,6 +76,30 @@ particle position`.
 - Everything else (shape, rate, positions, bindings, aimed mode) is the existing `particles`
   plumbing, unchanged.
 
+### 5. Item particles (extension)
+
+Some blocks have no baked block model at all — their world look comes from a block-entity
+renderer, so the moving-block submit path draws nothing. The canonical case is
+`minecraft:skeleton_skull` (`block/skull.json` has no `elements`; `SkullBlockRenderer` draws it).
+The **item** form of such a block has a real model (the inventory-style head), and dropped items /
+item frames already render item models through `ItemStackRenderState`. So the same engine gains an
+item mode rather than a second engine:
+
+- `VFXBlockParticleSpec` carries either a `BlockState` or an `ItemStack` (`hasBlock()` /
+  `hasItem()`, `item(ItemStack)` + `builder(ItemStack)`; exactly one populated). Physics, light,
+  integration, collision, spin and bounce are shared verbatim.
+- Datapack: a preset declares `"item": "<id>"` instead of `"block"` (exactly one required; unknown
+  item = per-file parse error). Effect definitions add `"particle": "item"` with an `"item"` field
+  for the inline mode, next to `"particle": "block"` + `"block"`.
+- Rendering: `ItemModelResolver.updateForTopItem(state, stack, ItemDisplayContext.NONE, level,
+  owner, 0)` once per item (cached), then `ItemStackRenderState.submit(pose, collector,
+  packedLight, OverlayTexture.NO_OVERLAY, 0)` — the same call the dropped-item and item-frame
+  renderers make. The pose (camera-relative translate, spin, scale, `-0.5` centring) and the light
+  (spec brightness or the world light at the particle, packed) match the block path. The submit
+  signature is identical on all three lines, so no per-line guard is needed.
+- Bounds: the item-model cache is bounded and cleared on level change; an empty/unbaked item model
+  warns once through `VFXLog.warnOnce`, never per frame.
+
 ## Verification
 
 - All six nodes build; no other behaviour changes.

@@ -135,21 +135,29 @@ boolean setKeyframe(Identifier effectId, String name, int time, float value, Str
 Like `moveEffect`, these return `true` when applied on the render thread or queued for it. A `null`
 (or blank) easing means linear - a keyframe segment has no "definition default".
 
-#### Block-particle presets (client-local)
+#### Block/item-particle presets (client-local)
 
-Block-model particles — the `particles` effect with `"particle": "block"` or a preset id — can be
-defined from code, mirroring `registerDefinitions`. Presets are **client-local and never synced**;
-the datapack layer (`data/<ns>/vfx_particles/<name>.json`) wins for the same id.
+Model particles — the `particles` effect with `"particle": "block"`, `"particle": "item"` or a
+preset id — can be defined from code, mirroring `registerDefinitions`. A spec draws a block **or**
+an item (exactly one). Presets are **client-local and never synced**; the datapack layer
+(`data/<ns>/vfx_particles/<name>.json`) wins for the same id.
 
 ```java
 import dev.vfxweaver.effect.VFXBlockParticleSpec;
 import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.item.Items;
 
 VFXBlockParticleSpec ember = VFXBlockParticleSpec.builder(Blocks.MAGMA_BLOCK.defaultBlockState())
     .brightness(15, 15)  // block-display semantics: -1 = world light, or separate block/sky levels
     .gravity(0.8F).friction(0.94F).collide(1.0F).bounce(0.2F)
     .size(0.35F).life(60).spin(12.0F)
     .build();
+
+// Item form: the item's baked model is drawn (skull/tool/ingot particles). `item(ItemStack)`
+// is the shorthand for the default physics; a builder is available when you need to tune them.
+VFXBlockParticleSpec skull = VFXBlockParticleSpec.item(new ItemStack(Items.SKELETON_SKULL));
+boolean skullBlock = skull.hasBlock();  // false
+boolean skullItem = skull.hasItem();    // true
 
 // Register/unregister a preset in the local layer; register returns false when it is full (256).
 boolean registered = VFXAPI.registerBlockParticle(Identifier.fromNamespaceAndPath("mymod", "ember"), ember);
@@ -165,7 +173,8 @@ VFXAPI.spawnBlockParticle(ember, new Vec3(x, y, z), new Vec3(0.0, 0.25, 0.0));
 
 A `particles` effect then reaches the preset with `"particle": "mymod:ember"`; the effect's
 `brightness`/`gravity`/`friction`/`collide`/`bounce`/`size`/`life`/`spin` params override its
-fields. See the `particles` block mode in [GUIDE.md](GUIDE.md).
+fields. The same methods register/spawn item presets — the spec carries the model, the API surface
+is unchanged. See the `particles` block and item mode in [GUIDE.md](GUIDE.md).
 
 ### `VFXAPI.EffectRequest` (fluent builder)
 
