@@ -29,7 +29,7 @@ The domain model (effects, timelines, datapacks, network protocol, API) is descr
 
 ```bash
 ./gradlew :26.2:build :26.1.2:build :1.21.11:build     # Fabric nodes
-./gradlew :26.2-neoforge:build                         # NeoForge node (ModDevGradle)
+./gradlew :26.2-neoforge:build :26.1.2-neoforge:build :1.21.11-neoforge:build   # NeoForge nodes (ModDevGradle)
 ./gradlew :<node>:build                                # one node
 ./gradlew :<node>:runClient                            # dev client for a node
 ```
@@ -67,24 +67,39 @@ There is **no test suite** (`test NO-SOURCE`). Verify in this order:
 
 ## Multi-version (Stonecutter)
 
-Supported nodes: **`26.2`, `26.1.2`, `1.21.11`**. Shared source lives in `src/`; per-node values in
-`versions/<mc>/gradle.properties`:
+Supported nodes (six): Fabric **`26.2`, `26.1.2`, `1.21.11`** (`build.fabric.gradle`) and NeoForge
+**`26.2-neoforge`, `26.1.2-neoforge`, `1.21.11-neoforge`** (`build.neoforge.gradle`) — one node per
+(Minecraft line, loader), the loader being part of the node name. Shared source lives in `src/`;
+per-node values in `versions/<node>/gradle.properties`:
 
 | property | meaning |
 |---|---|
 | `deps.minecraft` | Minecraft version built against |
-| `deps.loader` | Fabric Loader used for compile/dev |
-| `deps.loader_compat` | expanded into `fabric.mod.json` `fabricloader` (the floor users may run) |
-| `deps.mc_compat` | expanded into `fabric.mod.json` `minecraft` (the supported range) |
-| `deps.fabric_api` | Fabric API version |
+| `deps.loader` | Fabric Loader used for compile/dev (Fabric nodes) |
+| `deps.loader_compat` | expanded into `fabric.mod.json` `fabricloader`, the floor users may run (Fabric nodes) |
+| `deps.mc_compat` | expanded into `fabric.mod.json` `minecraft` (Fabric) or the mods.toml `minecraft` dependency (NeoForge, Maven-style) |
+| `deps.fabric_api` | Fabric API version (Fabric nodes) |
+| `deps.neo_loader` | NeoForge build used for compile/dev (NeoForge nodes) |
+| `deps.neo_compat` | NeoForge version range for the mods.toml `neoforge` dependency (NeoForge nodes) |
 | `deps.java` | `--release` / `java` requirement |
 
-`build.gradle` expands those into `fabric.mod.json` and `*.mixins.json`
+**Never feed one range into the other.** `deps.mc_compat` is a Minecraft range, `deps.neo_compat` is
+a NeoForge range — NeoForge versions its builds after the game, so the values differ
+(`[26.2,26.3)` versus `[26.2.0.84,)`) and `build.neoforge.gradle` expands `mcCompat` and `neoCompat`
+into the two separate `minecraft` / `neoforge` dependencies. Both ranges are per line: widening one
+claims support for versions we may not have tested, narrowing one drops users.
+
+`build.gradle` expands the Fabric properties into `fabric.mod.json` and `*.mixins.json`
 (`${version}`, `${minecraft}`, `${mcCompat}`, `${loaderCompat}`, `${java}`, `${compatibilityLevel}`,
 `${accessWidener}`) and picks per node: the Loom variant (`>=26.1` is **unobfuscated** and uses
 `net.fabricmc.fabric-loom`; `<26.1` is remapped and uses `fabric-loom`), the access widener
 (`vfxweaver.accesswidener` official for `>=26.1`, `vfxweaver-named.accesswidener` for `<26.1` — they
-differ only in namespace, only one is shipped) and the resource excludes.
+differ only in namespace, only one is shipped) and the resource excludes. `build.neoforge.gradle`
+does the same for `META-INF/neoforge.mods.toml`, and excludes the Fabric metadata and access wideners
+from the NeoForge jar.
+
+**Flashback is Fabric-only:** Flashback has no NeoForge build, so `FlashbackCompat` no-ops on NeoForge
+(`VFXPlatform.isModLoaded("flashback")` is false and no reflection path runs).
 
 Guarding rules:
 
@@ -142,7 +157,22 @@ when a NeoForge line changes. Loader-specific code lives **only** in `dev.vfxwea
 | Reload listener | `AddServerReloadListenersEvent.addListener(Identifier, PreparableReloadListener)` |
 | Client tick / network | `ClientTickEvent.Post`, `ClientPlayerNetworkEvent.LoggingIn`/`LoggingOut` |
 | World overlays (26.2) | `RenderLevelStageEvent.AfterTranslucentBlocks` (+ `getPoseStack()`, `getLevelRenderState()`); geometry via `SubmitCustomGeometryEvent.getSubmitNodeCollector()` |
-| Access transformer | `META-INF/accesstransformer.cfg`, e.g. `public net.minecraft.client.particle.Particle xd` — the five `Particle` fields are `protected double xd/yd/zd` + `protected float gravity/friction` |
+| Access transformer | `META-INF/accesstransformer.cfg`, e.g. `public net.minecraft.client.particle.Particle xd` — the five `Particle` fields are `protected double xd/yd/zd` + `protected float gravity/friction` — plus `RenderPipelines.register(...)` (descriptor attached to the name, no space) and `LevelRenderer submitNodeStorage` |
+
+### NeoForge per-line API: the boundary is `<26.1`
+
+NeoForge splits at `<26.1`, **not** `<26.2`: NeoForge `21.11` (MC `1.21.11`) still carries the classic
+world-overlay API, while NeoForge `26.1.2` matches `26.2` — `26.1.2-neoforge` needed no code change
+at all. The guarded NeoForge branches therefore nest `//? if <26.1 { 21.11 } else { 26.1.2 / 26.2 }`.
+
+| Concern | NeoForge `26.1.2` / `26.2` | NeoForge `21.11` (MC `1.21.11`) |
+|---|---|---|
+| Submit event | `SubmitCustomGeometryEvent.getSubmitNodeCollector()` | **does not exist** |
+| World-overlay event | `RenderLevelStageEvent.AfterTranslucentBlocks` | the classic abstract `RenderLevelStageEvent` (`getLevelRenderer()`, `getLevelRenderState()`, `getPoseStack()`, `getModelViewMatrix()`, `getRenderableSections()`, stage enum) |
+| Geometry sink | the submit collector from the event | `Minecraft.getInstance().renderBuffers().bufferSource()` + `LevelRenderer.submitNodeStorage` (exposed by the AT) |
+
+`LevelRenderer.submitNodeStorage` is the access-transformer line that exists only for this branch, and
+the `1.21.11` overlay reads the submit collector from it because there is no submit phase event.
 
 ### Adding loader-guarded code
 
@@ -174,6 +204,11 @@ payload code is loader-agnostic and must not name a loader type.
 - Access widening is per loader and never ships on the other: `*.accesswidener` (Fabric AW) for the
   Fabric jar, `META-INF/accesstransformer.cfg` (NeoForge AT) for the NeoForge jar; each is excluded
   from the other's jar.
+- Packaging is per loader, the code is not: the shared `src/` — including `dev.vfxweaver.platform`
+  and `client.platform`, compiled with that node's guarded branch — is in **both** jars, so a Fabric
+  jar necessarily carries the platform classes. Only the loader-only resources are exclusive:
+  `fabric.mod.json` + `*.accesswidener` in the Fabric jar, `META-INF/neoforge.mods.toml` +
+  `META-INF/accesstransformer.cfg` in the NeoForge jar.
 
 ## Client hooks (where things are wired)
 

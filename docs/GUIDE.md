@@ -1,9 +1,9 @@
 # TOM Post Effects (vfxweaver) — Usage Guide
 
-A client-side VFX library for Minecraft 26.2 / 26.1.x / 1.21.11 (Fabric). Screen post-processing (ping-pong FBO), camera shake, world overlays (block tint/outline), entity effects (tint/outline by UUID), keyframe animation, world/camera/player bindings, datapacks, network triggers and a public Java API.
+A client-side VFX library for Minecraft 26.2 / 26.1.x / 1.21.11 (Fabric and NeoForge). Screen post-processing (ping-pong FBO), camera shake, world overlays (block tint/outline), entity effects (tint/outline by UUID), keyframe animation, world/camera/player bindings, datapacks, network triggers and a public Java API.
 
 - Guide version: 31 (see [docs/CHANGELOG.md](CHANGELOG.md) for history)
-- Mod: `vfxweaver-1.1.4.jar` (one jar per Minecraft line), requires Fabric API
+- Mod: `vfxweaver-1.1.4.jar` (one jar per Minecraft line and loader; Fabric requires Fabric API, NeoForge builds use the `-neoforge` suffix)
 
 Files: `data/<namespace>/vfx/<name>.json` and `data/<namespace>/vfx_curves/<name>.json`. After edits — `/reload`. The effect id = `<namespace>:<name>`. On a dedicated server, definitions and curves are automatically synced to clients on player join and after `/reload`, so custom (datapack) effects work for all players, not just on the server.
 
@@ -1100,7 +1100,7 @@ Effects sent via `VFXAPI.sendEffect` are remembered server-side: if the player r
 
 ## 8. Flashback compatibility
 
-[Flashback](https://modrinth.com/mod/flashback) is an optional companion (a soft dependency — the mod works fine without it). When Flashback is installed, **every effect the client starts** — client-local ones (`VFXAPI.playEffect` and friends) as well as server-triggered ones — is written into the replay as a custom Flashback action, so it appears at the exact tick it was played, along with any live edits and the datapack definitions it needs. (Flashback cannot replay our custom payload packets on its own, which is why the client records server-triggered effects too.)
+[Flashback](https://modrinth.com/mod/flashback) is an optional companion (a soft dependency — the mod works fine without it). This compatibility is **Fabric-only**: Flashback has no NeoForge build, so on NeoForge the mod skips the recording layer entirely. When Flashback is installed, **every effect the client starts** — client-local ones (`VFXAPI.playEffect` and friends) as well as server-triggered ones — is written into the replay as a custom Flashback action, so it appears at the exact tick it was played, along with any live edits and the datapack definitions it needs. (Flashback cannot replay our custom payload packets on its own, which is why the client records server-triggered effects too.)
 
 Things to know:
 

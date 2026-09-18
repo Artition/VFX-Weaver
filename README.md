@@ -1,6 +1,6 @@
 # VFX Weaver API (vfxweaver)
 
-A client-side VFX library/API for Minecraft on Fabric: screen post-processing (chromatic aberration, color grading, distortion, blur, pixelation, motion blur, speed lines and more), camera shake, world block overlays (tint/outline), entity effects (tint/outline by UUID), datapack-defined effects, server→client network triggers and a public Java API for other mods. Authored by **Artition**.
+A client-side VFX library/API for Minecraft on Fabric and NeoForge: screen post-processing (chromatic aberration, color grading, distortion, blur, pixelation, motion blur, speed lines and more), camera shake, world block overlays (tint/outline), entity effects (tint/outline by UUID), datapack-defined effects, server→client network triggers and a public Java API for other mods. Authored by **Artition**.
 
 ## Requirements
 
@@ -9,8 +9,9 @@ A client-side VFX library/API for Minecraft on Fabric: screen post-processing (c
 | Minecraft | 26.2, 26.1.2, 1.21.11 |
 | Fabric Loader | >=0.18.4 (26.x) / >=0.17.3 (1.21.11) |
 | Fabric API | required |
+| NeoForge | 26.2, 26.1.2, 1.21.11 — jar `vfxweaver-<version>+<mc>-neoforge.jar` |
 | Java | JDK 25 (26.2, 26.1.2) / JDK 21 (1.21.11) |
-| Flashback | optional (records client-local effects into replays) |
+| Flashback | optional, Fabric only (records client-local effects into replays) |
 
 ## Quick start
 
@@ -37,7 +38,7 @@ Run a test client/server directly from the project:
 - **Entity effects** — `entity_tint` and `entity_outline` applied to entities by UUID (second-pass model render, texture-aware).
 - **Datapack-defined effects** — declarative JSON (`data/<namespace>/vfx/<effect>.json`), animated params, keyframes, world/camera/player bindings, math expressions, collections, sounds.
 - **Network triggers** — server→client `vfxweaver:vfx_trigger`, datapack sync over `vfxweaver:vfx_sync`.
-- **Flashback compatibility** — client-local effects are recorded into [Flashback](https://modrinth.com/mod/flashback) replays (soft dependency, optional).
+- **Flashback compatibility** — client-local effects are recorded into [Flashback](https://modrinth.com/mod/flashback) replays (soft dependency, optional; Fabric only, Flashback has no NeoForge build).
 - **Public Java API** — `VFXAPI` for other mods.
 
 ## Usage

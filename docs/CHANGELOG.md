@@ -4,7 +4,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). The versions bel
 
 ## Unreleased
 ### Added
-- **NeoForge support (work in progress, 26.2 spike).** A NeoForge node (`26.2-neoforge`) is built beside the Fabric nodes from the same source tree: the build scripts are split per loader (`build.fabric.gradle` / `build.neoforge.gradle`) and a platform layer (`dev.vfxweaver.platform` / `client.platform`) hides every loader API so the render, datapack, API and command code stays loader-agnostic. **No release is announced yet** — this is step S0 of the port; behaviour parity, the other Minecraft lines and the release tooling are still to come.
+- **NeoForge support (work in progress).** A NeoForge node is built beside each Fabric node from the same source tree: the build scripts are split per loader (`build.fabric.gradle` / `build.neoforge.gradle`) and a platform layer (`dev.vfxweaver.platform` / `client.platform`) hides every loader API so the render, datapack, API and command code stays loader-agnostic. **No release is announced yet** — this is stage S2 of the port; behaviour parity and the release tooling are still to come.
+- **All three Minecraft lines now have a NeoForge node (`26.2-neoforge`, `26.1.2-neoforge`, `1.21.11-neoforge`), so the project produces six jars, one per (Minecraft line, loader).** The only per-line loader API split is `<26.1`: NeoForge `21.11` has no submit-geometry event and reads the collector from `LevelRenderer.submitNodeStorage`, while NeoForge `26.1.2` matches `26.2`; dependency ranges stay per line (`deps.neo_compat` for NeoForge, `deps.mc_compat` for Minecraft). **Flashback recording is Fabric-only** — Flashback has no NeoForge build, so the compatibility layer no-ops there. Still unreleased (stage S2).
 
 ## v1.1.4 / Guide v31
 ### Changed
