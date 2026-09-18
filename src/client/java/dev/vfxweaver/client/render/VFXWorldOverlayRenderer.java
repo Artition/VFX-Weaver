@@ -387,6 +387,9 @@ public final class VFXWorldOverlayRenderer {
 	private static final int MAX_CHAIN_LINKS = 512;
 	/** Verlet rope simulation state per running {@code block_chain} instance (physics mode). */
 	private static final Map<Long, ChainSim> CHAIN_SIMS = new HashMap<>();
+	// [diag] temporary: last INFO diagnostic timestamp (nanos) per chain instance. Remove after the
+	// one diagnostic round the rope-collision fix is validated with.
+	private static final Map<Long, Long> CHAIN_DIAG = new HashMap<>();
 
 	/**
 	 * Verlet rope for a physics chain: {@code pos}/{@code prev} per JOINT (connection point,
@@ -878,6 +881,21 @@ public final class VFXWorldOverlayRenderer {
 			for (int i = 1; i < sim.joints - (pinnedB ? 1 : 0); i++) {
 				final Vec3 p = sim.pos[i];
 				final Vec3 resolved = VFXWorldCollision.resolve(level, p, 0.1, sim.prev[i]);
+				// [diag] temporary: one INFO line per 2s per chain instance for the first resolved
+				// joint (pos/prev, whether the query returned shapes, the ejection and the result).
+				// Remove after the diagnostic round.
+				if (i == 1) {
+					final long now = System.nanoTime();
+					final Long last = CHAIN_DIAG.get(key);
+					if (last == null || now - last >= 2_000_000_000L) {
+						CHAIN_DIAG.put(key, now);
+						if (CHAIN_DIAG.size() > 256) {
+							CHAIN_DIAG.clear();
+						}
+						LOGGER.info("[diag] chain={} pos={} prev={} queryShapes={} delta={} resolved={}",
+							key, p, sim.prev[i], VFXWorldCollision.hasCollision(level, p, 0.1), resolved.subtract(p), resolved);
+					}
+				}
 				if (resolved == p) {
 					continue;
 				}
