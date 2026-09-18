@@ -441,10 +441,6 @@ public final class VFXWorldOverlayRenderer {
 			VFXBlockParticleEngine.emit(effect, level);
 			return;
 		}
-		// [diag]
-		if (VFXBlockParticleEngine.diag("emit-vanilla")) {
-			LOGGER.info("[diag] emit effect={} mode=vanilla particle={} (not 'block' and not a registered block-particle preset)", effect.getId(), effect.getParticleId());
-		}
 		ParticleOptions options = resolveParticleOptions(effect);
 		if (options == null) {
 			return;
@@ -1781,8 +1777,11 @@ public final class VFXWorldOverlayRenderer {
 
 	//? if <26.1 {
 /*	private static List<BakedQuad> getModelQuads(final Minecraft minecraft, final BlockPos pos) {
+		return getModelQuads(minecraft, minecraft.level.getBlockState(pos));
+	}
+
+	private static List<BakedQuad> getModelQuads(final Minecraft minecraft, final BlockState state) {
 		try {
-			var state = minecraft.level.getBlockState(pos);
 			List<BlockModelPart> parts = new ArrayList<>();
 			minecraft.getModelManager().getBlockModelShaper().getBlockModel(state).collectParts(RAND, parts);
 			List<BakedQuad> quads = new ArrayList<>();
@@ -1800,14 +1799,17 @@ public final class VFXWorldOverlayRenderer {
 			}
 			return quads;
 		} catch (Exception e) {
-			LOGGER.debug("Failed to collect model quads for block overlay at {}", pos, e);
+			LOGGER.debug("Failed to collect model quads for block overlay", e);
 			return List.of();
 		}
 	}
 *///?} else {
 	private static List<BakedQuad> getModelQuads(final Minecraft minecraft, final BlockPos pos) {
+		return getModelQuads(minecraft, minecraft.level.getBlockState(pos));
+	}
+
+	private static List<BakedQuad> getModelQuads(final Minecraft minecraft, final BlockState state) {
 		try {
-			var state = minecraft.level.getBlockState(pos);
 			List<BlockStateModelPart> parts = new ArrayList<>();
 			minecraft.getModelManager().getBlockStateModelSet().get(state).collectParts(RAND, parts);
 			List<BakedQuad> quads = new ArrayList<>();
@@ -1825,11 +1827,20 @@ public final class VFXWorldOverlayRenderer {
 			}
 			return quads;
 		} catch (Exception e) {
-			LOGGER.debug("Failed to collect model quads for block overlay at {}", pos, e);
+			LOGGER.debug("Failed to collect model quads for block overlay", e);
 			return List.of();
 		}
 	}
 //?}
+
+	/**
+	 * True when the block state's baked model actually emits geometry. Blocks whose world shape is
+	 * drawn by a block-entity renderer instead (skulls, banners, signs, ...) bake an empty model,
+	 * so {@code submitMovingBlock} would silently draw nothing for them.
+	 */
+	static boolean hasBlockModelGeometry(final BlockState state) {
+		return !getModelQuads(Minecraft.getInstance(), state).isEmpty();
+	}
 
 	private static void emitQuads(
 		final VertexConsumer buffer,
