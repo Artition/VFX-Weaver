@@ -30,6 +30,7 @@ public class VFXActiveEffect {
 	private final @Nullable String particleId;
 	private final @Nullable String shape;
 	private final @Nullable String blockId;
+	private final @Nullable String itemId;
 	private float elapsed;
 	private float age;
 	private float fadeOutStart = Float.NEGATIVE_INFINITY;
@@ -119,6 +120,19 @@ public class VFXActiveEffect {
 	 * @param blockId    block id for {@code block_chain} effects ({@code null} = renderer default)
 	 */
 	public VFXActiveEffect(final Identifier id, final VFXEffectType type, final long instanceId, final long instanceSeed, final float startTime, final VFXTimeline timeline, final int fadeTicks, final boolean loop, final List<BlockPos> positions, final List<UUID> entityUuids, final List<ResolvedAnchor> anchors, final @Nullable String particleId, final @Nullable String shape, final @Nullable String blockId) {
+		this(id, type, instanceId, instanceSeed, startTime, timeline, fadeTicks, loop, positions, entityUuids, anchors, particleId, shape, blockId, null);
+	}
+
+	/**
+	 * Creates a new effect instance with the full state, including the definition-level string
+	 * fields used by {@code particles}/{@code block_chain} effects and the inline item-mode id.
+	 *
+	 * @param particleId vanilla particle id for {@code particles} effects ({@code null} = renderer default)
+	 * @param shape      emission shape for {@code particles} effects ({@code null} = renderer default)
+	 * @param blockId    block id for {@code block_chain} / inline block-mode particles ({@code null} = renderer default)
+	 * @param itemId     item id for inline item-mode particles ({@code null} = renderer default)
+	 */
+	public VFXActiveEffect(final Identifier id, final VFXEffectType type, final long instanceId, final long instanceSeed, final float startTime, final VFXTimeline timeline, final int fadeTicks, final boolean loop, final List<BlockPos> positions, final List<UUID> entityUuids, final List<ResolvedAnchor> anchors, final @Nullable String particleId, final @Nullable String shape, final @Nullable String blockId, final @Nullable String itemId) {
 		this.id = id;
 		this.type = type;
 		this.instanceId = instanceId;
@@ -133,6 +147,7 @@ public class VFXActiveEffect {
 		this.particleId = particleId;
 		this.shape = shape;
 		this.blockId = blockId;
+		this.itemId = itemId;
 		this.elapsed = 0.0F;
 		this.age = 0.0F;
 	}
@@ -330,6 +345,14 @@ public class VFXActiveEffect {
 	 */
 	public @Nullable String getBlockId() {
 		return this.blockId;
+	}
+
+	/**
+	 * Item id for the inline item-particle mode of {@code particles} effects (from the definition,
+	 * {@code null} = renderer default).
+	 */
+	public @Nullable String getItemId() {
+		return this.itemId;
 	}
 
 	/**

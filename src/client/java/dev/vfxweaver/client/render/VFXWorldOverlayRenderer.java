@@ -435,8 +435,8 @@ public final class VFXWorldOverlayRenderer {
 	 * {@code color_r/g/b}/{@code size} params.</p>
 	 */
 	private static void emitParticles(final Minecraft minecraft, final VFXActiveEffect effect, final ClientLevel level) {
-		if (VFXBlockParticleEngine.isBlockMode(effect)) {
-			// Real block-model particles are simulated and submitted by the engine (the render
+		if (VFXBlockParticleEngine.isModelMode(effect)) {
+			// Real block/item-model particles are simulated and submitted by the engine (the render
 			// callback ticks them, collectSubmits renders them) instead of the vanilla engine.
 			VFXBlockParticleEngine.emit(effect, level);
 			return;
@@ -639,7 +639,7 @@ public final class VFXWorldOverlayRenderer {
 	private static void warnParticleOnce(final String id, final VFXActiveEffect effect) {
 		// Also covers an unregistered block-particle preset: it is resolved as a vanilla particle
 		// id, fails, and falls back to no emission (the documented behaviour).
-		VFXLog.warnOnce(LOGGER, "particle:" + id, "Unsupported particle id '{}' in effect '{}'; use a vanilla particle, 'dust', 'block' or a registered block-particle preset", id, effect.getId());
+		VFXLog.warnOnce(LOGGER, "particle:" + id, "Unsupported particle id '{}' in effect '{}'; use a vanilla particle, 'dust', 'block', 'item' or a registered block-particle preset", id, effect.getId());
 	}
 
 	public static void register() {
@@ -1044,7 +1044,7 @@ public final class VFXWorldOverlayRenderer {
 		// effect is running; its effect buckets are pruned against the active block-mode set.
 		Set<Long> blockInstances = new HashSet<>();
 		for (VFXActiveEffect effect : effects) {
-			if (effect.getType() == VFXEffectType.PARTICLES && VFXBlockParticleEngine.isBlockMode(effect)) {
+			if (effect.getType() == VFXEffectType.PARTICLES && VFXBlockParticleEngine.isModelMode(effect)) {
 				blockInstances.add(effect.getInstanceId());
 			}
 		}

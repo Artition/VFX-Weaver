@@ -20,6 +20,7 @@ import net.minecraft.server.packs.resources.SimplePreparableReloadListener;
 import net.minecraft.util.GsonHelper;
 import net.minecraft.util.StrictJsonParser;
 import net.minecraft.util.profiling.ProfilerFiller;
+import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.state.BlockState;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -183,15 +184,34 @@ public class VFXBlockParticleManager extends SimplePreparableReloadListener<Map<
 		return this.localSpecs.remove(id) != null;
 	}
 
-	/** Parses one datapack preset; throws on a missing block, an unknown block state or a bad value. */
+	/**
+	 * Parses one datapack preset; throws on a missing/ambiguous model, an unknown block state or
+	 * item, or a bad value. Exactly one of {@code block} / {@code item} must be present.
+	 */
 	private static VFXBlockParticleSpec parseSpec(final String json) {
 		JsonObject object = StrictJsonParser.parse(json).getAsJsonObject();
-		String blockId = GsonHelper.getAsString(object, "block");
-		BlockState block = VFXBlockParticleSpec.parseBlockState(blockId);
-		if (block == null) {
-			throw new IllegalArgumentException("Unknown block state '" + blockId + "'");
+		boolean hasBlock = object.has("block") && !object.get("block").isJsonNull();
+		boolean hasItem = object.has("item") && !object.get("item").isJsonNull();
+		if (hasBlock == hasItem) {
+			throw new IllegalArgumentException("Exactly one of 'block' or 'item' is required");
 		}
-		VFXBlockParticleSpec.Builder builder = VFXBlockParticleSpec.builder(block)
+		VFXBlockParticleSpec.Builder builder;
+		if (hasBlock) {
+			String blockId = GsonHelper.getAsString(object, "block");
+			BlockState block = VFXBlockParticleSpec.parseBlockState(blockId);
+			if (block == null) {
+				throw new IllegalArgumentException("Unknown block state '" + blockId + "'");
+			}
+			builder = VFXBlockParticleSpec.builder(block);
+		} else {
+			String itemId = GsonHelper.getAsString(object, "item");
+			ItemStack item = VFXBlockParticleSpec.parseItem(itemId);
+			if (item == null) {
+				throw new IllegalArgumentException("Unknown item '" + itemId + "'");
+			}
+			builder = VFXBlockParticleSpec.builder(item);
+		}
+		builder = builder
 			.brightness(parseBrightness(object.get("brightness")))
 			.gravity(optFloat(object, "gravity", 1.0F))
 			.friction(optFloat(object, "friction", 0.94F))

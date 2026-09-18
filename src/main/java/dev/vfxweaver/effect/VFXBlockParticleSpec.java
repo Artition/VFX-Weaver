@@ -3,22 +3,28 @@ package dev.vfxweaver.effect;
 import java.util.Map;
 import net.minecraft.commands.arguments.blocks.BlockStateParser;
 import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.resources.Identifier;
+import net.minecraft.world.item.Item;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 import org.jspecify.annotations.Nullable;
 
 /**
- * Immutable configuration of a block-model particle: the block it draws plus the physics and
- * light values the {@code VFXBlockParticleEngine} integrates and submits. Values match the
- * datapack {@code data/<namespace>/vfx_particles/<name>.json} schema and the {@code particles}
- * effect parameter overrides; {@link #withOverrides(Map)} lays those overrides over a base spec.
+ * Immutable configuration of a block-model or item-model particle: the block state or item it
+ * draws plus the physics and light values the {@code VFXBlockParticleEngine} integrates and
+ * submits. Exactly one of {@link #block()} / {@link #item()} is populated ({@link #hasBlock()} /
+ * {@link #hasItem()}). Values match the datapack {@code data/<namespace>/vfx_particles/<name>.json}
+ * schema and the {@code particles} effect parameter overrides; {@link #withOverrides(Map)} lays
+ * those overrides over a base spec.
  *
  * <p>{@code brightness} uses exactly the block-display semantics: {@link #NO_BRIGHTNESS} ({@code -1})
  * means "use the world light at the particle", any other value is the packed light
  * ({@code block &lt;&lt; 4 | sky &lt;&lt; 20}, produced by the version's pack helper) applied to every
  * vertex of the model regardless of the surrounding light.</p>
  *
- * @param block    the block model drawn by the particle (never {@code null})
+ * @param block    the block model drawn by the particle, or {@code null} for an item spec
  * @param brightness packed light override, or {@link #NO_BRIGHTNESS} for world light
  * @param gravity  downward acceleration per tick, as a multiple of {@link #GRAVITY_STEP}
  * @param friction air drag per tick, {@code 0..1} (1 = no drag)
@@ -27,9 +33,10 @@ import org.jspecify.annotations.Nullable;
  * @param size     model scale (the natural block model is one block)
  * @param life     lifetime in ticks
  * @param spin     model yaw rotation per tick, in degrees
+ * @param item     the item model drawn by the particle, or {@link ItemStack#EMPTY} for a block spec
  */
 public record VFXBlockParticleSpec(
-	BlockState block,
+	@Nullable BlockState block,
 	int brightness,
 	float gravity,
 	float friction,
@@ -37,8 +44,12 @@ public record VFXBlockParticleSpec(
 	float bounce,
 	float size,
 	int life,
-	float spin
+	float spin,
+	ItemStack item
 ) {
+	public VFXBlockParticleSpec {
+		item = item == null ? ItemStack.EMPTY : item;
+	}
 	/** Brightness sentinel meaning "use the world light at the particle position". */
 	public static final int NO_BRIGHTNESS = -1;
 	/** Downward velocity (blocks/tick) added per tick at {@code gravity = 1}. Vanilla-like. */
@@ -56,6 +67,16 @@ public record VFXBlockParticleSpec(
 	private static final int DEFAULT_LIFE = 60;
 	private static final float DEFAULT_SPIN = 0.0F;
 
+	/** @return {@code true} when the particle draws a block model */
+	public boolean hasBlock() {
+		return this.block != null && !this.block.isAir();
+	}
+
+	/** @return {@code true} when the particle draws an item model */
+	public boolean hasItem() {
+		return !this.item.isEmpty();
+	}
+
 	/**
 	 * Starts a builder for the given block with every other field at its default.
 	 *
@@ -64,6 +85,26 @@ public record VFXBlockParticleSpec(
 	 */
 	public static Builder builder(final BlockState block) {
 		return new Builder(block);
+	}
+
+	/**
+	 * Starts a builder for the given item with every other field at its default.
+	 *
+	 * @param item the item model the particle draws
+	 * @return a builder carrying the defaults
+	 */
+	public static Builder builder(final ItemStack item) {
+		return new Builder(item);
+	}
+
+	/**
+	 * Builds an item-model spec with every physics/light field at its default.
+	 *
+	 * @param item the item model the particle draws
+	 * @return the spec
+	 */
+	public static VFXBlockParticleSpec item(final ItemStack item) {
+		return new Builder(item).build();
 	}
 
 	/**
@@ -118,7 +159,7 @@ public record VFXBlockParticleSpec(
 			&& newLife == this.life && newSpin == this.spin) {
 			return this;
 		}
-		return new VFXBlockParticleSpec(this.block, newBrightness, newGravity, newFriction, newCollide, newBounce, newSize, newLife, newSpin);
+		return new VFXBlockParticleSpec(this.block, newBrightness, newGravity, newFriction, newCollide, newBounce, newSize, newLife, newSpin, this.item);
 	}
 
 	/**
@@ -135,6 +176,26 @@ public record VFXBlockParticleSpec(
 		} catch (Exception e) {
 			return null;
 		}
+	}
+
+	/**
+	 * Parses a datapack item id (e.g. {@code minecraft:skeleton_skull}) into a single
+	 * {@link ItemStack}. Returns {@code null} for an unknown item, so a caller can record a
+	 * per-file parse error instead of crashing.
+	 *
+	 * @param value the item id string
+	 * @return a one-item stack, or {@code null} when the id is not a known item
+	 */
+	public static @Nullable ItemStack parseItem(final String value) {
+		final Identifier id = Identifier.tryParse(value);
+		if (id == null || !BuiltInRegistries.ITEM.containsKey(id)) {
+			return null;
+		}
+		final Item item = BuiltInRegistries.ITEM.getValue(id);
+		if (item == null || item == Items.AIR) {
+			return null;
+		}
+		return new ItemStack(item);
 	}
 
 	/**
@@ -181,7 +242,8 @@ public record VFXBlockParticleSpec(
 
 	/** Mutable builder for {@link VFXBlockParticleSpec}; every field starts at its documented default. */
 	public static final class Builder {
-		private final BlockState block;
+		private final @Nullable BlockState block;
+		private ItemStack item = ItemStack.EMPTY;
 		private int brightness = NO_BRIGHTNESS;
 		private float gravity = DEFAULT_GRAVITY;
 		private float friction = DEFAULT_FRICTION;
@@ -191,8 +253,13 @@ public record VFXBlockParticleSpec(
 		private int life = DEFAULT_LIFE;
 		private float spin = DEFAULT_SPIN;
 
-		private Builder(final BlockState block) {
+		private Builder(final @Nullable BlockState block) {
 			this.block = block;
+		}
+
+		private Builder(final ItemStack item) {
+			this.block = null;
+			this.item = item;
 		}
 
 		/** @param value packed light, or {@link #NO_BRIGHTNESS} for world light */
@@ -249,7 +316,7 @@ public record VFXBlockParticleSpec(
 
 		/** @return the built immutable spec */
 		public VFXBlockParticleSpec build() {
-			return new VFXBlockParticleSpec(this.block, this.brightness, this.gravity, this.friction, this.collide, this.bounce, this.size, this.life, this.spin);
+			return new VFXBlockParticleSpec(this.block, this.brightness, this.gravity, this.friction, this.collide, this.bounce, this.size, this.life, this.spin, this.item);
 		}
 	}
 }

@@ -40,6 +40,7 @@ public class VFXDefinition {
 	private final @Nullable String particleId;
 	private final @Nullable String shape;
 	private final @Nullable String blockId;
+	private final @Nullable String itemId;
 
 	private VFXDefinition(
 		final Identifier id,
@@ -57,7 +58,8 @@ public class VFXDefinition {
 		final @Nullable String entitySelector,
 		final @Nullable String particleId,
 		final @Nullable String shape,
-		final @Nullable String blockId
+		final @Nullable String blockId,
+		final @Nullable String itemId
 	) {
 		this.id = id;
 		this.type = type;
@@ -75,6 +77,7 @@ public class VFXDefinition {
 		this.particleId = particleId;
 		this.shape = shape;
 		this.blockId = blockId;
+		this.itemId = itemId;
 	}
 
 	/**
@@ -143,7 +146,7 @@ public class VFXDefinition {
 		final @Nullable Identifier sound,
 		final @Nullable String entitySelector
 	) {
-		return new VFXDefinition(id, type, defaultDuration, defaultEasing, params, persistent, loop, fadeTicks, children, positions, List.of(), sound, entitySelector, null, null, null);
+		return new VFXDefinition(id, type, defaultDuration, defaultEasing, params, persistent, loop, fadeTicks, children, positions, List.of(), sound, entitySelector, null, null, null, null);
 	}
 
 	/**
@@ -216,8 +219,13 @@ public class VFXDefinition {
 		String blockId = json.has("block") && !json.get("block").isJsonNull()
 			? GsonHelper.getAsString(json, "block")
 			: null;
+		// Item id of the inline item-particle mode ("particle": "item" + "item": "<id>"),
+		// analogous to "block" for the inline block mode.
+		String itemId = json.has("item") && !json.get("item").isJsonNull()
+			? GsonHelper.getAsString(json, "item")
+			: null;
 
-		return new VFXDefinition(id, type, duration, easing, params, persistent, loop, fadeTicks, children, positions, entityAnchors, sound, entitySelector, particleId, shape, blockId);
+		return new VFXDefinition(id, type, duration, easing, params, persistent, loop, fadeTicks, children, positions, entityAnchors, sound, entitySelector, particleId, shape, blockId, itemId);
 	}
 
 	/**
@@ -521,7 +529,7 @@ public class VFXDefinition {
 		}
 		Map<String, ParamSpec> merged = new LinkedHashMap<>(this.params);
 		merged.putAll(overrides);
-		return new VFXDefinition(this.id, this.type, this.defaultDuration, this.defaultEasing, merged, this.persistent, this.loop, this.fadeTicks, this.children, this.positions, this.entityAnchors, this.sound, this.entitySelector, this.particleId, this.shape, this.blockId);
+		return new VFXDefinition(this.id, this.type, this.defaultDuration, this.defaultEasing, merged, this.persistent, this.loop, this.fadeTicks, this.children, this.positions, this.entityAnchors, this.sound, this.entitySelector, this.particleId, this.shape, this.blockId, this.itemId);
 	}
 
 	/**
@@ -712,6 +720,14 @@ public class VFXDefinition {
 	 */
 	public @Nullable String getBlockId() {
 		return this.blockId;
+	}
+
+	/**
+	 * Item id for the inline item-particle mode of {@code particles} effects (e.g.
+	 * {@code "minecraft:skeleton_skull"}), or {@code null} for the renderer default.
+	 */
+	public @Nullable String getItemId() {
+		return this.itemId;
 	}
 
 	/**

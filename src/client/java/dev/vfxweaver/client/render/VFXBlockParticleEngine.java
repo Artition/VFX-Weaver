@@ -11,9 +11,12 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ThreadLocalRandom;
+import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.renderer.SubmitNodeCollector;
 import net.minecraft.client.renderer.block.MovingBlockRenderState;
+import net.minecraft.client.renderer.item.ItemStackRenderState;
+import net.minecraft.client.renderer.texture.OverlayTexture;
 //? if <26.1 {
 /*import net.minecraft.client.renderer.state.CameraRenderState;
 *///?} else {
@@ -22,6 +25,9 @@ import net.minecraft.client.renderer.state.level.CameraRenderState;
 import net.minecraft.core.BlockPos;
 import net.minecraft.resources.Identifier;
 import net.minecraft.util.Mth;
+import net.minecraft.world.item.Item;
+import net.minecraft.world.item.ItemDisplayContext;
+import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.LightLayer;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.Vec3;
@@ -31,10 +37,11 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Simulates and submits real block-model particles (the {@code particles} effect's block mode and
- * {@link dev.vfxweaver.api.VFXAPI#spawnBlockParticle}): each particle is a full block state carried
- * through gravity, air drag, optional world collision, lifetime and spin, then rendered through the
- * same submit path {@code block_chain} uses ({@link VFXWorldOverlayRenderer#submitMovingBlock}).
+ * Simulates and submits real block- and item-model particles (the {@code particles} effect's model
+ * mode and {@link dev.vfxweaver.api.VFXAPI#spawnBlockParticle}): each particle carries either a
+ * full block state (rendered through the {@code block_chain} moving-block submit path) or an item
+ * stack (rendered through the vanilla item submit path), integrated through gravity, air drag,
+ * optional world collision, lifetime and spin.
  *
  * <p>State is per running effect instance (keyed by {@link VFXActiveEffect#getInstanceId()}) plus a
  * single bucket for API one-shot spawns. Integration is a fixed 1-tick step driven by the shared
@@ -66,6 +73,14 @@ public final class VFXBlockParticleEngine {
 	/** Block states already checked for baked geometry, so the model query runs once each. */
 	private static final Map<BlockState, Boolean> MODEL_GEOMETRY = new HashMap<>();
 	private static final int MAX_MODEL_CHECKS = 256;
+	/**
+	 * Baked item models per item (shared by every particle of that item). Built once on the render
+	 * thread; an animated item model (clock/compass) therefore samples once, which is fine for a
+	 * short-lived particle. Bounded and cleared on level change.
+	 * ponytail: per-item cache, refresh per frame if an animated particle item is ever requested.
+	 */
+	private static final Map<Item, ItemStackRenderState> ITEM_STATES = new HashMap<>();
+	private static final int MAX_ITEM_STATES = 256;
 
 	private VFXBlockParticleEngine() {
 	}
@@ -96,15 +111,17 @@ public final class VFXBlockParticleEngine {
 	}
 
 	/**
-	 * True when the effect's {@code particle} field selects the block mode: the literal
-	 * {@code block}/{@code minecraft:block}, or the id of a registered preset.
+	 * True when the effect's {@code particle} field selects the model mode: the literal
+	 * {@code block}/{@code minecraft:block}, the literal {@code item}/{@code minecraft:item}, or
+	 * the id of a registered preset (block- or item-based).
 	 */
-	public static boolean isBlockMode(final VFXActiveEffect effect) {
+	public static boolean isModelMode(final VFXActiveEffect effect) {
 		final String particleId = effect.getParticleId();
 		if (particleId == null || particleId.isBlank()) {
 			return false;
 		}
-		if (particleId.equals("block") || particleId.equals("minecraft:block")) {
+		if (particleId.equals("block") || particleId.equals("minecraft:block")
+			|| particleId.equals("item") || particleId.equals("minecraft:item")) {
 			return true;
 		}
 		final Identifier id = Identifier.tryParse(particleId);
@@ -212,7 +229,7 @@ public final class VFXBlockParticleEngine {
 	 * @param velocity initial velocity in blocks per tick
 	 */
 	public static void spawn(final VFXBlockParticleSpec spec, final Vec3 position, final Vec3 velocity) {
-		if (spec == null || spec.block() == null || spec.block().isAir()) {
+		if (spec == null || (!spec.hasBlock() && !spec.hasItem())) {
 			return;
 		}
 		addParticle(STANDALONE, spec, position, velocity);
@@ -231,6 +248,7 @@ public final class VFXBlockParticleEngine {
 			lastLevel = level;
 			EFFECT_BUCKETS.clear();
 			STANDALONE.particles.clear();
+			ITEM_STATES.clear();
 			liveCount = 0;
 			accumulator = 0.0F;
 			lastClock = Float.NaN;
@@ -355,20 +373,6 @@ public final class VFXBlockParticleEngine {
 				Mth.lerp(fraction, particle.prev.z, particle.pos.z)
 			);
 			final BlockPos lightPos = BlockPos.containing(position.x, position.y, position.z);
-			final ParticleBlockState state = new ParticleBlockState();
-			state.blockState = particle.spec.block();
-			state.blockPos = lightPos;
-			state.randomSeedPos = lightPos;
-			state.biome = level.getBiome(lightPos);
-			//? if <26.1 {
-			/*state.level = level;
-			*///?} else {
-			state.cardinalLighting = level.cardinalLighting();
-			state.lightEngine = level.getLightEngine();
-			//?}
-			if (particle.spec.brightness() >= 0) {
-				state.packedBrightness = particle.spec.brightness();
-			}
 			final PoseStack pose = new PoseStack();
 			pose.pushPose();
 			pose.translate(position.x - camera.pos.x, position.y - camera.pos.y, position.z - camera.pos.z);
@@ -378,16 +382,69 @@ public final class VFXBlockParticleEngine {
 			final float scale = particle.spec.size();
 			pose.scale(scale, scale, scale);
 			pose.translate(-0.5, -0.5, -0.5);
-			VFXWorldOverlayRenderer.submitMovingBlock(collector, pose, state);
+			if (particle.spec.hasItem()) {
+				submitItem(collector, pose, level, lightPos, particle.spec);
+			} else {
+				final ParticleBlockState state = new ParticleBlockState();
+				state.blockState = particle.spec.block();
+				state.blockPos = lightPos;
+				state.randomSeedPos = lightPos;
+				state.biome = level.getBiome(lightPos);
+				//? if <26.1 {
+				/*state.level = level;
+				*///?} else {
+				state.cardinalLighting = level.cardinalLighting();
+				state.lightEngine = level.getLightEngine();
+				//?}
+				if (particle.spec.brightness() >= 0) {
+					state.packedBrightness = particle.spec.brightness();
+				}
+				VFXWorldOverlayRenderer.submitMovingBlock(collector, pose, state);
+			}
 			pose.popPose();
 		}
+	}
+
+	/**
+	 * Submits one item-model particle through the vanilla item submit path (the same
+	 * {@code ItemStackRenderState.submit} route dropped items and item frames use). The baked model
+	 * is cached per item; a built-but-empty model warns once instead of drawing nothing silently.
+	 * The light is the spec's packed override or the world light at the particle, matching the
+	 * block path's brightness semantics.
+	 */
+	private static void submitItem(final SubmitNodeCollector collector, final PoseStack pose, final ClientLevel level, final BlockPos lightPos, final VFXBlockParticleSpec spec) {
+		final ItemStack stack = spec.item();
+		final Item item = stack.getItem();
+		ItemStackRenderState state = ITEM_STATES.get(item);
+		if (state == null) {
+			state = new ItemStackRenderState();
+			final Minecraft minecraft = Minecraft.getInstance();
+			minecraft.getItemModelResolver().updateForTopItem(state, stack, ItemDisplayContext.NONE, level, minecraft.player, 0);
+			if (ITEM_STATES.size() >= MAX_ITEM_STATES) {
+				ITEM_STATES.clear();
+			}
+			ITEM_STATES.put(item, state);
+		}
+		if (state.isEmpty()) {
+			VFXLog.warnOnce(LOGGER, "no-item-model:" + item, "Item-particle item '{}' has no baked item model; nothing is drawn", stack);
+			return;
+		}
+		final int light = spec.brightness() >= 0 ? spec.brightness() : worldLight(level, lightPos);
+		state.submit(pose, collector, light, OverlayTexture.NO_OVERLAY, 0);
+	}
+
+	/** Packs the world light at {@code pos} into the renderer's packed-light int (block/sky). */
+	private static int worldLight(final ClientLevel level, final BlockPos pos) {
+		final int block = level.getLightEngine().getLayerListener(LightLayer.BLOCK).getLightValue(pos);
+		final int sky = level.getLightEngine().getLayerListener(LightLayer.SKY).getLightValue(pos);
+		return VFXBlockParticleSpec.packBrightness(block, sky);
 	}
 
 	private static void addParticle(final Bucket bucket, final VFXBlockParticleSpec spec, final Vec3 position, final Vec3 velocity) {
 		if (liveCount >= MAX_BLOCK_PARTICLES || bucket.particles.size() >= MAX_PARTICLES_PER_INSTANCE) {
 			return;
 		}
-		if (!hasBakedGeometry(spec)) {
+		if (!isRenderable(spec)) {
 			return;
 		}
 		bucket.particles.add(new Particle(spec, position, velocity));
@@ -395,11 +452,16 @@ public final class VFXBlockParticleEngine {
 	}
 
 	/**
-	 * True when the spec's block bakes geometry; otherwise the moving-block submit would silently
-	 * draw nothing (see {@link VFXWorldOverlayRenderer#hasBlockModelGeometry}). Warns once per
-	 * block so an unusable block is not a silent no-op. Cached per state.
+	 * True when the spec can actually draw: an item spec (its model is resolved lazily at submit;
+	 * an unmodelled item warns there), or a block whose baked block model is non-empty — otherwise
+	 * the moving-block submit would silently draw nothing (see
+	 * {@link VFXWorldOverlayRenderer#hasBlockModelGeometry}). Warns once per block so an unusable
+	 * block is not a silent no-op. Cached per state.
 	 */
-	private static boolean hasBakedGeometry(final VFXBlockParticleSpec spec) {
+	private static boolean isRenderable(final VFXBlockParticleSpec spec) {
+		if (spec.hasItem()) {
+			return true;
+		}
 		final BlockState block = spec.block();
 		if (block == null) {
 			return false;
@@ -427,8 +489,9 @@ public final class VFXBlockParticleEngine {
 	private static @Nullable VFXBlockParticleSpec resolveSpec(final VFXActiveEffect effect) {
 		final String particleId = effect.getParticleId();
 		VFXBlockParticleSpec base;
-		if (particleId == null || particleId.equals("block") || particleId.equals("minecraft:block")) {
-			base = inlineSpec(effect);
+		if (particleId == null || particleId.equals("block") || particleId.equals("minecraft:block")
+			|| particleId.equals("item") || particleId.equals("minecraft:item")) {
+			base = inlineSpec(effect, particleId);
 		} else {
 			final Identifier id = Identifier.tryParse(particleId);
 			base = id == null ? null : VFXBlockParticleManager.get().get(id);
@@ -436,8 +499,25 @@ public final class VFXBlockParticleEngine {
 		return base == null ? null : base.withOverrides(paramOverrides(effect));
 	}
 
-	/** Builds the spec from the effect's {@code block} field, defaulting to stone. */
-	private static VFXBlockParticleSpec inlineSpec(final VFXActiveEffect effect) {
+	/**
+	 * Builds the inline spec from the effect's {@code block} field (block mode, defaulting to
+	 * stone) or {@code item} field (item mode). Returns {@code null} when the item id is missing or
+	 * unknown, with a one-time warning.
+	 */
+	private static @Nullable VFXBlockParticleSpec inlineSpec(final VFXActiveEffect effect, final @Nullable String particleId) {
+		if (particleId != null && (particleId.equals("item") || particleId.equals("minecraft:item"))) {
+			final String itemId = effect.getItemId();
+			if (itemId == null || itemId.isBlank()) {
+				VFXLog.warnOnce(LOGGER, "item:none", "Item-particle effect '{}' has no 'item' id; nothing is spawned", effect.getId());
+				return null;
+			}
+			final ItemStack stack = VFXBlockParticleSpec.parseItem(itemId);
+			if (stack == null) {
+				VFXLog.warnOnce(LOGGER, "item:" + itemId, "Unknown particle item '{}' in effect '{}'; nothing is spawned", itemId, effect.getId());
+				return null;
+			}
+			return VFXBlockParticleSpec.item(stack);
+		}
 		final String blockId = effect.getBlockId();
 		if (blockId == null || blockId.isBlank()) {
 			return VFXBlockParticleSpec.DEFAULT;
