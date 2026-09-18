@@ -13,9 +13,15 @@ jobs:
         include:
           - node: "26.2"
             java: "25"
+          - node: "26.2-neoforge"
+            java: "25"
           - node: "26.1.2"
             java: "25"
+          - node: "26.1.2-neoforge"
+            java: "25"
           - node: "1.21.11"
+            java: "21"
+          - node: "1.21.11-neoforge"
             java: "21"
     steps:
       - name: checkout repository
