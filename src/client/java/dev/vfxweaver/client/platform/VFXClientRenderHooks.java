@@ -28,7 +28,11 @@ import net.fabricmc.fabric.api.client.rendering.v1.level.LevelRenderEvents;
 //?} else {
 /*import net.neoforged.neoforge.client.event.ClientPlayerNetworkEvent;
 import net.neoforged.neoforge.client.event.ClientTickEvent;
+//? if <26.1 {
+import net.neoforged.neoforge.client.event.RenderLevelStageEvent;
+//?} else {
 import net.neoforged.neoforge.client.event.SubmitCustomGeometryEvent;
+//?}
 import net.neoforged.neoforge.client.event.lifecycle.ClientStoppingEvent;
 import net.neoforged.neoforge.common.NeoForge;*/
 //?}
@@ -49,7 +53,10 @@ public final class VFXClientRenderHooks {
 	//? if <26.2 {
 	private static MultiBufferSource.@Nullable BufferSource currentBuffers;
 	//?}
-	/** Submit node collector of the current event (on {@code <26.1} the Fabric command queue). */
+	/**
+	 * Submit node collector of the current event (on {@code <26.1}: the Fabric command queue or,
+	 * on NeoForge, the level renderer's per-frame submit storage).
+	 */
 	private static @Nullable SubmitNodeCollector currentCollector;
 
 	private VFXClientRenderHooks() {
@@ -100,10 +107,13 @@ public final class VFXClientRenderHooks {
 	 * event context for {@link #camera()}, {@link #buffers()} and {@link #collector()}.
 	 *
 	 * <p>Fabric keeps its two events ({@code AFTER_TRANSLUCENT_TERRAIN} + {@code COLLECT_SUBMITS}
-	 * on {@code >=26.1}, {@code END_MAIN} + {@code BEFORE_ENTITIES} on {@code <26.1}). NeoForge 26.2
-	 * has no per-stage submit collector: {@code SubmitCustomGeometryEvent} is the only event that
+	 * on {@code >=26.1}, {@code END_MAIN} + {@code BEFORE_ENTITIES} on {@code <26.1}). NeoForge uses
+	 * one event per line: on {@code >=26.1} {@code SubmitCustomGeometryEvent} is the only event that
 	 * hands out the {@code SubmitNodeCollector} the {@code >=26.2} geometry path submits through, so
-	 * both callbacks run there (during the level submit phase, before opaque submits render).
+	 * both callbacks run there (during the level submit phase, before opaque submits render); on
+	 * {@code <26.1} that event does not exist, so
+	 * {@code RenderLevelStageEvent.AfterTranslucentBlocks} captures the camera, the render buffers
+	 * and the level renderer's submit storage for the {@code <26.2} buffer path.
 	 *
 	 * @param onRender         the overlay geometry callback (the Fabric stage event equivalent)
 	 * @param onCollectSubmits the block-model submit callback
@@ -154,7 +164,23 @@ public final class VFXClientRenderHooks {
 		});
 		//?}
 		//?} else {
-		/*NeoForge.EVENT_BUS.addListener((SubmitCustomGeometryEvent event) -> {
+		/*//? if <26.1 {
+		// 1.21.11 NeoForge: no submit-geometry event exists, so the overlay stage event captures
+		// the vanilla per-frame sources directly (main camera, render buffers, the level renderer's
+		// submit storage) and runs both callbacks.
+		NeoForge.EVENT_BUS.addListener((RenderLevelStageEvent.AfterTranslucentBlocks event) -> {
+			currentCamera = event.getLevelRenderState().cameraRenderState;
+			currentBuffers = Minecraft.getInstance().renderBuffers().bufferSource();
+			currentCollector = event.getLevelRenderer().submitNodeStorage;
+			try {
+				onRender.run();
+				onCollectSubmits.run();
+			} finally {
+				clearContext();
+			}
+		});
+		//?} else {
+		NeoForge.EVENT_BUS.addListener((SubmitCustomGeometryEvent event) -> {
 			currentCamera = event.getLevelRenderState().cameraRenderState;
 			currentCollector = event.getSubmitNodeCollector();
 			try {
@@ -163,7 +189,8 @@ public final class VFXClientRenderHooks {
 			} finally {
 				clearContext();
 			}
-		});*/
+		});
+		//?}*/
 		//?}
 	}
 

@@ -37,7 +37,7 @@ import org.slf4j.LoggerFactory;
  * effect ids while playing on a server. The datapack/server layer wins for the same id.</p>
  */
 public class VFXDefinitionManager extends SimplePreparableReloadListener<Map<Identifier, String>>
-		//? if <26.1
+		//? if <26.1 && fabric
 		/*implements net.fabricmc.fabric.api.resource.IdentifiableResourceReloadListener*/
 		{
 	private static final Logger LOGGER = LoggerFactory.getLogger("vfxweaver/vfx-defs");
@@ -64,7 +64,7 @@ public class VFXDefinitionManager extends SimplePreparableReloadListener<Map<Ide
 	private VFXDefinitionManager() {
 	}
 
-	//? if <26.1 {
+	//? if <26.1 && fabric {
 	/*@Override
 	public Identifier getFabricId() {
 		return Identifier.fromNamespaceAndPath("vfxweaver", "vfx_definitions");

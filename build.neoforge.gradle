@@ -61,7 +61,12 @@ def expandProps = [
 		minecraft         : minecraftVersion,
 		java              : javaVersion,
 		compatibilityLevel: "JAVA_${javaVersion}",
-		neoCompat         : property('deps.mc_compat'),
+		// Maven-style Minecraft range for the mods.toml `minecraft` dependency (the Fabric nodes
+		// keep the loader-native syntax in their own `deps.mc_compat`).
+		mcCompat          : property('deps.mc_compat'),
+		// The NeoForge version range is NOT the Minecraft one: NeoForge versions its builds after
+		// the game (26.2.0.88, 21.11.45, ...), so it needs its own property.
+		neoCompat         : property('deps.neo_compat'),
 		loaderCompat      : property('deps.loader_compat'),
 ]
 

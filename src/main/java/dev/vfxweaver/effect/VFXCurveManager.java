@@ -27,7 +27,7 @@ import org.slf4j.LoggerFactory;
  * (see {@link #applySynced(Map)}). One malformed curve file is logged and skipped, the rest keep loading.
  */
 public class VFXCurveManager extends SimplePreparableReloadListener<Map<Identifier, String>>
-		//? if <26.1
+		//? if <26.1 && fabric
 		/*implements net.fabricmc.fabric.api.resource.IdentifiableResourceReloadListener*/
 		{
 	private static final Logger LOGGER = LoggerFactory.getLogger("vfxweaver/vfx-curves");
@@ -41,7 +41,7 @@ public class VFXCurveManager extends SimplePreparableReloadListener<Map<Identifi
 	private VFXCurveManager() {
 	}
 
-	//? if <26.1 {
+	//? if <26.1 && fabric {
 	/*@Override
 	public Identifier getFabricId() {
 		return Identifier.fromNamespaceAndPath("vfxweaver", "vfx_curves");

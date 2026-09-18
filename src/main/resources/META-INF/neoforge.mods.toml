@@ -29,7 +29,7 @@ side="BOTH"
 [[dependencies.vfxweaver]]
 modId="minecraft"
 type="required"
-versionRange="${neoCompat}"
+versionRange="${mcCompat}"
 ordering="NONE"
 side="BOTH"
 

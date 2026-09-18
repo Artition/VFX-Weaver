@@ -39,6 +39,8 @@ stonecutter {
 		versions(['26.1.2': '26.1.2']).buildscript 'build.fabric.gradle'
 		versions(['1.21.11': '1.21.11']).buildscript 'build.fabric.gradle'
 		versions(['26.2-neoforge': '26.2']).buildscript 'build.neoforge.gradle'
+		versions(['26.1.2-neoforge': '26.1.2']).buildscript 'build.neoforge.gradle'
+		versions(['1.21.11-neoforge': '1.21.11']).buildscript 'build.neoforge.gradle'
 	}
 }
 
