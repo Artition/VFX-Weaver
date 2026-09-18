@@ -1,5 +1,3 @@
-modLoader="javafml"
-loaderVersion="${loaderCompat}"
 license="MIT"
 
 [[mods]]
