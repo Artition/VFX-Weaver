@@ -394,9 +394,6 @@ public final class VFXWorldOverlayRenderer {
 	private static final double CHAIN_CONTACT_PROBE = 0.15;
 	/** Verlet rope simulation state per running {@code block_chain} instance (physics mode). */
 	private static final Map<Long, ChainSim> CHAIN_SIMS = new HashMap<>();
-	// [diag] temporary: last INFO diagnostic timestamp (nanos) per chain instance. Remove after the
-	// one diagnostic round the rope-collision fix is validated with.
-	private static final Map<Long, Long> CHAIN_DIAG = new HashMap<>();
 
 	/**
 	 * Verlet rope for a physics chain: {@code pos}/{@code prev} per JOINT (connection point,
@@ -900,22 +897,6 @@ public final class VFXWorldOverlayRenderer {
 				// Drop the inward normal component, then damp the tangential part by the surface.
 				final Vec3 tangential = contact && vn < 0.0 ? vel.subtract(n.scale(vn)) : vel;
 				final double friction = contact ? contactFriction(level, resolved, n) : 1.0;
-				// [diag] temporary: one INFO line per 2s per chain instance for the first resolved
-				// joint (pos/prev, contact, ejection and the tangential speed before/after
-				// friction). Remove after the diagnostic round.
-				if (i == 1) {
-					final long now = System.nanoTime();
-					final Long last = CHAIN_DIAG.get(key);
-					if (last == null || now - last >= 2_000_000_000L) {
-						CHAIN_DIAG.put(key, now);
-						if (CHAIN_DIAG.size() > 256) {
-							CHAIN_DIAG.clear();
-						}
-						LOGGER.info("[diag] chain={} pos={} prev={} queryShapes={} contact={} delta={} resolved={} tBefore={} tAfter={}",
-							key, p, sim.prev[i], VFXWorldCollision.hasCollision(level, p, 0.1), contact, correction, resolved,
-							tangential.length(), tangential.scale(friction).length());
-					}
-				}
 				if (!contact) {
 					continue;
 				}

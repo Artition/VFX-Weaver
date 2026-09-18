@@ -228,9 +228,4 @@ public final class VFXWorldCollision {
 		}
 		return boxes;
 	}
-
-	// [diag] temporary: whether the real collision query returns any shape at the point.
-	static boolean hasCollision(final ClientLevel level, final Vec3 p, final double padding) {
-		return !queryBoxes(level, p, padding).isEmpty();
-	}
 }
