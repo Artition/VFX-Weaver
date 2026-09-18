@@ -11,6 +11,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ThreadLocalRandom;
+//? if >=26.2 {
+/*import java.util.concurrent.atomic.AtomicInteger;
+*///?}
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.resources.Identifier;
@@ -78,6 +81,14 @@ public final class VFXBlockParticleEngine {
 	/** Block states already checked for baked geometry, so the model query runs once each. */
 	private static final Map<BlockState, Boolean> MODEL_GEOMETRY = new HashMap<>();
 	private static final int MAX_MODEL_CHECKS = 256;
+	//? if >=26.2 {
+	/*// Client-local display-entity ids. 26.2 assigns entity ids from the level, but neither
+	// ClientLevel nor a base Level has a counter (Level.getNextEntityId() returns 0 and only
+	// ServerLevel overrides it), so a locally created display would make ClientLevel.addEntity
+	// throw on Entity.getId(). This counter starts at Integer.MAX_VALUE and walks down, so it can
+	// never collide with a server entity id (ServerLevel.ENTITY_COUNTER starts at 0 and walks up).
+	private static final AtomicInteger LOCAL_ENTITY_IDS = new AtomicInteger(Integer.MAX_VALUE);
+	*///?}
 
 	private VFXBlockParticleEngine() {
 	}
@@ -449,7 +460,16 @@ public final class VFXBlockParticleEngine {
 		}
 		display.setPos(position.x, position.y, position.z);
 		display.setOldPosAndRot();
-		level.addEntity(display);
+		try {
+			//? if >=26.2 {
+			/*display.setId(LOCAL_ENTITY_IDS.getAndDecrement());
+			*///?}
+			level.addEntity(display);
+		} catch (Exception e) {
+			VFXLog.warnOnce(LOGGER, "spawn-failed", "Failed to add a block/item particle display to the client level; dropping the particle", e);
+			display.discard();
+			return;
+		}
 		bucket.particles.add(new Particle(spec, position, velocity, rotation, display));
 		liveCount++;
 	}

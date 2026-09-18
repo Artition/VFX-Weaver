@@ -670,7 +670,7 @@ public final class VFXWorldOverlayRenderer {
 			try {
 				submitChain(collector, effect, level, minecraft, camera);
 			} catch (Exception e) {
-				LOGGER.warn("Failed to submit block chain '{}'", effect.getId(), e);
+				VFXLog.warnOnce(LOGGER, "chain:" + effect.getId(), "Failed to submit block chain '{}'", effect.getId(), e);
 			}
 		}
 	}
@@ -1115,7 +1115,7 @@ public final class VFXWorldOverlayRenderer {
 					}
 				}
 			} catch (Exception e) {
-				LOGGER.warn("Failed to render world overlay '{}'", effect.getId(), e);
+				VFXLog.warnOnce(LOGGER, "overlay:" + effect.getId(), "Failed to render world overlay '{}'", effect.getId(), e);
 			}
 		}
 
@@ -1124,7 +1124,7 @@ public final class VFXWorldOverlayRenderer {
 				sink.flush(type);
 			}
 		} catch (Exception e) {
-			LOGGER.warn("Failed to flush world overlay buffers", e);
+			VFXLog.warnOnce(LOGGER, "overlay-flush", "Failed to flush world overlay buffers", e);
 		}
 	}
 
