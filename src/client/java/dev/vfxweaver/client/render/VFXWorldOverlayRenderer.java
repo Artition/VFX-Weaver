@@ -441,6 +441,10 @@ public final class VFXWorldOverlayRenderer {
 			VFXBlockParticleEngine.emit(effect, level);
 			return;
 		}
+		// [diag]
+		if (VFXBlockParticleEngine.diag("emit-vanilla")) {
+			LOGGER.info("[diag] emit effect={} mode=vanilla particle={} (not 'block' and not a registered block-particle preset)", effect.getId(), effect.getParticleId());
+		}
 		ParticleOptions options = resolveParticleOptions(effect);
 		if (options == null) {
 			return;

@@ -10,6 +10,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ThreadLocalRandom;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.renderer.SubmitNodeCollector;
@@ -63,6 +64,20 @@ public final class VFXBlockParticleEngine {
 	private static float lastClock = Float.NaN;
 	private static float accumulator;
 	private static int liveCount;
+
+	// [diag] throttle: at most one log line per second per boundary key.
+	private static final Map<String, Long> DIAG_LAST = new ConcurrentHashMap<>();
+
+	/** [diag] true when the boundary may log this second. */
+	static boolean diag(final String key) {
+		final long now = System.currentTimeMillis();
+		final Long last = DIAG_LAST.get(key);
+		if (last != null && now - last < 1000L) {
+			return false;
+		}
+		DIAG_LAST.put(key, now);
+		return true;
+	}
 
 	private VFXBlockParticleEngine() {
 	}
@@ -119,11 +134,23 @@ public final class VFXBlockParticleEngine {
 	public static void emit(final VFXActiveEffect effect, final ClientLevel level) {
 		final VFXBlockParticleSpec spec = resolveSpec(effect);
 		if (spec == null) {
+			// [diag]
+			if (diag("emit")) {
+				LOGGER.info("[diag] emit effect={} mode=block spec=null particle={} (no inline block and no registered preset)", effect.getId(), effect.getParticleId());
+			}
 			return;
 		}
 		final List<Vec3> anchors = VFXWorldOverlayRenderer.effectPositions(effect, level);
 		if (anchors.isEmpty()) {
+			// [diag]
+			if (diag("emit")) {
+				LOGGER.info("[diag] emit effect={} mode=block spec.block={} anchors=0 (entity anchor unresolved this frame)", effect.getId(), spec.block());
+			}
 			return;
+		}
+		// [diag]
+		if (diag("emit-entry")) {
+			LOGGER.info("[diag] emit effect={} mode=block particle={} spec.block={} life={} size={} anchors={}", effect.getId(), effect.getParticleId(), spec.block(), spec.life(), spec.size(), anchors.size());
 		}
 		final float radius = Mth.clamp(effect.getParam("radius", 2.0F), 0.05F, 32.0F);
 		final float height = Mth.clamp(effect.getParam("height", 3.0F), 0.5F, 32.0F);
@@ -168,6 +195,8 @@ public final class VFXBlockParticleEngine {
 		final ThreadLocalRandom random = ThreadLocalRandom.current();
 		// The block-mode 'spin' param is the particle yaw (degrees/tick); the shape keeps elapsed.
 		final float elapsed = effect.getElapsed() / 20.0F;
+		Vec3 lastPos = null;
+		Vec3 lastVel = null;
 		for (int i = 0; i < count; i++) {
 			final Vec3 position = VFXWorldOverlayRenderer.sampleShape(shape, anchors, radius, height, turns, elapsed, random);
 			if (position == null) {
@@ -195,7 +224,14 @@ public final class VFXBlockParticleEngine {
 				vy += Math.cos(phi) * speed;
 				vz = Math.sin(phi) * Math.sin(theta) * speed;
 			}
-			addParticle(bucket, spec, position, new Vec3(vx, vy, vz));
+			final Vec3 velocity = new Vec3(vx, vy, vz);
+			addParticle(bucket, spec, position, velocity);
+			lastPos = position;
+			lastVel = velocity;
+		}
+		// [diag]
+		if (lastPos != null && diag("spawn")) {
+			LOGGER.info("[diag] spawn effect={} count={} pos=({},{},{}) vel=({},{},{})", effect.getId(), count, lastPos.x, lastPos.y, lastPos.z, lastVel.x, lastVel.y, lastVel.z);
 		}
 	}
 
@@ -238,6 +274,10 @@ public final class VFXBlockParticleEngine {
 			liveCount -= entry.getValue().particles.size();
 			return true;
 		});
+		// [diag]
+		if (diag("tick")) {
+			LOGGER.info("[diag] tick clock={} lastClock={} activeInstances={} live={} buckets={} standalone={}", clock, lastClock, activeInstances.size(), liveCount, EFFECT_BUCKETS.size(), STANDALONE.particles.size());
+		}
 		if (Float.isNaN(lastClock)) {
 			lastClock = clock;
 			return;
@@ -274,10 +314,15 @@ public final class VFXBlockParticleEngine {
 			return;
 		}
 		final float fraction = Mth.clamp(accumulator, 0.0F, 1.0F);
+		int submitted = 0;
 		for (final Bucket bucket : EFFECT_BUCKETS.values()) {
-			submitBucket(collector, camera, level, bucket, fraction);
+			submitted += submitBucket(collector, camera, level, bucket, fraction);
 		}
-		submitBucket(collector, camera, level, STANDALONE, fraction);
+		submitted += submitBucket(collector, camera, level, STANDALONE, fraction);
+		// [diag]
+		if (diag("submit")) {
+			LOGGER.info("[diag] submit collector={} live={} submitted={} fraction={}", collector.getClass().getSimpleName(), liveCount, submitted, fraction);
+		}
 	}
 
 	/**
@@ -343,7 +388,8 @@ public final class VFXBlockParticleEngine {
 		particle.rotation += spec.spin();
 	}
 
-	private static void submitBucket(final SubmitNodeCollector collector, final CameraRenderState camera, final ClientLevel level, final Bucket bucket, final float fraction) {
+	private static int submitBucket(final SubmitNodeCollector collector, final CameraRenderState camera, final ClientLevel level, final Bucket bucket, final float fraction) {
+		int submitted = 0;
 		for (final Particle particle : bucket.particles) {
 			final Vec3 position = new Vec3(
 				Mth.lerp(fraction, particle.prev.x, particle.pos.x),
@@ -376,7 +422,9 @@ public final class VFXBlockParticleEngine {
 			pose.translate(-0.5, -0.5, -0.5);
 			VFXWorldOverlayRenderer.submitMovingBlock(collector, pose, state);
 			pose.popPose();
+			submitted++;
 		}
+		return submitted;
 	}
 
 	private static void addParticle(final Bucket bucket, final VFXBlockParticleSpec spec, final Vec3 position, final Vec3 velocity) {
