@@ -70,21 +70,23 @@ git mv build.gradle build.fabric.gradle
 
 - [ ] **Step 2: Register both loaders per version in `settings.gradle`**
 
-Replace the `create(getRootProject())` block with (keep `kotlinController = false`, keep `centralScript`):
+The verified Groovy API (from the Stonecutter settings docs) is `versions([project: version]).buildscript 'file'`. Replace the `create(getRootProject())` body with:
 
 ```groovy
-stonecutter {
-	kotlinController = false
-	centralScript = 'build.gradle'
-
 	create(getRootProject()) {
-		['26.2', '26.1.2', '1.21.11'].each { v ->
-			version(v, v).buildscript('build.fabric.gradle')
-			version("${v}-neoforge", v).buildscript('build.neoforge.gradle')
-		}
+		// One node per (Minecraft version, loader). The Fabric nodes keep their historical names so
+		// `:26.2:build` and the released jar names stay valid. The map value is the logical version
+		// used by `//? if >=26.2` comment conditions.
+		versions(['26.2': '26.2']).buildscript 'build.fabric.gradle'
+		versions(['26.1.2': '26.1.2']).buildscript 'build.fabric.gradle'
+		versions(['1.21.11': '1.21.11']).buildscript 'build.fabric.gradle'
+		versions(['26.2-neoforge': '26.2']).buildscript 'build.neoforge.gradle'
 	}
-}
 ```
+
+Also add the NeoForged and KikuGie mavens to `pluginManagement.repositories` (Task 2 Step 1 needs them; doing it here saves a second settings edit).
+
+Keep `kotlinController = false` and `centralScript = 'build.gradle'`.
 
 - [ ] **Step 3: Make `build.gradle` the thin controller script**
 
@@ -95,19 +97,21 @@ stonecutter {
 // build.fabric.gradle (Fabric nodes) and build.neoforge.gradle (NeoForge nodes).
 ```
 
-- [ ] **Step 4: Create the loader tags / constants in `stonecutter.gradle`**
+- [ ] **Step 4: Declare the loader constants in the per-loader build scripts**
 
-Add the loader as a Stonecutter constant so `//? if fabric` and `//? if neoforge` resolve. Check the Groovy syntax in the wiki page `https://stonecutter.kikugie.dev/wiki/config/params` (the upstream template uses Kotlin: `constants { match(loader, "fabric", "neoforge") }`). The target result, expressed in whatever form the Groovy DSL accepts:
+`stonecutter.gradle` is **git-ignored** (the active node is a local dev setting), so the constants must live in tracked files. Declare both constants on every node so a condition never references an unknown name — in `build.fabric.gradle`, right after the Loom variant block:
 
 ```groovy
+// Stonecutter constant: which loader this node targets, so shared sources can branch with
+// `//? if fabric { ... //?} else { ... //?}`. Both constants are declared on every node so a
+// condition never references an unknown name.
 stonecutter {
-	parameters {
-		constants {
-			match('loader', 'fabric', 'neoforge')
-		}
-	}
+	constants['fabric'] = true
+	constants['neoforge'] = false
 }
 ```
+
+and the inverse (`fabric = false`, `neoforge = true`) in `build.neoforge.gradle`. The DSL form is the one documented for Groovy (`stonecutter { constants['name'] = bool }` in a node build script); the newer `parameters { constants { match(current.project, ...) } }` form is only documented for Kotlin.
 
 - [ ] **Step 5: Create the NeoForge node properties**
 

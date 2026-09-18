@@ -1,0 +1,14 @@
+plugins {
+	id 'java-library'
+}
+
+// Stonecutter constant: which loader this node targets, so shared sources can branch with
+// `//? if fabric { ... //?} else { ... //?}`. Both constants are declared on every node so a
+// condition never references an unknown name.
+stonecutter {
+	constants['fabric'] = false
+	constants['neoforge'] = true
+}
+
+version = "${property('mod_version')}+${sc.current.project}"
+base.archivesName = property('mod_id').toString()

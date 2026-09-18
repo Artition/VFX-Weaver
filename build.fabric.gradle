@@ -1,0 +1,115 @@
+plugins {
+	id 'maven-publish'
+	// Load the Loom artifact onto the plugin classpath; apply the right variant per node below.
+	id 'net.fabricmc.fabric-loom' version "${loom_version}" apply false
+}
+
+if (sc.current.parsed.matches('<26.1')) {
+	// Obfuscated target: use the remapping Loom so intermediary mod access wideners are remapped.
+	apply plugin: 'fabric-loom'
+} else {
+	// Unobfuscated target (26.x): no-remap Loom.
+	apply plugin: 'net.fabricmc.fabric-loom'
+}
+
+// Stonecutter constant: which loader this node targets, so shared sources can branch with
+// `//? if fabric { ... //?} else { ... //?}`. Both constants are declared on every node so a
+// condition never references an unknown name.
+stonecutter {
+	constants['fabric'] = true
+	constants['neoforge'] = false
+}
+
+def minecraftVersion = property('deps.minecraft')
+def loaderVersion = property('deps.loader')
+def fabricApiVersion = property('deps.fabric_api')
+def javaVersion = (property('deps.java') as String).toInteger()
+
+version = "${property('mod_version')}+${sc.current.version}"
+group = property('maven_group')
+base.archivesName = property('mod_id').toString()
+
+repositories {
+	// Loom adds the Minecraft/Fabric repositories automatically.
+}
+
+loom {
+	splitEnvironmentSourceSets()
+
+	// 26.x is unobfuscated: the AW uses the `official` namespace. Pre-26.1 nodes are remapped
+	// (Mojang mappings -> intermediary), so they need the `named` AW instead.
+	if (sc.current.parsed.matches('>=26.1')) {
+		accessWidenerPath = rootProject.file("src/main/resources/vfxweaver.accesswidener")
+	} else {
+		accessWidenerPath = rootProject.file("src/main/resources/vfxweaver-named.accesswidener")
+	}
+
+	mods {
+		"vfxweaver" {
+			sourceSet sourceSets.main
+			sourceSet sourceSets.client
+		}
+	}
+}
+
+dependencies {
+	minecraft "com.mojang:minecraft:${minecraftVersion}"
+	if (sc.current.parsed.matches('<26.1')) {
+		mappings loom.officialMojangMappings()
+		modImplementation "net.fabricmc:fabric-loader:${loaderVersion}"
+		modImplementation "net.fabricmc.fabric-api:fabric-api:${fabricApiVersion}"
+	} else {
+		implementation "net.fabricmc:fabric-loader:${loaderVersion}"
+		implementation "net.fabricmc.fabric-api:fabric-api:${fabricApiVersion}"
+	}
+}
+
+def expandProps = [
+		version           : project.version,
+		minecraft         : minecraftVersion,
+		java              : javaVersion,
+		compatibilityLevel: "JAVA_${javaVersion}",
+		loaderCompat      : property('deps.loader_compat'),
+		mcCompat          : property('deps.mc_compat'),
+		accessWidener     : sc.current.parsed.matches('<26.1') ? 'vfxweaver-named.accesswidener' : 'vfxweaver.accesswidener',
+]
+
+tasks.matching { it.name in ['processResources', 'processClientResources'] }.configureEach {
+	inputs.properties(expandProps)
+	filesMatching('fabric.mod.json') { expand(expandProps) }
+	filesMatching('*.mixins.json') { expand(expandProps) }
+	// The two access wideners differ only in namespace; ship the one this node needs.
+	if (sc.current.parsed.matches('>=26.1')) {
+		exclude 'vfxweaver-named.accesswidener'
+	} else {
+		exclude 'vfxweaver.accesswidener'
+	}
+}
+
+tasks.withType(JavaCompile).configureEach {
+	it.options.release = javaVersion
+}
+
+java {
+	withSourcesJar()
+	sourceCompatibility = JavaVersion.toVersion(javaVersion)
+	targetCompatibility = JavaVersion.toVersion(javaVersion)
+}
+
+def modId = property('mod_id')
+jar {
+	from(rootProject.file('LICENSE')) {
+		rename { "${it}_${modId}" }
+	}
+}
+
+publishing {
+	publications {
+		create('mavenJava', MavenPublication) {
+			from components.java
+		}
+	}
+	repositories {
+		maven { url = uri(layout.buildDirectory.dir("maven")) }
+	}
+}
