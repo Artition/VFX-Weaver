@@ -156,7 +156,7 @@ when a NeoForge line changes. Loader-specific code lives **only** in `dev.vfxwea
 | Argument type | `RegisterEvent.register(Registries.COMMAND_ARGUMENT_TYPE, Identifier, Supplier<ArgumentTypeInfo>)` (NeoForge: `ArgumentTypeInfos.registerByClass`) |
 | Reload listener | `AddServerReloadListenersEvent.addListener(Identifier, PreparableReloadListener)` |
 | Client tick / network | `ClientTickEvent.Post`, `ClientPlayerNetworkEvent.LoggingIn`/`LoggingOut` |
-| World overlays (26.2) | `RenderLevelStageEvent.AfterTranslucentBlocks` (+ `getPoseStack()`, `getLevelRenderState()`); geometry via `SubmitCustomGeometryEvent.getSubmitNodeCollector()` |
+| World overlays (26.2) | `RenderLevelStageEvent.AfterTranslucentBlocks` (+ `getPoseStack()`, `getLevelRenderState()`); geometry via `LevelRenderer.submitNodeStorage` (exposed by the access transformer) |
 | Access transformer | `META-INF/accesstransformer.cfg`, e.g. `public net.minecraft.client.particle.Particle xd` — the five `Particle` fields are `protected double xd/yd/zd` + `protected float gravity/friction` — plus `RenderPipelines.register(...)` (descriptor attached to the name, no space) and `LevelRenderer submitNodeStorage` |
 
 ### NeoForge per-line API: the boundary is `<26.1`
@@ -167,12 +167,12 @@ at all. The guarded NeoForge branches therefore nest `//? if <26.1 { 21.11 } els
 
 | Concern | NeoForge `26.1.2` / `26.2` | NeoForge `21.11` (MC `1.21.11`) |
 |---|---|---|
-| Submit event | `SubmitCustomGeometryEvent.getSubmitNodeCollector()` | **does not exist** |
-| World-overlay event | `RenderLevelStageEvent.AfterTranslucentBlocks` | the classic abstract `RenderLevelStageEvent` (`getLevelRenderer()`, `getLevelRenderState()`, `getPoseStack()`, `getModelViewMatrix()`, `getRenderableSections()`, stage enum) |
-| Geometry sink | the submit collector from the event | `Minecraft.getInstance().renderBuffers().bufferSource()` + `LevelRenderer.submitNodeStorage` (exposed by the AT) |
+| World-overlay event | `RenderLevelStageEvent.AfterTranslucentBlocks` (+ `getLevelRenderer()`, `getLevelRenderState()`, `getPoseStack()`), a nested stage class | the same `RenderLevelStageEvent.AfterTranslucentBlocks` nested stage class (no enum: `AfterSky`, `AfterOpaqueBlocks`, …) |
+| Geometry sink | `LevelRenderer.submitNodeStorage` (exposed by the AT) | `LevelRenderer.submitNodeStorage` (exposed by the AT) + `Minecraft.getInstance().renderBuffers().bufferSource()` for the `bufferSource()` overlays |
 
-`LevelRenderer.submitNodeStorage` is the access-transformer line that exists only for this branch, and
-the `1.21.11` overlay reads the submit collector from it because there is no submit phase event.
+`LevelRenderer.submitNodeStorage` is the access-transformer field (present on all three NeoForge
+lines) and every overlay listener reads the submit collector from it, because the level-render stage
+event exposes no submit-geometry event or collector accessor.
 
 ### Adding loader-guarded code
 
