@@ -84,6 +84,9 @@ tasks.matching { it.name in ['processResources', 'processClientResources'] }.con
 	} else {
 		exclude 'vfxweaver.accesswidener'
 	}
+	// NeoForge metadata lives in the shared resources but must not ship in the Fabric jars.
+	exclude 'META-INF/neoforge.mods.toml'
+	exclude 'META-INF/accesstransformer.cfg'
 }
 
 tasks.withType(JavaCompile).configureEach {

@@ -20,10 +20,11 @@ def javaVersion = (property('deps.java') as String).toInteger()
 // NeoForge has no environment-splitting source sets, so the client half of the shared tree is
 // compiled into its own source set (the same split Loom's splitEnvironmentSourceSets gives the
 // Fabric nodes) and both source sets are registered on the mod below.
+// The client source set only has to exist: Stonecutter owns its source directories and materialises
+// the generated 26.2 text under build/generated/stonecutter/client. Adding the raw src/client here
+// would duplicate the classes with the active-node (26.1.2) text.
 sourceSets {
 	client {
-		java.srcDir rootProject.file('src/client/java')
-		resources.srcDir rootProject.file('src/client/resources')
 		compileClasspath += sourceSets.main.output + sourceSets.main.compileClasspath
 		runtimeClasspath += sourceSets.main.output
 	}
@@ -32,6 +33,9 @@ sourceSets {
 neoForge {
 	version = property('deps.neo_loader')
 	validateAccessTransformers = true
+	// Applied to the Minecraft artifacts at NFRT time so the widened members are visible while
+	// compiling; the AT file itself ships in the jar and is declared in neoforge.mods.toml.
+	accessTransformers.from rootProject.file('src/main/resources/META-INF/accesstransformer.cfg')
 
 	mods {
 		register(property('mod_id').toString()) {
@@ -53,11 +57,12 @@ neoForge {
 }
 
 def expandProps = [
-		version     : project.version,
-		minecraft   : minecraftVersion,
-		java        : javaVersion,
-		neoCompat   : property('deps.mc_compat'),
-		loaderCompat: property('deps.loader_compat'),
+		version           : project.version,
+		minecraft         : minecraftVersion,
+		java              : javaVersion,
+		compatibilityLevel: "JAVA_${javaVersion}",
+		neoCompat         : property('deps.mc_compat'),
+		loaderCompat      : property('deps.loader_compat'),
 ]
 
 tasks.matching { it.name in ['processResources', 'processClientResources'] }.configureEach {
