@@ -1,6 +1,7 @@
 package dev.vfxweaver.api;
 
 import dev.vfxweaver.effect.EasingType;
+import dev.vfxweaver.effect.VFXBlockParticleSpec;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -132,6 +133,20 @@ public interface VFXLocalDispatcher {
 	 * @param instanceId the instance id returned from {@link #playEffect(Identifier, int, Map, EasingType)}
 	 */
 	void stopEffect(long instanceId);
+
+	/**
+	 * Spawns a one-shot block-model particle into the client engine - the local counterpart of
+	 * {@link VFXAPI#spawnBlockParticle(VFXBlockParticleSpec, Vec3, Vec3)}.
+	 *
+	 * <p>The default is a no-op, so a dispatcher compiled before block particles existed keeps
+	 * working; the mod's own client dispatcher overrides it.</p>
+	 *
+	 * @param spec     the particle's block and physics
+	 * @param position world position of the particle centre
+	 * @param velocity initial velocity in blocks per tick
+	 */
+	default void spawnBlockParticle(final VFXBlockParticleSpec spec, final Vec3 position, final Vec3 velocity) {
+	}
 
 	/**
 	 * Stops all running effects.

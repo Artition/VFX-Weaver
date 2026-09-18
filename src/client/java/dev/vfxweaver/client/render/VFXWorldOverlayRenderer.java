@@ -30,6 +30,7 @@ import dev.vfxweaver.client.effect.VFXEffectManager;
 import dev.vfxweaver.client.platform.VFXClientRenderHooks;
 import dev.vfxweaver.effect.VFXActiveEffect;
 import dev.vfxweaver.effect.VFXEffectType;
+import dev.vfxweaver.util.VFXLog;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -381,8 +382,8 @@ public final class VFXWorldOverlayRenderer {
 	private static final Map<Long, List<Particle>> AIMED_PARTICLES = new HashMap<>();
 	/** Unknown particle ids / shapes we already warned about (capped to avoid unbounded growth). */
 	private static final Set<String> PARTICLE_WARNINGS = new HashSet<>();
-	private static final int MAX_PARTICLE_RATE = 1024;
-	private static final int MAX_PARTICLES_PER_FRAME = 256;
+	static final int MAX_PARTICLE_RATE = 1024;
+	static final int MAX_PARTICLES_PER_FRAME = 256;
 	private static final int MAX_AIMED_PARTICLES = 1024;
 	private static final int MAX_CHAIN_LINKS = 512;
 	/**
@@ -434,6 +435,12 @@ public final class VFXWorldOverlayRenderer {
 	 * {@code color_r/g/b}/{@code size} params.</p>
 	 */
 	private static void emitParticles(final Minecraft minecraft, final VFXActiveEffect effect, final ClientLevel level) {
+		if (VFXBlockParticleEngine.isBlockMode(effect)) {
+			// Real block-model particles are simulated and submitted by the engine (the render
+			// callback ticks them, collectSubmits renders them) instead of the vanilla engine.
+			VFXBlockParticleEngine.emit(effect, level);
+			return;
+		}
 		ParticleOptions options = resolveParticleOptions(effect);
 		if (options == null) {
 			return;
@@ -559,7 +566,7 @@ public final class VFXWorldOverlayRenderer {
 	 * {@code null} for unknown shapes (the caller stops emitting; a one-time warning is logged).
 	 * {@code rotationSeconds} = elapsed seconds + {@code spin} — drives the helix revolution.
 	 */
-	private static @Nullable Vec3 sampleShape(final String shape, final List<Vec3> anchors, final float radius, final float height, final float turns, final float rotationSeconds, final ThreadLocalRandom random) {
+	static @Nullable Vec3 sampleShape(final String shape, final List<Vec3> anchors, final float radius, final float height, final float turns, final float rotationSeconds, final ThreadLocalRandom random) {
 		Vec3 origin = anchors.get(0);
 		switch (shape) {
 			case "point":
@@ -630,9 +637,9 @@ public final class VFXWorldOverlayRenderer {
 	}
 
 	private static void warnParticleOnce(final String id, final VFXActiveEffect effect) {
-		if (PARTICLE_WARNINGS.add("particle:" + id) && PARTICLE_WARNINGS.size() < 64) {
-			LOGGER.warn("Unsupported particle id '{}' in effect '{}'; use simple vanilla particles or 'dust'", id, effect.getId());
-		}
+		// Also covers an unregistered block-particle preset: it is resolved as a vanilla particle
+		// id, fails, and falls back to no emission (the documented behaviour).
+		VFXLog.warnOnce(LOGGER, "particle:" + id, "Unsupported particle id '{}' in effect '{}'; use a vanilla particle, 'dust', 'block' or a registered block-particle preset", id, effect.getId());
 	}
 
 	public static void register() {
@@ -664,6 +671,11 @@ public final class VFXWorldOverlayRenderer {
 			} catch (Exception e) {
 				LOGGER.warn("Failed to submit block chain '{}'", effect.getId(), e);
 			}
+		}
+		try {
+			VFXBlockParticleEngine.render(collector, camera, level);
+		} catch (Exception e) {
+			LOGGER.warn("Failed to submit block particles", e);
 		}
 	}
 
@@ -1017,10 +1029,6 @@ public final class VFXWorldOverlayRenderer {
 	/*private static boolean warnedNonBufferSource = false;*/
 
 	private static void render() {
-		List<VFXActiveEffect> effects = VFXEffectManager.get().getActiveWorldEffects();
-		if (effects.isEmpty()) {
-			return;
-		}
 		Minecraft minecraft = Minecraft.getInstance();
 		if (minecraft.level == null) {
 			return;
@@ -1028,6 +1036,20 @@ public final class VFXWorldOverlayRenderer {
 		ClientLevel level = minecraft.level;
 		CameraRenderState camera = VFXClientRenderHooks.camera();
 		if (camera == null || !camera.initialized) {
+			return;
+		}
+		VFXEffectManager manager = VFXEffectManager.get();
+		List<VFXActiveEffect> effects = manager.getActiveWorldEffects();
+		// Always tick the block-particle engine, so API one-shot spawns advance even when no
+		// effect is running; its effect buckets are pruned against the active block-mode set.
+		Set<Long> blockInstances = new HashSet<>();
+		for (VFXActiveEffect effect : effects) {
+			if (effect.getType() == VFXEffectType.PARTICLES && VFXBlockParticleEngine.isBlockMode(effect)) {
+				blockInstances.add(effect.getInstanceId());
+			}
+		}
+		VFXBlockParticleEngine.tick(level, manager.getClock(), blockInstances);
+		if (effects.isEmpty()) {
 			return;
 		}
 
@@ -1696,7 +1718,7 @@ public final class VFXWorldOverlayRenderer {
 	 *       play-time payload position override.</li>
 	 * </ul>
 	 */
-	private static List<Vec3> effectPositions(final VFXActiveEffect effect, final ClientLevel level) {
+	static List<Vec3> effectPositions(final VFXActiveEffect effect, final ClientLevel level) {
 		// A runtime move re-anchors the whole effect; nothing else is consulted.
 		Vec3 moved = effect.getMovePosition();
 		if (moved != null) {

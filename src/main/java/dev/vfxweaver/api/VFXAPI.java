@@ -3,11 +3,13 @@ package dev.vfxweaver.api;
 import dev.vfxweaver.effect.EasingFunction;
 import dev.vfxweaver.effect.EasingType;
 import dev.vfxweaver.effect.MathExpression;
+import dev.vfxweaver.effect.VFXBlockParticleSpec;
 import dev.vfxweaver.effect.VFXDefinition;
 import dev.vfxweaver.effect.VFXScoreboardSync;
 import dev.vfxweaver.effect.VFXServerEffects;
 import dev.vfxweaver.network.VFXTriggerPayload;
 import dev.vfxweaver.platform.VFXNetwork;
+import dev.vfxweaver.resource.VFXBlockParticleManager;
 import dev.vfxweaver.resource.VFXDefinitionManager;
 import dev.vfxweaver.util.VFXLog;
 import java.util.ArrayList;
@@ -259,6 +261,62 @@ public final class VFXAPI {
 	 */
 	public static boolean unregisterDefinition(final Identifier id) {
 		return VFXDefinitionManager.get().unregisterLocal(id);
+	}
+
+	/**
+	 * Registers a block-particle preset in code, without a datapack.
+	 *
+	 * <p>The preset lives in a separate local layer that survives {@code /reload} and is only ever
+	 * visible to this client - presets are never synchronized to other players. A datapack preset
+	 * with the same id wins, so a server or datapack can override a locally registered one. The
+	 * layer is bounded, so a caller cannot grow it without limit.</p>
+	 *
+	 * @param id   the preset id (e.g. {@code mymod:ember})
+	 * @param spec the preset; see {@code VFXBlockParticleSpec.builder(BlockState)}
+	 * @return {@code false} when the local layer is full and the registration was dropped
+	 */
+	public static boolean registerBlockParticle(final Identifier id, final VFXBlockParticleSpec spec) {
+		return VFXBlockParticleManager.get().registerLocal(id, spec);
+	}
+
+	/**
+	 * Removes a preset registered with {@link #registerBlockParticle(Identifier, VFXBlockParticleSpec)}.
+	 * Datapack presets are not affected.
+	 *
+	 * @param id the preset id
+	 * @return {@code true} when a locally registered preset with that id existed
+	 */
+	public static boolean unregisterBlockParticle(final Identifier id) {
+		return VFXBlockParticleManager.get().unregisterLocal(id);
+	}
+
+	/**
+	 * Looks up a block-particle preset by id (datapack or code-registered); the datapack layer
+	 * wins over a local registration for the same id.
+	 *
+	 * @param id the preset id
+	 * @return the preset, or {@code null} when the id is not registered
+	 */
+	public static @Nullable VFXBlockParticleSpec blockParticle(final Identifier id) {
+		return VFXBlockParticleManager.get().get(id);
+	}
+
+	/**
+	 * Spawns a one-shot block-model particle at the given world position/velocity into the client
+	 * engine, using the same submit path the {@code particles} effect's block mode uses. No packet
+	 * is sent, so this is a no-op on a dedicated server (the particle is purely client-side); call
+	 * it from the client.
+	 *
+	 * @param spec     the particle's block and physics
+	 * @param position world position of the particle centre
+	 * @param velocity initial velocity in blocks per tick
+	 */
+	public static void spawnBlockParticle(final VFXBlockParticleSpec spec, final Vec3 position, final Vec3 velocity) {
+		if (localDispatcher == null) {
+			VFXLog.warnOnce(LOGGER, "api:no-client", "spawnBlockParticle() called without a client; ignored");
+			return;
+		}
+		localDispatcher.spawnBlockParticle(spec, position, velocity);
 	}
 
 	/**

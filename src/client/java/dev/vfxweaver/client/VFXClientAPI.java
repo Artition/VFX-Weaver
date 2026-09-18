@@ -3,8 +3,10 @@ package dev.vfxweaver.client;
 import dev.vfxweaver.api.VFXLocalDispatcher;
 import dev.vfxweaver.client.effect.VFXEffectManager;
 import dev.vfxweaver.client.flashback.FlashbackCompat;
+import dev.vfxweaver.client.render.VFXBlockParticleEngine;
 import dev.vfxweaver.effect.EasingFunction;
 import dev.vfxweaver.effect.EasingType;
+import dev.vfxweaver.effect.VFXBlockParticleSpec;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -106,6 +108,11 @@ public class VFXClientAPI implements VFXLocalDispatcher {
 		}
 		minecraft.execute(edit::getAsBoolean);
 		return true;
+	}
+
+	@Override
+	public void spawnBlockParticle(final VFXBlockParticleSpec spec, final Vec3 position, final Vec3 velocity) {
+		Minecraft.getInstance().execute(() -> VFXBlockParticleEngine.spawn(spec, position, velocity));
 	}
 
 	@Override

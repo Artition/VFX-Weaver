@@ -7,6 +7,7 @@ import dev.vfxweaver.effect.VFXCurveManager;
 import dev.vfxweaver.effect.VFXScoreboardSync;
 import dev.vfxweaver.effect.VFXServerEffects;
 import dev.vfxweaver.network.VFXSyncPayload;
+import dev.vfxweaver.resource.VFXBlockParticleManager;
 import dev.vfxweaver.resource.VFXDefinitionManager;
 import java.util.HashMap;
 import net.minecraft.commands.CommandBuildContext;
@@ -72,6 +73,7 @@ public final class VFXLoaderEvents {
 		// reload listeners (see onReload).
 		registerVfxDefinitionReloadListener();
 		registerVfxCurveReloadListener();
+		registerVfxBlockParticleReloadListener();
 
 		// Sync datapack VFX definitions and curves to clients: on join (vanilla data-pack content
 		// sync) and on /reload, so custom (datapack) effects work on dedicated servers.
@@ -178,9 +180,10 @@ public final class VFXLoaderEvents {
 	 */
 	public static void onReload(final Object reloadListener) {
 		//? if neoforge {
-		/*if (reloadListener instanceof AddServerReloadListenersEvent event) {
+		/*		if (reloadListener instanceof AddServerReloadListenersEvent event) {
 			event.addListener(id("vfx_definitions"), VFXDefinitionManager.get());
 			event.addListener(id("vfx_curves"), VFXCurveManager.get());
+			event.addListener(id("vfx_particles"), VFXBlockParticleManager.get());
 		}*/
 		//?}
 	}
@@ -239,6 +242,18 @@ public final class VFXLoaderEvents {
 			//?}
 		} catch (RuntimeException e) {
 			LOGGER.warn("Could not register VFX curve reload listener", e);
+		}
+	}
+
+	private static void registerVfxBlockParticleReloadListener() {
+		try {
+			//? if <26.1 {
+			/*ResourceManagerHelper.get(PackType.SERVER_DATA).registerReloadListener(VFXBlockParticleManager.get());
+			*///?} else {
+			ResourceLoader.get(PackType.SERVER_DATA).registerReloadListener(id("vfx_particles"), VFXBlockParticleManager.get());
+			//?}
+		} catch (RuntimeException e) {
+			LOGGER.warn("Could not register VFX block-particle reload listener", e);
 		}
 	}
 	//?}
