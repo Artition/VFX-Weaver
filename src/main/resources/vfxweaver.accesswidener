@@ -4,3 +4,7 @@ accessible field net/minecraft/client/particle/Particle yd D
 accessible field net/minecraft/client/particle/Particle zd D
 accessible field net/minecraft/client/particle/Particle friction F
 accessible field net/minecraft/client/particle/Particle gravity F
+accessible method net/minecraft/world/entity/Display setTransformation (Lcom/mojang/math/Transformation;)V
+accessible method net/minecraft/world/entity/Display setBrightnessOverride (Lnet/minecraft/util/Brightness;)V
+accessible method net/minecraft/world/entity/Display$ItemDisplay setItemStack (Lnet/minecraft/world/item/ItemStack;)V
+accessible method net/minecraft/world/entity/Display$BlockDisplay setBlockState (Lnet/minecraft/world/level/block/state/BlockState;)V

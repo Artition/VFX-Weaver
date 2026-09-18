@@ -436,8 +436,9 @@ public final class VFXWorldOverlayRenderer {
 	 */
 	private static void emitParticles(final Minecraft minecraft, final VFXActiveEffect effect, final ClientLevel level) {
 		if (VFXBlockParticleEngine.isModelMode(effect)) {
-			// Real block/item-model particles are simulated and submitted by the engine (the render
-			// callback ticks them, collectSubmits renders them) instead of the vanilla engine.
+			// Real block/item-model particles are simulated by the engine and rendered as client-side
+			// display entities (the render callback ticks them and drives their entities) instead of
+			// the vanilla engine.
 			VFXBlockParticleEngine.emit(effect, level);
 			return;
 		}
@@ -671,11 +672,6 @@ public final class VFXWorldOverlayRenderer {
 			} catch (Exception e) {
 				LOGGER.warn("Failed to submit block chain '{}'", effect.getId(), e);
 			}
-		}
-		try {
-			VFXBlockParticleEngine.render(collector, camera, level);
-		} catch (Exception e) {
-			LOGGER.warn("Failed to submit block particles", e);
 		}
 	}
 

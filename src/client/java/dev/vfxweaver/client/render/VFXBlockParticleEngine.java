@@ -1,6 +1,6 @@
 package dev.vfxweaver.client.render;
 
-import com.mojang.blaze3d.vertex.PoseStack;
+import com.mojang.math.Transformation;
 import dev.vfxweaver.effect.VFXActiveEffect;
 import dev.vfxweaver.effect.VFXBlockParticleSpec;
 import dev.vfxweaver.resource.VFXBlockParticleManager;
@@ -13,44 +13,49 @@ import java.util.Set;
 import java.util.concurrent.ThreadLocalRandom;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
-import net.minecraft.client.renderer.SubmitNodeCollector;
-import net.minecraft.client.renderer.block.MovingBlockRenderState;
-import net.minecraft.client.renderer.item.ItemStackRenderState;
-import net.minecraft.client.renderer.texture.OverlayTexture;
-//? if <26.1 {
-/*import net.minecraft.client.renderer.state.CameraRenderState;
-*///?} else {
-import net.minecraft.client.renderer.state.level.CameraRenderState;
-//?}
-import net.minecraft.core.BlockPos;
 import net.minecraft.resources.Identifier;
+import net.minecraft.util.Brightness;
 import net.minecraft.util.Mth;
-import net.minecraft.world.item.Item;
-import net.minecraft.world.item.ItemDisplayContext;
+import net.minecraft.world.entity.Display;
+//? if <26.2 {
+import net.minecraft.world.entity.EntityType;
+//?} else {
+/*import net.minecraft.world.entity.EntityTypes;
+*///?}
 import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.level.LightLayer;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.Vec3;
 import org.joml.Quaternionf;
+import org.joml.Vector3f;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Simulates and submits real block- and item-model particles (the {@code particles} effect's model
- * mode and {@link dev.vfxweaver.api.VFXAPI#spawnBlockParticle}): each particle carries either a
- * full block state (rendered through the {@code block_chain} moving-block submit path) or an item
- * stack (rendered through the vanilla item submit path), integrated through gravity, air drag,
- * optional world collision, lifetime and spin.
+ * Simulates real block- and item-model particles (the {@code particles} effect's model mode and
+ * {@link dev.vfxweaver.api.VFXAPI#spawnBlockParticle}): each particle carries either a full block
+ * state or an item stack, integrated through gravity, air drag, optional world collision, lifetime
+ * and spin.
+ *
+ * <p>Rendering goes through one <b>client-side display entity</b> per live particle — a
+ * {@link Display.BlockDisplay} for a block spec and a {@link Display.ItemDisplay} for an item spec
+ * — added to the {@link ClientLevel} with {@link ClientLevel#addEntity}. The entity's brightness
+ * override is the spec's packed brightness (world light when {@code -1}), its transformation
+ * carries the spec's {@code size} scale and the {@code spin} yaw around the world Y axis, and its
+ * position/rotation are refreshed every frame from the interpolated simulation state (with the
+ * old position pinned via {@link net.minecraft.world.entity.Entity#setOldPosAndRot}) so vanilla
+ * renders smooth motion instead of the stepped submits the engine used before. The previous
+ * submit-pipeline rendering (and its pose/light bookkeeping) is gone; the physics is unchanged.</p>
  *
  * <p>State is per running effect instance (keyed by {@link VFXActiveEffect#getInstanceId()}) plus a
  * single bucket for API one-shot spawns. Integration is a fixed 1-tick step driven by the shared
- * effect clock, with the leftover fraction used to interpolate the rendered position (the rope
- * idiom), so fast particles do not stutter at low tick rates. Every collection is bounded.</p>
+ * effect clock, with the leftover fraction used to interpolate the displayed position and rotation.
+ * Every collection is bounded and every entity is removed when its particle dies, its effect stops
+ * or the level changes.</p>
  */
 public final class VFXBlockParticleEngine {
 	private static final Logger LOGGER = LoggerFactory.getLogger("vfxweaver/block-particles");
-	/** Global cap on live particles; a runaway effect cannot flood the frame. */
+	/** Global cap on live particles (and therefore live display entities); a runaway effect cannot flood the frame. */
 	private static final int MAX_BLOCK_PARTICLES = 2048;
 	/** Per-instance cap. */
 	private static final int MAX_PARTICLES_PER_INSTANCE = 512;
@@ -73,19 +78,11 @@ public final class VFXBlockParticleEngine {
 	/** Block states already checked for baked geometry, so the model query runs once each. */
 	private static final Map<BlockState, Boolean> MODEL_GEOMETRY = new HashMap<>();
 	private static final int MAX_MODEL_CHECKS = 256;
-	/**
-	 * Baked item models per item (shared by every particle of that item). Built once on the render
-	 * thread; an animated item model (clock/compass) therefore samples once, which is fine for a
-	 * short-lived particle. Bounded and cleared on level change.
-	 * ponytail: per-item cache, refresh per frame if an animated particle item is ever requested.
-	 */
-	private static final Map<Item, ItemStackRenderState> ITEM_STATES = new HashMap<>();
-	private static final int MAX_ITEM_STATES = 256;
 
 	private VFXBlockParticleEngine() {
 	}
 
-	/** One simulated particle; {@code spec} is shared and immutable. */
+	/** One simulated particle; {@code spec} is shared and immutable and {@code display} is its live entity. */
 	private static final class Particle {
 		Vec3 pos;
 		Vec3 prev;
@@ -93,13 +90,15 @@ public final class VFXBlockParticleEngine {
 		float age;
 		float rotation;
 		final VFXBlockParticleSpec spec;
+		final @Nullable Display display;
 
-		Particle(final VFXBlockParticleSpec spec, final Vec3 position, final Vec3 velocity) {
+		Particle(final VFXBlockParticleSpec spec, final Vec3 position, final Vec3 velocity, final float rotation, final @Nullable Display display) {
 			this.spec = spec;
 			this.pos = position;
 			this.prev = position;
 			this.velocity = velocity;
-			this.rotation = (float) (ThreadLocalRandom.current().nextDouble() * 360.0);
+			this.rotation = rotation;
+			this.display = display;
 		}
 	}
 
@@ -216,15 +215,15 @@ public final class VFXBlockParticleEngine {
 				vz = Math.sin(phi) * Math.sin(theta) * speed;
 			}
 			final Vec3 velocity = new Vec3(vx, vy, vz);
-			addParticle(bucket, spec, position, velocity);
+			addParticle(bucket, level, spec, position, velocity);
 		}
 	}
 
 	/**
 	 * Spawns a one-shot block particle into the engine's standalone bucket (the API path). No-op
-	 * when the global cap is reached or the spec has no drawable block.
+	 * when the global cap is reached, the spec has no drawable block, or there is no client level.
 	 *
-	 * @param spec     the particle's block and physics
+	 * @param spec     the particle's block/item and physics
 	 * @param position world position of the particle centre
 	 * @param velocity initial velocity in blocks per tick
 	 */
@@ -232,32 +231,31 @@ public final class VFXBlockParticleEngine {
 		if (spec == null || (!spec.hasBlock() && !spec.hasItem())) {
 			return;
 		}
-		addParticle(STANDALONE, spec, position, velocity);
+		final ClientLevel level = Minecraft.getInstance().level;
+		if (level == null) {
+			return;
+		}
+		handleLevelChange(level);
+		addParticle(STANDALONE, level, spec, position, velocity);
 	}
 
 	/**
-	 * Advances the engine by the shared clock: drops buckets whose effect stopped, then integrates
-	 * every particle at a fixed 1-tick step (gravity, air drag, collision/bounce, lifetime, spin).
+	 * Advances the engine by the shared clock: drops buckets whose effect stopped (removing their
+	 * displays), then integrates every particle at a fixed 1-tick step (gravity, air drag,
+	 * collision/bounce, lifetime, spin) and drives every display entity from the interpolated
+	 * simulation state.
 	 *
 	 * @param level           the client level (collision source)
 	 * @param clock           the shared effect clock, in ticks
 	 * @param activeInstances instance ids of the running block-mode effects
 	 */
 	public static void tick(final ClientLevel level, final float clock, final Set<Long> activeInstances) {
-		if (lastLevel != level) {
-			lastLevel = level;
-			EFFECT_BUCKETS.clear();
-			STANDALONE.particles.clear();
-			ITEM_STATES.clear();
-			liveCount = 0;
-			accumulator = 0.0F;
-			lastClock = Float.NaN;
-		}
+		handleLevelChange(level);
 		EFFECT_BUCKETS.entrySet().removeIf(entry -> {
 			if (activeInstances.contains(entry.getKey())) {
 				return false;
 			}
-			liveCount -= entry.getValue().particles.size();
+			removeDisplays(entry.getValue());
 			return true;
 		});
 		if (Float.isNaN(lastClock)) {
@@ -266,53 +264,60 @@ public final class VFXBlockParticleEngine {
 		}
 		final float delta = clock - lastClock;
 		lastClock = clock;
-		if (delta <= 0.0F) {
-			return;
-		}
-		accumulator += delta;
-		if (delta > MAX_CATCHUP_TICKS) {
-			accumulator = 0.0F;
-		}
-		final int steps = Math.min((int) accumulator, MAX_STEPS_PER_FRAME);
-		accumulator -= steps;
-		for (int step = 0; step < steps; step++) {
-			for (final Bucket bucket : EFFECT_BUCKETS.values()) {
-				integrateBucket(level, bucket);
+		if (delta > 0.0F) {
+			accumulator += delta;
+			if (delta > MAX_CATCHUP_TICKS) {
+				accumulator = 0.0F;
 			}
-			integrateBucket(level, STANDALONE);
+			final int steps = Math.min((int) accumulator, MAX_STEPS_PER_FRAME);
+			accumulator -= steps;
+			for (int step = 0; step < steps; step++) {
+				for (final Bucket bucket : EFFECT_BUCKETS.values()) {
+					integrateBucket(level, bucket);
+				}
+				integrateBucket(level, STANDALONE);
+			}
 		}
-	}
-
-	/**
-	 * Submits every live particle through the shared block-model submit path, from the interpolated
-	 * {@code prev -> pos} position by this frame's leftover tick fraction.
-	 *
-	 * @param collector the current submit node collector
-	 * @param camera    the current camera state (poses are camera-relative)
-	 * @param level     the client level (light + biome source)
-	 */
-	public static void render(final SubmitNodeCollector collector, final CameraRenderState camera, final ClientLevel level) {
-		if (liveCount == 0) {
-			return;
-		}
+		// Refresh every display entity from prev -> pos (and prev rotation -> rotation) by the
+		// leftover tick fraction, pinning the old position so vanilla renders exactly this value.
 		final float fraction = Mth.clamp(accumulator, 0.0F, 1.0F);
 		for (final Bucket bucket : EFFECT_BUCKETS.values()) {
-			submitBucket(collector, camera, level, bucket, fraction);
+			for (final Particle particle : bucket.particles) {
+				updateDisplay(particle, fraction);
+			}
 		}
-		submitBucket(collector, camera, level, STANDALONE, fraction);
+		for (final Particle particle : STANDALONE.particles) {
+			updateDisplay(particle, fraction);
+		}
 	}
 
 	/**
-	 * Drops a running effect instance's particles (the effect stopped). The next {@link #tick} would
-	 * prune it anyway; this lets a caller free them immediately.
+	 * Drops a running effect instance's particles (the effect stopped), removing their displays.
+	 * The next {@link #tick} would prune it anyway; this lets a caller free them immediately.
 	 *
 	 * @param instanceKey the effect instance id
 	 */
 	public static void clear(final long instanceKey) {
 		final Bucket removed = EFFECT_BUCKETS.remove(instanceKey);
 		if (removed != null) {
-			liveCount -= removed.particles.size();
+			removeDisplays(removed);
 		}
+	}
+
+	/**
+	 * Drops all state (and display references) when the client level changes. The previous level's
+	 * entities are discarded with that level, so only the bookkeeping needs clearing.
+	 */
+	private static void handleLevelChange(final ClientLevel level) {
+		if (lastLevel == level) {
+			return;
+		}
+		lastLevel = level;
+		EFFECT_BUCKETS.clear();
+		STANDALONE.particles.clear();
+		liveCount = 0;
+		accumulator = 0.0F;
+		lastClock = Float.NaN;
 	}
 
 	private static void integrateBucket(final ClientLevel level, final Bucket bucket) {
@@ -321,6 +326,7 @@ public final class VFXBlockParticleEngine {
 			final Particle particle = particles.get(i);
 			integrate(level, particle);
 			if (particle.age >= particle.spec.life()) {
+				removeDisplay(particle);
 				particles.remove(i);
 				liveCount--;
 			}
@@ -365,98 +371,108 @@ public final class VFXBlockParticleEngine {
 		particle.rotation += spec.spin();
 	}
 
-	private static void submitBucket(final SubmitNodeCollector collector, final CameraRenderState camera, final ClientLevel level, final Bucket bucket, final float fraction) {
-		for (final Particle particle : bucket.particles) {
-			final Vec3 position = new Vec3(
-				Mth.lerp(fraction, particle.prev.x, particle.pos.x),
-				Mth.lerp(fraction, particle.prev.y, particle.pos.y),
-				Mth.lerp(fraction, particle.prev.z, particle.pos.z)
-			);
-			final BlockPos lightPos = BlockPos.containing(position.x, position.y, position.z);
-			final PoseStack pose = new PoseStack();
-			pose.pushPose();
-			pose.translate(position.x - camera.pos.x, position.y - camera.pos.y, position.z - camera.pos.z);
-			if (particle.rotation != 0.0F) {
-				pose.mulPose(new Quaternionf().rotationY((float) Math.toRadians(particle.rotation)));
-			}
-			final float scale = particle.spec.size();
-			pose.scale(scale, scale, scale);
-			pose.translate(-0.5, -0.5, -0.5);
-			if (particle.spec.hasItem()) {
-				submitItem(collector, pose, level, lightPos, particle.spec);
-			} else {
-				final ParticleBlockState state = new ParticleBlockState();
-				state.blockState = particle.spec.block();
-				state.blockPos = lightPos;
-				state.randomSeedPos = lightPos;
-				state.biome = level.getBiome(lightPos);
-				//? if <26.1 {
-				/*state.level = level;
-				*///?} else {
-				state.cardinalLighting = level.cardinalLighting();
-				state.lightEngine = level.getLightEngine();
-				//?}
-				if (particle.spec.brightness() >= 0) {
-					state.packedBrightness = particle.spec.brightness();
-				}
-				VFXWorldOverlayRenderer.submitMovingBlock(collector, pose, state);
-			}
-			pose.popPose();
+	/** Positions and rotates one particle's display entity at the interpolated simulation state. */
+	private static void updateDisplay(final Particle particle, final float fraction) {
+		final Display display = particle.display;
+		if (display == null) {
+			return;
 		}
+		final Vec3 position = new Vec3(
+			Mth.lerp(fraction, particle.prev.x, particle.pos.x),
+			Mth.lerp(fraction, particle.prev.y, particle.pos.y),
+			Mth.lerp(fraction, particle.prev.z, particle.pos.z)
+		);
+		display.setPos(position.x, position.y, position.z);
+		final float spin = particle.spec.spin();
+		applyTransform(display, particle.spec.size(), particle.rotation - spin + spin * fraction);
+		// Pin the old position to the value just set, so the frame renders this exact interpolation
+		// instead of a second (vanilla) lerp between this and the previous tick's target.
+		display.setOldPosAndRot();
 	}
 
 	/**
-	 * Submits one item-model particle through the vanilla item submit path (the same
-	 * {@code ItemStackRenderState.submit} route dropped items and item frames use). The baked model
-	 * is cached per item; a built-but-empty model warns once instead of drawing nothing silently.
-	 * The light is the spec's packed override or the world light at the particle, matching the
-	 * block path's brightness semantics.
+	 * Applies the spec's scale and the spin yaw (around the world Y axis) to a display, centring
+	 * the model on the particle. Both models are corner-origin (a block display's pivot is its
+	 * bottom-north-west corner; an item display's default {@code ItemDisplayContext.NONE} draws the
+	 * raw corner-origin item model), so a unit model is translated by half its scaled size — rotated
+	 * with it — to put its centre on the display's position.
 	 */
-	private static void submitItem(final SubmitNodeCollector collector, final PoseStack pose, final ClientLevel level, final BlockPos lightPos, final VFXBlockParticleSpec spec) {
-		final ItemStack stack = spec.item();
-		final Item item = stack.getItem();
-		ItemStackRenderState state = ITEM_STATES.get(item);
-		if (state == null) {
-			state = new ItemStackRenderState();
-			final Minecraft minecraft = Minecraft.getInstance();
-			minecraft.getItemModelResolver().updateForTopItem(state, stack, ItemDisplayContext.NONE, level, minecraft.player, 0);
-			if (ITEM_STATES.size() >= MAX_ITEM_STATES) {
-				ITEM_STATES.clear();
+	private static void applyTransform(final Display display, final float size, final float rotationDegrees) {
+		final Quaternionf rotation = new Quaternionf().rotationY((float) Math.toRadians(rotationDegrees));
+		final Vector3f scale = new Vector3f(size, size, size);
+		final Vector3f translation = rotation.transform(new Vector3f(0.5F * size, 0.5F * size, 0.5F * size)).negate();
+		display.setTransformation(new Transformation(translation, rotation, scale, new Quaternionf()));
+	}
+
+	/** Creates and adds the display entity for one particle; {@code null} when the spec cannot draw. */
+	private static @Nullable Display createDisplay(final ClientLevel level, final VFXBlockParticleSpec spec, final float rotation) {
+		final Display display;
+		if (spec.hasItem()) {
+			//? if <26.2 {
+			final Display.ItemDisplay item = new Display.ItemDisplay(EntityType.ITEM_DISPLAY, level);
+			//?} else {
+			/*final Display.ItemDisplay item = new Display.ItemDisplay(EntityTypes.ITEM_DISPLAY, level);
+			*///?}
+			item.setItemStack(spec.item());
+			display = item;
+		} else {
+			final BlockState state = spec.block();
+			if (state == null) {
+				return null;
 			}
-			ITEM_STATES.put(item, state);
+			//? if <26.2 {
+			final Display.BlockDisplay blockDisplay = new Display.BlockDisplay(EntityType.BLOCK_DISPLAY, level);
+			//?} else {
+			/*final Display.BlockDisplay blockDisplay = new Display.BlockDisplay(EntityTypes.BLOCK_DISPLAY, level);
+			*///?}
+			blockDisplay.setBlockState(state);
+			display = blockDisplay;
 		}
-		if (state.isEmpty()) {
-			VFXLog.warnOnce(LOGGER, "no-item-model:" + item, "Item-particle item '{}' has no baked item model; nothing is drawn", stack);
-			return;
+		if (spec.brightness() >= 0) {
+			display.setBrightnessOverride(Brightness.unpack(spec.brightness()));
 		}
-		final int light = spec.brightness() >= 0 ? spec.brightness() : worldLight(level, lightPos);
-		state.submit(pose, collector, light, OverlayTexture.NO_OVERLAY, 0);
+		applyTransform(display, spec.size(), rotation);
+		return display;
 	}
 
-	/** Packs the world light at {@code pos} into the renderer's packed-light int (block/sky). */
-	private static int worldLight(final ClientLevel level, final BlockPos pos) {
-		final int block = level.getLightEngine().getLayerListener(LightLayer.BLOCK).getLightValue(pos);
-		final int sky = level.getLightEngine().getLayerListener(LightLayer.SKY).getLightValue(pos);
-		return VFXBlockParticleSpec.packBrightness(block, sky);
-	}
-
-	private static void addParticle(final Bucket bucket, final VFXBlockParticleSpec spec, final Vec3 position, final Vec3 velocity) {
+	private static void addParticle(final Bucket bucket, final ClientLevel level, final VFXBlockParticleSpec spec, final Vec3 position, final Vec3 velocity) {
 		if (liveCount >= MAX_BLOCK_PARTICLES || bucket.particles.size() >= MAX_PARTICLES_PER_INSTANCE) {
 			return;
 		}
 		if (!isRenderable(spec)) {
 			return;
 		}
-		bucket.particles.add(new Particle(spec, position, velocity));
+		final float rotation = (float) (ThreadLocalRandom.current().nextDouble() * 360.0);
+		final Display display = createDisplay(level, spec, rotation);
+		if (display == null) {
+			return;
+		}
+		display.setPos(position.x, position.y, position.z);
+		display.setOldPosAndRot();
+		level.addEntity(display);
+		bucket.particles.add(new Particle(spec, position, velocity, rotation, display));
 		liveCount++;
 	}
 
+	private static void removeDisplays(final Bucket bucket) {
+		for (final Particle particle : bucket.particles) {
+			removeDisplay(particle);
+		}
+		liveCount -= bucket.particles.size();
+		bucket.particles.clear();
+	}
+
+	private static void removeDisplay(final Particle particle) {
+		if (particle.display != null && !particle.display.isRemoved()) {
+			particle.display.discard();
+		}
+	}
+
 	/**
-	 * True when the spec can actually draw: an item spec (its model is resolved lazily at submit;
-	 * an unmodelled item warns there), or a block whose baked block model is non-empty — otherwise
-	 * the moving-block submit would silently draw nothing (see
-	 * {@link VFXWorldOverlayRenderer#hasBlockModelGeometry}). Warns once per block so an unusable
-	 * block is not a silent no-op. Cached per state.
+	 * True when the spec can actually draw: an item spec (its model is resolved by the item
+	 * display), or a block whose baked block model is non-empty — otherwise a block display renders
+	 * nothing (see {@link VFXWorldOverlayRenderer#hasBlockModelGeometry}). Warns once per block so
+	 * an unusable block is not a silent no-op. Cached per state.
 	 */
 	private static boolean isRenderable(final VFXBlockParticleSpec spec) {
 		if (spec.hasItem()) {
@@ -476,7 +492,7 @@ public final class VFXBlockParticleEngine {
 		}
 		MODEL_GEOMETRY.put(block, renderable);
 		if (!renderable) {
-			VFXLog.warnOnce(LOGGER, "no-model:" + block, "Block-particle block '{}' has no baked block model (its world shape is drawn by a block-entity renderer, e.g. a skull); moving-block particles cannot draw it. Use a block with a normal model.", block);
+			VFXLog.warnOnce(LOGGER, "no-model:" + block, "Block-particle block '{}' has no baked block model (its world shape is drawn by a block-entity renderer, e.g. a skull), so a block display renders nothing for it; use the item form instead", block);
 		}
 		return renderable;
 	}
@@ -547,25 +563,6 @@ public final class VFXBlockParticleEngine {
 		final float value = effect.getParam(name, Float.NaN);
 		if (!Float.isNaN(value)) {
 			out.put(name, value);
-		}
-	}
-
-	/**
-	 * A {@link MovingBlockRenderState} that can pin a packed light value: when
-	 * {@code packedBrightness} is set the model renders at that light regardless of the world
-	 * (the block-display brightness semantics); otherwise it falls back to the world light.
-	 */
-	private static final class ParticleBlockState extends MovingBlockRenderState {
-		int packedBrightness = VFXBlockParticleSpec.NO_BRIGHTNESS;
-
-		@Override
-		public int getBrightness(final LightLayer layer, final BlockPos pos) {
-			if (this.packedBrightness >= 0) {
-				return layer == LightLayer.BLOCK
-					? VFXBlockParticleSpec.blockLight(this.packedBrightness)
-					: VFXBlockParticleSpec.skyLight(this.packedBrightness);
-			}
-			return this.getLightEngine().getLayerListener(layer).getLightValue(pos);
 		}
 	}
 }
