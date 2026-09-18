@@ -98,7 +98,6 @@ public final class VFXLoaderEvents {
 		/*NeoForge.EVENT_BUS.addListener((ServerTickEvent.Post event) -> onServerTick(event.getServer()));
 		NeoForge.EVENT_BUS.addListener((ServerStartedEvent event) -> onServerStarted(event.getServer()));
 		NeoForge.EVENT_BUS.addListener((ServerStoppingEvent event) -> onServerStopping(event.getServer()));
-		NeoForge.EVENT_BUS.addListener((PlayerEvent.PlayerLoggedInEvent event) -> onPlayerJoin((ServerPlayer) event.getEntity()));
 		NeoForge.EVENT_BUS.addListener((PlayerEvent.PlayerLoggedOutEvent event) -> onPlayerDisconnect((ServerPlayer) event.getEntity()));
 		NeoForge.EVENT_BUS.addListener((RegisterCommandsEvent event) -> onRegisterCommands(event.getDispatcher(), event.getBuildContext()));
 		NeoForge.EVENT_BUS.addListener((AddServerReloadListenersEvent event) -> onReload(event));
