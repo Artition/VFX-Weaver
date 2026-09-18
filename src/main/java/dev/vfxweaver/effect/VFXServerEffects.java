@@ -1,6 +1,7 @@
 package dev.vfxweaver.effect;
 
 import dev.vfxweaver.network.VFXTriggerPayload;
+import dev.vfxweaver.platform.VFXPlatform;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -9,7 +10,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
-import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.resources.Identifier;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.phys.Vec3;
@@ -55,7 +55,7 @@ public final class VFXServerEffects {
 	}
 
 	private static @Nullable Method resolveIsInReplay() {
-		if (!FabricLoader.getInstance().isModLoaded("flashback")) {
+		if (!VFXPlatform.isModLoaded("flashback")) {
 			return null;
 		}
 		try {

@@ -7,6 +7,7 @@ import dev.vfxweaver.effect.VFXActiveEffect;
 import dev.vfxweaver.effect.VFXCurveManager;
 import dev.vfxweaver.effect.VFXEffectType;
 import dev.vfxweaver.effect.VFXTimeline;
+import dev.vfxweaver.platform.VFXPlatform;
 import dev.vfxweaver.resource.VFXDefinitionManager;
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationHandler;
@@ -17,7 +18,6 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.function.Consumer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
-import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.client.Minecraft;
 import net.minecraft.network.RegistryFriendlyByteBuf;
 import net.minecraft.resources.Identifier;
@@ -84,7 +84,7 @@ public final class FlashbackCompat {
 	 * a no-op when Flashback is not installed. Must run after Flashback itself is on the classpath.
 	 */
 	public static void init() {
-		if (enabled || !FabricLoader.getInstance().isModLoaded("flashback")) {
+		if (enabled || !VFXPlatform.isModLoaded("flashback")) {
 			return;
 		}
 		try {
