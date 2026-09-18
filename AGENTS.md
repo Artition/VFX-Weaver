@@ -28,10 +28,20 @@ The domain model (effects, timelines, datapacks, network protocol, API) is descr
 ## Build and verify
 
 ```bash
-./gradlew :26.1.2:build :1.21.11:build :26.2:build   # all supported nodes
-./gradlew :<node>:build                              # one node
-./gradlew runClient                                  # dev client (active node)
+./gradlew :26.2:build :26.1.2:build :1.21.11:build     # Fabric nodes
+./gradlew :26.2-neoforge:build                         # NeoForge node (ModDevGradle)
+./gradlew :<node>:build                                # one node
+./gradlew :<node>:runClient                            # dev client for a node
 ```
+
+**Multi-loader layout:** the loader is part of the node name — `<mc>` is Fabric, `<mc>-neoforge` is
+NeoForge — and each node gets its build script from `settings.gradle`: `build.fabric.gradle`
+(Loom) or `build.neoforge.gradle` (ModDevGradle). Those two tracked scripts also declare the
+Stonecutter constants `fabric` / `neoforge` used by `//? if fabric { … //?} else { … //?}` guards;
+`stonecutter.gradle` (which node is active) is **local-only and git-ignored**, so never put shared
+configuration there. Guarded sources are materialised under
+`versions/<node>/build/generated/stonecutter/…` when a guard looks wrong. First NeoForge build
+decompiles Minecraft via NFRT (~2 min here, cached afterwards).
 
 `26.2` and `26.1.2` target Java 25, `1.21.11` targets Java 21; one JDK 25+ (e.g. 26) builds all of
 them via `--release` (see `build.gradle`). `error: release version 25 not supported` means Gradle
@@ -110,6 +120,29 @@ Differences found while porting; re-verify with `javap` before trusting these:
 `LevelRenderEvents` (`>=26.1`, AFTER_TRANSLUCENT_TERRAIN/COLLECT_SUBMITS); the obfuscated node needs
 the remapping Loom. All three supported nodes use `Identifier` (the old `ResourceLocation` name is
 gone — no Stonecutter replacement is needed anymore).
+
+### NeoForge 26.2 API (verified against `neoforge-26.2.0.84`)
+
+Verified with `javap`/sources on the real jars — do not guess these, re-verify with the same method
+when a NeoForge line changes. Loader-specific code lives **only** in `dev.vfxweaver.platform`
+(and `client.platform`); everything else stays loader-agnostic.
+
+| Concern | Verified signature / name |
+|---|---|
+| Mod entry | `@Mod(value = "vfxweaver", dist = Dist[])` (`net.neoforged.fml.common.Mod`); entry ctor takes `IEventBus` |
+| Mod loaded | `net.neoforged.fml.ModList.get().isLoaded(String)` |
+| Event subscription | `@EventBusSubscriber(value = Dist[], modid = "...")` (`net.neoforged.fml.common`) or `bus.addListener(...)` |
+| Payload registration | `RegisterPayloadHandlersEvent.registrar(String version) -> PayloadRegistrar`; `playToClient/playToServer(type, codec, handler)`, `playBidirectional(...)`, `.optional()` for our server-optional model |
+| Off-thread work | `IPayloadContext.enqueueWork(Runnable)` |
+| Send | `PacketDistributor.sendToPlayer(ServerPlayer, payload)`, `sendToAllPlayers(payload)` |
+| Server tick / lifecycle | `ServerTickEvent.Post`, `ServerStartedEvent`, `ServerStoppingEvent` (all expose `getServer()` via `ServerLifecycleEvent`) |
+| Player join | `PlayerEvent.PlayerLoggedInEvent` (`getEntity()` returns the player) |
+| Commands | `RegisterCommandsEvent.getDispatcher()` / `.getBuildContext()` |
+| Argument type | `RegisterEvent.register(Registries.COMMAND_ARGUMENT_TYPE, Identifier, Supplier<ArgumentTypeInfo>)` (NeoForge: `ArgumentTypeInfos.registerByClass`) |
+| Reload listener | `AddServerReloadListenersEvent.addListener(Identifier, PreparableReloadListener)` |
+| Client tick / network | `ClientTickEvent.Post`, `ClientPlayerNetworkEvent.LoggingIn`/`LoggingOut` |
+| World overlays (26.2) | `RenderLevelStageEvent.AfterTranslucentBlocks` (+ `getPoseStack()`, `getLevelRenderState()`); geometry via `SubmitCustomGeometryEvent.getSubmitNodeCollector()` |
+| Access transformer | `META-INF/accesstransformer.cfg`, e.g. `public net.minecraft.client.particle.Particle xd` — the five `Particle` fields are `protected double xd/yd/zd` + `protected float gravity/friction` |
 
 ## Client hooks (where things are wired)
 
