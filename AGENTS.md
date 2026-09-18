@@ -146,10 +146,11 @@ when a NeoForge line changes. Loader-specific code lives **only** in `dev.vfxwea
 
 ### Adding loader-guarded code
 
-The loader APIs never leak out of two packages: `dev.vfxweaver.platform` (main) and
-`dev.vfxweaver.client.platform` (client). Every `net.fabricmc.*` / `net.neoforged.*` import lives
-there and nowhere else — the render, datapack, API, command and payload code is loader-agnostic and
-must not name a loader type.
+The loader APIs live in two packages: `dev.vfxweaver.platform` (main) and
+`dev.vfxweaver.client.platform` (client), plus the guarded loader entry points (`VFXMod`,
+`VFXNeoForgeMod`, `VFXClient`) which may import their own loader. Everywhere else a
+`net.fabricmc.*` / `net.neoforged.*` import is a bug — the render, datapack, API, command and
+payload code is loader-agnostic and must not name a loader type.
 
 - Platform inventory: core `VFXPlatform` (loader name, `isModLoaded`), `VFXNetwork` (payload
   registration + transport), `VFXLoaderEvents` (server lifecycle, commands, datapack reload, player
