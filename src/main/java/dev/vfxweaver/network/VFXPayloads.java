@@ -24,11 +24,6 @@ public final class VFXPayloads {
 	private VFXPayloads() {
 	}
 
-	/** Delegates to {@link VFXNetwork#registerCommon()}; kept for the loader entry points. */
-	public static void register() {
-		VFXNetwork.registerCommon();
-	}
-
 	/**
 	 * Handles a client's effect request on the server thread. Unknown effects and malformed
 	 * payloads are dropped with a warning; broadcasts require the same gamemasters permission
