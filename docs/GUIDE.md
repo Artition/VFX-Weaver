@@ -2,8 +2,8 @@
 
 A client-side VFX library for Minecraft 26.2 / 26.1.x / 1.21.11 (Fabric and NeoForge). Screen post-processing (ping-pong FBO), camera shake, world overlays (block tint/outline), entity effects (tint/outline by UUID), keyframe animation, world/camera/player bindings, datapacks, network triggers and a public Java API.
 
-- Guide version: 31 (see [docs/CHANGELOG.md](CHANGELOG.md) for history)
-- Mod: `vfxweaver-1.1.4.jar` (one jar per Minecraft line and loader; Fabric requires Fabric API, NeoForge builds use the `-neoforge` suffix)
+- Guide version: 32 (see [docs/CHANGELOG.md](CHANGELOG.md) for history)
+- Mod: `vfxweaver-1.2.0.jar` (one jar per Minecraft line and loader; Fabric requires Fabric API, NeoForge builds use the `-neoforge` suffix)
 
 Files: `data/<namespace>/vfx/<name>.json` and `data/<namespace>/vfx_curves/<name>.json`. After edits — `/reload`. The effect id = `<namespace>:<name>`. On a dedicated server, definitions and curves are automatically synced to clients on player join and after `/reload`, so custom (datapack) effects work for all players, not just on the server.
 
@@ -1259,20 +1259,13 @@ Versioned feature history — **[docs/CHANGELOG.md](CHANGELOG.md)**.
 
 Guide version: 27 — see changelog below.
 
-### v36
-- **Block/item particle rotation is now fully configurable** — presets (and the Java spec builder) gained `spin_mode` (`tumble` = the physical full-3D spin, `yaw` = a uniform spin about one axis, `none` = no rotation), `spin_axis` (`random`/`x`/`y`/`z`/`[x, y, z]`), `spin_random` (how random the start orientation and tumble axis are; `0` = strictly upright and identical for every particle), `spin_friction` (how strongly the contacted block's friction damps the spin; `0` = never decays) and `spin_roll` (how much tangential impact speed feeds the tumble; `0` = no roll transfer). The `spin`/`spin_random`/`spin_friction`/`spin_roll` effect params override a named preset's values; the defaults (`tumble`/`random`/`1.0`/`1.0`/`0.5`) reproduce the previous tumbling behaviour exactly.
-
-### v35
-- **Block/item particles tumble like real falling cubes** — `spin` is now the magnitude of a full 3D angular velocity about a random axis (degrees/tick) with a random initial orientation, instead of a yaw around world Y. The orientation is integrated per tick and slerped for rendering; contact damps the tumble by the contacted block's friction so a cube lands and settles. `spin = 0` gives a static but randomly oriented model.
-
-### v34
-- **Block/item particles render as client-side display entities** — the model-particle engine no longer submits model geometry itself: each live particle now drives a `BlockDisplay`/`ItemDisplay` entity, so vanilla interpolates its motion (the reported jerky stepping is gone), `spin` is a clean yaw around the world Y axis with the model's own upright orientation preserved (the reported odd-axis spin is gone), and brightness uses the display's brightness override exactly like a real block display. The submit-path rendering (and its per-frame pose/light bookkeeping) was removed; the physics, presets, datapack/API surface and params are unchanged.
-
-### v33
-- **Item-model particles** — the `particles` effect can now emit real **item** models next to block models: `"particle": "item"` with an `item` id (e.g. `"minecraft:skeleton_skull"`), or a `vfx_particles` preset that declares `"item"` instead of `"block"` (exactly one is required). This is how a skull/head particle works — the block form has no baked block model, the item form does. Items render through the same submit path dropped items and item frames use, with the same brightness (`-1` = world light), gravity, friction, collision/bounce, size, lifetime and spin as block particles. `VFXBlockParticleSpec.item(ItemStack)` builds the spec from code.
-
 ### v32
-- **Block-model particles** — the `particles` effect can now emit real block models instead of vanilla particles: `"particle": "block"` with a `block` state, or a reusable preset id declared in `data/<namespace>/vfx_particles/<name>.json` (and registerable from code with `VFXAPI.registerBlockParticle`). Each particle has block-display brightness (`-1` = world light, `[blockLight, skyLight]`), gravity, air friction, optional world collision with surface friction and bounce, size, lifetime and spin. `VFXAPI.spawnBlockParticle` spawns one immediately on the client. They render through the same submit path as `block_chain`, so they work under shaderpacks.
+- **Block-model particles** — the `particles` effect can emit real block models instead of vanilla particles: `"particle": "block"` with a `block` state, or a reusable preset in `data/<namespace>/vfx_particles/<name>.json` (registerable from code with `VFXAPI.registerBlockParticle`). Each particle has block-display brightness (`-1` = world light, `[blockLight, skyLight]`), gravity, air friction, optional world collision with surface friction and bounce, size, lifetime and spin; `VFXAPI.spawnBlockParticle` spawns one immediately on the client.
+- **Item-model particles** — the same engine can draw real item models: `"particle": "item"` with an `item` id (e.g. `"minecraft:skeleton_skull"`), or a `vfx_particles` preset that declares `"item"` instead of `"block"` (exactly one is required). This is how a skull/head particle works — the block form has no baked block model, the item form does; items render as `ItemDisplay` entities with the same brightness/physics params.
+- **Block/item particles render as client-side display entities** — each live particle drives a `BlockDisplay`/`ItemDisplay`, so vanilla interpolates its motion (no more jerky stepping) and brightness uses the display's brightness override exactly like a real block display. The physics, presets, datapack/API surface and params are unchanged.
+- **Block/item particle rotation is fully configurable** — presets and the Java spec builder gained `spin_mode` (`tumble` = the physical full-3D spin, `yaw` = a uniform spin about one axis, `none` = no rotation), `spin_axis` (`random`/`x`/`y`/`z`/`[x, y, z]`), `spin_random`, `spin_friction` and `spin_roll`; `spin` is the magnitude of a full 3D angular velocity about a random axis, integrated per tick and damped by the contacted block's friction so a cube lands and settles. The `spin`/`spin_random`/`spin_friction`/`spin_roll` effect params override a named preset; the defaults (`tumble`/`random`/`1.0`/`1.0`/`0.5`) reproduce the previous tumbling behaviour exactly.
+- **`vfxweaver:block_chain` built-in demo** — the `block_chain` effect now ships a built-in definition (44 built-ins), so it appears in `/vfx` tab-completion and `/vfx play vfxweaver:block_chain` works without writing a datapack.
+- **NeoForge support for all three Minecraft lines** — a NeoForge node is built beside each Fabric node from one source tree (`26.2-neoforge`, `26.1.2-neoforge`, `1.21.11-neoforge`), so the project produces six jars, one per (Minecraft line, loader). **Flashback is Fabric-only** (Flashback has no NeoForge build). All formats — effect datapacks, `vfx_particles` presets and the effect definition fields — are additive, so existing datapacks keep working unchanged.
 
 ### v31
 - Replay recording works again with current Flashback versions: the compatibility layer registered two custom actions, which Flashback rejects (it keys actions by class, and both reflection proxies share one class) - that aborted the whole init, so nothing was recorded. Plays, stops, live edits and the definitions snapshot now share one action.
