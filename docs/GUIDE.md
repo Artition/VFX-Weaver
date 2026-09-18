@@ -667,7 +667,9 @@ Links are capped at 512 per effect; rendering happens in the vanilla submit pipe
 }
 ```
 
-Physics is a client-side visual simulation (verlet rope at a fixed tick rate) — it does not affect the server world or other entities beyond the push interaction with the local player.
+Physics is a client-side visual simulation (verlet rope at a fixed tick rate) — it does not affect the server world or other entities beyond the push interaction with the local player. Physics chains slide along terrain instead of sticking: a joint inside a block is pushed out along the smallest penetration axis and keeps its tangential velocity, so links spawned in a wall come free and a moving anchor drags the chain across the ground.
+
+The built-in `vfxweaver:block_chain` demo hangs a 6-link `minecraft:iron_chain` from the local player (`pos_x/y/z` bound to `player_x/y/z`, `physics: 1`), so plain `/vfx play vfxweaver:block_chain` works without a datapack — the same self-anchoring pattern the `vfxweaver:particles` demo uses.
 
 The builtin `vfxweaver:particles` demo binds its position to the local player (`pos_x/y/z` with `bind: player_x/y/z`), so plain `/vfx play vfxweaver:particles` spawns the helix around the viewer; `/vfx playat` and `positions` override that as usual.
 
@@ -1059,7 +1061,7 @@ Built-ins ship as regular datapack JSON inside the mod jar (`data/vfxweaver/vfx/
 
 Post-processing: `vfxweaver:chromatic_aberration`, `vfxweaver:color_grade`, `vfxweaver:distortion`, `vfxweaver:dent`, `vfxweaver:gradient_map`, `vfxweaver:posterize`, `vfxweaver:blur`, `vfxweaver:pixelate`, `vfxweaver:hue_isolation`, `vfxweaver:vignette`, `vfxweaver:screen_flash`, `vfxweaver:motion_blur`, `vfxweaver:bloom`, `vfxweaver:film_grain`, `vfxweaver:scanlines`, `vfxweaver:depth_of_field`, `vfxweaver:letterbox`, `vfxweaver:invert`, `vfxweaver:vortex`, `vfxweaver:speed_lines`, `vfxweaver:slice_shift`, `vfxweaver:noise_warp`, `vfxweaver:solarize`, `vfxweaver:double_vision`, `vfxweaver:eyelids`, `vfxweaver:iris_wipe`, `vfxweaver:digital_glitch`, `vfxweaver:vhs`, `vfxweaver:shockwave`, `vfxweaver:afterimage`, `vfxweaver:stop_motion`.
 
-World overlays: `vfxweaver:block_tint`, `vfxweaver:block_outline`, `vfxweaver:light_beam`, `vfxweaver:pulse_ring`, `vfxweaver:guide_line`, `vfxweaver:particles`.
+World overlays: `vfxweaver:block_tint`, `vfxweaver:block_outline`, `vfxweaver:light_beam`, `vfxweaver:pulse_ring`, `vfxweaver:guide_line`, `vfxweaver:particles`, `vfxweaver:block_chain`.
 
 Entity effects: `vfxweaver:entity_tint`, `vfxweaver:entity_outline`, `vfxweaver:entity_displace`.
 
