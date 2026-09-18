@@ -1,111 +1,106 @@
-# Block particles (custom particle type + presets) — design
+# Block particles (submit-engine, presets via datapack + API) — design
 
-Status: draft for review.
+Status: draft for review (revised after review: renderer is the submit engine, not a vanilla
+particle type; see "Decision log").
 
 ## Goal
 
-Let the mod (and other mods, and datapacks) spawn **particles whose quad is a block's model**, with
-configurable **brightness** (BlockDisplay-style light override), **physics** (gravity, friction,
-world collision, bounce), size, lifetime and spin — spawnable both through the existing `particles`
-effect and directly through vanilla code (`level.addParticle(...)` with our `ParticleOptions`).
+Spawn **particles that are real block models** (full 3D model, correct render types/lighting/
+occlusion — the same submit path `block_chain` already uses) with configurable **brightness**
+(BlockDisplay-style light override), **physics** (gravity, friction, world collision, bounce), size,
+lifetime and spin. Spawnable from the `particles` effect and from our Java API.
 
 ## Non-goals
 
-- No dynamic world lighting (that is Iris/Oculus territory). "Brightness" here means the particle's
-  own light value, exactly like `Display.Brightness` on block displays.
-- No new effect type: the `particles` effect gains the new ids/params (option chosen by the user).
-- No server-authoritative spawning: the particle is client-side; a server can spawn it only when the
-  mod (and therefore the type) is present there too.
-- No custom textures: the particle uses the block's own model/texture.
+- No vanilla particle type, no `level.addParticle(...)` / `/particle` integration (deliberate choice:
+  the particle engine cannot draw a real block model with correct render types or batching).
+- No dynamic world lighting (Iris/Oculus territory); "brightness" is the particle's own light value,
+  exactly like `Display.Brightness` on block displays.
+- No custom meshes/textures: a particle draws the block's own model.
+- No new effect type: the `particles` effect gains the new ids/params.
 
 ## Design
 
-### 1. Particle type and payload
+### 1. Engine (client-side, per effect instance)
 
-One registered type, `vfxweaver:block`, with a payload `VFXBlockParticleOptions implements
-ParticleOptions`:
+`VFXBlockParticleEngine` (client, in `dev.vfxweaver.client.render`): for each running `particles`
+effect in "block" mode, a bounded list of particles:
+`position`, `prevPosition` (for interpolation), `velocity`, `age`/`life`, `rotation`/`spin`, plus the
+spec (block + parameters). Emission follows the existing `particles` plumbing (shape, rate, per-frame
+budget, positions/bindings/aimed mode), and the engine integrates at a fixed tick step like the rope:
+gravity, air friction, optional world collision (with the shared MTV depenetration), optional bounce,
+lifetime, spin.
 
-| field | meaning |
-|---|---|
-| `BlockState block` | the block whose model is drawn (required) |
-| `int brightness` | packed light override, `-1` = no override (world light), otherwise `LightTexture.pack(blockLight, skyLight)` — same convention as `Display.Brightness`; the datapack may also give `[blockLight, skyLight]` |
-| `float gravity` | downward acceleration (0 = floating, 1 = vanilla-ish) |
-| `float friction` | velocity retained per tick (0..1) |
-| `float collide` | 0 = no world collision, >0 = collision on with that surface friction |
-| `float bounce` | restitution on collision (0 = stop, 1 = no energy loss) |
-| `float size` | quad scale multiplier |
-| `float life` | lifetime in ticks |
-| `float spin` | rotation, degrees per tick |
+Limits reuse the existing constants (`MAX_PARTICLES_PER_FRAME`, a per-instance cap, a global cap) so a
+runaway effect cannot flood the frame; the engine is dropped when its effect stops.
 
-One type (not one per block) because Minecraft registries freeze after startup, while the payload
-carries everything: **presets can be added at any time**, and `level.addParticle(options, …)` works
-with the payload alone.
+### 2. Rendering (submit pipeline, per line)
 
-- Codec: vanilla-style `StreamCodec` + `MapCodec` with the block state as a `StateHolder`
-  (`BlockState.CODEC`), mirroring `BlockParticleOption` so it survives the network and commands.
-- `ParticleOptions.getType()` returns our type; `ParticleType` registration is per loader.
+Submit each particle through the existing world-overlay submit hook — the same callback and the same
+per-line code path `block_chain` uses today (`VFXClientRenderHooks` collector + `submitMovingBlock`
+style submission), so block particles work exactly where the chain works (Fabric `>=26.1` /
+`<26.1`, NeoForge `>=26.1` / `<26.1`). Pose = translate to the interpolated position, rotate by
+`rotation`, scale by `size`; vertex light = `brightness >= 0 ? brightness : world light at the
+particle position`.
 
-### 2. The particle
+### 3. Presets — datapack and API (our own registry, no Minecraft registry involved)
 
-`VFXBlockParticle extends SingleQuadParticle` (the vanilla reference is the terrain/block-crumble
-particle): quad = the block's particle icon model quads; `getLightColor(partialTick)` returns
-`brightness >= 0 ? brightness : super.getLightColor(partialTick)`; own integration step
-(`gravity`, `friction`, `spin`, lifetime) and, when `collide > 0`, world collision using the same
-minimum-translation-vector depenetration the `block_chain` rope uses — extracted into a shared
-helper (`VFXWorldCollision.resolve(level, pos, padding)`) so both effects use one implementation.
-
-### 3. Registration (platform layer)
-
-- Particle type: Fabric `Registry.register(BuiltInRegistries.PARTICLE_TYPE, id, type)`; NeoForge
-  `RegisterEvent` on the mod bus. Common side, so a server with the mod knows the type too.
-- Client provider: Fabric `ParticleFactoryRegistry.getInstance().register(type, provider)`;
-  NeoForge `RegisterParticleProvidersEvent`. Client-only, in `client.platform`.
-- All of it lives in `dev.vfxweaver.platform` / `client.platform`, guarded with
-  `//? if fabric`/`//? if neoforge`; no loader import escapes the platform packages.
-
-### 4. Presets — datapack and API
-
-Two layers, mirroring the existing definition manager:
-
-- **Datapack**: `data/<namespace>/vfx_particles/<name>.json`:
+- **Datapack**: `data/<namespace>/vfx_particles/<name>.json`, full id `<namespace>:<name>`:
   ```json
-  { "block": "minecraft:stone", "brightness": [15, 15], "gravity": 0.8,
-    "friction": 0.94, "collide": 1.0, "bounce": 0.2, "size": 1.0, "life": 60, "spin": 12 }
+  { "block": "minecraft:stone", "brightness": [15, 15], "gravity": 0.8, "friction": 0.94,
+    "collide": 1.0, "bounce": 0.2, "size": 0.35, "life": 60, "spin": 12 }
   ```
-  Loaded by a reload listener (client and server), bounded (256 entries), per-file parse errors
-  collected and surfaced like effect-definition errors. Full id = `<namespace>:<name>`.
-- **API**: `VFXAPI.registerBlockParticle(Identifier id, VFXBlockParticleOptions options)` /
-  `unregisterBlockParticle(Identifier id)` — a local layer that survives reloads and server sync
-  (same rule as `registerDefinitions`), plus
-  `VFXAPI.blockParticle(Identifier id) -> @Nullable ParticleOptions` to fetch a preset for use with
-  `level.addParticle(...)`. Datapack layer wins for the same id.
+  Fields: `block` (required, block state string), `brightness` (`-1` = world light, an int used as
+  `LightTexture.pack(block, sky)`, or `[blockLight, skyLight]`), `gravity`, `friction` (0..1),
+  `collide` (0..1, surface friction), `bounce` (0..1), `size` (scale), `life` (ticks), `spin`
+  (degrees/tick).
+  Loaded by a reload listener on both sides (like `vfx` definitions and `vfx_curves`), bounded
+  (256 entries), per-file parse errors collected and reported like definition errors.
+- **API**: `dev.vfxweaver.api.VFXBlockParticleSpec` (immutable record, defaults + `builder()`), and on
+  `VFXAPI`:
+  - `registerBlockParticle(Identifier id, VFXBlockParticleSpec spec)` / `unregisterBlockParticle(Identifier id)`
+    — a local layer that survives `/reload` and a server sync, datapack layer wins for the same id
+    (the same two-layer rule as `registerDefinitions`);
+  - `blockParticle(Identifier id) -> @Nullable VFXBlockParticleSpec`;
+  - `spawnBlockParticle(VFXBlockParticleSpec spec, Vec3 pos, Vec3 velocity)` — client-side spawn into
+    the engine (returns an instance handle for `moveEffect`-style control if cheap; otherwise a
+    one-shot spawn).
+- Presets are **never synced to other players**; they are client-local (datapack presets are also
+  loaded server-side, but nothing is pushed).
 
-### 5. `particles` effect integration
+### 4. `particles` effect integration
 
-- `"particle": "block"` + `"block": "minecraft:stone"` — inline, params override the payload
-  defaults (`emissive`-like knobs are just `brightness`, `gravity`, `friction`, `collide`, `bounce`,
-  `size`, `life`, `spin`).
-- `"particle": "<namespace>:<preset>"` — a registered preset by id (datapack or API).
-- Everything else (shape, rate, positions, bindings, aimed mode, per-frame budget) is the existing
-  `particles` plumbing, unchanged.
+- `"particle": "block"` + `"block": "minecraft:stone"` — inline spec; params override the defaults
+  (`brightness`, `gravity`, `friction`, `collide`, `bounce`, `size`, `life`, `spin`).
+- `"particle": "<namespace>:<preset>"` — a registered preset by id.
+- Everything else (shape, rate, positions, bindings, aimed mode) is the existing `particles`
+  plumbing, unchanged.
 
 ## Verification
 
-- All six nodes build; no Fabric behaviour changes elsewhere.
-- `javap` per line for the particle/model API the class uses (`SingleQuadParticle`, the quad
-  references, `ParticleEngine.register` / `RegisterParticleProvidersEvent`, `Registry`/`RegisterEvent`):
-  the 1.21.9+ render-state refactor is the top porting risk, and the class must compile on
-  `1.21.11`, `26.1.2` and `26.2`.
-- In game (user): spawn through the effect, through a datapack preset, through an API preset, and
-  through raw `level.addParticle(...)`; check brightness override (dark room), gravity/friction,
-  collision (particles rest on the ground, do not sink), lifetime, and that nothing leaks when many
-  effects run at once.
+- All six nodes build; no other behaviour changes.
+- `javap` per line for the submission call used (the same symbols `block_chain` uses — already
+  verified on all three lines) and for the block-model/pose helpers the renderer needs.
+- In game (user): spawn via the effect, via a datapack preset and via an API preset; check the model
+  appearance (3D, correct textures, translucent blocks), brightness override in a dark room, gravity/
+  friction/lifetime/spin, world collision (particles rest on the surface, never sink), and that a few
+  hundred particles keep the frame stable.
 
-## Risks / open points
+## Risks
 
-- **Per-line particle API** (highest): `SingleQuadParticle`/terrain-particle internals differ across
-  the three lines; the implementation must be written against the active node and guarded.
-- Light semantics: `brightness` follows `Display.Brightness`; a plain "emissive 0..1 blend" is
-  deliberately not offered (one knob, animatable through the timeline: `-1` → packed value).
-- Registry timing: the *type* registers at mod init; only *presets* can be added later.
-- Bounded: preset count, per-frame particle budget (reuses the existing limits).
+- **Per-line submit API**: reuses the path already ported for `block_chain`, so the risk is low; still
+  verify with `javap` before coding.
+- Performance: block models are heavier than quads; the caps and the per-frame budget keep it sane,
+  and the same block's model submission can be cached per frame if profiling shows a cost.
+- Interpolation: like the rope, render from `prev→current` by the accumulator fraction, otherwise
+  fast particles stutter at low tick rates.
+
+## Decision log
+
+- Renderer: **submit engine** (option B), chosen by the user over a vanilla particle type (A) and the
+  hybrid with a carrier particle type (C): a real block model with correct render types was the
+  requirement, and the submit path is already ported.
+- Brightness: BlockDisplay semantics (`-1` = world light, else packed light; datapack also accepts
+  `[blockLight, skyLight]`), animatable through the timeline like any other parameter.
+- One shared collision helper (`VFXWorldCollision.resolve`, extracted from the `block_chain` rope) for
+  both effects.
