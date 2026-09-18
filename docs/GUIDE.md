@@ -631,6 +631,52 @@ Aimed stream example — accelerating shot from one block to another (put both p
 }
 ```
 
+**Block mode.** Instead of a vanilla particle, the emitter can spawn **real block models** (full 3D model, textures, lighting and occlusion — the same submit path `block_chain` uses). Pick a single block inline, or a reusable preset:
+
+- `"particle": "block"` with `"block": "<block state>"` — an inline spec. The `block` field accepts a full block state string, e.g. `"minecraft:oak_stairs[facing=east]"` (default `minecraft:stone`).
+- `"particle": "<namespace>:<preset>"` — a preset from `data/<namespace>/vfx_particles/<name>.json` or registered through `VFXAPI.registerBlockParticle`. An unknown preset is treated as a vanilla particle id; with no such particle nothing is emitted and the mod logs one warning (the documented fallback).
+
+Everything else (shape, `rate`, positions/bindings, aimed mode) works exactly as above. The block's physics and light are taken from the spec and overridden per effect by these params:
+
+| Param | Default (inline/preset) | Description |
+|---|---|---|
+| `brightness` | -1 | Light override with **block-display semantics**: `-1` = use the world light at each particle, `0..15` = render that light level regardless of the surroundings (`[blockLight, skyLight]` in a preset for a split value). |
+| `gravity` | 1 | Downward acceleration per tick, as a multiple of the vanilla `0.04`. `0` = weightless. |
+| `friction` | 0.94 | Air drag multiplier per tick (1 = no drag). |
+| `collide` | 1 | Surface friction on contact, `0..1`; `0` disables world collision entirely. |
+| `bounce` | 0 | Restitution of the normal velocity on contact (`0` = no bounce, `1` = full bounce). |
+| `size` | 0.25 | Model scale (1 = one full block). |
+| `life` | 60 | Lifetime in ticks. |
+| `spin` | 0 | Yaw rotation per tick, degrees (in block mode this replaces the helix-phase meaning of `spin`). |
+
+`brightness` behaves exactly like a block display's brightness (`Display.Brightness`): `-1` follows the world, anything else pins the packed light `block << 4 | sky << 20` on every vertex. So `brightness: 15` makes the particles glow at full block+sky light even in a pitch-black room, which is how you get readable "fireflies" or embers at night.
+
+Copy-paste — a burst of glowing stone blocks that fall, bounce and spin:
+
+```json
+{
+	"type": "particles",
+	"particle": "block",
+	"block": "minecraft:stone",
+	"shape": "sphere",
+	"duration": 100,
+	"params": {
+		"rate": 30, "radius": 1.5, "speed": 0.25, "vel_y": 0.3, "spread": 0.6,
+		"brightness": 15, "gravity": 1.0, "friction": 0.96, "collide": 0.8,
+		"bounce": 0.45, "size": 0.3, "life": 80, "spin": 8
+	}
+}
+```
+
+Or through a preset id (define the file, then just name it from the effect):
+
+```json
+{ "type": "particles", "particle": "mymap:ember", "shape": "point", "loop": true,
+  "params": { "rate": 20, "pos_x": { "bind": "player_x" }, "pos_y": { "bind": "player_y" }, "pos_z": { "bind": "player_z" } } }
+```
+
+Block particles are capped (2048 live particles, 512 per effect instance, 256 spawned per frame per effect) and simulated at a fixed tick step, so a runaway emitter cannot flood the frame. They are client-side only: nothing about them touches the server world.
+
 #### `block_chain`
 A line of **real block-model links** between two anchors (like `guide_line`, but made of blocks) — the `block` definition field picks the block, links render with full vanilla textures/lighting and follow moving anchors every frame.
 
@@ -805,9 +851,9 @@ Files: `data/<namespace>/vfx/<name>.json`. After edits — `/reload`. Effect id 
 | `volume` | param (see §3.2) | 1.0 | Sound volume (reserved param, can be a constant, animation, bind or expression) |
 | `pitch` | param (see §3.2) | 1.0 | Sound pitch (reserved param) |
 | `positions` | array `[x,y,z]` or objects | — | World coordinate list for world overlays (`block_tint`/`block_outline`/`light_beam`/`pulse_ring`/`guide_line`/`particles`). Each entry is either a plain `[x,y,z]` array or an entity anchor `{"entity": "<selector>", "offset": [x,y,z]}` — see below. If not set — `params.pos_x/y/z` is used. Not used for entity effects (targets are set by UUID). Static entries anchor to a block (the effect uses the block's centre on X/Z); entity anchors and Java-API moves use exact sub-block coordinates. |
-| `particle` | string | — | Vanilla particle id for the `particles` effect (e.g. `"minecraft:end_rod"`, `"dust"`), see the `particles` subsection in [2.2](#22-world-overlays-block-geometry). |
+| `particle` | string | — | Particle for the `particles` effect: a vanilla id (e.g. `"minecraft:end_rod"`, `"dust"`), the literal `"block"` (inline block mode, uses the `block` field) or a `vfx_particles` preset id. See the `particles` subsection in [2.2](#22-world-overlays-block-geometry). |
 | `shape` | string | — | Emission shape for the `particles` effect: `sphere`/`ring`/`helix`/`line`/`cube`/`point`. |
-| `block` | string | — | Block id for the `block_chain` effect (e.g. `"minecraft:iron_chain"`), see the `block_chain` subsection in [2.2](#22-world-overlays-block-geometry). |
+| `block` | string | — | Block state for the `block_chain` effect (e.g. `"minecraft:iron_chain"`) or the inline `particles` block mode (e.g. `"minecraft:oak_stairs[facing=east]"`); see the `block_chain`/`particles` subsections in [2.2](#22-world-overlays-block-geometry). |
 | `entity_selector` | string | — | Entity selector (e.g. `"@e[type=minecraft:zombie,distance=..10]"`) that the server resolves into target UUIDs on every play. Lets you trigger an entity effect with plain `/vfx play` (no `playentity`): the effect finds its own targets. For entity effects (`entity_tint`/`entity_outline`). |
 
 **Entity-anchored positions.** A `positions` entry may be an object instead of a `[x,y,z]` array: `{"entity": "<selector>", "offset": [x,y,z], "point": "center", "dir": "look", "distance": 24}`. The `offset` is optional and relative to the resolved anchor point; `point` selects the reference point on the entity — `feet` (default), `center` (bounding-box centre) or `eyes`; `dir` + `distance` optionally push the anchor along an entity direction (`look` = the tracked entity's live look direction, e.g. eyes + look × 24 = a target where the entity is looking — a laser). The server resolves each selector once per play (first match wins, `/vfx play` fails if an anchor matches nothing); the client substitutes the tracked entity's current anchor-point position every frame, so the effect follows a moving entity:
@@ -960,6 +1006,31 @@ Besides the built-in names you can define your own curves: a named datapack file
 ```
 
 Such a value can be used in any `easing` field — the effect definition, an individual keyframe or a collection child effect.
+
+### 3.5 Block-particle presets (`vfx_particles`)
+
+Reusable block-particle definitions live in `data/<namespace>/vfx_particles/<name>.json`, id `<namespace>:<name>`. A `particles` effect names one with `"particle": "<namespace>:<name>"` (see the `particles` block mode in [2.2](#22-world-overlays-block-geometry)). Presets are client-local: they are **never synced to other players**, so a preset only exists where its file (or registration) does.
+
+```json
+{ "block": "minecraft:stone", "brightness": [15, 15], "gravity": 0.8, "friction": 0.94,
+  "collide": 1.0, "bounce": 0.2, "size": 0.35, "life": 60, "spin": 12 }
+```
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `block` | string | — (required) | Block state drawn by each particle, e.g. `minecraft:oak_planks` or `minecraft:oak_stairs[facing=east]` |
+| `brightness` | int or `[blockLight, skyLight]` | -1 | `-1` = world light; `0..15` = that light level on both channels; `[b, s]` = separate block/sky levels. Block-display semantics (see the explanation in the `particles` block mode). |
+| `gravity` | float | 1.0 | Downward acceleration per tick (× 0.04) |
+| `friction` | float | 0.94 | Air drag multiplier per tick (0..1) |
+| `collide` | float | 1.0 | Surface friction on contact (0..1); `0` disables world collision |
+| `bounce` | float | 0.0 | Normal-velocity restitution on contact (0..1) |
+| `size` | float | 0.25 | Model scale (1 = one full block) |
+| `life` | int | 60 | Lifetime in ticks |
+| `spin` | float | 0.0 | Yaw rotation per tick, in degrees |
+
+A preset only supplies defaults: a `particles` effect that names it can still override any of these with the matching effect params.
+
+**Two-layer rule and the Java API.** Like effect definitions, presets have two layers: the datapack set (reloaded with `/reload`) and a code-registered local set written with `VFXAPI.registerBlockParticle(id, spec)`. The local layer survives `/reload` and is private to this client; the datapack layer wins for the same id. `VFXAPI.unregisterBlockParticle(id)` removes a local preset and `VFXAPI.blockParticle(id)` looks one up. Both layers are capped at 256 entries, and a broken file is reported by `/vfx validate` without affecting the rest. `VFXAPI.spawnBlockParticle(spec, position, velocity)` spawns a single block particle immediately on the client (no packet, no effect instance); see [docs/API.md](API.md).
 
 ---
 
@@ -1120,6 +1191,9 @@ Post-processing pipeline, world overlays, effect clock, load limits and fault to
 Versioned feature history — **[docs/CHANGELOG.md](CHANGELOG.md)**.
 
 Guide version: 27 — see changelog below.
+
+### v32
+- **Block-model particles** — the `particles` effect can now emit real block models instead of vanilla particles: `"particle": "block"` with a `block` state, or a reusable preset id declared in `data/<namespace>/vfx_particles/<name>.json` (and registerable from code with `VFXAPI.registerBlockParticle`). Each particle has block-display brightness (`-1` = world light, `[blockLight, skyLight]`), gravity, air friction, optional world collision with surface friction and bounce, size, lifetime and spin. `VFXAPI.spawnBlockParticle` spawns one immediately on the client. They render through the same submit path as `block_chain`, so they work under shaderpacks.
 
 ### v31
 - Replay recording works again with current Flashback versions: the compatibility layer registered two custom actions, which Flashback rejects (it keys actions by class, and both reflection proxies share one class) - that aborted the whole init, so nothing was recorded. Plays, stops, live edits and the definitions snapshot now share one action.

@@ -135,6 +135,38 @@ boolean setKeyframe(Identifier effectId, String name, int time, float value, Str
 Like `moveEffect`, these return `true` when applied on the render thread or queued for it. A `null`
 (or blank) easing means linear - a keyframe segment has no "definition default".
 
+#### Block-particle presets (client-local)
+
+Block-model particles — the `particles` effect with `"particle": "block"` or a preset id — can be
+defined from code, mirroring `registerDefinitions`. Presets are **client-local and never synced**;
+the datapack layer (`data/<ns>/vfx_particles/<name>.json`) wins for the same id.
+
+```java
+import dev.vfxweaver.effect.VFXBlockParticleSpec;
+import net.minecraft.world.level.block.Blocks;
+
+VFXBlockParticleSpec ember = VFXBlockParticleSpec.builder(Blocks.MAGMA_BLOCK.defaultBlockState())
+    .brightness(15, 15)  // block-display semantics: -1 = world light, or separate block/sky levels
+    .gravity(0.8F).friction(0.94F).collide(1.0F).bounce(0.2F)
+    .size(0.35F).life(60).spin(12.0F)
+    .build();
+
+// Register/unregister a preset in the local layer; register returns false when it is full (256).
+boolean registered = VFXAPI.registerBlockParticle(Identifier.fromNamespaceAndPath("mymod", "ember"), ember);
+boolean removed = VFXAPI.unregisterBlockParticle(Identifier.fromNamespaceAndPath("mymod", "ember"));
+
+// Look one up (datapack layer wins). @Nullable.
+VFXBlockParticleSpec found = VFXAPI.blockParticle(Identifier.fromNamespaceAndPath("mymod", "ember"));
+
+// Spawn a single block particle immediately on this client (no packet, no effect instance);
+// no-op on a dedicated server. `velocity` is in blocks/tick; the spec supplies the physics.
+VFXAPI.spawnBlockParticle(ember, new Vec3(x, y, z), new Vec3(0.0, 0.25, 0.0));
+```
+
+A `particles` effect then reaches the preset with `"particle": "mymod:ember"`; the effect's
+`brightness`/`gravity`/`friction`/`collide`/`bounce`/`size`/`life`/`spin` params override its
+fields. See the `particles` block mode in [GUIDE.md](GUIDE.md).
+
 ### `VFXAPI.EffectRequest` (fluent builder)
 
 ```java
@@ -149,7 +181,7 @@ VFXAPI.EffectRequest.of()
 
 ### `VFXLocalDispatcher`
 
-A bridge the client entrypoint (`VFXClient`) registers via `VFXAPI.setLocalDispatcher(...)` so `playEffect`/`stopEffect`/`stopAllEffects` can run without a network packet. Other mods don't need to implement it — it's an internal part of the common↔client link of the mod.
+A bridge the client entrypoint (`VFXClient`) registers via `VFXAPI.setLocalDispatcher(...)` so `playEffect`/`stopEffect`/`stopAllEffects` can run without a network packet. Other mods don't need to implement it — it's an internal part of the common↔client link of the mod. `spawnBlockParticle` is a `default` no-op on the interface (so a dispatcher compiled before block particles still links) and is overridden by the mod's client dispatcher.
 
 ## Definition registry — `VFXDefinitionManager`
 

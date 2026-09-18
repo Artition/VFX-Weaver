@@ -15,7 +15,8 @@ src/main/java/dev/vfxweaver/            shared (both sides): Java API, commands,
 src/client/java/dev/vfxweaver/client/   client only: renderers, post-processing, shaders, mixins,
                                         camera shake, Iris/Flashback compatibility
 src/main/resources/                     fabric.mod.json, vfxweaver.mixins.json, access wideners,
-                                        built-in effects (data/vfxweaver/vfx/*.json), lang
+                                        built-in effects (data/vfxweaver/vfx/*.json),
+                                        block-particle presets (data/<ns>/vfx_particles/*.json), lang
 src/client/resources/                   vfxweaver.client.mixins.json, shaders
 versions/<mc>/gradle.properties         per-node dependencies (see "Multi-version")
 docs/                                   GUIDE.md (user guide), API.md, ARCHITECTURE.md, CHANGELOG.md
@@ -217,7 +218,10 @@ payload code is loader-agnostic and must not name a loader type.
   differ, see the guards.
 - `VFXWorldOverlayRenderer.register()` — world overlays (`block_tint`, `block_outline`,
   `light_beam`, `pulse_ring`, `guide_line`, `particles`, `block_chain`) on `LevelRenderEvents`
-  (`>=26.1`) or `WorldRenderEvents` (`<26.1`).
+  (`>=26.1`) or `WorldRenderEvents` (`<26.1`). The `particles` block mode is simulated and submitted
+  by `VFXBlockParticleEngine` (client, `dev.vfxweaver.client.render`); its presets come from
+  `VFXBlockParticleManager` (`dev.vfxweaver.resource`, the datapack `vfx_particles` dir + local API
+  layer, mirroring `VFXDefinitionManager`).
 - `ItemInHandRendererMixin`, `AvatarRendererMixin`, `ItemFrameRendererMixin`,
   `LivingEntityRendererMixin` (+ the two render-state mixins) — first-person/entity frame effects.
 - `CameraMixin` — FOV; `VFXPostProcessingManager` + `VFXShaderPrograms` — the pass chain (one shared
@@ -259,8 +263,10 @@ payload code is loader-agnostic and must not name a loader type.
   client-local playback and live control (`playEffect`/`playEffectId`/`moveEffect`/`setParam`/
   `setParamExpr`/`setKeyframe`/`stopEffect` — everything the network does also works locally, so a
   pure client-side mod never needs a server), `registerDefinitions`/`unregisterDefinition` (see the
-  definition-layer rule below), the fluent `EffectRequest`, and the `VFXLocalDispatcher` bridge the
-  client registers (every new network action needs its counterpart there).
+  definition-layer rule below), `registerBlockParticle`/`unregisterBlockParticle`/`blockParticle`/
+  `spawnBlockParticle` (block-model particles; see the preset-manager rule below), the fluent
+  `EffectRequest`, and the `VFXLocalDispatcher` bridge the client registers (every new network
+  action needs its counterpart there).
 - `VFXDefinitionManager` keeps **two layers**: the datapack/server set (`definitions`, replaced by
   `apply` on `/reload` and by `applySynced` on a server sync) and the code-registered local set
   (`registerLocal`/`unregisterLocal`, written through `VFXAPI.registerDefinitions`). Never let a
@@ -268,6 +274,11 @@ payload code is loader-agnostic and must not name a loader type.
   definitions must not be synced to other players), and keep the datapack/server layer winning for
   the same id. A new read path must consult both layers (`get`/`contains`/`getDefinitions`/
   `getParseErrors` do).
+- `VFXBlockParticleManager` mirrors that two-layer model for block-particle presets
+  (`data/<namespace>/vfx_particles/<name>.json` + the `VFXAPI.registerBlockParticle` local layer).
+  Presets are **never synced**, so it has no `applySynced` and no raw-JSON read path for the
+  network; the datapack layer wins for the same id and both layers are capped at 256. Registration
+  is wired beside the other reload listeners (`VFXLoaderEvents`).
 - The network protocol `vfxweaver:vfx_trigger` / `vfx_request` / `vfx_sync`:
   `VFXTriggerPayload.PROTOCOL_VERSION` must be bumped on any wire-breaking change.
 - The datapack effect format `data/<namespace>/vfx/<effect>.json`: parameter specs (constant,
