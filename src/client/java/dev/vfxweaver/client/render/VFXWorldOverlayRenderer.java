@@ -83,6 +83,7 @@ import net.minecraft.util.Mth;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.phys.Vec3;
+import net.minecraft.world.phys.shapes.VoxelShape;
 import org.joml.Quaternionf;
 import org.joml.Vector3f;
 import org.joml.Vector3fc;
@@ -638,27 +639,16 @@ public final class VFXWorldOverlayRenderer {
 	 */
 	private static void collectSubmits() {
 		Minecraft minecraft = Minecraft.getInstance();
+		if (minecraft.level == null) {
+			return;
+		}
 		ClientLevel level = minecraft.level;
 		CameraRenderState camera = VFXClientRenderHooks.camera();
 		SubmitNodeCollector collector = VFXClientRenderHooks.collector();
-		List<VFXActiveEffect> worldEffects = level == null ? List.of() : VFXEffectManager.get().getActiveWorldEffects(); // [diag]
-		int chains = 0; // [diag]
-		for (VFXActiveEffect active : worldEffects) { // [diag]
-			if (active.getType() == VFXEffectType.BLOCK_CHAIN) { // [diag]
-				chains++; // [diag]
-			}
-		}
-		LOGGER.info("[diag] collectSubmits: level={} camera={} initialized={} collector={} worldEffects={} chains={}", // [diag]
-			level != null, camera, camera != null && camera.initialized, collector == null ? "null" : collector.getClass().getName(), worldEffects.size(), chains); // [diag]
-		if (level == null) {
-			LOGGER.info("[diag] collectSubmits: early return, minecraft.level is null"); // [diag]
-			return;
-		}
 		if (camera == null || !camera.initialized || collector == null) {
-			LOGGER.info("[diag] collectSubmits: early return, camera={} initialized={} collector={}", camera, camera != null && camera.initialized, collector == null ? "null" : collector.getClass().getName()); // [diag]
 			return;
 		}
-		for (VFXActiveEffect effect : worldEffects) {
+		for (VFXActiveEffect effect : VFXEffectManager.get().getActiveWorldEffects()) {
 			if (effect.getType() != VFXEffectType.BLOCK_CHAIN) {
 				continue;
 			}
@@ -679,17 +669,14 @@ public final class VFXWorldOverlayRenderer {
 	 */
 	private static void submitChain(final SubmitNodeCollector collector, final VFXActiveEffect effect, final ClientLevel level, final Minecraft minecraft, final CameraRenderState camera) {
 		if (effect.getWeight() <= 0.0F) {
-			LOGGER.info("[diag] submitChain {}: early return, weight={}", effect.getId(), effect.getWeight()); // [diag]
 			return;
 		}
 		List<Vec3> anchors = effectPositions(effect, level);
 		if (anchors.isEmpty()) {
-			LOGGER.info("[diag] submitChain {}: early return, anchors empty", effect.getId()); // [diag]
 			return;
 		}
 		BlockState state = resolveChainBlock(effect);
 		if (state == null) {
-			LOGGER.info("[diag] submitChain {}: early return, chain block state null", effect.getId()); // [diag]
 			return;
 		}
 		Vec3 a = anchors.get(0);
@@ -723,7 +710,6 @@ public final class VFXWorldOverlayRenderer {
 			Vec3 delta = (b != null ? b : a.add(10.0, -3.0, 0.0)).subtract(a);
 			double length = delta.length();
 			if (length < 1.0e-4) {
-				LOGGER.info("[diag] submitChain {}: early return, zero-length geometric path", effect.getId()); // [diag]
 				return;
 			}
 			// Geometric mode also renders SEGMENTS between joints spanning anchor to anchor.
@@ -739,7 +725,6 @@ public final class VFXWorldOverlayRenderer {
 		// middle of the next, rotated to the segment direction and stretched to the segment
 		// length — so links stay connected even at sharp bends, and a taut chain fills its span.
 		int links = jointPositions.length - 1;
-		LOGGER.info("[diag] submitChain {}: submitting links={} via collector={}", effect.getId(), links, collector.getClass().getName()); // [diag]
 		for (int i = 0; i < links; i++) {
 			Vec3 startJ = jointPositions[i];
 			Vec3 endJ = jointPositions[i + 1];
@@ -780,7 +765,6 @@ public final class VFXWorldOverlayRenderer {
 			*///?}
 			pose.popPose();
 		}
-		LOGGER.info("[diag] submitChain {}: anchors={} state={} links={} call=submitMovingBlock returned", effect.getId(), anchors.size(), state, links); // [diag]
 	}
 
 	/**
@@ -880,13 +864,20 @@ public final class VFXWorldOverlayRenderer {
 					}
 				}
 			}
-			// World collision: a link inside a solid block snaps back to its previous position.
+			// World collision: push links out of solid blocks along the smallest penetration
+			// axis, dropping the normal velocity so they slide along the surface and are still
+			// dragged by a moving anchor instead of re-entering.
 			for (int i = 1; i < sim.joints - (pinnedB ? 1 : 0); i++) {
-				Vec3 p = sim.pos[i];
-				BlockPos bp = BlockPos.containing(p.x, p.y, p.z);
-				if (!level.getBlockState(bp).getCollisionShape(level, bp).isEmpty()) {
-					sim.pos[i] = sim.prev[i];
+				final Vec3 p = sim.pos[i];
+				final Vec3 resolved = resolveChainCollision(level, p);
+				if (resolved == p) {
+					continue;
 				}
+				final Vec3 vel = p.subtract(sim.prev[i]);
+				final Vec3 n = resolved.subtract(p).normalize();
+				final double vn = vel.dot(n);
+				sim.pos[i] = resolved;
+				sim.prev[i] = resolved.subtract(vn < 0.0 ? Vec3.ZERO : vel.subtract(n.scale(vn)));
 			}
 			// Player push: joints near the local player are shoved radially away. Both pos and
 			// prev shift equally - a pure displacement with no velocity injection, otherwise the
@@ -928,6 +919,46 @@ public final class VFXWorldOverlayRenderer {
 			);
 		}
 		return render;
+	}
+
+	/**
+	 * Pushes a rope joint out of the solid block it overlaps, along the smallest penetration
+	 * axis (the minimum translation vector), leaving a small padding so the joint rests just
+	 * outside the collision surface. Returns the point unchanged when it is in open space.
+	 *
+	 * @param level the client level the rope lives in
+	 * @param p the joint position to resolve
+	 * @return the depenetrated position, or {@code p} when it does not overlap a solid block
+	 */
+	private static Vec3 resolveChainCollision(final ClientLevel level, final Vec3 p) {
+		final BlockPos bp = BlockPos.containing(p.x, p.y, p.z);
+		final VoxelShape shape = level.getBlockState(bp).getCollisionShape(level, bp);
+		if (shape.isEmpty()) {
+			return p;
+		}
+		// ponytail: uses the collision shape's union bounding box, so multi-box shapes (stairs,
+		// fences, walls) are approximated by their union box. Switch to per-voxel shapes if it
+		// ever shows in game.
+		final AABB box = shape.bounds().move(bp).inflate(0.1);
+		if (!box.contains(p.x, p.y, p.z)) {
+			return p;
+		}
+		final double xMin = p.x - box.minX;
+		final double xMax = box.maxX - p.x;
+		final double yMin = p.y - box.minY;
+		final double yMax = box.maxY - p.y;
+		final double zMin = p.z - box.minZ;
+		final double zMax = box.maxZ - p.z;
+		final double x = Math.min(xMin, xMax);
+		final double y = Math.min(yMin, yMax);
+		final double z = Math.min(zMin, zMax);
+		if (x <= y && x <= z) {
+			return new Vec3(xMin < xMax ? box.minX : box.maxX, p.y, p.z);
+		}
+		if (y <= z) {
+			return new Vec3(p.x, yMin < yMax ? box.minY : box.maxY, p.z);
+		}
+		return new Vec3(p.x, p.y, zMin < zMax ? box.minZ : box.maxZ);
 	}
 
 	/**
