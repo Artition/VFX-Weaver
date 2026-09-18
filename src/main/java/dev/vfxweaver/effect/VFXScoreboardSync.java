@@ -1,6 +1,7 @@
 package dev.vfxweaver.effect;
 
 import dev.vfxweaver.network.VFXScoreboardPayload;
+import dev.vfxweaver.platform.VFXNetwork;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Iterator;
@@ -8,7 +9,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.OptionalInt;
 import java.util.UUID;
-import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.ServerScoreboard;
 import net.minecraft.server.level.ServerPlayer;
@@ -103,7 +103,7 @@ public final class VFXScoreboardSync {
 			// Send the first values immediately instead of waiting for the tick hook.
 			List<VFXScoreboardPayload.ScoreUpdate> updates = collectChanges(server, state, null);
 			if (updates != null) {
-				ServerPlayNetworking.send(player, new VFXScoreboardPayload(updates));
+				VFXNetwork.sendToPlayer(player, new VFXScoreboardPayload(updates));
 			}
 		}
 	}
@@ -131,7 +131,7 @@ public final class VFXScoreboardSync {
 			}
 		}
 		if (removals != null) {
-			ServerPlayNetworking.send(player, new VFXScoreboardPayload(removals));
+			VFXNetwork.sendToPlayer(player, new VFXScoreboardPayload(removals));
 		}
 		if (state.tracked.isEmpty()) {
 			STATES.remove(player.getUUID());
@@ -169,7 +169,7 @@ public final class VFXScoreboardSync {
 			// 2) changed values
 			updates = collectChanges(server, state, updates);
 			if (updates != null) {
-				ServerPlayNetworking.send(player, new VFXScoreboardPayload(updates));
+				VFXNetwork.sendToPlayer(player, new VFXScoreboardPayload(updates));
 			}
 			if (state.tracked.isEmpty()) {
 				players.remove();

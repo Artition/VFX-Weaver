@@ -2,12 +2,11 @@ package dev.vfxweaver.network;
 
 import dev.vfxweaver.api.VFXAPI;
 import dev.vfxweaver.effect.EasingType;
+import dev.vfxweaver.platform.VFXNetwork;
 import dev.vfxweaver.resource.VFXDefinitionManager;
 import dev.vfxweaver.util.VFXLog;
 import java.util.List;
-import net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry;
-import net.fabricmc.fabric.api.networking.v1.PlayerLookup;
-import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
+import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.server.permissions.Permission;
 import net.minecraft.server.permissions.PermissionLevel;
@@ -15,9 +14,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Registers the {@link VFXTriggerPayload} and {@link VFXSyncPayload} packet types on the
- * clientbound play channel, and the serverbound {@link VFXRequestPayload} with its receiver
- * that lets a client play (or, with gamemaster permissions, broadcast) a known effect.
+ * Holds the serverbound {@link VFXRequestPayload} receiver that lets a client play (or, with
+ * gamemaster permissions, broadcast) a known effect. Payload type registration lives in
+ * {@link VFXNetwork}.
  */
 public final class VFXPayloads {
 	private static final Logger LOGGER = LoggerFactory.getLogger("vfxweaver/network");
@@ -25,19 +24,9 @@ public final class VFXPayloads {
 	private VFXPayloads() {
 	}
 
+	/** Delegates to {@link VFXNetwork#registerCommon()}; kept for the loader entry points. */
 	public static void register() {
-		//? if <26.1 {
-		/*PayloadTypeRegistry.playS2C().register(VFXTriggerPayload.TYPE, VFXTriggerPayload.STREAM_CODEC);
-		PayloadTypeRegistry.playS2C().register(VFXSyncPayload.TYPE, VFXSyncPayload.STREAM_CODEC);
-		PayloadTypeRegistry.playS2C().register(VFXScoreboardPayload.TYPE, VFXScoreboardPayload.STREAM_CODEC);
-		PayloadTypeRegistry.playC2S().register(VFXRequestPayload.TYPE, VFXRequestPayload.STREAM_CODEC);
-		*///?} else {
-		PayloadTypeRegistry.clientboundPlay().register(VFXTriggerPayload.TYPE, VFXTriggerPayload.STREAM_CODEC);
-		PayloadTypeRegistry.clientboundPlay().register(VFXSyncPayload.TYPE, VFXSyncPayload.STREAM_CODEC);
-		PayloadTypeRegistry.clientboundPlay().register(VFXScoreboardPayload.TYPE, VFXScoreboardPayload.STREAM_CODEC);
-		PayloadTypeRegistry.serverboundPlay().register(VFXRequestPayload.TYPE, VFXRequestPayload.STREAM_CODEC);
-		//?}
-		ServerPlayNetworking.registerGlobalReceiver(VFXRequestPayload.TYPE, VFXPayloads::handleRequest);
+		VFXNetwork.registerCommon();
 	}
 
 	/**
@@ -45,25 +34,25 @@ public final class VFXPayloads {
 	 * payloads are dropped with a warning; broadcasts require the same gamemasters permission
 	 * as the {@code /vfx} command.
 	 */
-	private static void handleRequest(final VFXRequestPayload payload, final ServerPlayNetworking.Context context) {
+	public static void handleRequest(final VFXRequestPayload payload, final ServerPlayer player, final MinecraftServer server) {
 		if (payload.protocolVersion() != VFXTriggerPayload.PROTOCOL_VERSION) {
-			VFXLog.warnOnce(LOGGER, "net:protocol:" + context.player().getUUID(), "Ignoring VFX request from {}: protocol version mismatch (client={}, server={})", context.player(), payload.protocolVersion(), VFXTriggerPayload.PROTOCOL_VERSION);
+			VFXLog.warnOnce(LOGGER, "net:protocol:" + player.getUUID(), "Ignoring VFX request from {}: protocol version mismatch (client={}, server={})", player, payload.protocolVersion(), VFXTriggerPayload.PROTOCOL_VERSION);
 			return;
 		}
 		if (VFXDefinitionManager.get().get(payload.effectId()) == null) {
-			VFXLog.warnOnce(LOGGER, "net:unknown-effect:" + payload.effectId(), "Ignoring VFX request from {}: unknown effect '{}'", context.player(), payload.effectId());
+			VFXLog.warnOnce(LOGGER, "net:unknown-effect:" + payload.effectId(), "Ignoring VFX request from {}: unknown effect '{}'", player, payload.effectId());
 			return;
 		}
-		if (payload.broadcast() && !hasVfxPermission(context.player())) {
-			VFXLog.warnOnce(LOGGER, "net:permission:" + payload.effectId(), "Ignoring VFX broadcast request for '{}': {} lacks gamemaster permissions", payload.effectId(), context.player());
+		if (payload.broadcast() && !hasVfxPermission(player)) {
+			VFXLog.warnOnce(LOGGER, "net:permission:" + payload.effectId(), "Ignoring VFX broadcast request for '{}': {} lacks gamemaster permissions", payload.effectId(), player);
 			return;
 		}
 		if (payload.broadcast()) {
-			for (ServerPlayer target : PlayerLookup.all(context.server())) {
+			for (final ServerPlayer target : VFXNetwork.allPlayers(server)) {
 				VFXAPI.sendEffect(target, payload.effectId(), payload.instanceId(), payload.worldPos(), List.of(), payload.params(), EasingType.fromString(payload.easing()));
 			}
 		} else {
-			VFXAPI.sendEffect(context.player(), payload.effectId(), payload.instanceId(), payload.worldPos(), List.of(), payload.params(), EasingType.fromString(payload.easing()));
+			VFXAPI.sendEffect(player, payload.effectId(), payload.instanceId(), payload.worldPos(), List.of(), payload.params(), EasingType.fromString(payload.easing()));
 		}
 	}
 

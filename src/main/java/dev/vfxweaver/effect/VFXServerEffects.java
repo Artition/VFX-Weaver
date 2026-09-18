@@ -1,6 +1,7 @@
 package dev.vfxweaver.effect;
 
 import dev.vfxweaver.network.VFXTriggerPayload;
+import dev.vfxweaver.platform.VFXNetwork;
 import dev.vfxweaver.platform.VFXPlatform;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
@@ -9,7 +10,6 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import net.minecraft.resources.Identifier;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.phys.Vec3;
@@ -218,11 +218,11 @@ public final class VFXServerEffects {
 				continue;
 			}
 			int elapsed = persistent ? 0 : (int) Math.min(Integer.MAX_VALUE, Math.max(0L, (now - active.startMillis()) / 50L));
-			ServerPlayNetworking.send(player, VFXTriggerPayload.play(
+			VFXNetwork.sendToPlayer(player, VFXTriggerPayload.play(
 				active.effectId(), remaining, elapsed, active.instanceId(), active.worldPos(), active.entityUuids(), active.params(), active.easing()
 			));
 			for (RecordedKey key : active.keys()) {
-				ServerPlayNetworking.send(player, VFXTriggerPayload.keyframe(
+				VFXNetwork.sendToPlayer(player, VFXTriggerPayload.keyframe(
 					active.effectId(), key.param(), (int) key.time(), key.value(), key.easing()
 				));
 			}

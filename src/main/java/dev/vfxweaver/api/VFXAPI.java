@@ -7,6 +7,7 @@ import dev.vfxweaver.effect.VFXDefinition;
 import dev.vfxweaver.effect.VFXScoreboardSync;
 import dev.vfxweaver.effect.VFXServerEffects;
 import dev.vfxweaver.network.VFXTriggerPayload;
+import dev.vfxweaver.platform.VFXNetwork;
 import dev.vfxweaver.resource.VFXDefinitionManager;
 import dev.vfxweaver.util.VFXLog;
 import java.util.ArrayList;
@@ -15,7 +16,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
-import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import net.minecraft.resources.Identifier;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.phys.Vec3;
@@ -371,7 +371,7 @@ public final class VFXAPI {
 		// An inline curve cannot be reconstructed from its name over the network; send a blank name
 		// so the client falls back to its own definition default (which carries the same curve).
 		String wireEasing = effectiveEasing.isInline() ? "" : effectiveEasing.name();
-		ServerPlayNetworking.send(player, VFXTriggerPayload.play(effectId, duration, instanceId, worldPos, entityUuids, params, wireEasing));
+		VFXNetwork.sendToPlayer(player, VFXTriggerPayload.play(effectId, duration, instanceId, worldPos, entityUuids, params, wireEasing));
 		VFXServerEffects.get().record(player, effectId, duration, instanceId, worldPos, entityUuids, params, wireEasing);
 		VFXScoreboardSync.onEffectPlayed(player, definition, duration);
 		return true;
@@ -388,7 +388,7 @@ public final class VFXAPI {
 		final Map<String, Float> params,
 		final EasingType easing
 	) {
-		ServerPlayNetworking.send(player, VFXTriggerPayload.play(effectId, durationTicks, params, easing));
+		VFXNetwork.sendToPlayer(player, VFXTriggerPayload.play(effectId, durationTicks, params, easing));
 		VFXServerEffects.get().record(player, effectId, durationTicks, 0L, null, List.of(), params, easing.name());
 	}
 
@@ -396,7 +396,7 @@ public final class VFXAPI {
 	 * Tells a player's client to stop all running instances of an effect.
 	 */
 	public static void sendStop(final ServerPlayer player, final Identifier effectId) {
-		ServerPlayNetworking.send(player, VFXTriggerPayload.stop(effectId));
+		VFXNetwork.sendToPlayer(player, VFXTriggerPayload.stop(effectId));
 		VFXServerEffects.get().stop(player, effectId);
 		VFXDefinition definition = VFXDefinitionManager.get().get(effectId);
 		if (definition != null) {
@@ -414,7 +414,7 @@ public final class VFXAPI {
 	 * @param instanceId the instance id to stop
 	 */
 	public static void sendStop(final ServerPlayer player, final Identifier effectId, final long instanceId) {
-		ServerPlayNetworking.send(player, VFXTriggerPayload.stop(effectId, instanceId));
+		VFXNetwork.sendToPlayer(player, VFXTriggerPayload.stop(effectId, instanceId));
 		VFXServerEffects.get().stop(player, effectId, instanceId);
 	}
 
@@ -429,7 +429,7 @@ public final class VFXAPI {
 	 * @param value   the new constant value
 	 */
 	public static void sendSetParam(final ServerPlayer player, final Identifier effectId, final String param, final float value) {
-		ServerPlayNetworking.send(player, VFXTriggerPayload.setParam(effectId, param, value));
+		VFXNetwork.sendToPlayer(player, VFXTriggerPayload.setParam(effectId, param, value));
 	}
 
 	/**
@@ -445,7 +445,7 @@ public final class VFXAPI {
 	 *                   functions like {@code sin}/{@code noise}; see {@link MathExpression})
 	 */
 	public static void sendSetParamExpr(final ServerPlayer player, final Identifier effectId, final String param, final String exprSource) {
-		ServerPlayNetworking.send(player, VFXTriggerPayload.setExpr(effectId, param, exprSource));
+		VFXNetwork.sendToPlayer(player, VFXTriggerPayload.setExpr(effectId, param, exprSource));
 	}
 
 	/**
@@ -459,7 +459,7 @@ public final class VFXAPI {
 	 * @param worldPos   the new world position
 	 */
 	public static void sendMove(final ServerPlayer player, final Identifier effectId, final long instanceId, final Vec3 worldPos) {
-		ServerPlayNetworking.send(player, VFXTriggerPayload.move(effectId, instanceId, worldPos));
+		VFXNetwork.sendToPlayer(player, VFXTriggerPayload.move(effectId, instanceId, worldPos));
 	}
 
 	/**
@@ -479,7 +479,7 @@ public final class VFXAPI {
 	 * @param easing  easing curve towards the next keyframe
 	 */
 	public static void sendKeyframe(final ServerPlayer player, final Identifier effectId, final String param, final int time, final float value, final EasingType easing) {
-		ServerPlayNetworking.send(player, VFXTriggerPayload.keyframe(effectId, param, time, value, easing));
+		VFXNetwork.sendToPlayer(player, VFXTriggerPayload.keyframe(effectId, param, time, value, easing));
 		VFXServerEffects.get().recordKeyframe(player, effectId, param, time, value, easing.name());
 	}
 
@@ -495,7 +495,7 @@ public final class VFXAPI {
 	 * @param easing  easing curve name (built-in or custom datapack curve)
 	 */
 	public static void sendKeyframe(final ServerPlayer player, final Identifier effectId, final String param, final int time, final float value, final String easing) {
-		ServerPlayNetworking.send(player, VFXTriggerPayload.keyframe(effectId, param, time, value, easing));
+		VFXNetwork.sendToPlayer(player, VFXTriggerPayload.keyframe(effectId, param, time, value, easing));
 		VFXServerEffects.get().recordKeyframe(player, effectId, param, time, value, easing);
 	}
 
