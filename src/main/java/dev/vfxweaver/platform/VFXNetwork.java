@@ -89,23 +89,6 @@ public final class VFXNetwork {
 	}
 
 	/**
-	 * Sends one payload to every given player. On NeoForge this is the server-wide broadcast, so
-	 * it must only be called with every player.
-	 *
-	 * @param players the receiving players
-	 * @param payload the payload to send
-	 */
-	public static void sendToAll(final Iterable<ServerPlayer> players, final CustomPacketPayload payload) {
-		//? if fabric {
-		for (final ServerPlayer player : players) {
-			sendToPlayer(player, payload);
-		}
-		//?} else {
-		/*PacketDistributor.sendToAllPlayers(payload);*/
-		//?}
-	}
-
-	/**
 	 * @param server the server to enumerate
 	 * @return every player currently on the server
 	 */
@@ -132,6 +115,9 @@ public final class VFXNetwork {
 	 * Looks up and invokes the client handler registered for the payload's type. The client
 	 * source set's loader callback (Fabric {@code ClientPlayNetworking}, NeoForge's
 	 * {@code enqueueWork}) runs this on the client thread.
+	 *
+	 * <p>Must stay public: the Fabric receiver lives in the client source set
+	 * ({@code dev.vfxweaver.client.platform.VFXClientNetwork}) and calls it.
 	 *
 	 * @param payload the received payload
 	 */
