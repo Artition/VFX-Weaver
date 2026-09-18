@@ -39,7 +39,10 @@ import org.jspecify.annotations.Nullable;
  * @param size         model scale (the natural block model is one block)
  * @param life         lifetime in ticks
  * @param spin         rotation angular speed per tick, in degrees
- * @param item         the item model drawn by the particle, or {@link ItemStack#EMPTY} for a block spec
+ * @param item         the item model drawn by the particle, or {@link Items#AIR} for a block spec.
+ *                     Stored as the load-safe {@link Item}, never an {@link ItemStack}: item
+ *                     components are not bound during a datapack reload, so the stack is built by
+ *                     {@link #itemStack()} at spawn time
  * @param spinMode     how the model rotates: {@link SpinMode#TUMBLE} (physical, default),
  *                     {@link SpinMode#YAW} (uniform spin about one axis) or {@link SpinMode#NONE}
  * @param spinAxis     fixed rotation axis, or {@code null} for a random axis (a {@code yaw} spec
@@ -61,7 +64,7 @@ public record VFXBlockParticleSpec(
 	float size,
 	int life,
 	float spin,
-	ItemStack item,
+	Item item,
 	SpinMode spinMode,
 	@Nullable Vector3f spinAxis,
 	float spinRandom,
@@ -101,7 +104,7 @@ public record VFXBlockParticleSpec(
 	}
 
 	public VFXBlockParticleSpec {
-		item = item == null ? ItemStack.EMPTY : item;
+		item = item == null ? Items.AIR : item;
 		spinMode = spinMode == null ? SpinMode.TUMBLE : spinMode;
 		spinRandom = clamp(spinRandom, 0.0F, 1.0F);
 		spinFriction = clamp(spinFriction, 0.0F, 1.0F);
@@ -134,7 +137,18 @@ public record VFXBlockParticleSpec(
 
 	/** @return {@code true} when the particle draws an item model */
 	public boolean hasItem() {
-		return !this.item.isEmpty();
+		return this.item != null && this.item != Items.AIR;
+	}
+
+	/**
+	 * The item to draw as a one-item {@link ItemStack}, built on demand. The spec stores only the
+	 * load-safe {@link Item} (item components are not bound during a datapack reload), so the stack
+	 * is constructed here where the game is fully initialised; call this on the client thread.
+	 *
+	 * @return a one-item stack, or {@link ItemStack#EMPTY} for a block spec
+	 */
+	public ItemStack itemStack() {
+		return this.item == null || this.item == Items.AIR ? ItemStack.EMPTY : new ItemStack(this.item);
 	}
 
 	/**
@@ -158,12 +172,37 @@ public record VFXBlockParticleSpec(
 	}
 
 	/**
-	 * Builds an item-model spec with every physics/light field at its default.
+	 * Starts a builder for the given load-safe {@link Item} with every other field at its default.
+	 * Unlike {@link #builder(ItemStack)} this builds no {@link ItemStack}, so it is safe during a
+	 * datapack reload.
+	 *
+	 * @param item the item model the particle draws
+	 * @return a builder carrying the defaults
+	 */
+	public static Builder builder(final Item item) {
+		return new Builder(item);
+	}
+
+	/**
+	 * Builds an item-model spec with every physics/light field at its default. The code-time
+	 * convenience resolves the stack immediately (the game is initialised); datapack parsing stores
+	 * only the {@link Item} lazily via {@link #parseItemType(String)}.
 	 *
 	 * @param item the item model the particle draws
 	 * @return the spec
 	 */
 	public static VFXBlockParticleSpec item(final ItemStack item) {
+		return new Builder(item).build();
+	}
+
+	/**
+	 * Builds an item-model spec from the load-safe {@link Item} with every physics/light field at
+	 * its default. Builds no {@link ItemStack}, so it is safe during a datapack reload.
+	 *
+	 * @param item the item model the particle draws
+	 * @return the spec
+	 */
+	public static VFXBlockParticleSpec item(final Item item) {
 		return new Builder(item).build();
 	}
 
@@ -253,14 +292,15 @@ public record VFXBlockParticleSpec(
 	}
 
 	/**
-	 * Parses a datapack item id (e.g. {@code minecraft:skeleton_skull}) into a single
-	 * {@link ItemStack}. Returns {@code null} for an unknown item, so a caller can record a
+	 * Parses a datapack item id (e.g. {@code minecraft:skeleton_skull}) into the load-safe
+	 * {@link Item}. No {@link ItemStack} is built, so this is safe during a datapack reload before
+	 * item components are bound. Returns {@code null} for an unknown item, so a caller can record a
 	 * per-file parse error instead of crashing.
 	 *
 	 * @param value the item id string
-	 * @return a one-item stack, or {@code null} when the id is not a known item
+	 * @return the item, or {@code null} when the id is not a known item
 	 */
-	public static @Nullable ItemStack parseItem(final String value) {
+	public static @Nullable Item parseItemType(final String value) {
 		final Identifier id = Identifier.tryParse(value);
 		if (id == null || !BuiltInRegistries.ITEM.containsKey(id)) {
 			return null;
@@ -269,7 +309,20 @@ public record VFXBlockParticleSpec(
 		if (item == null || item == Items.AIR) {
 			return null;
 		}
-		return new ItemStack(item);
+		return item;
+	}
+
+	/**
+	 * Parses a datapack item id into a single {@link ItemStack}. This constructs the stack, so it
+	 * must only be called once the game is initialised (spawn time); datapack parsing uses
+	 * {@link #parseItemType(String)} instead. Returns {@code null} for an unknown item.
+	 *
+	 * @param value the item id string
+	 * @return a one-item stack, or {@code null} when the id is not a known item
+	 */
+	public static @Nullable ItemStack parseItem(final String value) {
+		final Item item = parseItemType(value);
+		return item == null ? null : new ItemStack(item);
 	}
 
 	/**
@@ -317,7 +370,7 @@ public record VFXBlockParticleSpec(
 	/** Mutable builder for {@link VFXBlockParticleSpec}; every field starts at its documented default. */
 	public static final class Builder {
 		private final @Nullable BlockState block;
-		private ItemStack item = ItemStack.EMPTY;
+		private Item item = Items.AIR;
 		private int brightness = NO_BRIGHTNESS;
 		private float gravity = DEFAULT_GRAVITY;
 		private float friction = DEFAULT_FRICTION;
@@ -336,9 +389,14 @@ public record VFXBlockParticleSpec(
 			this.block = block;
 		}
 
+		private Builder(final Item item) {
+			this.block = null;
+			this.item = item == null ? Items.AIR : item;
+		}
+
 		private Builder(final ItemStack item) {
 			this.block = null;
-			this.item = item;
+			this.item = item == null ? Items.AIR : item.getItem();
 		}
 
 		/** @param value packed light, or {@link #NO_BRIGHTNESS} for world light */

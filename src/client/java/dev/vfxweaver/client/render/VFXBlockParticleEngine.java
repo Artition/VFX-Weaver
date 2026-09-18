@@ -25,7 +25,7 @@ import net.minecraft.world.entity.EntityType;
 //?} else {
 /*import net.minecraft.world.entity.EntityTypes;
 *///?}
-import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Item;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.Vec3;
 import org.joml.Quaternionf;
@@ -496,7 +496,7 @@ public final class VFXBlockParticleEngine {
 			//?} else {
 			/*final Display.ItemDisplay item = new Display.ItemDisplay(EntityTypes.ITEM_DISPLAY, level);
 			*///?}
-			item.setItemStack(spec.item());
+			item.setItemStack(spec.itemStack());
 			display = item;
 		} else {
 			final BlockState state = spec.block();
@@ -694,12 +694,12 @@ public final class VFXBlockParticleEngine {
 				VFXLog.warnOnce(LOGGER, "item:none", "Item-particle effect '{}' has no 'item' id; nothing is spawned", effect.getId());
 				return null;
 			}
-			final ItemStack stack = VFXBlockParticleSpec.parseItem(itemId);
-			if (stack == null) {
+			final Item item = VFXBlockParticleSpec.parseItemType(itemId);
+			if (item == null) {
 				VFXLog.warnOnce(LOGGER, "item:" + itemId, "Unknown particle item '{}' in effect '{}'; nothing is spawned", itemId, effect.getId());
 				return null;
 			}
-			return VFXBlockParticleSpec.item(stack);
+			return VFXBlockParticleSpec.item(item);
 		}
 		final String blockId = effect.getBlockId();
 		if (blockId == null || blockId.isBlank()) {

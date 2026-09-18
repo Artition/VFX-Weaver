@@ -3,7 +3,6 @@ package dev.vfxweaver.resource;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
-import com.google.gson.JsonParseException;
 import dev.vfxweaver.effect.VFXBlockParticleSpec;
 import java.io.IOException;
 import java.io.Reader;
@@ -21,7 +20,7 @@ import net.minecraft.server.packs.resources.SimplePreparableReloadListener;
 import net.minecraft.util.GsonHelper;
 import net.minecraft.util.StrictJsonParser;
 import net.minecraft.util.profiling.ProfilerFiller;
-import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Item;
 import net.minecraft.world.level.block.state.BlockState;
 import org.joml.Vector3f;
 import org.jspecify.annotations.Nullable;
@@ -147,7 +146,10 @@ public class VFXBlockParticleManager extends SimplePreparableReloadListener<Map<
 			}
 			try {
 				parsed.put(entry.getKey(), parseSpec(entry.getValue()));
-			} catch (JsonParseException | IllegalStateException | IllegalArgumentException e) {
+			} catch (RuntimeException e) {
+				// One broken file must never abort the whole datapack reload (e.g. an
+				// ItemStack construction throwing before item components are bound). Record it
+				// as a per-file parse error and keep the rest.
 				errors.put(entry.getKey(), errorMessage(e));
 				LOGGER.error("Couldn't parse block-particle preset '{}'", entry.getKey(), e);
 			}
@@ -208,7 +210,7 @@ public class VFXBlockParticleManager extends SimplePreparableReloadListener<Map<
 			builder = VFXBlockParticleSpec.builder(block);
 		} else {
 			String itemId = GsonHelper.getAsString(object, "item");
-			ItemStack item = VFXBlockParticleSpec.parseItem(itemId);
+			Item item = VFXBlockParticleSpec.parseItemType(itemId);
 			if (item == null) {
 				throw new IllegalArgumentException("Unknown item '" + itemId + "'");
 			}
