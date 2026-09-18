@@ -631,7 +631,7 @@ Aimed stream example — accelerating shot from one block to another (put both p
 }
 ```
 
-**Block and item mode.** Instead of a vanilla particle, the emitter can spawn **real block or item models** (full 3D model, textures, lighting and occlusion — blocks go through the same submit path `block_chain` uses, items through the same path dropped items and item frames use). Pick a single model inline, or a reusable preset:
+**Block and item mode.** Instead of a vanilla particle, the emitter can spawn **real block or item models** (full 3D model, textures, lighting and occlusion). Each particle is a **client-side display entity** — a `BlockDisplay` or `ItemDisplay` added to the client level — so vanilla interpolates its motion (smooth, no stepped submits) and its brightness, scale and `spin` are the display entity's own brightness override / transformation. Pick a single model inline, or a reusable preset:
 
 - `"particle": "block"` with `"block": "<block state>"` — an inline block spec. The `block` field accepts a full block state string, e.g. `"minecraft:oak_stairs[facing=east]"` (default `minecraft:stone`).
 - `"particle": "item"` with `"item": "<item id>"` — an inline item spec, e.g. `"item": "minecraft:skeleton_skull"` or `"minecraft:diamond_sword"`. This is how you get a **skull/head particle**: the block form of a skull has no baked block model (a block-entity renderer draws it), but the item form does. See the preset form below for a reusable item spec.
@@ -650,7 +650,7 @@ Everything else (shape, `rate`, positions/bindings, aimed mode) works exactly as
 | `life` | 60 | Lifetime in ticks. |
 | `spin` | 0 | Yaw rotation per tick, degrees (in model mode this replaces the helix-phase meaning of `spin`). |
 
-`brightness` behaves exactly like a block display's brightness (`Display.Brightness`): `-1` follows the world, anything else pins the packed light `block << 4 | sky << 20` on every vertex. So `brightness: 15` makes the particles glow at full block+sky light even in a pitch-black room, which is how you get readable "fireflies" or embers at night.
+`brightness` behaves exactly like a block display's brightness (`net.minecraft.util.Brightness`): `-1` follows the world, anything else pins that packed light (`block << 4 | sky << 20`) on the particle's display entity. So `brightness: 15` makes the particles glow at full block+sky light even in a pitch-black room, which is how you get readable "fireflies" or embers at night.
 
 Copy-paste — a burst of glowing stone blocks that fall, bounce and spin:
 
@@ -695,7 +695,7 @@ Or through a preset id (define the file, then just name it from the effect):
   "params": { "rate": 20, "pos_x": { "bind": "player_x" }, "pos_y": { "bind": "player_y" }, "pos_z": { "bind": "player_z" } } }
 ```
 
-Model particles (block or item) are capped (2048 live particles, 512 per effect instance, 256 spawned per frame per effect) and simulated at a fixed tick step, so a runaway emitter cannot flood the frame. They are client-side only: nothing about them touches the server world.
+Model particles (block or item) are capped (2048 live display entities, 512 per effect instance, 256 spawned per frame per effect) and simulated at a fixed tick step, so a runaway emitter cannot flood the frame. Each live particle owns one client-side display entity; it is removed when the particle dies, the effect stops or the world unloads. They are client-side only: nothing about them touches the server world.
 
 #### `block_chain`
 A line of **real block-model links** between two anchors (like `guide_line`, but made of blocks) — the `block` definition field picks the block, links render with full vanilla textures/lighting and follow moving anchors every frame.
@@ -1220,6 +1220,9 @@ Post-processing pipeline, world overlays, effect clock, load limits and fault to
 Versioned feature history — **[docs/CHANGELOG.md](CHANGELOG.md)**.
 
 Guide version: 27 — see changelog below.
+
+### v34
+- **Block/item particles render as client-side display entities** — the model-particle engine no longer submits model geometry itself: each live particle now drives a `BlockDisplay`/`ItemDisplay` entity, so vanilla interpolates its motion (the reported jerky stepping is gone), `spin` is a clean yaw around the world Y axis with the model's own upright orientation preserved (the reported odd-axis spin is gone), and brightness uses the display's brightness override exactly like a real block display. The submit-path rendering (and its per-frame pose/light bookkeeping) was removed; the physics, presets, datapack/API surface and params are unchanged.
 
 ### v33
 - **Item-model particles** — the `particles` effect can now emit real **item** models next to block models: `"particle": "item"` with an `item` id (e.g. `"minecraft:skeleton_skull"`), or a `vfx_particles` preset that declares `"item"` instead of `"block"` (exactly one is required). This is how a skull/head particle works — the block form has no baked block model, the item form does. Items render through the same submit path dropped items and item frames use, with the same brightness (`-1` = world light), gravity, friction, collision/bounce, size, lifetime and spin as block particles. `VFXBlockParticleSpec.item(ItemStack)` builds the spec from code.

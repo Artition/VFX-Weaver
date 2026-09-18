@@ -1,14 +1,14 @@
-# Block particles (submit-engine, presets via datapack + API) — design
+# Block particles (client-side display entities, presets via datapack + API) — design
 
-Status: draft for review (revised after review: renderer is the submit engine, not a vanilla
-particle type; see "Decision log").
+Status: draft for review (revised after review: renderer is a client-side display entity, not a
+vanilla particle type; see "Decision log").
 
 ## Goal
 
-Spawn **particles that are real block models** (full 3D model, correct render types/lighting/
-occlusion — the same submit path `block_chain` already uses) with configurable **brightness**
-(BlockDisplay-style light override), **physics** (gravity, friction, world collision, bounce), size,
-lifetime and spin. Spawnable from the `particles` effect and from our Java API.
+Spawn **particles that are real block or item models** (full 3D model, correct render types/
+lighting/occlusion — rendered as a client-side `BlockDisplay`/`ItemDisplay`) with configurable
+**brightness** (block-display light override), **physics** (gravity, friction, world collision,
+bounce), size, lifetime and spin. Spawnable from the `particles` effect and from our Java API.
 
 ## Non-goals
 
@@ -34,14 +34,36 @@ lifetime, spin.
 Limits reuse the existing constants (`MAX_PARTICLES_PER_FRAME`, a per-instance cap, a global cap) so a
 runaway effect cannot flood the frame; the engine is dropped when its effect stops.
 
-### 2. Rendering (submit pipeline, per line)
+### 2. Rendering (client-side display entities)
 
-Submit each particle through the existing world-overlay submit hook — the same callback and the same
-per-line code path `block_chain` uses today (`VFXClientRenderHooks` collector + `submitMovingBlock`
-style submission), so block particles work exactly where the chain works (Fabric `>=26.1` /
-`<26.1`, NeoForge `>=26.1` / `<26.1`). Pose = translate to the interpolated position, rotate by
-`rotation`, scale by `size`; vertex light = `brightness >= 0 ? brightness : world light at the
-particle position`.
+**Amended 2026-09-18: option changed from the submit pipeline to client-side display entities.**
+The submit version rendered each particle as geometry submitted through the same world-overlay hook
+`block_chain` uses, with the engine interpolating `prev -> pos` itself. In play it read as **jerky
+stepping** and the submitted pose **spun around an odd pivot**; the user asked for the item/block
+display route instead, which is the same thing vanilla item frames and `/summon block_display` do.
+
+Each live particle now owns a client-side `Display.BlockDisplay` (block spec) or
+`Display.ItemDisplay` (item spec), created with the spec's block state / item stack and added to the
+client level with `ClientLevel.addEntity(Entity)`. The display entity gives, for free:
+
+- **Interpolated motion.** `ClientLevel.tickNonPassenger` snapshots the entity's old position
+  (`Entity.setOldPosAndRot`) before each tick and renderers read `Entity.getPosition(partialTick)`;
+  the engine sets the target each physics step (and pins the old position each frame for the
+  interpolated value), so movement is smooth instead of stepped.
+- **Brightness.** `Display.setBrightnessOverride(Brightness)` is the exact block-display light
+  override (`-1` = world light).
+- **Scale and spin.** The spec's `size` becomes the display transformation's scale and `spin` a
+  yaw quaternion around the world Y axis, with the model's own upright orientation preserved. Both
+  models are corner-origin (a block display's pivot is its bottom-north-west corner; an item
+  display's default `ItemDisplayContext.NONE` draws the raw corner-origin item model), so the
+  transformation translates by half the scaled size — rotated with the model — to keep its centre
+  on the particle position.
+
+`ClientLevel.addEntity(Entity)` is public on all three lines. The `Display` setters are public on
+`1.21.11` but **private on 26.x**, so they are opened with our access widener (Fabric) / access
+transformer (NeoForge); the entity-type constant differs (`EntityType` for `<26.2`, `EntityTypes`
+for `>=26.2`). One display per live particle, bounded by the existing caps, removed on
+death/effect stop/world unload.
 
 ### 3. Presets — datapack and API (our own registry, no Minecraft registry involved)
 
@@ -91,20 +113,23 @@ item mode rather than a second engine:
 - Datapack: a preset declares `"item": "<id>"` instead of `"block"` (exactly one required; unknown
   item = per-file parse error). Effect definitions add `"particle": "item"` with an `"item"` field
   for the inline mode, next to `"particle": "block"` + `"block"`.
-- Rendering: `ItemModelResolver.updateForTopItem(state, stack, ItemDisplayContext.NONE, level,
-  owner, 0)` once per item (cached), then `ItemStackRenderState.submit(pose, collector,
-  packedLight, OverlayTexture.NO_OVERLAY, 0)` — the same call the dropped-item and item-frame
-  renderers make. The pose (camera-relative translate, spin, scale, `-0.5` centring) and the light
-  (spec brightness or the world light at the particle, packed) match the block path. The submit
-  signature is identical on all three lines, so no per-line guard is needed.
-- Bounds: the item-model cache is bounded and cleared on level change; an empty/unbaked item model
-  warns once through `VFXLog.warnOnce`, never per frame.
+- Rendering: an item spec spawns a `Display.ItemDisplay` with `setItemStack(stack)` (the same
+  entity `/summon item_display` uses, default `ItemDisplayContext.NONE`); the display's own render
+  state resolves the item model, so no per-item model cache or explicit `ItemStackRenderState.submit`
+  is needed. The same scale + Y-spin + half-size centring transformation as the block path is
+  applied. A block spec keeps the baked-geometry guard: a block whose model is empty
+  (BER-only, e.g. the skull block) makes a `BlockDisplay` render nothing, so it still warns once
+  through `VFXLog.warnOnce` and the item form remains the supported route for skulls.
+- Bounds: one display entity per live particle, capped by the existing per-instance/global caps and
+  removed on death, effect stop and level change; an unusable block warns once, never per frame.
 
 ## Verification
 
 - All six nodes build; no other behaviour changes.
-- `javap` per line for the submission call used (the same symbols `block_chain` uses — already
-  verified on all three lines) and for the block-model/pose helpers the renderer needs.
+- `javap` per line for the client-entity symbols used: `ClientLevel.addEntity(Entity)`,
+  `Entity.setOldPosAndRot` / `getPosition(partialTick)`, the `Display` transformation/brightness
+  setters (public on 1.21.11, private on 26.x → AW/AT), `Display.ItemDisplay.setItemStack` /
+  `Display.BlockDisplay.setBlockState`, and the `EntityType`/`EntityTypes` display constants.
 - In game (user): spawn via the effect, via a datapack preset and via an API preset; check the model
   appearance (3D, correct textures, translucent blocks), brightness override in a dark room, gravity/
   friction/lifetime/spin, world collision (particles rest on the surface, never sink), and that a few
@@ -112,18 +137,23 @@ item mode rather than a second engine:
 
 ## Risks
 
-- **Per-line submit API**: reuses the path already ported for `block_chain`, so the risk is low; still
-  verify with `javap` before coding.
-- Performance: block models are heavier than quads; the caps and the per-frame budget keep it sane,
-  and the same block's model submission can be cached per frame if profiling shows a cost.
-- Interpolation: like the rope, render from `prev→current` by the accumulator fraction, otherwise
-  fast particles stutter at low tick rates.
+- **Per-line display API**: `ClientLevel.addEntity(Entity)` is public on all three lines, but the
+  `Display` setters are private on 26.x and need the access widener/transformer; the entity-type
+  constant also differs (`EntityType` <26.2, `EntityTypes` >=26.2). Verified with `javap` per line.
+- Performance: one entity per particle is heavier than a submit; the existing caps (2048 global, 512
+  per instance) bound it, and the display's model is resolved by vanilla.
+- Position: the display is driven from the engine each frame and its old position pinned so vanilla
+  renders the interpolated value; without that the tick-rate step would show.
 
 ## Decision log
 
-- Renderer: **submit engine** (option B), chosen by the user over a vanilla particle type (A) and the
-  hybrid with a carrier particle type (C): a real block model with correct render types was the
-  requirement, and the submit path is already ported.
+- Renderer: originally the **submit engine** (option B), chosen over a vanilla particle type (A) and
+  the hybrid with a carrier particle type (C) because a real block model with correct render types
+  was the requirement and the submit path was already ported. **Amended 2026-09-18:** the submit
+  engine produced jerky motion and a wrong rotation axis in play, so the option changed to
+  **client-side display entities** (`BlockDisplay`/`ItemDisplay`) — vanilla interpolates the motion
+  and owns the brightness/rotation, which was the requirement the submit path failed to meet. The
+  item part of option B (option D, so to speak) is subsumed by `ItemDisplay`.
 - Brightness: BlockDisplay semantics (`-1` = world light, else packed light; datapack also accepts
   `[blockLight, skyLight]`), animatable through the timeline like any other parameter.
 - One shared collision helper (`VFXWorldCollision.resolve`, extracted from the `block_chain` rope) for

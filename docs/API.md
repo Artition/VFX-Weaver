@@ -139,8 +139,11 @@ Like `moveEffect`, these return `true` when applied on the render thread or queu
 
 Model particles — the `particles` effect with `"particle": "block"`, `"particle": "item"` or a
 preset id — can be defined from code, mirroring `registerDefinitions`. A spec draws a block **or**
-an item (exactly one). Presets are **client-local and never synced**; the datapack layer
-(`data/<ns>/vfx_particles/<name>.json`) wins for the same id.
+an item (exactly one). Each live particle renders as a **client-side display entity**
+(`BlockDisplay`/`ItemDisplay`), so vanilla interpolates its motion; the spec's brightness maps onto
+the display's brightness override and `size`/`spin` onto its transformation. Presets are
+**client-local and never synced**; the datapack layer (`data/<ns>/vfx_particles/<name>.json`) wins
+for the same id.
 
 ```java
 import dev.vfxweaver.effect.VFXBlockParticleSpec;

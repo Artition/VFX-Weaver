@@ -218,8 +218,11 @@ payload code is loader-agnostic and must not name a loader type.
   differ, see the guards.
 - `VFXWorldOverlayRenderer.register()` — world overlays (`block_tint`, `block_outline`,
   `light_beam`, `pulse_ring`, `guide_line`, `particles`, `block_chain`) on `LevelRenderEvents`
-  (`>=26.1`) or `WorldRenderEvents` (`<26.1`). The `particles` block mode is simulated and submitted
-  by `VFXBlockParticleEngine` (client, `dev.vfxweaver.client.render`); its presets come from
+  (`>=26.1`) or `WorldRenderEvents` (`<26.1`). The `particles` block/item mode is simulated by
+  `VFXBlockParticleEngine` (client, `dev.vfxweaver.client.render`) and rendered as one client-side
+  `Display.BlockDisplay`/`Display.ItemDisplay` entity per live particle (vanilla-interpolated motion,
+  display brightness/transform; the display setters are private on 26.x, widened by the AW/AT — the
+  `block_chain` submit path is unchanged); its presets come from
   `VFXBlockParticleManager` (`dev.vfxweaver.resource`, the datapack `vfx_particles` dir + local API
   layer, mirroring `VFXDefinitionManager`).
 - `ItemInHandRendererMixin`, `AvatarRendererMixin`, `ItemFrameRendererMixin`,
