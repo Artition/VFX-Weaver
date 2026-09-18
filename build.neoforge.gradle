@@ -67,7 +67,6 @@ def expandProps = [
 		// The NeoForge version range is NOT the Minecraft one: NeoForge versions its builds after
 		// the game (26.2.0.88, 21.11.45, ...), so it needs its own property.
 		neoCompat         : property('deps.neo_compat'),
-		loaderCompat      : property('deps.loader_compat'),
 ]
 
 tasks.matching { it.name in ['processResources', 'processClientResources'] }.configureEach {
