@@ -4,9 +4,8 @@ import dev.vfxweaver.api.VFXAPI;
 import dev.vfxweaver.client.effect.VFXEffectManager;
 import dev.vfxweaver.client.compat.iris.VfxIrisCompat;
 import dev.vfxweaver.client.flashback.FlashbackCompat;
-import dev.vfxweaver.client.postprocessing.VFXPostProcessingManager;
+import dev.vfxweaver.client.platform.VFXClientRenderHooks;
 import dev.vfxweaver.client.postprocessing.VFXShaderPrograms;
-import dev.vfxweaver.client.platform.VFXClientNetwork;
 import dev.vfxweaver.client.render.VFXEntityEffectRenderer;
 import dev.vfxweaver.client.render.VFXWorldOverlayRenderer;
 import dev.vfxweaver.effect.EasingFunction;
@@ -19,9 +18,13 @@ import dev.vfxweaver.network.VFXTriggerPayload;
 import dev.vfxweaver.platform.VFXNetwork;
 import dev.vfxweaver.resource.VFXDefinitionManager;
 import java.util.Map;
+//? if fabric {
 import net.fabricmc.api.ClientModInitializer;
-import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientLifecycleEvents;
-import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
+//?} else {
+/*import net.neoforged.api.distmarker.Dist;
+import net.neoforged.bus.api.IEventBus;
+import net.neoforged.fml.common.Mod;*/
+//?}
 import net.minecraft.client.Minecraft;
 import net.minecraft.world.scores.Objective;
 import net.minecraft.world.scores.ReadOnlyScoreInfo;
@@ -33,13 +36,27 @@ import org.slf4j.LoggerFactory;
 
 /**
  * Client entrypoint: registers the post-processing pipelines, the local dispatcher and the
- * network receiver that turns {@link VFXTriggerPayload}s into running effects.
+ * network receiver that turns {@link VFXTriggerPayload}s into running effects. Loader-specific
+ * lifecycle and render-event wiring lives in {@link VFXClientRenderHooks}.
  */
+//? if fabric {
 public class VFXClient implements ClientModInitializer {
-	private static final Logger LOGGER = LoggerFactory.getLogger("vfxweaver/client");
-
 	@Override
 	public void onInitializeClient() {
+		initializeClient();
+	}
+//?} else {
+/*@Mod(value = "vfxweaver", dist = Dist.CLIENT)
+public class VFXClient {
+	public VFXClient(final IEventBus modBus) {
+		initializeClient();
+	}
+*///?}
+	private static final Logger LOGGER = LoggerFactory.getLogger("vfxweaver/client");
+
+	/** Runs the loader-agnostic client setup; invoked by the Fabric entry or the NeoForge client mod. */
+	private void initializeClient() {
+		VFXClientRenderHooks.initClient();
 		VFXShaderPrograms.register();
 		VFXWorldOverlayRenderer.register();
 		VFXEntityEffectRenderer.register();
@@ -47,15 +64,9 @@ public class VFXClient implements ClientModInitializer {
 		VFXWorldBindings.setScoreboardReader(VFXClient::readScoreboard);
 		VfxIrisCompat.init();
 		FlashbackCompat.init();
-		VFXClientNetwork.registerClient();
 		VFXNetwork.registerClientReceive(VFXTriggerPayload.TYPE, this::handleTrigger);
 		VFXNetwork.registerClientReceive(VFXSyncPayload.TYPE, this::handleSync);
 		VFXNetwork.registerClientReceive(VFXScoreboardPayload.TYPE, this::handleScoreboard);
-		ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> client.execute(VFXScoreboardCache::clear));
-		ClientLifecycleEvents.CLIENT_STOPPING.register(client -> {
-			VFXWorldOverlayRenderer.freeGpuResources();
-			VFXPostProcessingManager.get().freeGpuResources();
-		});
 		LOGGER.info("VFX Weaver client initialized");
 	}
 

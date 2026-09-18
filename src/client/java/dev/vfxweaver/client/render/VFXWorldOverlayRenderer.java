@@ -27,6 +27,7 @@ import com.mojang.blaze3d.vertex.VertexConsumer;
 import com.mojang.blaze3d.vertex.VertexFormat;
 //?}
 import dev.vfxweaver.client.effect.VFXEffectManager;
+import dev.vfxweaver.client.platform.VFXClientRenderHooks;
 import dev.vfxweaver.effect.VFXActiveEffect;
 import dev.vfxweaver.effect.VFXEffectType;
 import java.util.ArrayList;
@@ -38,13 +39,6 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.function.BiConsumer;
-//? if <26.1 {
-/*import net.fabricmc.fabric.api.client.rendering.v1.world.WorldRenderContext;
-import net.fabricmc.fabric.api.client.rendering.v1.world.WorldRenderEvents;
-*///?} else {
-import net.fabricmc.fabric.api.client.rendering.v1.level.LevelRenderContext;
-import net.fabricmc.fabric.api.client.rendering.v1.level.LevelRenderEvents;
-//?}
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.particle.Particle;
@@ -53,8 +47,8 @@ import net.minecraft.client.particle.ParticleEngine;
 import net.minecraft.client.renderer.MultiBufferSource;
 //?} else {
 /*import net.minecraft.client.renderer.BindGroupLayouts;
-import net.minecraft.client.renderer.SubmitNodeCollector;
 *///?}
+import net.minecraft.client.renderer.SubmitNodeCollector;
 import net.minecraft.client.renderer.RenderPipelines;
 //? if <26.1 {
 /*import net.minecraft.client.renderer.block.model.BlockModelPart;
@@ -634,13 +628,7 @@ public final class VFXWorldOverlayRenderer {
 	}
 
 	public static void register() {
-		//? if <26.1 {
-/*		WorldRenderEvents.END_MAIN.register(VFXWorldOverlayRenderer::render);
-		WorldRenderEvents.BEFORE_ENTITIES.register(VFXWorldOverlayRenderer::collectSubmits);
-*///?} else {
-		LevelRenderEvents.AFTER_TRANSLUCENT_TERRAIN.register(VFXWorldOverlayRenderer::render);
-		LevelRenderEvents.COLLECT_SUBMITS.register(VFXWorldOverlayRenderer::collectSubmits);
-//?}
+		VFXClientRenderHooks.registerWorldOverlays(VFXWorldOverlayRenderer::render, VFXWorldOverlayRenderer::collectSubmits);
 	}
 
 	/**
@@ -648,22 +636,15 @@ public final class VFXWorldOverlayRenderer {
 	 * vanilla submit pipeline here, so every link renders as a REAL textured block (the same
 	 * path as falling blocks/piston moved blocks), following the anchors each frame.
 	 */
-	//? if <26.1 {
-/*	private static void collectSubmits(final WorldRenderContext context) {
-*///?} else {
-	private static void collectSubmits(final LevelRenderContext context) {
-//?}
+	private static void collectSubmits() {
 		Minecraft minecraft = Minecraft.getInstance();
 		if (minecraft.level == null) {
 			return;
 		}
 		ClientLevel level = minecraft.level;
-		//? if <26.1 {
-/*		CameraRenderState camera = context.worldState().cameraRenderState;
-*///?} else {
-		CameraRenderState camera = context.levelState().cameraRenderState;
-//?}
-		if (!camera.initialized) {
+		CameraRenderState camera = VFXClientRenderHooks.camera();
+		SubmitNodeCollector collector = VFXClientRenderHooks.collector();
+		if (camera == null || !camera.initialized || collector == null) {
 			return;
 		}
 		for (VFXActiveEffect effect : VFXEffectManager.get().getActiveWorldEffects()) {
@@ -671,7 +652,7 @@ public final class VFXWorldOverlayRenderer {
 				continue;
 			}
 			try {
-				submitChain(context, effect, level, minecraft, camera);
+				submitChain(collector, effect, level, minecraft, camera);
 			} catch (Exception e) {
 				LOGGER.warn("Failed to submit block chain '{}'", effect.getId(), e);
 			}
@@ -685,11 +666,7 @@ public final class VFXWorldOverlayRenderer {
 	 * anchors both ends are pinned and the rope sags under gravity; with a single anchor the
 	 * chain hangs from it ({@code length} blocks) and can be pushed around by the player.
 	 */
-	//? if <26.1 {
-/*	private static void submitChain(final WorldRenderContext context, final VFXActiveEffect effect, final ClientLevel level, final Minecraft minecraft, final CameraRenderState camera) {
-*///?} else {
-	private static void submitChain(final LevelRenderContext context, final VFXActiveEffect effect, final ClientLevel level, final Minecraft minecraft, final CameraRenderState camera) {
-//?}
+	private static void submitChain(final SubmitNodeCollector collector, final VFXActiveEffect effect, final ClientLevel level, final Minecraft minecraft, final CameraRenderState camera) {
 		if (effect.getWeight() <= 0.0F) {
 			return;
 		}
@@ -780,12 +757,10 @@ public final class VFXWorldOverlayRenderer {
 				pose.scale(scale, scale * (float) stretch, scale);
 			}
 			pose.translate(-0.5, -0.5, -0.5);
-			//? if <26.1 {
-/*			context.commandQueue().submitMovingBlock(pose, link);
-*///?} else if <26.2 {
-			context.submitNodeCollector().submitMovingBlock(pose, link);
-//?} else {
-			/*context.submitNodeCollector().submitMovingBlock(pose, link, 0);
+			//? if <26.2 {
+			collector.submitMovingBlock(pose, link);
+			//?} else {
+			/*collector.submitMovingBlock(pose, link, 0);
 			*///?}
 			pose.popPose();
 		}
@@ -992,11 +967,7 @@ public final class VFXWorldOverlayRenderer {
 	//? if <26.1
 	/*private static boolean warnedNonBufferSource = false;*/
 
-	//? if <26.1 {
-/*	private static void render(final WorldRenderContext context) {
-*///?} else {
-	private static void render(final LevelRenderContext context) {
-//?}
+	private static void render() {
 		List<VFXActiveEffect> effects = VFXEffectManager.get().getActiveWorldEffects();
 		if (effects.isEmpty()) {
 			return;
@@ -1006,33 +977,28 @@ public final class VFXWorldOverlayRenderer {
 			return;
 		}
 		ClientLevel level = minecraft.level;
-		//? if <26.1 {
-/*		CameraRenderState camera = context.worldState().cameraRenderState;
-*///?} else {
-		CameraRenderState camera = context.levelState().cameraRenderState;
-//?}
-		if (!camera.initialized) {
+		CameraRenderState camera = VFXClientRenderHooks.camera();
+		if (camera == null || !camera.initialized) {
 			return;
 		}
 
 		//? if <26.1 {
 /*		// WorldRenderContext.consumers() is typed as MultiBufferSource; only the buffer-source
 		// variant supports the manual endBatch flush below. Skip the overlay for anything else.
-		if (!(context.consumers() instanceof MultiBufferSource.BufferSource buffers)) {
+		MultiBufferSource buffers = VFXClientRenderHooks.buffers();
+		if (!(buffers instanceof MultiBufferSource.BufferSource bufferSource)) {
 			if (!warnedNonBufferSource) {
 				warnedNonBufferSource = true;
-				LOGGER.warn("World overlay skipped: context.consumers() is {} instead of MultiBufferSource.BufferSource", context.consumers().getClass().getName());
+				LOGGER.warn("World overlay skipped: render buffers are {} instead of MultiBufferSource.BufferSource", buffers == null ? "null" : buffers.getClass().getName());
 			}
 			return;
 		}
-		GeometrySink sink = bufferSink(buffers);
-*///?} else {
-		//? if <26.2 {
-		GeometrySink sink = bufferSink(context.bufferSource());
-		//?} else {
-		/*GeometrySink sink = bufferSink(context.submitNodeCollector());
+		GeometrySink sink = bufferSink(bufferSource);
+*///?} else if <26.2 {
+		GeometrySink sink = bufferSink((MultiBufferSource.BufferSource) VFXClientRenderHooks.buffers());
+//?} else {
+		/*GeometrySink sink = bufferSink(VFXClientRenderHooks.collector());
 		*///?}
-//?}
 		List<RenderType> drawn = new ArrayList<>(4);
 
 		for (VFXActiveEffect effect : effects) {

@@ -17,7 +17,6 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.function.Consumer;
-import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.minecraft.client.Minecraft;
 import net.minecraft.network.RegistryFriendlyByteBuf;
 import net.minecraft.resources.Identifier;
@@ -107,7 +106,6 @@ public final class FlashbackCompat {
 			startActionMethod = replayWriterClass.getMethod("startAction", actionClass);
 			finishActionMethod = replayWriterClass.getMethod("finishAction", actionClass);
 			friendlyByteBufMethod = replayWriterClass.getMethod("friendlyByteBuf");
-			ClientTickEvents.END_CLIENT_TICK.register(tick -> detectRecordingStart());
 			enabled = true;
 			LOGGER.info("Flashback compatibility enabled: VFX effects are recorded into replays");
 		} catch (Throwable t) {
@@ -120,8 +118,10 @@ public final class FlashbackCompat {
 	 * Watches {@code Flashback.RECORDER} each tick. When a recording just started and became ready
 	 * (its initial world snapshot has been written), snapshots every effect that is already running
 	 * so it appears in the replay from the first tick instead of being lost.
+	 *
+	 * <p>Called once per client tick by {@code VFXClientRenderHooks}.
 	 */
-	private static void detectRecordingStart() {
+	public static void detectRecordingStart() {
 		if (!enabled) {
 			return;
 		}
