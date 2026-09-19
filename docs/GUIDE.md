@@ -1252,7 +1252,7 @@ A **field** makes one numeric input vary *per pixel* instead of once per frame. 
 }
 ```
 
-Fields are accepted only on **field-capable inputs**; today that is `dent.intensity`, a multiplier applied to the dent's `strength`, and `color_grade.tint_r`, the red tint channel (both neutral `1.0`, so an effect without a field is unchanged). Every other input still takes a number, an animation, a binding, an expression or `{ "from": "<node>" }`. A field on any other input or effect is a per-file parse error naming the input. The whole block is additive: a definition without `inputs`/`field` behaves exactly as before, and a mod that does not know fields ignores them entirely.
+Fields are accepted only on **field-capable inputs**; today that is `dent.intensity`, a multiplier applied to the dent's `strength`, and `color_grade.tint_r`, the red tint channel (both neutral `1.0`, so an effect without a field is unchanged). Every other input still takes a number, an animation, a binding, an expression or `{ "from": "<node>" }`. A field on any other input or effect is a per-file parse error naming the input. A field-driven input fades with the effect's weight: at weight 0 it evaluates to its neutral value (bit-for-bit identical to an input without a field), at weight 1 to the full field, with a monotonic blend in between. The whole block is additive: a definition without `inputs`/`field` behaves exactly as before, and a mod that does not know fields ignores them entirely.
 
 A field is either a **function leaf** (`"field": "<fn>"`) or a **composition** (`"op"`).
 
@@ -1273,6 +1273,8 @@ Every function has a fixed output type (`float`, `vec2` or `vec3`). `space` appl
 | `normal_facing` | `axis_x` (0), `axis_y` (1), `axis_z` (0), `threshold` (0.5) | How much the reconstructed surface normal faces the given axis |
 | `screen_uv` | — | The screen UV as `vec2` |
 | `world_pos` | — | The reconstructed world position as `vec3` |
+
+**`scale` is a frequency multiplier, not a size.** Every spatial function multiplies its sampling coordinate by `scale` (noise: the noise input; gradient: the projection; curve/texture: the coordinate), so a **larger** `scale` means **finer** detail and a smaller `scale` means larger, smoother patches. `tint_field_demo`'s `scale: 3.0` is therefore deliberately low, producing big colour patches.
 
 A `curve`'s `points` are a non-empty array of `{ "time": <number>, "value": <number> }` with strictly ascending times, up to 8 — structural, not animatable. `texture`'s `texture` is a resource id (e.g. `"minecraft:textures/block/stone"`) and `channel` is `r`, `g`, `b`, `a` or `luminance`; omitting `channel` yields the full `vec3`. At most **one texture leaf** is allowed per input.
 
@@ -1346,7 +1348,7 @@ Any numeric field parameter is a number or `{ "from": "<node>" }` (an integer pa
 }
 ```
 
-The tint demo (`fade_ticks: 0` so it does not fade a field it cannot un-apply; `scale` is the noise frequency, so a small value gives large patches):
+The tint demo (`fade_ticks: 0` keeps the loop from pulsing; a field-driven input now fades with the effect weight like any other input, see §3.7, and `scale` is the sampling frequency, so a small value gives large patches):
 
 ```json
 {
