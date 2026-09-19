@@ -2,7 +2,7 @@
 
 A client-side VFX library for Minecraft 26.2 / 26.1.x / 1.21.11 (Fabric and NeoForge). Screen post-processing (ping-pong FBO), camera shake, world overlays (block tint/outline), entity effects (tint/outline by UUID), keyframe animation, world/camera/player bindings, datapacks, network triggers and a public Java API.
 
-- Guide version: 32 (see [docs/CHANGELOG.md](CHANGELOG.md) for history)
+- Guide version: 33 (see [docs/CHANGELOG.md](CHANGELOG.md) for history)
 - Mod: `vfxweaver-1.2.0.jar` (one jar per Minecraft line and loader; Fabric requires Fabric API, NeoForge builds use the `-neoforge` suffix)
 
 Files: `data/<namespace>/vfx/<name>.json` and `data/<namespace>/vfx_curves/<name>.json`. After edits — `/reload`. The effect id = `<namespace>:<name>`. On a dedicated server, definitions and curves are automatically synced to clients on player join and after `/reload`, so custom (datapack) effects work for all players, not just on the server.
@@ -1099,6 +1099,77 @@ Three copy-paste rotation recipes (drop each into `data/<namespace>/vfx_particle
 
 **Two-layer rule and the Java API.** Like effect definitions, presets have two layers: the datapack set (reloaded with `/reload`) and a code-registered local set written with `VFXAPI.registerBlockParticle(id, spec)`. The local layer survives `/reload` and is private to this client; the datapack layer wins for the same id. `VFXAPI.unregisterBlockParticle(id)` removes a local preset and `VFXAPI.blockParticle(id)` looks one up. Both layers are capped at 256 entries, and a broken file is reported by `/vfx validate` without affecting the rest. `VFXAPI.spawnBlockParticle(spec, position, velocity)` spawns a single block particle immediately on the client (no packet, no effect instance); see [docs/API.md](API.md).
 
+### 3.6 Value graphs
+
+An effect can drive any of its numeric inputs from a small value graph that the client evaluates once per frame. The block is optional and additive: a definition without `graph`/`inputs` behaves exactly as before, and a mod that does not know graphs ignores them entirely, because graph wiring lives in a separate top-level `inputs` block (or in graph edges) and never inside `params`.
+
+```json
+{
+	"type": "blur",
+	"duration": 400,
+	"loop": true,
+	"params": { "radius": 2.0 },
+	"graph": {
+		"version": 1,
+		"nodes": [
+			{ "id": "phase", "kind": "time", "inputs": { "speed": 0.25 } },
+			{ "id": "pulse", "kind": "curve", "inputs": {
+				"points": [
+					{ "time": 0,   "value": 0.0 },
+					{ "time": 50,  "value": 8.0 },
+					{ "time": 100, "value": 0.0 }
+				]
+			} }
+		],
+		"edges": [ { "from": "phase", "to": "pulse", "input": "time" } ],
+		"meta": { "phase": { "pos": [40, 60] }, "pulse": { "pos": [200, 60] } }
+	},
+	"inputs": { "radius": { "from": "pulse" } }
+}
+```
+
+`graph` fields:
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `version` | int | 1 | Format version. Only `1` exists — any other value is a per-file error. |
+| `nodes` | array | — (required) | 1–128 node objects. |
+| `edges` | array | `[]` | 0–512 edges (node→node or node→effect input). |
+| `meta` | object | — | Editor-only info (canvas positions, groups, comments). The engine ignores it; it may hold anything. |
+
+Every node has `id` (string, unique in the graph), `kind` (one of the kinds below) and an `inputs` object whose values are either a number or `{ "from": "<node-id>" }`.
+
+| `kind` | Inputs (default) | Result |
+|---|---|---|
+| `constant` | `value` (0) | The literal `value`. |
+| `time` | `speed` (1), `offset` (0) | `elapsed × speed + offset`; `elapsed` is the effect's time in ticks. |
+| `random` | `min` (0), `max` (1), `index` (0) | A stable per-instance random number in `min..max` (the same every frame for one `index`; animating `index` re-rolls). |
+| `noise` | `x` (elapsed), `y` (0), `z` (0), `scale` (1), `octaves` (1), `gain` (0.5), `lacunarity` (2) | 3D simplex noise, roughly −1..1; `octaves` is clamped to 1–8. |
+| `curve` | `points` (required), `time` (elapsed) | The curve sampled at `time`. |
+| `math` | `a`, `b` (both required), top-level `op` | `a op b`; `op` is `add`, `subtract`, `multiply`, `divide`, `min`, `max`, `pow` or `mod` (divide/mod by zero → 0). |
+| `mix` | `a`, `b` (both required), `factor` (0.5) | `a + (b − a) × factor`. |
+| `clamp` | `value` (required), `min` (0), `max` (1) | `value` clamped into `min..max`. |
+| `remap` | `value` (required), `in_min` (0), `in_max` (1), `out_min` (0), `out_max` (1) | Linear remap from the input range to the output range. |
+| `bind` | a world/camera binding (§3.3) as the node's inputs, plus optional `fallback` | The same value a bound param would produce. |
+| `expr` | `expr` (required string, ≤1024 chars) | The math expression from §3.2 (same `t`/`x`/`y`/`z` variables and functions), compiled per instance and evaluated every frame. |
+
+A `curve` node's `points` are `{ "time": <ticks>, "value": <number>, "easing": "<name>" }` (up to 64, times strictly ascending; `easing` is optional and defaults to `linear`). A point's `easing` eases the segment from that point to the next — the last point's `easing` is unused — exactly like keyframes (§3.2).
+
+Node-to-node edges: `{ "from": "<node>", "to": "<node>", "input": "<socket>" }`.
+
+**Wiring an effect input.** Two equivalent ways:
+
+1. the top-level `inputs` block — `"inputs": { "radius": { "from": "pulse" } }`;
+2. a graph edge whose `to` is the effect input instead of a node — `{ "from": "pulse", "to": "radius" }` (no `input` field).
+
+A numeric literal in `inputs` (`"inputs": { "radius": 6 }`) is also accepted and overrides a `params` entry of the same name. Wiring the same input twice (both ways, or twice in the edge list) is a parse error. Every effect input keeps its numeric default — an input wired but not declared in `params` gets a constant `0.0`.
+
+**Caps and errors.** `version` must be `1`; at most 128 nodes, 512 edges and a chain depth of 32; `expr` source at most 1024 characters; at most 64 curve points; `octaves` clamped to 8. A graph that breaks any rule fails **that file only**, with an error naming the node id and input — `/vfx validate` lists it and the rest of the pack keeps loading.
+
+**Reference example.** The built-in `vfxweaver:graph_demo` is exactly the definition above: `/vfx play vfxweaver:graph_demo` plays a blur whose radius follows a `time → curve` pulse. Built-in ids need their namespace; there is no `minecraft:` fallback.
+
+**Not in this version.** Subgraphs/macros, logic nodes (`compare`, `boolean`, `if`, `switch`), masks and per-pixel field functions (`{"field": ...}` inputs are refused with a named error) are planned but not implemented yet.
+
 ---
 
 ## 4. Persistent effects: on/off with animation
@@ -1196,7 +1267,7 @@ Child effect fields: `effect` (id, required), `delay` (ticks from collection sta
 
 Built-ins ship as regular datapack JSON inside the mod jar (`data/vfxweaver/vfx/*.json`) — they load, sync and can be overridden by higher-priority packs exactly like custom definitions, and a broken one shows up in `/vfx list`/`/vfx validate` like any other. To tweak a built-in, copy its JSON out of the jar (`vfxweaver-1.1.0.jar → data/vfxweaver/vfx/…`) into your datapack under a new id.
 
-Post-processing: `vfxweaver:chromatic_aberration`, `vfxweaver:color_grade`, `vfxweaver:distortion`, `vfxweaver:dent`, `vfxweaver:gradient_map`, `vfxweaver:posterize`, `vfxweaver:blur`, `vfxweaver:pixelate`, `vfxweaver:hue_isolation`, `vfxweaver:vignette`, `vfxweaver:screen_flash`, `vfxweaver:motion_blur`, `vfxweaver:bloom`, `vfxweaver:film_grain`, `vfxweaver:scanlines`, `vfxweaver:depth_of_field`, `vfxweaver:letterbox`, `vfxweaver:invert`, `vfxweaver:vortex`, `vfxweaver:speed_lines`, `vfxweaver:slice_shift`, `vfxweaver:noise_warp`, `vfxweaver:solarize`, `vfxweaver:double_vision`, `vfxweaver:eyelids`, `vfxweaver:iris_wipe`, `vfxweaver:digital_glitch`, `vfxweaver:vhs`, `vfxweaver:shockwave`, `vfxweaver:afterimage`, `vfxweaver:stop_motion`.
+Post-processing: `vfxweaver:chromatic_aberration`, `vfxweaver:color_grade`, `vfxweaver:distortion`, `vfxweaver:dent`, `vfxweaver:gradient_map`, `vfxweaver:posterize`, `vfxweaver:blur`, `vfxweaver:pixelate`, `vfxweaver:hue_isolation`, `vfxweaver:vignette`, `vfxweaver:screen_flash`, `vfxweaver:motion_blur`, `vfxweaver:bloom`, `vfxweaver:film_grain`, `vfxweaver:scanlines`, `vfxweaver:depth_of_field`, `vfxweaver:letterbox`, `vfxweaver:invert`, `vfxweaver:vortex`, `vfxweaver:speed_lines`, `vfxweaver:slice_shift`, `vfxweaver:noise_warp`, `vfxweaver:solarize`, `vfxweaver:double_vision`, `vfxweaver:eyelids`, `vfxweaver:iris_wipe`, `vfxweaver:digital_glitch`, `vfxweaver:vhs`, `vfxweaver:shockwave`, `vfxweaver:afterimage`, `vfxweaver:stop_motion`, `vfxweaver:graph_demo`.
 
 World overlays: `vfxweaver:block_tint`, `vfxweaver:block_outline`, `vfxweaver:light_beam`, `vfxweaver:pulse_ring`, `vfxweaver:guide_line`, `vfxweaver:particles`, `vfxweaver:block_chain`.
 
@@ -1257,7 +1328,10 @@ Post-processing pipeline, world overlays, effect clock, load limits and fault to
 
 Versioned feature history — **[docs/CHANGELOG.md](CHANGELOG.md)**.
 
-Guide version: 27 — see changelog below.
+Guide version: 33 — see changelog below.
+
+### v33
+- **Value graphs** — an effect can drive any numeric input from an optional `graph` + `inputs` block (see [3.6](#36-value-graphs)): `constant`, `time`, `random`, `noise`, `curve`, `math`, `mix`, `clamp`, `remap`, `bind` and `expr` nodes are evaluated once per frame. Both blocks are additive — a definition without them behaves exactly as before, and a mod that does not know graphs ignores them, because graph wiring never lives inside `params`. A broken graph fails that file only, and the built-in `vfxweaver:graph_demo` is the reference example (45 built-ins).
 
 ### v32
 - **Block-model particles** — the `particles` effect can emit real block models instead of vanilla particles: `"particle": "block"` with a `block` state, or a reusable preset in `data/<namespace>/vfx_particles/<name>.json` (registerable from code with `VFXAPI.registerBlockParticle`). Each particle has block-display brightness (`-1` = world light, `[blockLight, skyLight]`), gravity, air friction, optional world collision with surface friction and bounce, size, lifetime and spin; `VFXAPI.spawnBlockParticle` spawns one immediately on the client.

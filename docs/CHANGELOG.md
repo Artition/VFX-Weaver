@@ -2,6 +2,10 @@
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). The versions below are guide/feature-set versions of the mod (as they progressed historically, see `docs/GUIDE.md`), plus git release tags where applicable (`v1.0.x`, `gradle.properties` → `mod_version`). Add new entries at the top, in the same PR as the behavior change.
 
+## Unreleased / Guide v33
+### Added
+- **Value graphs** - effect definitions can now drive a numeric parameter from an optional value graph (`graph` and `inputs` blocks; nodes for constants, time, random, noise, curves, math, mixing, clamping, remapping, bindings and expressions, evaluated once per frame). Both blocks are additive: a definition without them behaves exactly as before, and a mod that does not know graphs ignores them entirely because graph wiring never lives inside `params`. A broken graph fails only its own file, and the built-in `vfxweaver:graph_demo` is the reference example.
+
 ## v1.2.0 / Guide v32
 ### Added
 - **Block-model particles (`particles` block mode + `vfx_particles` presets)** — the `particles` effect can now emit real block models instead of vanilla particles, chosen inline (`"particle": "block"` with a `block` state) or by preset id (`data/<namespace>/vfx_particles/<name>.json`, or `VFXAPI.registerBlockParticle`). Each particle has block-display brightness (`-1` = world light, `[blockLight, skyLight]`), gravity, air friction, optional world collision with surface friction and bounce, size, lifetime and spin; the `particles` params override the preset's defaults. `VFXAPI.spawnBlockParticle(spec, position, velocity)` spawns a single particle immediately on the client. Presets are **client-local and never synced**, live in a two-layer registry (datapack wins over code), and render as client-side display entities so vanilla interpolates their motion.
