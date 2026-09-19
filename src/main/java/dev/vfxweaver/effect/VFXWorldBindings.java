@@ -200,6 +200,14 @@ public final class VFXWorldBindings {
 		return new float[]{current.camX(), current.camY(), current.camZ()};
 	}
 
+	/**
+	 * The camera snapshot published for the current frame, or {@code null} when none is available
+	 * (e.g. on a dedicated server). Read without allocation by the uniform-graph evaluator.
+	 */
+	public static @Nullable Frame currentFrame() {
+		return frame;
+	}
+
 	private static float evaluatePlayer(final BoundParam binding, final float fallback) {
 		PlayerState state = playerState;
 		if (state == null) {
