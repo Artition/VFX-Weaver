@@ -1,0 +1,44 @@
+{
+  "type": "blur",
+  "duration": 400,
+  "loop": true,
+  "persistent": true,
+  "fade_ticks": 20,
+  "params": {
+    "radius": 0.0
+  },
+  "subgraphs": [
+    {
+      "id": "pulse",
+      "inputs": {
+        "period": 100.0,
+        "peak": 8.0,
+        "duty": 0.5
+      },
+      "nodes": [
+        { "id": "t", "kind": "time", "inputs": { "speed": 1.0 } },
+        { "id": "phase", "kind": "math", "op": "mod", "inputs": { "a": { "from": "t" }, "b": "$period" } },
+        { "id": "half", "kind": "math", "op": "multiply", "inputs": { "a": "$period", "b": "$duty" } },
+        { "id": "on", "kind": "compare", "op": "lt", "inputs": { "a": { "from": "phase" }, "b": { "from": "half" } } },
+        { "id": "ramp", "kind": "remap", "inputs": { "value": { "from": "phase" }, "in_min": 0.0, "in_max": 50.0, "out_min": 0.0, "out_max": "$peak" } },
+        { "id": "out", "kind": "if", "inputs": { "condition": { "from": "on" }, "then": { "from": "ramp" }, "else": 0.0 } }
+      ],
+      "outputs": {
+        "amount": "out",
+        "raw": "ramp"
+      }
+    }
+  ],
+  "graph": {
+    "version": 1,
+    "nodes": [
+      { "id": "n1", "kind": "subgraph", "subgraph": "pulse", "inputs": { "period": 100.0, "peak": 8.0 } }
+    ],
+    "edges": [
+      { "from": "n1", "output": "amount", "to": "radius" }
+    ]
+  },
+  "meta": {
+    "n1": { "pos": [60, 60] }
+  }
+}
