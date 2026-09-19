@@ -4,6 +4,7 @@ import dev.vfxweaver.field.VFXField;
 import dev.vfxweaver.field.VFXFieldProgram;
 import dev.vfxweaver.graph.VFXGraph;
 import dev.vfxweaver.graph.VFXGraphEvaluator;
+import dev.vfxweaver.mask.VFXMask;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Iterator;
@@ -38,6 +39,7 @@ public class VFXTimeline {
 	private final Map<String, VFXField> fields;
 	private final Map<String, VFXFieldProgram> fieldPrograms;
 	private final boolean fieldNeedsDepth;
+	private final @Nullable VFXMask mask;
 	private final Map<String, AnimatedValue> overrides = new LinkedHashMap<>();
 	private float elapsed;
 
@@ -99,6 +101,24 @@ public class VFXTimeline {
 	 * @param graphSeed   per-instance seed passed to the graph evaluator
 	 */
 	public VFXTimeline(final float duration, final Map<String, AnimatedValue> values, final Map<String, BoundParam> bindings, final Map<String, BoundParam> multipliers, final Map<String, MathExpression> expressions, final @Nullable VFXGraph graph, final Map<String, String> graphInputs, final Map<String, VFXField> fields, final long graphSeed) {
+		this(duration, values, bindings, multipliers, expressions, graph, graphInputs, fields, null, graphSeed);
+	}
+
+	/**
+	 * Creates a timeline that also drives a uniform graph and carries the definition's optional mask.
+	 *
+	 * @param duration    total duration in ticks
+	 * @param values      named animated values
+	 * @param bindings    named world bindings (evaluated per frame against the camera)
+	 * @param multipliers named bindings whose evaluated value is multiplied onto the base value
+	 * @param expressions named compiled expressions
+	 * @param graph       the definition's graph, or {@code null} for a definition without one
+	 * @param graphInputs effect input name to source node id (inputs block plus graph edges)
+	 * @param fields      per-pixel fields declared on field-capable inputs (empty when none)
+	 * @param mask        the parsed mask, or {@code null} for a definition without one
+	 * @param graphSeed   per-instance seed passed to the graph evaluator
+	 */
+	public VFXTimeline(final float duration, final Map<String, AnimatedValue> values, final Map<String, BoundParam> bindings, final Map<String, BoundParam> multipliers, final Map<String, MathExpression> expressions, final @Nullable VFXGraph graph, final Map<String, String> graphInputs, final Map<String, VFXField> fields, final @Nullable VFXMask mask, final long graphSeed) {
 		this.duration = duration;
 		this.values = Collections.unmodifiableMap(new LinkedHashMap<>(values));
 		this.bindings = Collections.unmodifiableMap(new LinkedHashMap<>(bindings));
@@ -116,6 +136,7 @@ public class VFXTimeline {
 		}
 		this.fieldPrograms = Map.copyOf(packed);
 		this.fieldNeedsDepth = needsDepth;
+		this.mask = mask;
 		this.elapsed = 0.0F;
 	}
 
@@ -151,6 +172,13 @@ public class VFXTimeline {
 	 */
 	public @Nullable VFXGraph getGraph() {
 		return this.graph;
+	}
+
+	/**
+	 * The definition's optional mask, or {@code null}.
+	 */
+	public @Nullable VFXMask getMask() {
+		return this.mask;
 	}
 
 	/**

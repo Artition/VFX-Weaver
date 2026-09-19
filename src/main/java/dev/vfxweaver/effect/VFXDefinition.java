@@ -7,6 +7,7 @@ import com.google.gson.JsonPrimitive;
 import dev.vfxweaver.field.VFXField;
 import dev.vfxweaver.graph.VFXGraph;
 import dev.vfxweaver.graph.VFXSubgraphExpander;
+import dev.vfxweaver.mask.VFXMask;
 import dev.vfxweaver.util.VFXLog;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -47,6 +48,7 @@ public class VFXDefinition {
 	private final @Nullable VFXGraph graph;
 	private final Map<String, String> graphInputs;
 	private final Map<String, VFXField> fields;
+	private final @Nullable VFXMask mask;
 
 	private VFXDefinition(
 		final Identifier id,
@@ -68,7 +70,8 @@ public class VFXDefinition {
 		final @Nullable String itemId,
 		final @Nullable VFXGraph graph,
 		final Map<String, String> graphInputs,
-		final Map<String, VFXField> fields
+		final Map<String, VFXField> fields,
+		final @Nullable VFXMask mask
 	) {
 		this.id = id;
 		this.type = type;
@@ -90,6 +93,7 @@ public class VFXDefinition {
 		this.graph = graph;
 		this.graphInputs = Map.copyOf(graphInputs);
 		this.fields = Map.copyOf(fields);
+		this.mask = mask;
 	}
 
 	/**
@@ -158,7 +162,7 @@ public class VFXDefinition {
 		final @Nullable Identifier sound,
 		final @Nullable String entitySelector
 	) {
-		return new VFXDefinition(id, type, defaultDuration, defaultEasing, params, persistent, loop, fadeTicks, children, positions, List.of(), sound, entitySelector, null, null, null, null, null, Map.of(), Map.of());
+		return new VFXDefinition(id, type, defaultDuration, defaultEasing, params, persistent, loop, fadeTicks, children, positions, List.of(), sound, entitySelector, null, null, null, null, null, Map.of(), Map.of(), null);
 	}
 
 	/**
@@ -266,6 +270,26 @@ public class VFXDefinition {
 			}
 		}
 
+		// Optional mask (spec §4). Additive: a definition without it behaves exactly as before.
+		// Numeric mask leaves are registered as ordinary params + graph inputs so they animate
+		// through the same { "from": "<node>" } path as any effect input; the "mask." prefix is
+		// reserved. The mask may run at any screen layer: the coverage prepass (not the effect)
+		// owns the layer-0 requirement, so there is no world-layer parse refusal here. A bound
+		// slot registers only its literal default (it resolves at render time, Task 3).
+		VFXMask mask = null;
+		if (json.has("mask") && !json.get("mask").isJsonNull()) {
+			mask = VFXMask.parse(id.toString(), GsonHelper.getAsJsonObject(json, "mask"));
+			for (VFXMask.MaskSlot slot : mask.slots().values()) {
+				params.putIfAbsent(slot.name(), ParamSpec.constant(slot.defaultValue()));
+				if (slot.graphNode() != null) {
+					if (graph == null || graph.node(slot.graphNode()) == null) {
+						throw new IllegalArgumentException("mask: graph node '" + slot.graphNode() + "' does not exist");
+					}
+					graphInputs.put(slot.name(), slot.graphNode());
+				}
+			}
+		}
+
 		List<ChildEffect> children = new ArrayList<>();
 		if (json.has("effects")) {
 			for (JsonElement entry : GsonHelper.getAsJsonArray(json, "effects")) {
@@ -302,7 +326,7 @@ public class VFXDefinition {
 			? GsonHelper.getAsString(json, "item")
 			: null;
 
-		return new VFXDefinition(id, type, duration, easing, params, persistent, loop, fadeTicks, children, positions, entityAnchors, sound, entitySelector, particleId, shape, blockId, itemId, graph, graphInputs, fields);
+		return new VFXDefinition(id, type, duration, easing, params, persistent, loop, fadeTicks, children, positions, entityAnchors, sound, entitySelector, particleId, shape, blockId, itemId, graph, graphInputs, fields, mask);
 	}
 
 	/**
@@ -569,7 +593,7 @@ public class VFXDefinition {
 		}
 		Map<String, ParamSpec> merged = new LinkedHashMap<>(this.params);
 		merged.putAll(overrides);
-		return new VFXDefinition(this.id, this.type, this.defaultDuration, this.defaultEasing, merged, this.persistent, this.loop, this.fadeTicks, this.children, this.positions, this.entityAnchors, this.sound, this.entitySelector, this.particleId, this.shape, this.blockId, this.itemId, this.graph, this.graphInputs, this.fields);
+		return new VFXDefinition(this.id, this.type, this.defaultDuration, this.defaultEasing, merged, this.persistent, this.loop, this.fadeTicks, this.children, this.positions, this.entityAnchors, this.sound, this.entitySelector, this.particleId, this.shape, this.blockId, this.itemId, this.graph, this.graphInputs, this.fields, this.mask);
 	}
 
 	/**
@@ -640,7 +664,7 @@ public class VFXDefinition {
 				VFXLog.warnOnce(LOGGER, "def:undeclared:" + this.getId() + ":" + entry.getKey(), "Effect '{}' received an override for undeclared parameter '{}' (applied as a constant)", this.getId(), entry.getKey());
 			}
 		}
-		return new VFXTimeline(duration, values, bindings, multipliers, expressions, this.graph, this.graphInputs, this.fields, instanceSeed);
+		return new VFXTimeline(duration, values, bindings, multipliers, expressions, this.graph, this.graphInputs, this.fields, this.mask, instanceSeed);
 	}
 
 	/**
@@ -695,6 +719,13 @@ public class VFXDefinition {
 	 */
 	public Map<String, VFXField> getFields() {
 		return this.fields;
+	}
+
+	/**
+	 * The optional mask declared by this definition, or {@code null} when it has none.
+	 */
+	public @Nullable VFXMask getMask() {
+		return this.mask;
 	}
 
 	/**

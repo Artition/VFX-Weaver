@@ -1,5 +1,6 @@
 package dev.vfxweaver.effect;
 
+import dev.vfxweaver.mask.VFXMask;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
@@ -229,6 +230,14 @@ public class VFXActiveEffect {
 	 */
 	public float getParam(final String name, final float fallback) {
 		return this.timeline.getValue(name, fallback);
+	}
+
+	/**
+	 * The definition's optional mask, or {@code null}. {@code null} means the effect must not
+	 * receive a mask pass at all (additive contract).
+	 */
+	public @Nullable VFXMask getMask() {
+		return this.timeline.getMask();
 	}
 
 	/**
