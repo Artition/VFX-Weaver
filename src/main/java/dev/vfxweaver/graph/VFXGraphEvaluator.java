@@ -83,6 +83,17 @@ public final class VFXGraphEvaluator {
 		return index == null ? fallback : eval(index, fallback);
 	}
 
+	/**
+	 * Evaluates a node by its precomputed cache slot, for packed consumers (the field program)
+	 * that resolved {@code { "from": <node> }} ids once at pack time.
+	 *
+	 * @param index    slot from {@link VFXGraph#indexOf(String)}
+	 * @param fallback value returned when the slot is out of range
+	 */
+	public float evaluateIndex(final int index, final float fallback) {
+		return index < 0 || index >= this.cache.length ? fallback : eval(index);
+	}
+
 	private float eval(final int index) {
 		return eval(index, 0.0F);
 	}
