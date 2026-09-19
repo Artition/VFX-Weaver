@@ -2,6 +2,7 @@ package dev.vfxweaver.client.postprocessing;
 
 import com.mojang.blaze3d.pipeline.RenderPipeline;
 import com.mojang.blaze3d.shaders.UniformType;
+import com.mojang.blaze3d.buffers.Std140SizeCalculator;
 import dev.vfxweaver.effect.VFXEffectType;
 import java.util.EnumMap;
 import java.util.List;
@@ -38,9 +39,18 @@ public final class VFXShaderPrograms {
 	 * Describes one effect shader: its pipeline plus the ordered float parameter names of the
 	 * {@code Config} uniform block and its std140-aligned byte size.
 	 */
-	public record ProgramInfo(RenderPipeline pipeline, String[] configParams, int configUboSize, PassRole role) {
+	public record ProgramInfo(RenderPipeline pipeline, String[] configParams, int configUboSize, PassRole role, boolean usesDepth, @Nullable String fieldInput) {
+		public ProgramInfo(final RenderPipeline pipeline, final String[] configParams, final int configUboSize, final PassRole role) {
+			this(pipeline, configParams, configUboSize, role, false, null);
+		}
+
 		public ProgramInfo(final RenderPipeline pipeline, final String[] configParams, final int configUboSize) {
-			this(pipeline, configParams, configUboSize, PassRole.NORMAL);
+			this(pipeline, configParams, configUboSize, PassRole.NORMAL, false, null);
+		}
+
+		/** True when this pipeline declares the {@code FieldConfig} uniform block. */
+		public boolean usesField() {
+			return this.fieldInput != null;
 		}
 	}
 
@@ -59,7 +69,39 @@ public final class VFXShaderPrograms {
 		.withUniform("SamplerInfo", UniformType.UNIFORM_BUFFER)
 		.withUniform("Config", UniformType.UNIFORM_BUFFER)
 		.build();
+	// 26.2 bind-group layouts for the field pass. The sampler names must match field.glsl's
+	// declarations (`DepthSampler`, `fld_tex0`) and the block name (`FieldConfig`) exactly.
+	private static final BindGroupLayout DEPTH_SAMPLER_LAYOUT = BindGroupLayout.builder()
+		.withSampler("DepthSampler")
+		.build();
+	private static final BindGroupLayout FIELD_TEXTURE_LAYOUT = BindGroupLayout.builder()
+		.withSampler("fld_tex0")
+		.build();
+	private static final BindGroupLayout FIELD_CONFIG_LAYOUT = BindGroupLayout.builder()
+		.withUniform("FieldConfig", UniformType.UNIFORM_BUFFER)
+		.build();
 	*///?}
+
+	/**
+	 * The std140 size of the {@code FieldConfig} block. <b>Contract</b> (AGENTS.md UBO field-order
+	 * rule): this mirrors the declaration order in
+	 * {@code assets/vfxweaver/shaders/include/field.glsl}, which {@link dev.vfxweaver.field.VFXFieldProgram#write}
+	 * emits — change all three together.
+	 */
+	public static final int FIELD_CONFIG_SIZE = new Std140SizeCalculator()
+		.putFloat().putFloat().putFloat()
+		.putVec4().putVec4().putVec4()
+		.putVec4().putVec4()
+		.putVec4().putVec4().putVec4().putVec4()
+		.putVec4().putVec4().putVec4().putVec4()
+		.putVec4().putVec4().putVec4().putVec4()
+		.putVec4().putVec4().putVec4().putVec4()
+		.putFloat()
+		.putVec4().putVec4().putVec4().putVec4()
+		.putFloat().putFloat().putFloat().putFloat().putFloat().putFloat().putFloat().putFloat()
+		.putMat4f()
+		.putVec4().putVec4()
+		.get();
 
 	private VFXShaderPrograms() {
 	}
@@ -74,7 +116,7 @@ public final class VFXShaderPrograms {
 		registerPost(VFXEffectType.CHROMATIC_ABERRATION, "intensity", "radius");
 		registerPost(VFXEffectType.COLOR_GRADE, "saturation", "contrast", "brightness", "tint_r", "tint_g", "tint_b");
 		registerPost(VFXEffectType.DISTORTION, "amount", "radius");
-		registerPost(VFXEffectType.DENT, "strength", "radius", "center_x", "center_y", "line_mode", "x0", "y0", "x1", "y1");
+		registerFieldPost(VFXEffectType.DENT, new String[]{"strength", "radius", "center_x", "center_y", "line_mode", "x0", "y0", "x1", "y1"}, "intensity");
 		registerPost(VFXEffectType.GRADIENT_MAP, "from_r", "from_g", "from_b", "to_r", "to_g", "to_b", "intensity", "mode", "pos");
 		registerPost(VFXEffectType.POSTERIZE, "strength");
 		registerMultiPass(VFXEffectType.BLUR, List.of("blur_x", "blur_y"), List.of(new String[]{"radius"}, new String[]{"radius"}));
@@ -135,6 +177,36 @@ public final class VFXShaderPrograms {
 
 	private static void registerPost(final VFXEffectType type, final String... params) {
 		registerMultiPass(type, List.of(type.getName()), List.<String[]>of(params));
+	}
+
+	/**
+	 * Registers a single-pass effect whose fragment shader imports the field library: the pipeline
+	 * declares the depth sampler, the field texture sampler and the {@code FieldConfig} uniform
+	 * block in addition to the standard inputs. {@code fieldInput} is the effect input whose field
+	 * drives the shader.
+	 */
+	private static void registerFieldPost(final VFXEffectType type, final String[] params, final String fieldInput) {
+		Identifier location = Identifier.fromNamespaceAndPath("vfxweaver", "post/" + type.getName());
+		RenderPipeline.Builder builder = RenderPipeline.builder(RenderPipelines.POST_PROCESSING_SNIPPET)
+			.withLocation(location)
+			.withVertexShader("core/screenquad")
+			.withFragmentShader(location)
+			//? if <26.2 {
+			.withSampler("InSampler")
+			.withSampler("DepthSampler")
+			.withSampler("fld_tex0")
+			.withUniform("SamplerInfo", UniformType.UNIFORM_BUFFER)
+			.withUniform("Config", UniformType.UNIFORM_BUFFER)
+			.withUniform("FieldConfig", UniformType.UNIFORM_BUFFER);
+			//?} else {
+			/*.withBindGroupLayout(BindGroupLayouts.IN_SAMPLER)
+			.withBindGroupLayout(DEPTH_SAMPLER_LAYOUT)
+			.withBindGroupLayout(FIELD_TEXTURE_LAYOUT)
+			.withBindGroupLayout(SAMPLER_INFO_CONFIG_LAYOUT)
+			.withBindGroupLayout(FIELD_CONFIG_LAYOUT);
+			*///?}
+		RenderPipeline pipeline = RenderPipelines.register(builder.build());
+		PROGRAMS.put(type, List.of(new ProgramInfo(pipeline, params, align16(params.length * 4), PassRole.NORMAL, true, fieldInput)));
 	}
 
 	/**

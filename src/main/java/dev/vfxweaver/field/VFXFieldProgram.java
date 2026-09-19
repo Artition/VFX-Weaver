@@ -101,6 +101,25 @@ public final class VFXFieldProgram {
 		return new VFXFieldProgram(leafFn, leafSpace, leafChannel, leafPrimitive, leafFill, paramLiteral, paramNode, paramInteger, curveTimes, curveValues, curveCount[0], programArray, program.size(), leafIndex[0], field.outputType(), field.needsDepth(), texture[0], inputName);
 	}
 
+	/**
+	 * A neutral program with no leaves: the shader evaluates it to {@code vec3(1.0)}, so an effect
+	 * that declares no field keeps its uniform value unchanged.
+	 */
+	public static VFXFieldProgram empty() {
+		return new VFXFieldProgram(
+			new float[VFXField.MAX_LEAVES], new float[VFXField.MAX_LEAVES], new float[VFXField.MAX_LEAVES],
+			new float[VFXField.MAX_LEAVES], new float[VFXField.MAX_LEAVES],
+			new float[VFXField.MAX_LEAVES * VFXField.MAX_PARAMS], filled(VFXField.MAX_LEAVES * VFXField.MAX_PARAMS, -1), new boolean[VFXField.MAX_LEAVES * VFXField.MAX_PARAMS],
+			new float[VFXField.MAX_CURVE_POINTS], new float[VFXField.MAX_CURVE_POINTS], 0,
+			new float[VFXField.MAX_PROGRAM], 0, 0, VFXFieldType.FLOAT, false, null, "");
+	}
+
+	private static int[] filled(final int length, final int value) {
+		final int[] array = new int[length];
+		Arrays.fill(array, value);
+		return array;
+	}
+
 	private static void flatten(final VFXField field, final float[] leafFn, final float[] leafSpace, final float[] leafChannel, final float[] leafPrimitive, final float[] leafFill, final float[] paramLiteral, final int[] paramNode, final boolean[] paramInteger, final float[] curveTimes, final float[] curveValues, final int[] curveCount, final List<Float> program, final int[] leafIndex, final String[] texture, final @Nullable VFXGraph graph) {
 		if (field.fn() != null) {
 			final int leaf = leafIndex[0]++;

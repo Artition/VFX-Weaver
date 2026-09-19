@@ -183,6 +183,14 @@ public class VFXTimeline {
 	}
 
 	/**
+	 * The per-frame graph evaluator, or {@code null} when the definition has no graph. Read by the
+	 * client field writer without allocation.
+	 */
+	public @Nullable VFXGraphEvaluator getGraphEvaluator() {
+		return this.graphEvaluator;
+	}
+
+	/**
 	 * Reads the current value of the given parameter. Runtime overrides win over world-bound
 	 * parameters, which in turn are evaluated against the camera state fed by the client.
 	 *

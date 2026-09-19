@@ -18,6 +18,8 @@ import com.mojang.blaze3d.systems.SamplerCache;
 import com.mojang.blaze3d.textures.FilterMode;
 import dev.vfxweaver.client.effect.VFXEffectManager;
 import dev.vfxweaver.effect.VFXActiveEffect;
+import dev.vfxweaver.field.VFXFieldProgram;
+import dev.vfxweaver.util.VFXLog;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -27,6 +29,7 @@ import java.util.Map;
 *///?}
 import java.util.OptionalInt;
 import net.minecraft.client.renderer.MappableRingBuffer;
+import net.minecraft.client.Minecraft;
 //? if <26.1 {
 /*import net.minecraft.client.renderer.CachedOrthoProjectionMatrixBuffer;
 *///?} else {
@@ -124,6 +127,26 @@ public final class VFXPostProcessingManager {
 			return;
 		}
 
+		boolean anyField = false;
+		boolean anyDepthField = false;
+		for (final VFXActiveEffect effect : active) {
+			anyField |= !effect.getTimeline().getFields().isEmpty();
+			anyDepthField |= effect.getTimeline().fieldNeedsDepth();
+		}
+		if (anyField) {
+			final boolean valid = layer == 0 && depthRecipeVerified();
+			VFXFieldEnv.capture(mainTarget, valid);
+			if (!valid && anyDepthField) {
+				for (final VFXActiveEffect effect : active) {
+					if (effect.getTimeline().fieldNeedsDepth()) {
+						VFXLog.warnOnce(LOGGER, "field:layer:" + effect.getId(),
+							"Effect '{}' uses a depth/world field but runs at screen_layer {} — depth fields need layer 0 on 26.2; falling back to the neutral value",
+							effect.getId(), layer);
+					}
+				}
+			}
+		}
+
 		// Expand every active effect into its sequential shader passes (e.g. blur = X + Y).
 		List<PassRun> chain = new ArrayList<>();
 		for (VFXActiveEffect effect : active) {
@@ -159,7 +182,7 @@ public final class VFXPostProcessingManager {
 			// texture that is not the one they are writing to. Copy main -> pingpong[0]
 			// first, then run the chain starting from that buffer.
 			VFXPass copy = this.copyPass();
-			copy.execute(encoder, samplerCache, mainTarget, this.pingPong[0], null, null, null);
+			copy.execute(encoder, samplerCache, mainTarget, this.pingPong[0], null, null, null, null, null);
 			this.pruneStopMotionSlots(active);
 
 			RenderTarget read = this.pingPong[0];
@@ -171,19 +194,19 @@ public final class VFXPostProcessingManager {
 				if (role == VFXShaderPrograms.PassRole.FEEDBACK_UPDATE) {
 					// History update: read the live frame + the previous history, write the next.
 					RenderTarget histPrev = this.historyDirty ? read : this.history[0];
-					run.pass().execute(encoder, samplerCache, read, this.history[1], run.effect(), histPrev, null);
+					run.pass().execute(encoder, samplerCache, read, this.history[1], run.effect(), histPrev, null, null, null);
 					this.historyDirty = false;
 					// read stays the live frame for the composite pass.
 				} else {
 					RenderTarget output = last ? mainTarget : this.pingPong[pingPongIndex];
 					if (role == VFXShaderPrograms.PassRole.STOP_MOTION) {
 						float hold = this.updateStopMotionHold(run.effect(), encoder, samplerCache, copy, mainTarget);
-						run.pass().execute(encoder, samplerCache, read, output, run.effect(), this.stopMotionHold, hold);
+						run.pass().execute(encoder, samplerCache, read, output, run.effect(), this.stopMotionHold, hold, null, null);
 					} else if (role == VFXShaderPrograms.PassRole.FEEDBACK_COMPOSITE) {
-						run.pass().execute(encoder, samplerCache, read, output, run.effect(), this.history[1], null);
+						run.pass().execute(encoder, samplerCache, read, output, run.effect(), this.history[1], null, null, null);
 						this.swapHistory();
 					} else {
-						run.pass().execute(encoder, samplerCache, read, output, run.effect(), null, null);
+						run.pass().execute(encoder, samplerCache, read, output, run.effect(), null, null, mainTarget, run.fieldProgram());
 					}
 					read = output;
 					if (!last) {
@@ -226,7 +249,7 @@ public final class VFXPostProcessingManager {
 		Integer prev = this.stopMotionSlots.get(effect.getId());
 		this.stopMotionSlots.put(effect.getId(), slot);
 		if (prev == null || prev != slot) {
-			copy.execute(encoder, samplerCache, mainTarget, this.stopMotionHold, null, null, null);
+			copy.execute(encoder, samplerCache, mainTarget, this.stopMotionHold, null, null, null, null, null);
 			return 0.0F;
 		}
 		return 1.0F;
@@ -246,6 +269,24 @@ public final class VFXPostProcessingManager {
 		VFXShaderPrograms.PassRole role() {
 			return this.pass.role();
 		}
+
+		@Nullable VFXFieldProgram fieldProgram() {
+			final String input = this.pass.fieldInput();
+			return input == null ? null : this.effect.getTimeline().getFieldProgram(input);
+		}
+	}
+
+	/**
+	 * True when the reversed-depth world reconstruction is verified for this node. Depth findings
+	 * confirm it on 26.2; older nodes bind depth but report it invalid so depth/world fields fall
+	 * back to their neutral value.
+	 */
+	private static boolean depthRecipeVerified() {
+		//? if >=26.2 {
+		return true;
+		//?} else {
+		/*return false;
+		*///?}
 	}
 
 	private void ensureTargets(final int width, final int height) {
@@ -303,6 +344,10 @@ public final class VFXPostProcessingManager {
 		private final VFXShaderPrograms.PassRole role;
 		private final MappableRingBuffer samplerInfoUbo;
 		private final @Nullable MappableRingBuffer configUbo;
+		private final boolean usesDepth;
+		private final @Nullable String fieldInput;
+		private final @Nullable MappableRingBuffer fieldUbo;
+		private final Map<String, com.mojang.blaze3d.textures.GpuTextureView> textureCache = new HashMap<>();
 
 		private VFXPass(final VFXShaderPrograms.ProgramInfo info) {
 			this.pipeline = info.pipeline();
@@ -312,10 +357,19 @@ public final class VFXPostProcessingManager {
 			this.configUbo = info.configUboSize() > 0
 				? new MappableRingBuffer(() -> this.pipeline.getLocation() + " Config", UBO_USAGE, Math.max(16, info.configUboSize()))
 				: null;
+			this.usesDepth = info.usesDepth();
+			this.fieldInput = info.fieldInput();
+			this.fieldUbo = info.usesField()
+				? new MappableRingBuffer(() -> this.pipeline.getLocation() + " FieldConfig", UBO_USAGE, Math.max(16, VFXShaderPrograms.FIELD_CONFIG_SIZE))
+				: null;
 		}
 
 		VFXShaderPrograms.PassRole role() {
 			return this.role;
+		}
+
+		@Nullable String fieldInput() {
+			return this.fieldInput;
 		}
 
 		private void execute(
@@ -325,7 +379,9 @@ public final class VFXPostProcessingManager {
 			final RenderTarget output,
 			final @Nullable VFXActiveEffect effect,
 			final @Nullable RenderTarget history,
-			final @Nullable Float hold
+			final @Nullable Float hold,
+			final @Nullable RenderTarget depthSource,
+			final @Nullable VFXFieldProgram fieldProgram
 		) {
 			//? if <26.2 {
 			try (GpuBuffer.MappedView view = encoder.mapBuffer(this.samplerInfoUbo.currentBuffer(), false, true)) {
@@ -361,6 +417,25 @@ public final class VFXPostProcessingManager {
 				}
 			}
 
+			if (this.fieldUbo != null && effect != null) {
+				final float weight = effect.getWeight();
+				final float neutral = effect.getType().fieldNeutral(this.fieldInput);
+				final float raw = effect.getParam(this.fieldInput, neutral);
+				final float uniform = neutral + (raw - neutral) * weight;
+				final VFXFieldProgram program = fieldProgram == null ? VFXFieldProgram.empty() : fieldProgram;
+				//? if <26.2 {
+				try (GpuBuffer.MappedView view = encoder.mapBuffer(this.fieldUbo.currentBuffer(), false, true)) {
+				//?} else {
+				/*try (GpuBufferSlice.MappedView view = this.fieldUbo.currentBuffer().map(false, true)) {
+				*///?}
+					program.write(new VFXFieldValueWriterAdapter(Std140Builder.intoBuffer(view.data())),
+						effect.getTimeline().getGraphEvaluator(), uniform,
+						VFXFieldEnv.depthValid() ? 1.0F : 0.0F,
+						VFXFieldEnv.invWidth(), VFXFieldEnv.invHeight(),
+						VFXFieldEnv.invViewProj(), VFXFieldEnv.cameraX(), VFXFieldEnv.cameraY(), VFXFieldEnv.cameraZ());
+				}
+			}
+
 			try (RenderPass renderPass = encoder.createRenderPass(
 					() -> "VFX post " + this.pipeline.getLocation(),
 					output.getColorTextureView(),
@@ -380,6 +455,17 @@ public final class VFXPostProcessingManager {
 				if (history != null) {
 					renderPass.bindTexture("HistSampler", history.getColorTextureView(), samplerCache.getClampToEdge(FilterMode.LINEAR));
 				}
+				if (this.fieldUbo != null) {
+					renderPass.setUniform("FieldConfig", this.fieldUbo.currentBuffer());
+				}
+				if (this.usesDepth && depthSource != null) {
+					// Depth is non-filterable: NEAREST only (depth findings).
+					renderPass.bindTexture("DepthSampler", depthSource.getDepthTextureView(), samplerCache.getClampToEdge(FilterMode.NEAREST));
+				}
+				if (this.fieldUbo != null) {
+					final String texture = fieldProgram == null ? null : fieldProgram.texture();
+					renderPass.bindTexture("fld_tex0", texture == null ? input.getColorTextureView() : resolveTexture(texture), samplerCache.getClampToEdge(FilterMode.LINEAR));
+				}
 				//? if <26.2 {
 				renderPass.draw(0, 3);
 				//?} else {
@@ -391,6 +477,19 @@ public final class VFXPostProcessingManager {
 			if (this.configUbo != null) {
 				this.configUbo.rotate();
 			}
+			if (this.fieldUbo != null) {
+				this.fieldUbo.rotate();
+			}
+		}
+
+		/**
+		 * Resolves a field texture to its view. Cached per pipeline; a datapack that swaps the
+		 * texture id at runtime re-resolves once. ponytail: unbounded cache, capped in practice by
+		 * the definition count (bounded by the datapack caps).
+		 */
+		private com.mojang.blaze3d.textures.GpuTextureView resolveTexture(final String id) {
+			return this.textureCache.computeIfAbsent(id, key ->
+				Minecraft.getInstance().getTextureManager().getTexture(Identifier.parse(key)).getTextureView());
 		}
 	}
 
