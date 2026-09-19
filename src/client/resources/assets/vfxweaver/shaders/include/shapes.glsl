@@ -63,6 +63,52 @@ float vfx_shape_sdf_3d(int primitive, vec3 p, float radius, vec3 halfExtents) {
 	return vfx_shape_box_sdf(p, halfExtents);
 }
 
+// Ray/volume entry for the mask aura mode. `origin`/`dir` are world space (`dir` normalized) and
+// the volume is the same sphere/box the SDF dispatcher uses, with the same Y rotation. Returns true
+// when the forward ray (t >= 0) enters the volume; `tEnter` is the entry distance (0 when the origin
+// is inside) and `tExit` the exit distance. On a miss it returns false and still sets `tEnter`/`tExit`
+// to a ray parameter near the closest approach (the real part of the sphere roots, or the slab
+// "waist" for a box) so the caller can fade the silhouette from both sides of the edge.
+bool vfx_volume_ray(int primitive, vec3 origin, vec3 dir, vec3 center, float rotationDeg, vec4 p0, out float tEnter, out float tExit) {
+	float c = cos(radians(rotationDeg));
+	float s = sin(radians(rotationDeg));
+	// The SDF dispatcher rotates world->local; apply the same rotation to the origin and direction.
+	vec3 delta = origin - center;
+	vec2 dxz = mat2(c, s, -s, c) * delta.xz;
+	vec2 ddxz = mat2(c, s, -s, c) * dir.xz;
+	vec3 lo = vec3(dxz.x, delta.y, dxz.y);
+	vec3 ld = vec3(ddxz.x, dir.y, ddxz.y);
+	if (primitive == 4) {
+		float radius = max(p0.x, 1.0e-4);
+		float b = dot(lo, ld);
+		float cc = dot(lo, lo) - radius * radius;
+		float disc = b * b - cc;
+		if (disc < 0.0) {
+			tEnter = max(-b, 0.0);
+			tExit = -b;
+			return false;
+		}
+		float sq = sqrt(disc);
+		tEnter = -b - sq;
+		tExit = -b + sq;
+		return tExit >= 0.0;
+	}
+	vec3 halfExtents = max(p0.xyz, vec3(1.0e-4));
+	vec3 inv = 1.0 / ld;
+	vec3 t1 = (-halfExtents - lo) * inv;
+	vec3 t2 = (halfExtents - lo) * inv;
+	vec3 tmin = min(t1, t2);
+	vec3 tmax = max(t1, t2);
+	tEnter = max(max(tmin.x, tmin.y), tmin.z);
+	tExit = min(min(tmax.x, tmax.y), tmax.z);
+	if (isnan(tEnter) || isnan(tExit)) {
+		tEnter = 0.0;
+		tExit = -1.0;
+		return false;
+	}
+	return tEnter <= tExit && tExit >= 0.0;
+}
+
 // Mask-facing dispatcher: choose the 2D or 3D shared helper from the kind/space and apply the
 // leaf centre/rotation. A mask's coverage shader calls exactly this; it never branches on shapes.
 // `p0`/`p1` are the packed per-kind parameters (CIRCLE radius= p0.x; ELLIPSE p0.x/p0.y;

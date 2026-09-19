@@ -2,7 +2,7 @@
 
 A client-side VFX library for Minecraft 26.2 / 26.1.x / 1.21.11 (Fabric and NeoForge). Screen post-processing (ping-pong FBO), camera shake, world overlays (block tint/outline), entity effects (tint/outline by UUID), keyframe animation, world/camera/player bindings, datapacks, network triggers and a public Java API.
 
-- Guide version: 34 (see [docs/CHANGELOG.md](CHANGELOG.md) for history)
+- Guide version: 35 (see [docs/CHANGELOG.md](CHANGELOG.md) for history)
 - Mod: `vfxweaver-1.2.0.jar` (one jar per Minecraft line and loader; Fabric requires Fabric API, NeoForge builds use the `-neoforge` suffix)
 
 Files: `data/<namespace>/vfx/<name>.json` and `data/<namespace>/vfx_curves/<name>.json`. After edits — `/reload`. The effect id = `<namespace>:<name>`. On a dedicated server, definitions and curves are automatically synced to clients on player join and after `/reload`, so custom (datapack) effects work for all players, not just on the server.
@@ -1240,7 +1240,7 @@ The built-in `vfxweaver:graph_logic_demo` combines both: a `pulse` macro (a `tim
 `remap`/`if` chain with a `$period`/`$peak` parameter) drives the blur's `radius`, ramping it up for
 the first half of each `$period` and holding it at `0` for the second.
 
-**Not in this version.** Masks are planned but not implemented yet. Per-pixel fields (below) are implemented.
+Masks are implemented (see [3.8](#38-masks)): an optional top-level `mask` block restricts where a post-processing effect applies, evaluated once per frame in a coverage prepass at screen layer 0.
 
 ### 3.7 Per-pixel fields
 
@@ -1378,6 +1378,65 @@ The tint demo (`fade_ticks: 0` keeps the loop from pulsing; a field-driven input
 	}
 }
 ```
+
+### 3.8 Masks
+
+A top-level `mask` block restricts where a post-processing effect applies. The coverage is
+computed once per frame in a prepass at screen layer 0 (the only layer where scene depth is
+intact), so the effect itself may run at any screen layer and simply reads the result. A mask is a
+composition (`"op": "union" | "intersection" | "difference"`) of leaves; every leaf is one of:
+
+- a **screen shape** — `circle`, `ellipse`, `rect`, `polygon` — classified in UV, no depth needed;
+- a **world volume** — `sphere` or `box` — classified against the depth-reconstructed world position;
+- a **block** leaf (the selected blocks' model geometry) or a **custom** shape (a registered composed SDF or GLSL plugin).
+
+`invert` flips the composed coverage; `softness` is the edge falloff width (screen units or world
+blocks); `fill: solid|stroke` with `stroke_width` draws a boundary band. Every numeric leaf
+(`radius`, `half_width`, `center`, `softness`, …) takes a number, `{ "from": "<node>" }` or a world
+binding (`{ "bind": "entity", ... }`), so a shape can follow an entity.
+
+#### World-volume evaluation: `volume`
+
+A `sphere`/`box` leaf carries an optional `"volume"` field choosing how the volume is evaluated
+against the scene. Both modes are first-class looks; the default is `"surface"`.
+
+| `volume` | What it looks like | When to use |
+|---|---|---|
+| `"surface"` (default) | The visible surface is classified: a pixel is covered where the depth-reconstructed point lies inside the volume, so only geometry *inside* the region is tinted and the air/sky around it is not. This is the original look. | "Affect the things standing in this region" — the tint follows the objects, not the space. |
+| `"aura"` | The pixel's view ray is cast at the volume and the whole volume is filled — including air and sky — except where a nearer surface occludes it. | A glow/haze field that occupies the whole region, so it reads as a volume of light rather than a coat of paint on the objects. |
+
+Both modes fade their edge over the leaf's `softness`. In `aura` mode a pixel is covered where the
+ray enters the volume in front of the visible surface (or the visible surface sits inside the
+volume); coverage is 0 where a nearer surface occludes the volume and 0 where the ray misses it.
+Sky and missing depth count as "nothing occludes", so the aura still fills the volume's silhouette
+instead of vanishing against the sky.
+
+```json
+{
+	"type": "color_grade",
+	"duration": 800,
+	"loop": true,
+	"persistent": true,
+	"params": { "screen_layer": 1, "tint_r": 1.0, "tint_g": 0.2, "tint_b": 0.2 },
+	"mask": {
+		"a": {
+			"shape": "sphere",
+			"space": "world",
+			"volume": "aura",
+			"center": { "bind": "entity", "selector": "@e[type=minecraft:villager,limit=1]", "point": "center" },
+			"radius": 6.0,
+			"softness": 0.5
+		}
+	}
+}
+```
+
+**Reference examples.** `vfxweaver:mask_entity_demo` is an entity-following sphere in `aura` mode
+plus a screen rectangle; `vfxweaver:mask_world_demo` is the same entity-following sphere in the
+default `surface` mode — play one, then the other, to compare the two looks.
+`vfxweaver:mask_screen_demo` is a screen-only mask and works at any layer. The block-geometry
+(`mask_block_demo`) and custom-shape (`mask_custom_demo`) demos parse, but their coverage paths are
+deferred stubs and do not render yet.
 
 ---
 
@@ -1537,7 +1596,10 @@ Post-processing pipeline, world overlays, effect clock, load limits and fault to
 
 Versioned feature history — **[docs/CHANGELOG.md](CHANGELOG.md)**.
 
-Guide version: 34 — see changelog below.
+Guide version: 35 — see changelog below.
+
+### v35
+- **World-volume masks gained an `aura` evaluation mode** — a `sphere`/`box` mask leaf now takes `"volume": "surface" | "aura"` (see [3.8](#38-masks)). `"surface"` is the default and keeps the original look (the visible surface is classified, so only geometry inside the volume is tinted); `"aura"` casts the pixel's view ray at the volume and fills the whole volume, including air and sky, wherever the scene does not occlude it, with the edge still fading over `softness`. Sky and missing depth count as "nothing occludes". The demo `vfxweaver:mask_entity_demo` (sphere + screen rect) now uses `aura`; `vfxweaver:mask_world_demo` is the same entity-following sphere in the default `surface` mode for an A/B comparison (53 built-ins).
 
 ### v34
 - **Per-pixel fields** — a field-capable input (currently `dent.intensity` and `color_grade.tint_r`) can carry a `{ "field": ... }` object that is evaluated per pixel inside the shader instead of once per frame (see [3.7](#37-per-pixel-fields)): the built-in functions `constant`, `noise`, `shape`, `gradient`, `curve`, `texture`, `depth`, `depth_gradient`, `normal_facing`, `screen_uv` and `world_pos`, the shared shape set (`circle`/`ellipse`/`rect`/`polygon` with `fill: solid|stroke`, `softness` and a `repeat` tiling modifier, plus the 3D `sphere`/`box` helpers), and bounded compositions (`multiply`/`add`/`subtract`/`mix`/`min`/`max`). The block is additive — a definition without fields is bit-for-bit unchanged, and a mod that does not know fields ignores them. Depth/world fields need screen layer 0 and otherwise fall back to the neutral value. The built-ins `vfxweaver:dent_field_demo` and `vfxweaver:tint_field_demo` are the reference examples (48 built-ins).

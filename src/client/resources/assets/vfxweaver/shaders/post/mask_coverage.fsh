@@ -5,8 +5,11 @@
 // depth; the consumer (post/mask_apply) just samples the result. World leaves (including the
 // sphere/box volumes and custom world shapes) reconstruct the world position with the verified
 // recipe (reversed depth, inverse view-rotation-projection). Screen leaves use UV and need no
-// depth. Block leaves are NOT evaluated here: their coverage was rasterised into
-// GeometryCoverageSampler by the block-geometry draw that runs before this pass.
+// depth. A world sphere/box leaf with `volume: "aura"` (shape_volume[i].x) instead casts the
+// pixel's view ray at the volume (vfx_volume_ray) and fills it wherever the scene does not occlude
+// it, so air and sky inside the volume tint too. Block leaves are NOT evaluated here: their
+// coverage was rasterised into GeometryCoverageSampler by the block-geometry draw that runs before
+// this pass.
 //
 // The Config block order MUST match VFXMaskUniforms.writeCoverage(...) exactly. vec3 is written as
 // vec4 because Std140Builder pads vec3 to 16 bytes; never use a bare vec3 or a scalar array here.
@@ -44,6 +47,7 @@ layout(std140) uniform Config {
     vec4 shape_params0[MASK_MAX_PRIMITIVES];  // p0..p3
     vec4 shape_params1[MASK_MAX_PRIMITIVES];  // p4..p7
     vec4 shape_misc[MASK_MAX_PRIMITIVES];     // x=fill, y=stroke_width, z=leaf index, w=custom row (-1 if none)
+    vec4 shape_volume[MASK_MAX_PRIMITIVES];   // x=world-volume mode (0 surface, 1 aura); yzw unused
     vec4 custom_op[MASK_MAX_CUSTOM_LEAVES];             // x=family(0 composed,1 plugin), y=part count, z/w=op codes
     vec4 custom_kind[MASK_MAX_CUSTOM_LEAVES * MASK_MAX_CUSTOM_PARTS];   // x=kind, y=space, z=rounding, w=repeat
     vec4 custom_center[MASK_MAX_CUSTOM_LEAVES * MASK_MAX_CUSTOM_PARTS]; // xyz=centre, w=rotation
@@ -135,12 +139,19 @@ float vfx_composed_leaf(int row, vec3 world, vec2 uv) {
 
 void main() {
     vec3 world = vec3(0.0);
+    // Distance to the visible surface, used by the aura mode's occlusion test. Reversed depth:
+    // near=1, far=0, so a sky/far pixel (depth 0) reconstructs at the far plane but must not occlude
+    // anything - it is treated as "nothing nearer" and the aura still fills the volume.
+    float sceneDist = 1.0e9;
     if (mask_needs_depth > 0.5) {
         // Verified reversed-depth recipe (findings note): depth is already NDC z (near=1, far=0).
-        float d = texture(DepthSampler, texCoord).r;
-        vec4 clip = vec4(texCoord * 2.0 - 1.0, d, 1.0);
-        vec4 hit = invViewProj * clip;
-        world = hit.xyz / hit.w;
+        float depthRaw = texture(DepthSampler, texCoord).r;
+        vec4 clip = vec4(texCoord * 2.0 - 1.0, depthRaw, 1.0);
+        vec4 surfacePoint = invViewProj * clip;
+        world = surfacePoint.xyz / surfacePoint.w;
+        if (depthRaw > 0.0) {
+            sceneDist = length(world - camPos.xyz);
+        }
     }
 
     float accumulator = 0.0;
@@ -166,6 +177,38 @@ void main() {
             } else {
                 // Composed SDF: its parts already apply their own falloff.
                 cov = vfx_composed_leaf(row, world, texCoord);
+            }
+        } else if ((kind == 4 || kind == 5) && shape_volume[i].x > 0.5) {
+            // Aura: cast the pixel's view ray at the volume and compare its entry against the scene
+            // distance. The reconstructed point (the far plane for sky) gives a valid direction.
+            vec3 viewDir = normalize(world - camPos.xyz);
+            float tEnter;
+            float tExit;
+            bool volumeHit = vfx_volume_ray(kind, camPos.xyz, viewDir, shape_center[i].xyz, shape_center[i].w, shape_params0[i], tEnter, tExit);
+            if (tExit < 0.0) {
+                // Volume entirely behind the camera.
+                cov = 0.0;
+            } else {
+                // Closest approach along the visible ray: the entry on a hit, the root/slab "waist" on
+                // a miss, so the volume SDF below fades the silhouette from both sides of the edge.
+                float tRef = clamp(volumeHit ? max(tEnter, 0.0) : 0.5 * (tEnter + tExit), 0.0, sceneDist);
+                vec3 volumePoint = camPos.xyz + viewDir * tRef;
+                float d = vfx_shape_sdf_dispatch(kind, leafSpace, texCoord, volumePoint, shape_center[i].xyz, shape_center[i].w, shape_params0[i], shape_params1[i]);
+                if (shape_misc[i].x > 0.5) {
+                    // stroke: an outline of width stroke_width around the shape boundary.
+                    d = abs(d) - 0.5 * shape_misc[i].y;
+                }
+                vec3 auraFieldPos = (leafSpace == 1) ? volumePoint : vec3(texCoord, mask_time);
+                d += fieldValue(int(so.w + 0.5), auraFieldPos, field_params[i].y, field_params[i].z) * field_params[i].x;
+                float softness = max(so.z, 1.0e-4);
+                float silhouette = clamp(0.5 - d / softness, 0.0, 1.0);
+                // Occlusion: a visible surface nearer than the volume entry hides the aura; on a miss
+                // there is no entry to occlude, so only the silhouette fade applies.
+                float occluded = 1.0;
+                if (volumeHit) {
+                    occluded = clamp(0.5 - (max(tEnter, 0.0) - sceneDist) / softness, 0.0, 1.0);
+                }
+                cov = silhouette * occluded;
             }
         } else {
             // The shared library's 2D/3D dispatcher: (kind, space, uv, world, centre, rotation, p0, p1).

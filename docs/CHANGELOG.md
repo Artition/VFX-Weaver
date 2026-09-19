@@ -2,6 +2,10 @@
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). The versions below are guide/feature-set versions of the mod (as they progressed historically, see `docs/GUIDE.md`), plus git release tags where applicable (`v1.0.x`, `gradle.properties` → `mod_version`). Add new entries at the top, in the same PR as the behavior change.
 
+## Unreleased / Guide v35
+### Added
+- **World-volume mask `aura` mode** — a `sphere`/`box` mask leaf now takes `"volume": "surface" | "aura"` (see `docs/GUIDE.md` §3.8). `"surface"` is the default and keeps the original look (only geometry inside the volume is tinted); `"aura"` casts the pixel's view ray at the volume and fills the whole volume, including air and sky, wherever the scene does not occlude it. The built-in `vfxweaver:mask_entity_demo` uses `aura`; `vfxweaver:mask_world_demo` is the same entity-following sphere in `surface` mode for an A/B comparison (53 built-ins).
+
 ## Unreleased / Guide v34
 ### Added
 - **Per-pixel fields** — effect inputs may now carry a per-pixel field (built-in noise, tileable shapes — circle/ellipse/rect/polygon with solid or stroke fill — gradient, curve, texture and depth/world functions, composable). The first consumer is `dent.intensity`: `vfxweaver:dent_field_demo` is a dent whose strength is mottled by screen-space noise. Fields are additive — a definition without one behaves bit-for-bit as before.

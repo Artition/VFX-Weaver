@@ -22,6 +22,8 @@ import org.jspecify.annotations.Nullable;
  * @param strokeDefault      stroke width when the slot is absent
  * @param softnessSlot       reserved slot name for the falloff width
  * @param softnessDefault    falloff width when the slot is absent
+ * @param volumeMode         how a world {@code sphere}/{@code box} volume is evaluated ({@code surface}
+ *                           or {@code aura}); {@link VFXMaskVolumeMode#SURFACE} for every other leaf
  * @param field              edge-perturbation kind
  * @param fieldAmountSlot    reserved slot name for the field amount (distance units)
  * @param fieldAmountDefault field amount when the slot is absent
@@ -49,6 +51,7 @@ public record VFXMaskPrimitive(
 	float strokeDefault,
 	String softnessSlot,
 	float softnessDefault,
+	VFXMaskVolumeMode volumeMode,
 	VFXMaskField field,
 	String fieldAmountSlot,
 	float fieldAmountDefault,

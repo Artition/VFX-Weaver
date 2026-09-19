@@ -1,7 +1,6 @@
 package dev.vfxweaver.client.postprocessing;
 
 import com.mojang.blaze3d.buffers.Std140Builder;
-import com.mojang.blaze3d.buffers.Std140SizeCalculator;
 import dev.vfxweaver.effect.BoundParam;
 import dev.vfxweaver.effect.VFXActiveEffect;
 import dev.vfxweaver.effect.VFXWorldBindings;
@@ -13,6 +12,7 @@ import dev.vfxweaver.mask.VFXMaskSlots;
 import dev.vfxweaver.mask.VFXMaskSpace;
 import dev.vfxweaver.mask.VFXShapeRegistry;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import org.joml.Matrix4fc;
 
@@ -43,32 +43,68 @@ public final class VFXMaskUniforms {
 		return effect.getParam(slotName, fallback);
 	}
 
+	/**
+	 * One field of the coverage {@code Config} block, in the order both the writer and the shader
+	 * declare it.
+	 *
+	 * @param name        the GLSL field name
+	 * @param glslType    {@code mat4}, {@code vec4} or {@code float}
+	 * @param arrayLength the element count ({@code 1} for a scalar or matrix)
+	 */
+	public record ConfigField(String name, String glslType, int arrayLength) {
+	}
+
+	/**
+	 * The coverage {@code Config} block fields in write order. This is the writer's single source of
+	 * truth for both the std140 size ({@link #uboSize()}) and the emission order; the standalone
+	 * {@code scripts/check-mask-ubo.ps1} compares it against the layout declared in
+	 * {@code post/mask_coverage.fsh}.
+	 */
+	private static final List<ConfigField> CONFIG_LAYOUT = List.of(
+		new ConfigField("invViewProj", "mat4", 1),
+		new ConfigField("camPos", "vec4", 1),
+		new ConfigField("mask_invert", "float", 1),
+		new ConfigField("mask_count", "float", 1),
+		new ConfigField("mask_needs_depth", "float", 1),
+		new ConfigField("mask_time", "float", 1),
+		new ConfigField("shape_op", "vec4", VFXMask.MAX_PRIMITIVES),
+		new ConfigField("field_params", "vec4", VFXMask.MAX_PRIMITIVES),
+		new ConfigField("shape_center", "vec4", VFXMask.MAX_PRIMITIVES),
+		new ConfigField("shape_params0", "vec4", VFXMask.MAX_PRIMITIVES),
+		new ConfigField("shape_params1", "vec4", VFXMask.MAX_PRIMITIVES),
+		new ConfigField("shape_misc", "vec4", VFXMask.MAX_PRIMITIVES),
+		new ConfigField("shape_volume", "vec4", VFXMask.MAX_PRIMITIVES),
+		new ConfigField("custom_op", "vec4", VFXCustomShape.MAX_CUSTOM_LEAVES),
+		new ConfigField("custom_kind", "vec4", VFXCustomShape.MAX_CUSTOM_LEAVES * VFXCustomShape.MAX_CUSTOM_PARTS),
+		new ConfigField("custom_center", "vec4", VFXCustomShape.MAX_CUSTOM_LEAVES * VFXCustomShape.MAX_CUSTOM_PARTS),
+		new ConfigField("custom_params", "vec4", VFXCustomShape.MAX_CUSTOM_LEAVES * VFXCustomShape.MAX_CUSTOM_PARTS)
+	);
+
+	/**
+	 * The coverage {@code Config} block fields in write order, for the standalone size/order check.
+	 *
+	 * @return the writer's declared layout, unmodifiable
+	 */
+	public static List<ConfigField> configLayout() {
+		return CONFIG_LAYOUT;
+	}
+
 	/** The std140 byte size of the coverage {@code Config} block. */
 	public static int uboSize() {
-		final Std140SizeCalculator calculator = new Std140SizeCalculator();
-		calculator.putMat4f();
-		calculator.putVec4();
-		calculator.putFloat();
-		calculator.putFloat();
-		calculator.putFloat();
-		calculator.putFloat();
-		for (int i = 0; i < VFXMask.MAX_PRIMITIVES; i++) {
-			calculator.putVec4();
-			calculator.putVec4();
-			calculator.putVec4();
-			calculator.putVec4();
-			calculator.putVec4();
-			calculator.putVec4();
+		int size = 0;
+		for (final ConfigField field : CONFIG_LAYOUT) {
+			size += std140ElementSize(field.glslType()) * field.arrayLength();
 		}
-		for (int i = 0; i < VFXCustomShape.MAX_CUSTOM_LEAVES; i++) {
-			calculator.putVec4(); // custom_op
-		}
-		for (int i = 0; i < VFXCustomShape.MAX_CUSTOM_LEAVES * VFXCustomShape.MAX_CUSTOM_PARTS; i++) {
-			calculator.putVec4(); // custom_kind
-			calculator.putVec4(); // custom_center
-			calculator.putVec4(); // custom_params
-		}
-		return calculator.get();
+		return size;
+	}
+
+	private static int std140ElementSize(final String glslType) {
+		return switch (glslType) {
+			case "mat4" -> 64;
+			case "vec4" -> 16;
+			case "float" -> 4;
+			default -> throw new IllegalArgumentException("unsupported Config field type: " + glslType);
+		};
 	}
 
 	/**
@@ -107,10 +143,11 @@ public final class VFXMaskUniforms {
 		}
 
 		// std140 lays every declared array out contiguously (all shape_op, then all field_params,
-		// ...), so the six per-primitive rows must be emitted grouped by field, not interleaved
-		// per primitive. Compute each primitive's rows first, then write them field by field; an
-		// absent primitive leaves its rows zeroed, which the mask_count gate ignores anyway.
-		final float[][][] rows = new float[VFXMask.MAX_PRIMITIVES][6][4];
+		// ... through shape_volume), so the seven per-primitive rows must be emitted grouped by
+		// field, not interleaved per primitive. Compute each primitive's rows first, then write them
+		// field by field; an absent primitive leaves its rows zeroed, which the mask_count gate
+		// ignores anyway.
+		final float[][][] rows = new float[VFXMask.MAX_PRIMITIVES][7][4];
 		for (int i = 0; i < VFXMask.MAX_PRIMITIVES; i++) {
 			final VFXMaskPrimitive primitive = i < mask.primitives().size() ? mask.primitives().get(i) : null;
 			if (primitive == null) {
@@ -158,8 +195,10 @@ public final class VFXMaskUniforms {
 			rows[i][3] = new float[]{parameters[0], parameters[1], parameters[2], parameters[3]};
 			rows[i][4] = new float[]{parameters[4], parameters[5], parameters[6], parameters[7]};
 			rows[i][5] = new float[]{primitive.fill().ordinal(), slotValue(mask, effect, primitive.strokeSlot(), primitive.strokeDefault()), i, customRow == null ? -1.0F : customRow};
+			// x = world-volume mode (0 surface, 1 aura); only a world sphere/box ever sets 1.
+			rows[i][6] = new float[]{primitive.volumeMode().code(), 0.0F, 0.0F, 0.0F};
 		}
-		for (int row = 0; row < 6; row++) {
+		for (int row = 0; row < 7; row++) {
 			for (int i = 0; i < VFXMask.MAX_PRIMITIVES; i++) {
 				builder.putVec4(rows[i][row][0], rows[i][row][1], rows[i][row][2], rows[i][row][3]);
 			}

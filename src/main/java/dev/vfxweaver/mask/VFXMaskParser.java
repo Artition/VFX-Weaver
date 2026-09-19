@@ -252,6 +252,20 @@ public final class VFXMaskParser {
 			slots.put(softnessSlot, new VFXMask.MaskSlot(softnessSlot, softnessDefault, null, null));
 		}
 
+		// The world-volume evaluation mode: only a world sphere/box is a volume to cast a ray at.
+		final VFXMaskVolumeMode volumeMode;
+		if (json.has("volume") && !json.get("volume").isJsonNull()) {
+			if (shape != VFXMaskShapeKind.SPHERE && shape != VFXMaskShapeKind.BOX) {
+				throw new IllegalArgumentException("mask: 'volume' is only valid on a world 'sphere' or 'box' leaf");
+			}
+			volumeMode = VFXMaskVolumeMode.fromString(json.get("volume").getAsString());
+			if (volumeMode == null) {
+				throw new IllegalArgumentException("mask: 'volume' must be 'surface' or 'aura'");
+			}
+		} else {
+			volumeMode = VFXMaskVolumeMode.SURFACE;
+		}
+
 		final String fieldAmountSlot = VFXMaskSlots.fieldAmount(i);
 		final String fieldScaleSlot = VFXMaskSlots.fieldScale(i);
 		final VFXMaskField field;
@@ -279,7 +293,7 @@ public final class VFXMaskParser {
 			? parseBlockSelection(json, centerDefaults, parameterDefaults[0])
 			: null;
 		final VFXMaskPrimitive primitive = new VFXMaskPrimitive(shape, space, centerSlots, centerDefaults, rotationSlot, rotationDefault,
-			parameterSlots, parameterDefaults, fill, strokeSlot, strokeDefault, softnessSlot, softnessDefault,
+			parameterSlots, parameterDefaults, fill, strokeSlot, strokeDefault, softnessSlot, softnessDefault, volumeMode,
 			field, fieldAmountSlot, fieldAmountDefault, fieldScaleSlot, fieldScaleDefault, i * 17.0F + 1.0F,
 			blockSelection, customShape, resolvedCenterBinding, null);
 		return new Partial(List.of(primitive), List.of());
