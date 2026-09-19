@@ -67,6 +67,7 @@ public final class VFXCommand {
 						.then(
 							Commands.argument("effect", IdentifierArgument.id())
 								.suggests(VFXCommand::suggestEffects)
+								.executes(context2 -> play(context2, List.of(requirePlayer(context2)), Map.of()))
 								.then(
 									Commands.argument("targets", EntityArgument.players())
 										.executes(context2 -> play(context2, EntityArgument.getPlayers(context2, "targets"), Map.of()))
@@ -113,6 +114,7 @@ public final class VFXCommand {
 					.then(
 						Commands.argument("effect", IdentifierArgument.id())
 							.suggests(VFXCommand::suggestEffects)
+							.executes(context2 -> playEntity(context2, List.of(requirePlayer(context2)), List.of(requirePlayer(context2)), Map.of()))
 							.then(
 								Commands.argument("targets", EntityArgument.entities())
 									.executes(context2 -> playEntity(context2, EntityArgument.getEntities(context2, "targets"), List.of(requirePlayer(context2)), Map.of()))
