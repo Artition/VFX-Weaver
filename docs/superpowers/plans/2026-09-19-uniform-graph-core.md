@@ -24,6 +24,53 @@
 - Build commands (from `AGENTS.md`): `.\gradlew.bat :<node>:build`; Fabric nodes are `26.2`, `26.1.2`, `1.21.11`; NeoForge nodes are the same names with `-neoforge`.
 - `javap` against the real deobf jar is the method for any uncertain MC API; the graph work is expected to need none.
 
+### Standalone compile/run checks (shared recipe)
+
+Every task that compiles the throwaway `%TEMP%\vfxcheck\Check.java` uses this one recipe — do not
+hand-list jars. Ask Gradle for the node's real runtime classpath with a throwaway init script, then
+compile and run against that string:
+
+```powershell
+New-Item -ItemType Directory -Force "$env:TEMP\vfxcheck" | Out-Null
+$init = "$env:TEMP\vfxcheck\dumpcp.init.gradle"
+$initText = @'
+allprojects {
+	tasks.register('dumpRuntimeClasspath') {
+		doLast {
+			def out = new File(System.getProperty('java.io.tmpdir'), 'vfxcheck/runtimeClasspath.txt')
+			out.setText(sourceSets.main.runtimeClasspath.asPath, 'UTF-8')
+		}
+	}
+}
+'@
+[System.IO.File]::WriteAllText($init, $initText, (New-Object System.Text.UTF8Encoding($false)))
+.\gradlew.bat :26.1.2:dumpRuntimeClasspath --init-script "$init" --console=plain
+# Read as UTF-8 too: this repo path is non-ASCII and `Get-Content`'s default mangles it.
+$cp = [System.IO.File]::ReadAllText("$env:TEMP\vfxcheck\runtimeClasspath.txt").Trim()
+```
+
+`$cp` already contains the built `versions\26.1.2\build\classes\java\main`, Minecraft, Gson, joml,
+slf4j, brigadier, guava and datafixerupper, so build the node first
+(`.\gradlew.bat :26.1.2:build --console=plain`) so the classes exist, then:
+
+```powershell
+& 'C:\Program Files\Java\jdk-26\bin\javac.exe' -cp "$cp" -d "$env:TEMP\vfxcheck" "$env:TEMP\vfxcheck\Check.java"
+& 'C:\Program Files\Java\jdk-26\bin\java.exe' -cp "$cp;$env:TEMP\vfxcheck" Check
+```
+
+A "run it to verify it fails" step runs only the `javac` line (expected: the missing package/class);
+a "build and run" step runs both and expects a clean `Check OK` line.
+
+**Fallback if a hand-built classpath is unavoidable:** it must contain
+`minecraft-common-deobf-<ver>.jar` (or `minecraft-merged-deobf`) — **not**
+`minecraft-clientonly-deobf`, which lacks `net.minecraft.resources.Identifier` — plus `brigadier`,
+`guava`, `datafixerupper` and `slf4j-api`, or the run dies with
+`NoClassDefFoundError: com/mojang/brigadier/Message` / `org/slf4j/LoggerFactory`. Those jars live
+under `C:\Users\Light Flight PC\.gradle\caches\modules-2\files-2.1\`.
+
+**Assertion counts are approximate:** a check passes on "zero failures", not on the exact number in
+its `Expected` line (Task 1's predicted count was off by one).
+
 ## File Structure
 
 - `src/main/java/dev/vfxweaver/graph/VFXNodeKind.java` — create: the v1 node-kind enum (kinds, required inputs, edge-acceptable inputs).
@@ -135,14 +182,7 @@ public class Check {
 
 - [ ] **Step 2: Run it to verify it fails**
 
-Run (from the repo root; the classes do not exist yet, so `javac` reports "package dev.vfxweaver.graph does not exist"):
-
-```powershell
-$mc = (Get-ChildItem "$env:USERPROFILE\.gradle\caches\fabric-loom\minecraftMaven\net\minecraft" -Recurse -Filter "minecraft-clientonly-deobf-26.1.2.jar" | Select-Object -First 1).FullName
-$gson = (Get-ChildItem "$env:USERPROFILE\.gradle\caches\modules-2\files-2.1\com.google.code.gson\gson" -Recurse -Filter "gson-*.jar" | Select-Object -First 1).FullName
-$classes = "versions\26.1.2\build\classes\java\main"
-& 'C:\Program Files\Java\jdk-26\bin\javac.exe' -cp "$classes;$mc;$gson" -d "$env:TEMP\vfxcheck" "$env:TEMP\vfxcheck\Check.java"
-```
+Run the shared standalone-check recipe (Global Constraints) from the repo root, `javac` line only — the classes do not exist yet, so it reports "package dev.vfxweaver.graph does not exist".
 
 Expected: non-zero exit, errors mentioning `dev.vfxweaver.graph.VFXGraph`.
 
@@ -845,18 +885,9 @@ public final class VFXGraph {
 
 - [ ] **Step 8: Build the active node and run the check**
 
-Run (build first so the classes exist, then compile and run the check):
+Run `.\gradlew.bat :26.1.2:build --console=plain` first, then the shared standalone-check recipe (Global Constraints), both lines.
 
-```powershell
-.\gradlew.bat :26.1.2:build --console=plain
-$mc = (Get-ChildItem "$env:USERPROFILE\.gradle\caches\fabric-loom\minecraftMaven\net\minecraft" -Recurse -Filter "minecraft-clientonly-deobf-26.1.2.jar" | Select-Object -First 1).FullName
-$gson = (Get-ChildItem "$env:USERPROFILE\.gradle\caches\modules-2\files-2.1\com.google.code.gson\gson" -Recurse -Filter "gson-*.jar" | Select-Object -First 1).FullName
-$classes = "versions\26.1.2\build\classes\java\main"
-& 'C:\Program Files\Java\jdk-26\bin\javac.exe' -cp "$classes;$mc;$gson" -d "$env:TEMP\vfxcheck" "$env:TEMP\vfxcheck\Check.java"
-& 'C:\Program Files\Java\jdk-26\bin\java.exe' -cp "$classes;$mc;$gson;$env:TEMP\vfxcheck" Check
-```
-
-Expected: `BUILD SUCCESSFUL` then `Check OK: 11 assertions`.
+Expected: `BUILD SUCCESSFUL` then a clean `Check OK` line (assertion counts are approximate — zero failures is the pass condition).
 
 - [ ] **Step 9: Confirm per-file error isolation**
 
@@ -977,15 +1008,7 @@ public class Check {
 
 - [ ] **Step 2: Run it to verify it fails**
 
-Run:
-
-```powershell
-$mc = (Get-ChildItem "$env:USERPROFILE\.gradle\caches\fabric-loom\minecraftMaven\net\minecraft" -Recurse -Filter "minecraft-clientonly-deobf-26.1.2.jar" | Select-Object -First 1).FullName
-$gson = (Get-ChildItem "$env:USERPROFILE\.gradle\caches\modules-2\files-2.1\com.google.code.gson\gson" -Recurse -Filter "gson-*.jar" | Select-Object -First 1).FullName
-$joml = (Get-ChildItem "$env:USERPROFILE\.gradle\caches\modules-2\files-2.1\org.joml\joml" -Recurse -Filter "joml-*.jar" | Select-Object -First 1).FullName
-$classes = "versions\26.1.2\build\classes\java\main"
-& 'C:\Program Files\Java\jdk-26\bin\javac.exe' -cp "$classes;$mc;$gson;$joml" -d "$env:TEMP\vfxcheck" "$env:TEMP\vfxcheck\Check.java"
-```
+Run the shared standalone-check recipe (Global Constraints), `javac` line only.
 
 Expected: `javac` errors on `dev.vfxweaver.graph.VFXGraphEvaluator`.
 
@@ -1219,19 +1242,9 @@ public final class VFXGraphEvaluator {
 
 - [ ] **Step 5: Build the active node and run the check**
 
-Run:
+Run `.\gradlew.bat :26.1.2:build --console=plain` first, then the shared standalone-check recipe (Global Constraints), both lines.
 
-```powershell
-.\gradlew.bat :26.1.2:build --console=plain
-$mc = (Get-ChildItem "$env:USERPROFILE\.gradle\caches\fabric-loom\minecraftMaven\net\minecraft" -Recurse -Filter "minecraft-clientonly-deobf-26.1.2.jar" | Select-Object -First 1).FullName
-$gson = (Get-ChildItem "$env:USERPROFILE\.gradle\caches\modules-2\files-2.1\com.google.code.gson\gson" -Recurse -Filter "gson-*.jar" | Select-Object -First 1).FullName
-$joml = (Get-ChildItem "$env:USERPROFILE\.gradle\caches\modules-2\files-2.1\org.joml\joml" -Recurse -Filter "joml-*.jar" | Select-Object -First 1).FullName
-$classes = "versions\26.1.2\build\classes\java\main"
-& 'C:\Program Files\Java\jdk-26\bin\javac.exe' -cp "$classes;$mc;$gson;$joml" -d "$env:TEMP\vfxcheck" "$env:TEMP\vfxcheck\Check.java"
-& 'C:\Program Files\Java\jdk-26\bin\java.exe' -cp "$classes;$mc;$gson;$joml;$env:TEMP\vfxcheck" Check
-```
-
-Expected: `BUILD SUCCESSFUL` then `Check OK: 12 assertions`.
+Expected: `BUILD SUCCESSFUL` then a clean `Check OK` line (assertion counts are approximate — zero failures is the pass condition).
 
 - [ ] **Step 6: Build all six nodes**
 
@@ -1310,16 +1323,7 @@ public class Check {
 
 - [ ] **Step 2: Run it to verify it fails**
 
-Run:
-
-```powershell
-.\gradlew.bat :26.1.2:build --console=plain
-$mc = (Get-ChildItem "$env:USERPROFILE\.gradle\caches\fabric-loom\minecraftMaven\net\minecraft" -Recurse -Filter "minecraft-clientonly-deobf-26.1.2.jar" | Select-Object -First 1).FullName
-$gson = (Get-ChildItem "$env:USERPROFILE\.gradle\caches\modules-2\files-2.1\com.google.code.gson\gson" -Recurse -Filter "gson-*.jar" | Select-Object -First 1).FullName
-$joml = (Get-ChildItem "$env:USERPROFILE\.gradle\caches\modules-2\files-2.1\org.joml\joml" -Recurse -Filter "joml-*.jar" | Select-Object -First 1).FullName
-$classes = "versions\26.1.2\build\classes\java\main"
-& 'C:\Program Files\Java\jdk-26\bin\javac.exe' -cp "$classes;$mc;$gson;$joml" -d "$env:TEMP\vfxcheck" "$env:TEMP\vfxcheck\Check.java"
-```
+Run the shared standalone-check recipe (Global Constraints), `javac` line only (after `.\gradlew.bat :26.1.2:build --console=plain` so the classes exist).
 
 Expected: `javac` errors on `definition.getGraph()` / `timeline.updateGraph(...)`.
 
@@ -1532,17 +1536,7 @@ In `src/main/java/dev/vfxweaver/effect/VFXActiveEffect.java`, in `update(final f
 
 - [ ] **Step 6: Build the active node and run the check**
 
-Run:
-
-```powershell
-.\gradlew.bat :26.1.2:build --console=plain
-$mc = (Get-ChildItem "$env:USERPROFILE\.gradle\caches\fabric-loom\minecraftMaven\net\minecraft" -Recurse -Filter "minecraft-clientonly-deobf-26.1.2.jar" | Select-Object -First 1).FullName
-$gson = (Get-ChildItem "$env:USERPROFILE\.gradle\caches\modules-2\files-2.1\com.google.code.gson\gson" -Recurse -Filter "gson-*.jar" | Select-Object -First 1).FullName
-$joml = (Get-ChildItem "$env:USERPROFILE\.gradle\caches\modules-2\files-2.1\org.joml\joml" -Recurse -Filter "joml-*.jar" | Select-Object -First 1).FullName
-$classes = "versions\26.1.2\build\classes\java\main"
-& 'C:\Program Files\Java\jdk-26\bin\javac.exe' -cp "$classes;$mc;$gson;$joml" -d "$env:TEMP\vfxcheck" "$env:TEMP\vfxcheck\Check.java"
-& 'C:\Program Files\Java\jdk-26\bin\java.exe' -cp "$classes;$mc;$gson;$joml;$env:TEMP\vfxcheck" Check
-```
+Run `.\gradlew.bat :26.1.2:build --console=plain` first, then the shared standalone-check recipe (Global Constraints), both lines.
 
 Expected: `BUILD SUCCESSFUL` then `Check OK: graph input drives 'radius' = 6.0`.
 
@@ -1635,17 +1629,7 @@ public class Check {
 
 - [ ] **Step 2: Build and run it**
 
-Run:
-
-```powershell
-.\gradlew.bat :26.1.2:build --console=plain
-$mc = (Get-ChildItem "$env:USERPROFILE\.gradle\caches\fabric-loom\minecraftMaven\net\minecraft" -Recurse -Filter "minecraft-clientonly-deobf-26.1.2.jar" | Select-Object -First 1).FullName
-$gson = (Get-ChildItem "$env:USERPROFILE\.gradle\caches\modules-2\files-2.1\com.google.code.gson\gson" -Recurse -Filter "gson-*.jar" | Select-Object -First 1).FullName
-$joml = (Get-ChildItem "$env:USERPROFILE\.gradle\caches\modules-2\files-2.1\org.joml\joml" -Recurse -Filter "joml-*.jar" | Select-Object -First 1).FullName
-$classes = "versions\26.1.2\build\classes\java\main"
-& 'C:\Program Files\Java\jdk-26\bin\javac.exe' -cp "$classes;$mc;$gson;$joml" -d "$env:TEMP\vfxcheck" "$env:TEMP\vfxcheck\Check.java"
-& 'C:\Program Files\Java\jdk-26\bin\java.exe' -cp "$classes;$mc;$gson;$joml;$env:TEMP\vfxcheck" Check
-```
+Run `.\gradlew.bat :26.1.2:build --console=plain` first, then the shared standalone-check recipe (Global Constraints), both lines.
 
 Expected: `BUILD SUCCESSFUL` then `Check OK: backward-compatibility contract holds`.
 
