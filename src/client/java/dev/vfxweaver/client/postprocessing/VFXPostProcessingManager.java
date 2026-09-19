@@ -429,7 +429,7 @@ public final class VFXPostProcessingManager {
 				/*try (GpuBufferSlice.MappedView view = this.fieldUbo.currentBuffer().map(false, true)) {
 				*///?}
 					program.write(new VFXFieldValueWriterAdapter(Std140Builder.intoBuffer(view.data())),
-						effect.getTimeline().getGraphEvaluator(), uniform,
+						effect.getTimeline().getGraphEvaluator(), uniform, weight,
 						VFXFieldEnv.depthValid() ? 1.0F : 0.0F,
 						VFXFieldEnv.invWidth(), VFXFieldEnv.invHeight(),
 						VFXFieldEnv.invViewProj(), VFXFieldEnv.cameraX(), VFXFieldEnv.cameraY(), VFXFieldEnv.cameraZ());

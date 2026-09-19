@@ -20,11 +20,14 @@ public enum VFXFieldFn {
 	GRADIENT("gradient", VFXFieldType.FLOAT, true, false, false, false, List.of("angle", "offset", "scale", "softness"), new float[]{0.0F, 0.0F, 1.0F, 0.0F}),
 	CURVE("curve", VFXFieldType.FLOAT, true, false, false, true, List.of("scale"), new float[]{1.0F}),
 	TEXTURE("texture", VFXFieldType.VEC3, true, true, false, false, List.of("scale_x", "scale_y", "offset_x", "offset_y"), new float[]{1.0F, 1.0F, 0.0F, 0.0F}),
-	DEPTH("depth", VFXFieldType.FLOAT, false, false, false, false, List.of("near", "far"), new float[]{0.0F, 1.0F}),
-	DEPTH_GRADIENT("depth_gradient", VFXFieldType.FLOAT, false, false, false, false, List.of("near", "far"), new float[]{0.0F, 1.0F}),
-	NORMAL_FACING("normal_facing", VFXFieldType.FLOAT, false, false, false, false, List.of("axis_x", "axis_y", "axis_z", "threshold"), new float[]{0.0F, 1.0F, 0.0F, 0.5F}),
+	// The four functions below read the scene depth directly (see `geom` in field.glsl): they must
+	// mark the depth requirement so VFXTimeline.fieldNeedsDepth() is correct and the layer-0
+	// warning fires. `world_pos` is not spatial (`space` is meaningless — it is always world).
+	DEPTH("depth", VFXFieldType.FLOAT, false, false, true, false, List.of("near", "far"), new float[]{0.0F, 1.0F}),
+	DEPTH_GRADIENT("depth_gradient", VFXFieldType.FLOAT, false, false, true, false, List.of("near", "far"), new float[]{0.0F, 1.0F}),
+	NORMAL_FACING("normal_facing", VFXFieldType.FLOAT, false, false, true, false, List.of("axis_x", "axis_y", "axis_z", "threshold"), new float[]{0.0F, 1.0F, 0.0F, 0.5F}),
 	SCREEN_UV("screen_uv", VFXFieldType.VEC2, false, false, false, false, List.of(), new float[0]),
-	WORLD_POS("world_pos", VFXFieldType.VEC3, false, false, false, false, List.of(), new float[0]);
+	WORLD_POS("world_pos", VFXFieldType.VEC3, false, false, true, false, List.of(), new float[0]);
 
 	private final String id;
 	private final VFXFieldType outputType;

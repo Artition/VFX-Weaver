@@ -194,6 +194,8 @@ public final class VFXFieldProgram {
 	 * @param out         the write target
 	 * @param evaluator   per-frame graph evaluator, or {@code null} when no parameter references a node
 	 * @param uniform     the input's uniform-domain value (already fade-weighted)
+	 * @param weight      the effect's fade weight in {@code [0,1]}; the shader blends the field
+	 *                    against its neutral value with it (weight 0 = neutral, 1 = full field)
 	 * @param depthValid  1 when the scene depth is valid for this pass, else 0
 	 * @param invWidth    1 / output width
 	 * @param invHeight   1 / output height
@@ -202,10 +204,11 @@ public final class VFXFieldProgram {
 	 * @param camY        camera world Y
 	 * @param camZ        camera world Z
 	 */
-	public void write(final VFXFieldValueWriter out, final @Nullable VFXGraphEvaluator evaluator, final float uniform, final float depthValid, final float invWidth, final float invHeight, final Matrix4fc invViewProj, final float camX, final float camY, final float camZ) {
+	public void write(final VFXFieldValueWriter out, final @Nullable VFXGraphEvaluator evaluator, final float uniform, final float weight, final float depthValid, final float invWidth, final float invHeight, final Matrix4fc invViewProj, final float camX, final float camY, final float camZ) {
 		out.putFloat(uniform);
 		out.putFloat(depthValid);
 		out.putFloat(this.leafCount);
+		out.putFloat(weight);
 		out.putVec4(this.leafFn[0], this.leafFn[1], this.leafFn[2], this.leafFn[3]);
 		out.putVec4(this.leafSpace[0], this.leafSpace[1], this.leafSpace[2], this.leafSpace[3]);
 		out.putVec4(this.leafChannel[0], this.leafChannel[1], this.leafChannel[2], this.leafChannel[3]);

@@ -18,6 +18,7 @@ layout(std140) uniform FieldConfig {
 	float fld_uniform;        // uniform-domain value of the input (fade-weighted)
 	float fld_depth_valid;    // 1 when the bound depth is usable, else 0
 	float fld_leaf_count;
+	float fld_weight;         // effect fade weight, 0..1: blends the field against neutral 1.0
 	vec4 fld_leaf_fn;
 	vec4 fld_leaf_space;      // 0 = screen, 1 = world
 	vec4 fld_leaf_channel;
@@ -320,6 +321,9 @@ float vfx_shape_coverage(float sdf, int fill, float strokeWidth, float softness)
 }
 
 // --- one field leaf ---
+// `scale` semantics: a spatial function multiplies its sampling coordinate by `scale` (noise the
+// noise input, gradient the projection, curve/texture the coordinate). A LARGER scale therefore
+// means FINER detail, and a smaller scale means larger patches.
 
 vec3 vfx_field_leaf(int i, vec2 uv) {
 	float fn = vfx_leaf_fn(i);
@@ -450,7 +454,11 @@ vec3 vfx_field_eval(vec2 uv) {
 	return sp > 0 ? stack[0] : vec3(1.0);
 }
 
-// The effective multiplier of a field-capable input: uniform value times the per-pixel field.
+// The effective multiplier of a field-capable input: the fade-weighted uniform value times the
+// per-pixel field, itself blended against its neutral value (1.0) by the fade weight. At weight 0
+// this is exactly 1.0 (a field-driven input fades out just like a plain one); at weight 1 it is
+// `fld_uniform * field`; in between it moves monotonically between the two.
 float vfx_field_intensity(vec2 uv) {
-	return fld_uniform * vfx_field_eval(uv).x;
+	float field = mix(1.0, vfx_field_eval(uv).x, fld_weight);
+	return fld_uniform * field;
 }

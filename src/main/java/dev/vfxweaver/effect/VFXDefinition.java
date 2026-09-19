@@ -228,17 +228,10 @@ public class VFXDefinition {
 				}
 				if (value.isJsonObject()) {
 					JsonObject object = value.getAsJsonObject();
-					if (object.has("from")) {
-						String nodeId = GsonHelper.getAsString(object, "from");
-						String resolved = graphAliases.getOrDefault(nodeId, nodeId);
-						if (graph == null || graph.node(resolved) == null) {
-							throw new IllegalArgumentException("input '" + name + "': graph node '" + nodeId + "' does not exist");
-						}
-						graphInputs.put(name, resolved);
-						params.putIfAbsent(name, ParamSpec.constant(0.0F));
-						continue;
-					}
-					if (object.has("field")) {
+					// A field expression is a function leaf ("field") or a composition ("op") — the
+					// documented top-level composition form (GUIDE §3.7) must reach the field parser
+					// instead of falling through to the "number or {from}" error below.
+					if (object.has("field") || object.has("op")) {
 						if (object.has("from")) {
 							throw new IllegalArgumentException("input '" + name + "': a field object must not also have 'from'");
 						}
@@ -247,6 +240,16 @@ public class VFXDefinition {
 						}
 						fields.put(name, VFXField.parse(name, object, graph));
 						params.putIfAbsent(name, ParamSpec.constant(type.fieldNeutral(name)));
+						continue;
+					}
+					if (object.has("from")) {
+						String nodeId = GsonHelper.getAsString(object, "from");
+						String resolved = graphAliases.getOrDefault(nodeId, nodeId);
+						if (graph == null || graph.node(resolved) == null) {
+							throw new IllegalArgumentException("input '" + name + "': graph node '" + nodeId + "' does not exist");
+						}
+						graphInputs.put(name, resolved);
+						params.putIfAbsent(name, ParamSpec.constant(0.0F));
 						continue;
 					}
 				}

@@ -86,10 +86,12 @@ public final class VFXShaderPrograms {
 	 * The std140 size of the {@code FieldConfig} block. <b>Contract</b> (AGENTS.md UBO field-order
 	 * rule): this mirrors the declaration order in
 	 * {@code assets/vfxweaver/shaders/include/field.glsl}, which {@link dev.vfxweaver.field.VFXFieldProgram#write}
-	 * emits — change all three together.
+	 * emits — change all three together. The four leading floats ({@code fld_uniform},
+	 * {@code fld_depth_valid}, {@code fld_leaf_count}, {@code fld_weight}) fill the first 16 bytes,
+	 * so {@code fld_weight} reuses the padding the three-float form left before {@code fld_leaf_fn}.
 	 */
 	public static final int FIELD_CONFIG_SIZE = new Std140SizeCalculator()
-		.putFloat().putFloat().putFloat()
+		.putFloat().putFloat().putFloat().putFloat()
 		.putVec4().putVec4().putVec4()
 		.putVec4().putVec4()
 		.putVec4().putVec4().putVec4().putVec4()
