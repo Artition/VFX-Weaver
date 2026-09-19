@@ -1,11 +1,14 @@
 package dev.vfxweaver.effect;
 
+import dev.vfxweaver.graph.VFXGraph;
+import dev.vfxweaver.graph.VFXGraphEvaluator;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -27,6 +30,9 @@ public class VFXTimeline {
 	private Map<String, BoundParam> bindings;
 	private Map<String, BoundParam> multipliers;
 	private Map<String, MathExpression> expressions;
+	private final @Nullable VFXGraph graph;
+	private final Map<String, String> graphInputs;
+	private final @Nullable VFXGraphEvaluator graphEvaluator;
 	private final Map<String, AnimatedValue> overrides = new LinkedHashMap<>();
 	private float elapsed;
 
@@ -76,11 +82,25 @@ public class VFXTimeline {
 	 * @param expressions named compiled expressions (evaluated with t/x/y/z per frame)
 	 */
 	public VFXTimeline(final float duration, final Map<String, AnimatedValue> values, final Map<String, BoundParam> bindings, final Map<String, BoundParam> multipliers, final Map<String, MathExpression> expressions) {
+		this(duration, values, bindings, multipliers, expressions, null, Map.of(), 0L);
+	}
+
+	/**
+	 * Creates a timeline that also drives a uniform graph.
+	 *
+	 * @param graph       the definition's graph, or {@code null} for a definition without one
+	 * @param graphInputs effect input name to source node id (inputs block plus graph edges)
+	 * @param graphSeed   per-instance seed passed to the graph evaluator
+	 */
+	public VFXTimeline(final float duration, final Map<String, AnimatedValue> values, final Map<String, BoundParam> bindings, final Map<String, BoundParam> multipliers, final Map<String, MathExpression> expressions, final @Nullable VFXGraph graph, final Map<String, String> graphInputs, final long graphSeed) {
 		this.duration = duration;
 		this.values = Collections.unmodifiableMap(new LinkedHashMap<>(values));
 		this.bindings = Collections.unmodifiableMap(new LinkedHashMap<>(bindings));
 		this.multipliers = Collections.unmodifiableMap(new LinkedHashMap<>(multipliers));
 		this.expressions = Collections.unmodifiableMap(new LinkedHashMap<>(expressions));
+		this.graph = graph;
+		this.graphInputs = Map.copyOf(graphInputs);
+		this.graphEvaluator = graph == null ? null : new VFXGraphEvaluator(graph, graphSeed);
 		this.elapsed = 0.0F;
 	}
 
@@ -100,6 +120,25 @@ public class VFXTimeline {
 	}
 
 	/**
+	 * Advances the graph to the current frame. Call once per frame, after {@link #update(float)};
+	 * a no-op when the definition has no graph.
+	 *
+	 * @param now elapsed effect time in ticks (the same value passed to {@link #update(float)})
+	 */
+	public void updateGraph(final float now) {
+		if (this.graphEvaluator != null) {
+			this.graphEvaluator.beginFrame(now);
+		}
+	}
+
+	/**
+	 * The definition's uniform graph, or {@code null}.
+	 */
+	public @Nullable VFXGraph getGraph() {
+		return this.graph;
+	}
+
+	/**
 	 * Reads the current value of the given parameter. Runtime overrides win over world-bound
 	 * parameters, which in turn are evaluated against the camera state fed by the client.
 	 *
@@ -110,6 +149,10 @@ public class VFXTimeline {
 		AnimatedValue override = this.overrides.get(name);
 		if (override != null) {
 			return override.get();
+		}
+		final String graphNode = this.graphInputs.get(name);
+		if (graphNode != null && this.graphEvaluator != null) {
+			return this.graphEvaluator.evaluate(graphNode, fallback);
 		}
 		BoundParam binding = this.bindings.get(name);
 		float base;

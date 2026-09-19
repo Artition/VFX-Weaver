@@ -167,6 +167,7 @@ public class VFXActiveEffect {
 			this.elapsed = raw;
 		}
 		this.timeline.update(this.elapsed);
+		this.timeline.updateGraph(this.elapsed);
 	}
 
 	/**

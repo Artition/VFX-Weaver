@@ -4,6 +4,7 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonPrimitive;
+import dev.vfxweaver.graph.VFXGraph;
 import dev.vfxweaver.util.VFXLog;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -41,6 +42,8 @@ public class VFXDefinition {
 	private final @Nullable String shape;
 	private final @Nullable String blockId;
 	private final @Nullable String itemId;
+	private final @Nullable VFXGraph graph;
+	private final Map<String, String> graphInputs;
 
 	private VFXDefinition(
 		final Identifier id,
@@ -59,7 +62,9 @@ public class VFXDefinition {
 		final @Nullable String particleId,
 		final @Nullable String shape,
 		final @Nullable String blockId,
-		final @Nullable String itemId
+		final @Nullable String itemId,
+		final @Nullable VFXGraph graph,
+		final Map<String, String> graphInputs
 	) {
 		this.id = id;
 		this.type = type;
@@ -78,6 +83,8 @@ public class VFXDefinition {
 		this.shape = shape;
 		this.blockId = blockId;
 		this.itemId = itemId;
+		this.graph = graph;
+		this.graphInputs = Map.copyOf(graphInputs);
 	}
 
 	/**
@@ -146,7 +153,7 @@ public class VFXDefinition {
 		final @Nullable Identifier sound,
 		final @Nullable String entitySelector
 	) {
-		return new VFXDefinition(id, type, defaultDuration, defaultEasing, params, persistent, loop, fadeTicks, children, positions, List.of(), sound, entitySelector, null, null, null, null);
+		return new VFXDefinition(id, type, defaultDuration, defaultEasing, params, persistent, loop, fadeTicks, children, positions, List.of(), sound, entitySelector, null, null, null, null, null, Map.of());
 	}
 
 	/**
@@ -189,6 +196,51 @@ public class VFXDefinition {
 			params.putIfAbsent("sound_pos_z", ParamSpec.constant(sp.get(2).getAsFloat()));
 		}
 
+		// Optional graph (spec §3.1) and inputs (spec §3.2). Both are additive: a definition
+		// without them behaves exactly as before, and an older mod ignores them entirely
+		// because graph references never live inside "params".
+		VFXGraph graph = null;
+		if (json.has("graph") && !json.get("graph").isJsonNull()) {
+			graph = VFXGraph.parse(id.toString(), GsonHelper.getAsJsonObject(json, "graph"));
+		}
+		Map<String, String> graphInputs = new LinkedHashMap<>();
+		if (json.has("inputs") && !json.get("inputs").isJsonNull()) {
+			JsonObject inputsJson = GsonHelper.getAsJsonObject(json, "inputs");
+			for (Map.Entry<String, JsonElement> entry : inputsJson.entrySet()) {
+				String name = entry.getKey();
+				JsonElement value = entry.getValue();
+				if (value.isJsonPrimitive() && value.getAsJsonPrimitive().isNumber()) {
+					params.put(name, ParamSpec.constant(value.getAsFloat()));
+					continue;
+				}
+				if (value.isJsonObject()) {
+					JsonObject object = value.getAsJsonObject();
+					if (object.has("from")) {
+						String nodeId = GsonHelper.getAsString(object, "from");
+						if (graph == null || graph.node(nodeId) == null) {
+							throw new IllegalArgumentException("input '" + name + "': graph node '" + nodeId + "' does not exist");
+						}
+						graphInputs.put(name, nodeId);
+						params.putIfAbsent(name, ParamSpec.constant(0.0F));
+						continue;
+					}
+					if (object.has("field")) {
+						throw new IllegalArgumentException("input '" + name + "': field functions are not implemented yet (spec step 4)");
+					}
+				}
+				throw new IllegalArgumentException("input '" + name + "' must be a number or { \"from\": \"<node>\" }");
+			}
+		}
+		if (graph != null) {
+			for (Map.Entry<String, String> entry : graph.effectInputRefs().entrySet()) {
+				if (graphInputs.containsKey(entry.getKey())) {
+					throw new IllegalArgumentException("input '" + entry.getKey() + "': wired twice (inputs block and graph edge)");
+				}
+				graphInputs.put(entry.getKey(), entry.getValue());
+				params.putIfAbsent(entry.getKey(), ParamSpec.constant(0.0F));
+			}
+		}
+
 		List<ChildEffect> children = new ArrayList<>();
 		if (json.has("effects")) {
 			for (JsonElement entry : GsonHelper.getAsJsonArray(json, "effects")) {
@@ -225,7 +277,7 @@ public class VFXDefinition {
 			? GsonHelper.getAsString(json, "item")
 			: null;
 
-		return new VFXDefinition(id, type, duration, easing, params, persistent, loop, fadeTicks, children, positions, entityAnchors, sound, entitySelector, particleId, shape, blockId, itemId);
+		return new VFXDefinition(id, type, duration, easing, params, persistent, loop, fadeTicks, children, positions, entityAnchors, sound, entitySelector, particleId, shape, blockId, itemId, graph, graphInputs);
 	}
 
 	/**
@@ -492,7 +544,7 @@ public class VFXDefinition {
 		}
 		Map<String, ParamSpec> merged = new LinkedHashMap<>(this.params);
 		merged.putAll(overrides);
-		return new VFXDefinition(this.id, this.type, this.defaultDuration, this.defaultEasing, merged, this.persistent, this.loop, this.fadeTicks, this.children, this.positions, this.entityAnchors, this.sound, this.entitySelector, this.particleId, this.shape, this.blockId, this.itemId);
+		return new VFXDefinition(this.id, this.type, this.defaultDuration, this.defaultEasing, merged, this.persistent, this.loop, this.fadeTicks, this.children, this.positions, this.entityAnchors, this.sound, this.entitySelector, this.particleId, this.shape, this.blockId, this.itemId, this.graph, this.graphInputs);
 	}
 
 	/**
@@ -563,7 +615,7 @@ public class VFXDefinition {
 				VFXLog.warnOnce(LOGGER, "def:undeclared:" + this.getId() + ":" + entry.getKey(), "Effect '{}' received an override for undeclared parameter '{}' (applied as a constant)", this.getId(), entry.getKey());
 			}
 		}
-		return new VFXTimeline(duration, values, bindings, multipliers, expressions);
+		return new VFXTimeline(duration, values, bindings, multipliers, expressions, this.graph, this.graphInputs, instanceSeed);
 	}
 
 	/**
@@ -595,6 +647,21 @@ public class VFXDefinition {
 
 	public Map<String, ParamSpec> getParams() {
 		return this.params;
+	}
+
+	/**
+	 * The optional uniform graph declared by this definition, or {@code null} when it has none.
+	 */
+	public @Nullable VFXGraph getGraph() {
+		return this.graph;
+	}
+
+	/**
+	 * Effect input name to source node id, from the {@code inputs} block and from graph edges
+	 * whose target is an effect input. Empty when the definition has no graph wiring.
+	 */
+	public Map<String, String> getGraphInputs() {
+		return this.graphInputs;
 	}
 
 	/**
