@@ -1,0 +1,24 @@
+{
+  "type": "dent",
+  "duration": 200,
+  "loop": true,
+  "persistent": true,
+  "fade_ticks": 10,
+  "params": {
+    "strength": { "start": 0.7, "end": 0.7 },
+    "radius": 0.4,
+    "center_x": 0.5,
+    "center_y": 0.5,
+    "screen_layer": 1
+  },
+  "inputs": {
+    "intensity": {
+      "field": "noise",
+      "space": "screen",
+      "scale": 18.0,
+      "octaves": 3,
+      "gain": 0.5,
+      "lacunarity": 2.0
+    }
+  }
+}
