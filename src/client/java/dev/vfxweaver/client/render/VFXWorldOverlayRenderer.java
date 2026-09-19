@@ -1835,7 +1835,7 @@ public final class VFXWorldOverlayRenderer {
 	 * drawn by a block-entity renderer instead (skulls, banners, signs, ...) bake an empty model,
 	 * so {@code submitMovingBlock} would silently draw nothing for them.
 	 */
-	static boolean hasBlockModelGeometry(final BlockState state) {
+	public static boolean hasBlockModelGeometry(final BlockState state) {
 		return !getModelQuads(Minecraft.getInstance(), state).isEmpty();
 	}
 

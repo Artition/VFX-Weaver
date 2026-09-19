@@ -1,14 +1,27 @@
 package dev.vfxweaver.client.postprocessing;
 
+import com.mojang.blaze3d.pipeline.BlendFunction;
 import com.mojang.blaze3d.pipeline.RenderPipeline;
 import com.mojang.blaze3d.shaders.UniformType;
 import com.mojang.blaze3d.buffers.Std140SizeCalculator;
+import com.mojang.blaze3d.vertex.DefaultVertexFormat;
 import dev.vfxweaver.effect.VFXEffectType;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
+//? if <26.1 {
+/*import com.mojang.blaze3d.platform.DepthTestFunction;
+*///?} else {
+import com.mojang.blaze3d.pipeline.ColorTargetState;
+import com.mojang.blaze3d.pipeline.DepthStencilState;
+import com.mojang.blaze3d.platform.CompareOp;
+//?}
+//? if <26.2 {
+import com.mojang.blaze3d.vertex.VertexFormat;
+//?}
 //? if >=26.2 {
-/*import com.mojang.blaze3d.pipeline.BindGroupLayout;
+/*import com.mojang.blaze3d.PrimitiveTopology;
+import com.mojang.blaze3d.pipeline.BindGroupLayout;
 import net.minecraft.client.renderer.BindGroupLayouts;
 *///?}
 import net.minecraft.client.renderer.RenderPipelines;
@@ -37,15 +50,17 @@ public final class VFXShaderPrograms {
 
 	/**
 	 * Describes one effect shader: its pipeline plus the ordered float parameter names of the
-	 * {@code Config} uniform block and its std140-aligned byte size.
+	 * {@code Config} uniform block and its std140-aligned byte size. {@code mask} marks the shared
+	 * coverage-read consumer, {@code coverage} the coverage prepass (whose {@code Config} is written
+	 * by {@link VFXMaskUniforms}, not the generic per-param loop).
 	 */
-	public record ProgramInfo(RenderPipeline pipeline, String[] configParams, int configUboSize, PassRole role, boolean usesDepth, @Nullable String fieldInput) {
+	public record ProgramInfo(RenderPipeline pipeline, String[] configParams, int configUboSize, PassRole role, boolean usesDepth, @Nullable String fieldInput, boolean mask, boolean coverage) {
 		public ProgramInfo(final RenderPipeline pipeline, final String[] configParams, final int configUboSize, final PassRole role) {
-			this(pipeline, configParams, configUboSize, role, false, null);
+			this(pipeline, configParams, configUboSize, role, false, null, false, false);
 		}
 
 		public ProgramInfo(final RenderPipeline pipeline, final String[] configParams, final int configUboSize) {
-			this(pipeline, configParams, configUboSize, PassRole.NORMAL, false, null);
+			this(pipeline, configParams, configUboSize, PassRole.NORMAL, false, null, false, false);
 		}
 
 		/** True when this pipeline declares the {@code FieldConfig} uniform block. */
@@ -56,6 +71,12 @@ public final class VFXShaderPrograms {
 
 	private static final Map<VFXEffectType, List<ProgramInfo>> PROGRAMS = new EnumMap<>(VFXEffectType.class);
 	private static @Nullable RenderPipeline copyPipeline;
+	private static @Nullable RenderPipeline coveragePipeline;
+	private static @Nullable ProgramInfo coverageProgram;
+	private static @Nullable RenderPipeline maskPipeline;
+	private static @Nullable ProgramInfo maskProgram;
+	private static @Nullable RenderPipeline blockGeometryPipeline;
+	private static @Nullable ProgramInfo blockGeometryProgram;
 
 	//? if >=26.2 {
 	/*	// 26.2 moved sampler/uniform declarations to explicit bind-group layouts.
@@ -79,6 +100,12 @@ public final class VFXShaderPrograms {
 		.build();
 	private static final BindGroupLayout FIELD_CONFIG_LAYOUT = BindGroupLayout.builder()
 		.withUniform("FieldConfig", UniformType.UNIFORM_BUFFER)
+		.build();
+	private static final BindGroupLayout COVERAGE_SAMPLER_LAYOUT = BindGroupLayout.builder()
+		.withSampler("CoverageSampler")
+		.build();
+	private static final BindGroupLayout GEOMETRY_COVERAGE_SAMPLER_LAYOUT = BindGroupLayout.builder()
+		.withSampler("GeometryCoverageSampler")
 		.build();
 	*///?}
 
@@ -160,6 +187,81 @@ public final class VFXShaderPrograms {
 				//?}
 				.build()
 		);
+
+		coveragePipeline = RenderPipelines.register(
+			RenderPipeline.builder(RenderPipelines.POST_PROCESSING_SNIPPET)
+				.withLocation(Identifier.fromNamespaceAndPath("vfxweaver", "post/mask_coverage"))
+				.withVertexShader("core/screenquad")
+				.withFragmentShader(Identifier.fromNamespaceAndPath("vfxweaver", "post/mask_coverage"))
+				//? if <26.2 {
+				.withSampler("DepthSampler")
+				.withSampler("GeometryCoverageSampler")
+				.withUniform("SamplerInfo", UniformType.UNIFORM_BUFFER)
+				.withUniform("Config", UniformType.UNIFORM_BUFFER)
+				//?} else {
+				/*.withBindGroupLayout(DEPTH_SAMPLER_LAYOUT)
+				.withBindGroupLayout(GEOMETRY_COVERAGE_SAMPLER_LAYOUT)
+				.withBindGroupLayout(SAMPLER_INFO_CONFIG_LAYOUT)
+				*///?}
+				.build()
+		);
+		// The coverage Config block is written by VFXMaskUniforms, not the generic per-param loop,
+		// so its configParams list stays empty and only its size is carried here.
+		coverageProgram = new ProgramInfo(coveragePipeline, new String[0], VFXMaskUniforms.uboSize(), PassRole.NORMAL, false, null, false, true);
+
+		maskPipeline = RenderPipelines.register(
+			RenderPipeline.builder(RenderPipelines.POST_PROCESSING_SNIPPET)
+				.withLocation(Identifier.fromNamespaceAndPath("vfxweaver", "post/mask_apply"))
+				.withVertexShader("core/screenquad")
+				.withFragmentShader(Identifier.fromNamespaceAndPath("vfxweaver", "post/mask_apply"))
+				//? if <26.2 {
+				.withSampler("InSampler")
+				.withSampler("HistSampler")
+				.withSampler("CoverageSampler")
+				.withUniform("SamplerInfo", UniformType.UNIFORM_BUFFER)
+				//?} else {
+				/*.withBindGroupLayout(BindGroupLayouts.IN_SAMPLER)
+				.withBindGroupLayout(HIST_SAMPLER_LAYOUT)
+				.withBindGroupLayout(COVERAGE_SAMPLER_LAYOUT)
+				.withBindGroupLayout(SAMPLER_INFO_LAYOUT)
+				*///?}
+				.build()
+		);
+		maskProgram = new ProgramInfo(maskPipeline, new String[0], 0, PassRole.NORMAL, false, null, true, false);
+
+		// The block-geometry contribution writes coverage into the geometry scratch; it is drawn by
+		// the manager, not scheduled as an effect-chain ProgramInfo. The rasterisation draw itself is
+		// deferred (see VFXMaskBlockGeometry), but the pipeline is registered so the shader is ready.
+		blockGeometryPipeline = RenderPipelines.register(
+			RenderPipeline.builder()
+				.withLocation(Identifier.fromNamespaceAndPath("vfxweaver", "world/mask_block_geometry"))
+				.withVertexShader("core/position_color")
+				.withFragmentShader(Identifier.fromNamespaceAndPath("vfxweaver", "post/mask_block_geometry"))
+				//? if <26.2 {
+				.withUniform("DynamicTransforms", UniformType.UNIFORM_BUFFER)
+				.withUniform("Projection", UniformType.UNIFORM_BUFFER)
+				.withVertexFormat(DefaultVertexFormat.POSITION_COLOR, VertexFormat.Mode.QUADS)
+				//?} else {
+				/*.withBindGroupLayout(BindGroupLayouts.MATRICES_PROJECTION)
+				.withVertexBinding(0, DefaultVertexFormat.POSITION_COLOR)
+				.withPrimitiveTopology(PrimitiveTopology.QUADS)
+				*///?}
+				//? if <26.1 {
+				/*.withDepthTestFunction(DepthTestFunction.NO_DEPTH_TEST)
+				.withDepthWrite(false)
+				.withBlend(BlendFunction.TRANSLUCENT)
+				*///?} else {
+				//? if <26.2 {
+				.withDepthStencilState(new DepthStencilState(CompareOp.ALWAYS_PASS, false))
+				//?} else {
+				/*.withDepthStencilState(new DepthStencilState(CompareOp.ALWAYS_PASS, false))
+				*///?}
+				.withColorTargetState(new ColorTargetState(BlendFunction.TRANSLUCENT))
+				//?}
+				.withCull(false)
+				.build()
+		);
+		blockGeometryProgram = new ProgramInfo(blockGeometryPipeline, new String[0], 0, PassRole.NORMAL, false, null, false, false);
 	}
 
 	/**
@@ -175,6 +277,27 @@ public final class VFXShaderPrograms {
 	 */
 	public static @Nullable RenderPipeline getCopyPipeline() {
 		return copyPipeline;
+	}
+
+	/**
+	 * The coverage prepass pipeline, or {@code null} before {@link #register()} runs.
+	 */
+	public static @Nullable ProgramInfo coverageProgram() {
+		return coverageProgram;
+	}
+
+	/**
+	 * The shared coverage-read mask pipeline, or {@code null} before {@link #register()} runs.
+	 */
+	public static @Nullable ProgramInfo maskProgram() {
+		return maskProgram;
+	}
+
+	/**
+	 * The block-geometry coverage pipeline, or {@code null} before {@link #register()} runs.
+	 */
+	public static @Nullable ProgramInfo blockGeometryProgram() {
+		return blockGeometryProgram;
 	}
 
 	private static void registerPost(final VFXEffectType type, final String... params) {
@@ -208,7 +331,7 @@ public final class VFXShaderPrograms {
 			.withBindGroupLayout(FIELD_CONFIG_LAYOUT);
 			*///?}
 		RenderPipeline pipeline = RenderPipelines.register(builder.build());
-		PROGRAMS.put(type, List.of(new ProgramInfo(pipeline, params, align16(params.length * 4), PassRole.NORMAL, true, fieldInput)));
+		PROGRAMS.put(type, List.of(new ProgramInfo(pipeline, params, align16(params.length * 4), PassRole.NORMAL, true, fieldInput, false, false)));
 	}
 
 	/**

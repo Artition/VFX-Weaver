@@ -21,6 +21,14 @@ public final class VFXShapeRegistry {
 	private final Map<String, VFXMaskShapeGlsl> plugins = new HashMap<>();
 
 	private VFXShapeRegistry() {
+		// Built-in composed shapes live in the shared registry (registry metadata is MC-free) so a
+		// datapack referencing them validates during server-side parsing too; the GPU coverage is
+		// client-only. The demo mask_custom_demo.json references this id.
+		this.shapes.put("vfxweaver:ringed_volume", VFXCustomShape.composed("vfxweaver:ringed_volume", VFXMaskSpace.WORLD)
+			.sphere(new float[]{0.0F, 64.0F, 0.0F}, 12.0F)
+			.op(VFXMaskOp.DIFFERENCE)
+			.box(new float[]{0.0F, 64.0F, 0.0F}, 4.0F, 4.0F, 4.0F)
+			.build());
 	}
 
 	/** The singleton registry. */

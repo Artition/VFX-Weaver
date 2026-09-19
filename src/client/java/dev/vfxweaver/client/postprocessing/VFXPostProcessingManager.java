@@ -19,9 +19,13 @@ import com.mojang.blaze3d.textures.FilterMode;
 import dev.vfxweaver.client.effect.VFXEffectManager;
 import dev.vfxweaver.effect.VFXActiveEffect;
 import dev.vfxweaver.field.VFXFieldProgram;
+import dev.vfxweaver.mask.VFXCustomShape;
+import dev.vfxweaver.mask.VFXMask;
+import dev.vfxweaver.mask.VFXShapeRegistry;
 import dev.vfxweaver.util.VFXLog;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 //? if >=26.2 {
@@ -38,6 +42,7 @@ import net.minecraft.client.renderer.ProjectionMatrixBuffer;
 //?}
 import net.minecraft.resources.Identifier;
 import net.minecraft.util.Mth;
+import org.joml.Matrix4fc;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -62,6 +67,12 @@ public final class VFXPostProcessingManager {
 	private @Nullable TextureTarget stopMotionHold;
 	/** Last quantised hold slot per stop_motion effect (effect id -> slot). */
 	private final Map<Identifier, Integer> stopMotionSlots = new HashMap<>();
+	/** One coverage target per distinct masked definition, reused across frames (pruned to the live set). */
+	private final Map<Identifier, TextureTarget> coverageTargets = new HashMap<>();
+	/** One geometry-coverage scratch per distinct block mask, cleared each frame before the prepass. */
+	private final Map<Identifier, TextureTarget> geometryTargets = new HashMap<>();
+	/** The pre-effect image one masked effect's consumer blends against; sequential use, one buffer. */
+	private @Nullable TextureTarget maskBefore;
 	//? if >=26.1
 	private final Projection projection = new Projection();
 	private final Map<Identifier, VFXPass> passes = new HashMap<>();
@@ -91,6 +102,18 @@ public final class VFXPostProcessingManager {
 			this.stopMotionHold.destroyBuffers();
 			this.stopMotionHold = null;
 		}
+		for (TextureTarget target : this.coverageTargets.values()) {
+			target.destroyBuffers();
+		}
+		this.coverageTargets.clear();
+		for (TextureTarget target : this.geometryTargets.values()) {
+			target.destroyBuffers();
+		}
+		this.geometryTargets.clear();
+		if (this.maskBefore != null) {
+			this.maskBefore.destroyBuffers();
+			this.maskBefore = null;
+		}
 		this.stopMotionSlots.clear();
 		this.passes.clear();
 		this.projectionMatrixBuffer = null;
@@ -118,7 +141,10 @@ public final class VFXPostProcessingManager {
 				active.add(effect);
 			}
 		}
-		if (active.isEmpty() || mainTarget == null) {
+		// Every distinct masked definition this frame, regardless of the owning effect's layer: the
+		// coverage prepass runs at layer 0 for all of them, and the consumer reads it at any layer.
+		final Map<Identifier, VFXActiveEffect> maskEffects = activeMaskEffects(effects.getActivePostEffects());
+		if (mainTarget == null || (active.isEmpty() && (layer != 0 || maskEffects.isEmpty()))) {
 			return;
 		}
 		int width = mainTarget.width;
@@ -146,19 +172,36 @@ public final class VFXPostProcessingManager {
 				}
 			}
 		}
+		if (!maskEffects.isEmpty()) {
+			// The prepass owns the layer-0 requirement, not the effect: layer 0 is where the scene
+			// depth is intact (the depth buffer is cleared before the hand at later layers).
+			VFXFieldEnv.capture(mainTarget, layer == 0 && depthRecipeVerified());
+		}
 
-		// Expand every active effect into its sequential shader passes (e.g. blur = X + Y).
+		// Expand every active effect into its sequential shader passes (e.g. blur = X + Y), appending
+		// one shared coverage-read consumer after any effect that declares a mask (spec §4). A
+		// definition without a mask gets exactly the same chain as before — the additive contract.
+		final VFXShaderPrograms.ProgramInfo maskInfo = VFXShaderPrograms.maskProgram();
 		List<PassRun> chain = new ArrayList<>();
 		for (VFXActiveEffect effect : active) {
-			for (VFXShaderPrograms.ProgramInfo info : VFXShaderPrograms.getPrograms(effect.getType())) {
-				chain.add(new PassRun(this.pass(info), effect));
+			List<VFXShaderPrograms.ProgramInfo> infos = VFXShaderPrograms.getPrograms(effect.getType());
+			if (infos.isEmpty()) {
+				continue;
+			}
+			final boolean masked = effect.getMask() != null && maskInfo != null;
+			for (int i = 0; i < infos.size(); i++) {
+				chain.add(new PassRun(this.pass(infos.get(i)), effect, false, masked && i == 0));
+			}
+			if (masked) {
+				chain.add(new PassRun(this.pass(maskInfo), effect, true, false));
 			}
 		}
-		if (chain.isEmpty()) {
+		if (chain.isEmpty() && (layer != 0 || maskEffects.isEmpty())) {
 			return;
 		}
 
 		this.ensureTargets(width, height);
+		this.ensureMaskTargets(width, height, maskEffects);
 		//? if <26.1 {
 /*		if (this.projectionMatrixBuffer == null) {
 			this.projectionMatrixBuffer = new CachedOrthoProjectionMatrixBuffer("vfxweaver_post", 0.1F, 1000.0F, false);
@@ -182,31 +225,67 @@ public final class VFXPostProcessingManager {
 			// texture that is not the one they are writing to. Copy main -> pingpong[0]
 			// first, then run the chain starting from that buffer.
 			VFXPass copy = this.copyPass();
-			copy.execute(encoder, samplerCache, mainTarget, this.pingPong[0], null, null, null, null, null);
-			this.pruneStopMotionSlots(active);
+			if (!chain.isEmpty()) {
+				copy.execute(encoder, samplerCache, mainTarget, this.pingPong[0], null, null, null, null, null, null);
+				this.pruneStopMotionSlots(active);
+			}
+
+			if (layer == 0 && !maskEffects.isEmpty()) {
+				// Geometry first: a block mask's model geometry is rasterised into its scratch target,
+				// which the coverage shader then samples as that leaf's coverage.
+				for (final Map.Entry<Identifier, VFXActiveEffect> entry : maskEffects.entrySet()) {
+					final VFXMask entryMask = entry.getValue().getMask();
+					if (entryMask != null && entryMask.hasBlockLeaf()) {
+						final TextureTarget geometry = this.geometryTargets.get(entry.getKey());
+						if (geometry != null) {
+							VFXMaskBlockGeometry.render(encoder, geometry);
+						}
+					}
+				}
+				for (final Map.Entry<Identifier, VFXActiveEffect> entry : maskEffects.entrySet()) {
+					runCoveragePrepass(encoder, samplerCache, mainTarget, entry.getValue(), entry.getKey());
+				}
+			}
+			if (chain.isEmpty()) {
+				return;
+			}
 
 			RenderTarget read = this.pingPong[0];
 			int pingPongIndex = 1;
 			for (int i = 0; i < chain.size(); i++) {
 				boolean last = i == chain.size() - 1;
 				PassRun run = chain.get(i);
+				if (run.captureBefore()) {
+					// Preserve the pre-effect image so the consumer can blend the coverage into it.
+					copy.execute(encoder, samplerCache, read, this.maskBefore, null, null, null, null, null, null);
+				}
+				if (run.mask()) {
+					final TextureTarget coverage = this.coverageTargets.get(run.effect().getId());
+					RenderTarget output = last ? mainTarget : this.pingPong[pingPongIndex];
+					run.pass().execute(encoder, samplerCache, read, output, run.effect(), this.maskBefore, null, null, null, coverage);
+					read = output;
+					if (!last) {
+						pingPongIndex = 1 - pingPongIndex;
+					}
+					continue;
+				}
 				VFXShaderPrograms.PassRole role = run.role();
 				if (role == VFXShaderPrograms.PassRole.FEEDBACK_UPDATE) {
 					// History update: read the live frame + the previous history, write the next.
 					RenderTarget histPrev = this.historyDirty ? read : this.history[0];
-					run.pass().execute(encoder, samplerCache, read, this.history[1], run.effect(), histPrev, null, null, null);
+					run.pass().execute(encoder, samplerCache, read, this.history[1], run.effect(), histPrev, null, null, null, null);
 					this.historyDirty = false;
 					// read stays the live frame for the composite pass.
 				} else {
 					RenderTarget output = last ? mainTarget : this.pingPong[pingPongIndex];
 					if (role == VFXShaderPrograms.PassRole.STOP_MOTION) {
 						float hold = this.updateStopMotionHold(run.effect(), encoder, samplerCache, copy, mainTarget);
-						run.pass().execute(encoder, samplerCache, read, output, run.effect(), this.stopMotionHold, hold, null, null);
+						run.pass().execute(encoder, samplerCache, read, output, run.effect(), this.stopMotionHold, hold, null, null, null);
 					} else if (role == VFXShaderPrograms.PassRole.FEEDBACK_COMPOSITE) {
-						run.pass().execute(encoder, samplerCache, read, output, run.effect(), this.history[1], null, null, null);
+						run.pass().execute(encoder, samplerCache, read, output, run.effect(), this.history[1], null, null, null, null);
 						this.swapHistory();
 					} else {
-						run.pass().execute(encoder, samplerCache, read, output, run.effect(), null, null, mainTarget, run.fieldProgram());
+						run.pass().execute(encoder, samplerCache, read, output, run.effect(), null, null, mainTarget, run.fieldProgram(), null);
 					}
 					read = output;
 					if (!last) {
@@ -219,6 +298,50 @@ public final class VFXPostProcessingManager {
 		} finally {
 			RenderSystem.restoreProjectionMatrix();
 		}
+	}
+
+	/** One representative effect per distinct masked definition (they share the mask and its slots). */
+	private static Map<Identifier, VFXActiveEffect> activeMaskEffects(final List<VFXActiveEffect> active) {
+		final Map<Identifier, VFXActiveEffect> effects = new LinkedHashMap<>();
+		for (final VFXActiveEffect effect : active) {
+			if (effect.getMask() != null) {
+				effects.putIfAbsent(effect.getId(), effect);
+			}
+		}
+		return effects;
+	}
+
+	/** The distinct GLSL-plugin custom-shape ids a mask references (composed shapes need no variant). */
+	private static List<String> pluginShapeIds(final VFXMask mask) {
+		final List<String> ids = new ArrayList<>();
+		for (final String id : mask.customShapeIds()) {
+			final VFXCustomShape shape = VFXShapeRegistry.get().get(id);
+			if (shape != null && shape.family() == VFXCustomShape.Family.GLSL_PLUGIN && !ids.contains(id)) {
+				ids.add(id);
+			}
+		}
+		return ids;
+	}
+
+	/**
+	 * Runs the coverage prepass for one distinct mask into its target. The caller guarantees layer 0,
+	 * so the camera and depth are read live from {@link VFXFieldEnv} (the verified reversed-depth
+	 * reconstruction). The block-geometry scratch (when the mask has a block leaf) was cleared and is
+	 * bound as the block leaf's coverage.
+	 */
+	private void runCoveragePrepass(final CommandEncoder encoder, final SamplerCache samplerCache, final RenderTarget mainTarget, final VFXActiveEffect effect, final Identifier definitionId) {
+		final VFXMask mask = effect.getMask();
+		final TextureTarget coverage = this.coverageTargets.get(definitionId);
+		if (mask == null || coverage == null) {
+			return;
+		}
+		final VFXShaderPrograms.ProgramInfo coverageInfo = VFXMaskShaderVariants.variantFor(pluginShapeIds(mask));
+		if (coverageInfo == null) {
+			return;
+		}
+		final float time = Minecraft.getInstance().level == null ? 0.0F : Minecraft.getInstance().level.getGameTime() / 20.0F;
+		this.pass(coverageInfo).executeCoverage(encoder, samplerCache, mainTarget, coverage, this.geometryTargets.get(definitionId),
+			effect, mask, VFXFieldEnv.invViewProj(), VFXFieldEnv.cameraX(), VFXFieldEnv.cameraY(), VFXFieldEnv.cameraZ(), time);
 	}
 
 	private void swapHistory() {
@@ -249,7 +372,7 @@ public final class VFXPostProcessingManager {
 		Integer prev = this.stopMotionSlots.get(effect.getId());
 		this.stopMotionSlots.put(effect.getId(), slot);
 		if (prev == null || prev != slot) {
-			copy.execute(encoder, samplerCache, mainTarget, this.stopMotionHold, null, null, null, null, null);
+			copy.execute(encoder, samplerCache, mainTarget, this.stopMotionHold, null, null, null, null, null, null);
 			return 0.0F;
 		}
 		return 1.0F;
@@ -264,8 +387,10 @@ public final class VFXPostProcessingManager {
 
 	/**
 	 * One scheduled pass of the chain: the shader plus the effect whose parameters drive it.
+	 * {@code mask} marks the shared coverage-read consumer; {@code captureBefore} marks the first
+	 * pass of a masked effect, whose input must be preserved into {@code maskBefore} for the consumer.
 	 */
-	private record PassRun(VFXPass pass, VFXActiveEffect effect) {
+	private record PassRun(VFXPass pass, VFXActiveEffect effect, boolean mask, boolean captureBefore) {
 		VFXShaderPrograms.PassRole role() {
 			return this.pass.role();
 		}
@@ -314,6 +439,62 @@ public final class VFXPostProcessingManager {
 		}
 	}
 
+	/**
+	 * Creates/reuses one coverage target per distinct masked definition and one geometry scratch per
+	 * block mask, plus the shared pre-effect image. Entries for definitions no longer masked this
+	 * frame are released, so the maps stay bounded by the live masked set.
+	 */
+	private void ensureMaskTargets(final int width, final int height, final Map<Identifier, VFXActiveEffect> maskEffects) {
+		this.coverageTargets.keySet().removeIf(id -> {
+			if (maskEffects.containsKey(id)) {
+				return false;
+			}
+			final TextureTarget target = this.coverageTargets.get(id);
+			if (target != null) {
+				target.destroyBuffers();
+			}
+			return true;
+		});
+		this.geometryTargets.keySet().removeIf(id -> {
+			if (maskEffects.containsKey(id)) {
+				return false;
+			}
+			final TextureTarget target = this.geometryTargets.get(id);
+			if (target != null) {
+				target.destroyBuffers();
+			}
+			return true;
+		});
+		if (maskEffects.isEmpty()) {
+			return;
+		}
+		if (this.maskBefore == null || this.maskBefore.width != width || this.maskBefore.height != height) {
+			if (this.maskBefore != null) {
+				this.maskBefore.destroyBuffers();
+			}
+			this.maskBefore = createTarget("vfxweaver mask before", width, height, false);
+		}
+		for (final Map.Entry<Identifier, VFXActiveEffect> entry : maskEffects.entrySet()) {
+			final TextureTarget existing = this.coverageTargets.get(entry.getKey());
+			if (existing == null || existing.width != width || existing.height != height) {
+				if (existing != null) {
+					existing.destroyBuffers();
+				}
+				this.coverageTargets.put(entry.getKey(), createTarget("vfxweaver mask coverage", width, height, false));
+			}
+			final VFXMask mask = entry.getValue().getMask();
+			if (mask != null && mask.hasBlockLeaf()) {
+				final TextureTarget geometry = this.geometryTargets.get(entry.getKey());
+				if (geometry == null || geometry.width != width || geometry.height != height) {
+					if (geometry != null) {
+						geometry.destroyBuffers();
+					}
+					this.geometryTargets.put(entry.getKey(), createTarget("vfxweaver mask geometry", width, height, false));
+				}
+			}
+		}
+	}
+
 	/** Creates a colour render target; 26.2 requires an explicit GPU format. */
 	private static TextureTarget createTarget(final String label, final int width, final int height, final boolean useDepth) {
 		//? if <26.2 {
@@ -347,6 +528,8 @@ public final class VFXPostProcessingManager {
 		private final boolean usesDepth;
 		private final @Nullable String fieldInput;
 		private final @Nullable MappableRingBuffer fieldUbo;
+		private final boolean mask;
+		private final boolean coverage;
 		private final Map<String, com.mojang.blaze3d.textures.GpuTextureView> textureCache = new HashMap<>();
 
 		private VFXPass(final VFXShaderPrograms.ProgramInfo info) {
@@ -362,6 +545,8 @@ public final class VFXPostProcessingManager {
 			this.fieldUbo = info.usesField()
 				? new MappableRingBuffer(() -> this.pipeline.getLocation() + " FieldConfig", UBO_USAGE, Math.max(16, VFXShaderPrograms.FIELD_CONFIG_SIZE))
 				: null;
+			this.mask = info.mask();
+			this.coverage = info.coverage();
 		}
 
 		VFXShaderPrograms.PassRole role() {
@@ -381,7 +566,8 @@ public final class VFXPostProcessingManager {
 			final @Nullable RenderTarget history,
 			final @Nullable Float hold,
 			final @Nullable RenderTarget depthSource,
-			final @Nullable VFXFieldProgram fieldProgram
+			final @Nullable VFXFieldProgram fieldProgram,
+			final @Nullable RenderTarget coverage
 		) {
 			//? if <26.2 {
 			try (GpuBuffer.MappedView view = encoder.mapBuffer(this.samplerInfoUbo.currentBuffer(), false, true)) {
@@ -455,6 +641,10 @@ public final class VFXPostProcessingManager {
 				if (history != null) {
 					renderPass.bindTexture("HistSampler", history.getColorTextureView(), samplerCache.getClampToEdge(FilterMode.LINEAR));
 				}
+				if (this.mask && coverage != null) {
+					// The precomputed coverage; the consumer does no shape/depth work.
+					renderPass.bindTexture("CoverageSampler", coverage.getColorTextureView(), samplerCache.getClampToEdge(FilterMode.NEAREST));
+				}
 				if (this.fieldUbo != null) {
 					renderPass.setUniform("FieldConfig", this.fieldUbo.currentBuffer());
 				}
@@ -479,6 +669,74 @@ public final class VFXPostProcessingManager {
 			}
 			if (this.fieldUbo != null) {
 				this.fieldUbo.rotate();
+			}
+		}
+
+		/**
+		 * Runs the coverage prepass: writes the mask Config via {@link VFXMaskUniforms}, binds the
+		 * scene depth and the geometry scratch, and draws one fullscreen triangle into the coverage
+		 * target. Called only by the manager at layer 0, so the main target's depth is intact.
+		 */
+		private void executeCoverage(
+			final CommandEncoder encoder,
+			final SamplerCache samplerCache,
+			final RenderTarget mainTarget,
+			final RenderTarget coverageTarget,
+			final @Nullable RenderTarget geometry,
+			final VFXActiveEffect effect,
+			final VFXMask mask,
+			final Matrix4fc invViewProj,
+			final float camX,
+			final float camY,
+			final float camZ,
+			final float time
+		) {
+			//? if <26.2 {
+			try (GpuBuffer.MappedView view = encoder.mapBuffer(this.samplerInfoUbo.currentBuffer(), false, true)) {
+			//?} else {
+			/*try (GpuBufferSlice.MappedView view = this.samplerInfoUbo.currentBuffer().map(false, true)) {
+			*///?}
+				Std140Builder.intoBuffer(view.data()).putVec2(coverageTarget.width, coverageTarget.height).putVec2(mainTarget.width, mainTarget.height);
+			}
+			if (this.configUbo != null) {
+				//? if <26.2 {
+				try (GpuBuffer.MappedView view = encoder.mapBuffer(this.configUbo.currentBuffer(), false, true)) {
+				//?} else {
+				/*try (GpuBufferSlice.MappedView view = this.configUbo.currentBuffer().map(false, true)) {
+				*///?}
+					VFXMaskUniforms.writeCoverage(Std140Builder.intoBuffer(view.data()), effect, mask, invViewProj, camX, camY, camZ, time);
+				}
+			}
+			try (RenderPass renderPass = encoder.createRenderPass(
+					() -> "VFX coverage " + this.pipeline.getLocation(),
+					coverageTarget.getColorTextureView(),
+					//? if <26.2 {
+					OptionalInt.empty()
+					//?} else {
+					/*Optional.empty()
+					*///?}
+				)) {
+				renderPass.setPipeline(this.pipeline);
+				RenderSystem.bindDefaultUniforms(renderPass);
+				renderPass.setUniform("SamplerInfo", this.samplerInfoUbo.currentBuffer());
+				if (this.configUbo != null) {
+					renderPass.setUniform("Config", this.configUbo.currentBuffer());
+				}
+				renderPass.bindTexture("DepthSampler", mainTarget.getDepthTextureView(), samplerCache.getClampToEdge(FilterMode.NEAREST));
+				// A block leaf samples the geometry scratch; a harmless placeholder bind when the mask
+				// has no block leaf (the shader never reads it then).
+				renderPass.bindTexture("GeometryCoverageSampler",
+					geometry != null ? geometry.getColorTextureView() : coverageTarget.getColorTextureView(),
+					samplerCache.getClampToEdge(FilterMode.NEAREST));
+				//? if <26.2 {
+				renderPass.draw(0, 3);
+				//?} else {
+				/*renderPass.draw(3, 1, 0, 0);
+				*///?}
+			}
+			this.samplerInfoUbo.rotate();
+			if (this.configUbo != null) {
+				this.configUbo.rotate();
 			}
 		}
 

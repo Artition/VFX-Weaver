@@ -6,6 +6,7 @@ import dev.vfxweaver.client.compat.iris.VfxIrisCompat;
 import dev.vfxweaver.client.flashback.FlashbackCompat;
 import dev.vfxweaver.client.platform.VFXClientRenderHooks;
 import dev.vfxweaver.client.postprocessing.VFXShaderPrograms;
+import dev.vfxweaver.client.render.VFXClientEntityReader;
 import dev.vfxweaver.client.render.VFXEntityEffectRenderer;
 import dev.vfxweaver.client.render.VFXWorldOverlayRenderer;
 import dev.vfxweaver.effect.EasingFunction;
@@ -62,6 +63,7 @@ public class VFXClient {
 		VFXEntityEffectRenderer.register();
 		VFXAPI.setLocalDispatcher(new VFXClientAPI());
 		VFXWorldBindings.setScoreboardReader(VFXClient::readScoreboard);
+		VFXWorldBindings.setEntityReader(new VFXClientEntityReader());
 		VfxIrisCompat.init();
 		FlashbackCompat.init();
 		VFXNetwork.registerClientReceive(VFXTriggerPayload.TYPE, this::handleTrigger);
