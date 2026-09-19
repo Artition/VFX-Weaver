@@ -5,6 +5,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). The versions bel
 ## Unreleased / Guide v33
 ### Added
 - **Value graphs** - effect definitions can now drive a numeric parameter from an optional value graph (`graph` and `inputs` blocks; nodes for constants, time, random, noise, curves, math, mixing, clamping, remapping, bindings and expressions, evaluated once per frame). Both blocks are additive: a definition without them behaves exactly as before, and a mod that does not know graphs ignores them entirely because graph wiring never lives inside `params`. A broken graph fails only its own file, and the built-in `vfxweaver:graph_demo` is the reference example.
+- **Graph macros and logic nodes** - value graphs gained reusable `subgraphs` (parse-time macros with `$` parameters, local ids, named outputs, nesting cap 8) and the `compare` / `boolean` / `if` / `switch` logic kinds with short-circuit evaluation. Both are additive to the step-2a format: existing `graph`/`inputs` definitions and definitions without graphs are unaffected. The built-in `vfxweaver:graph_logic_demo` drives the blur radius from a logic-gated macro.
 
 ## v1.2.0 / Guide v32
 ### Added

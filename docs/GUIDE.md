@@ -1168,7 +1168,79 @@ A numeric literal in `inputs` (`"inputs": { "radius": 6 }`) is also accepted and
 
 **Reference example.** The built-in `vfxweaver:graph_demo` is exactly the definition above: `/vfx play vfxweaver:graph_demo` plays a blur whose radius follows a `time → curve` pulse. Built-in ids need their namespace; there is no `minecraft:` fallback.
 
-**Not in this version.** Subgraphs/macros, logic nodes (`compare`, `boolean`, `if`, `switch`), masks and per-pixel field functions (`{"field": ...}` inputs are refused with a named error) are planned but not implemented yet.
+#### Subgraphs (macros)
+
+An effect file may declare reusable node blocks under a top-level `subgraphs` array. A graph node
+of kind `subgraph` stamps one in; the loader expands it before the graph is validated, so macros
+cost nothing per frame.
+
+```json
+{
+  "subgraphs": [
+    {
+      "id": "fade_noise",
+      "inputs": { "scale": 1.0, "speed": 1.0 },
+      "nodes": [
+        { "id": "s1", "kind": "time",  "inputs": { "speed": "$speed" } },
+        { "id": "s2", "kind": "noise", "inputs": { "scale": "$scale", "octaves": 3 } },
+        { "id": "s3", "kind": "curve", "inputs": { "points": [ { "time": 0, "value": 1.0 },
+                                                              { "time": 100, "value": 0.0 } ] } }
+      ],
+      "edges": [ { "from": "s2", "to": "s3", "input": "a" } ],
+      "outputs": { "out": "s3" }
+    }
+  ],
+  "graph": {
+    "nodes": [ { "id": "n1", "kind": "subgraph", "subgraph": "fade_noise",
+                 "inputs": { "scale": 2.0, "speed": 0.5 } } ],
+    "edges": [ { "from": "n1", "to": "radius" } ]
+  }
+}
+```
+
+- `inputs` on a subgraph declares parameters with defaults. A node value that is the whole string
+  `"$name"` is replaced by the instance's binding (or the default). `"$name"` is only recognised as
+  a whole node-input value; it is never substituted inside `expr` text or inside `points`.
+- Node ids inside a subgraph are local. On expansion they are prefixed with the instance id
+  (`n1.s2`), so the same macro can be used twice in one graph without collisions.
+- `outputs` is a non-empty map of output name to a local node id. `outputs` order matters: the
+  first entry is the default output. An edge may select one with
+  `{ "from": "n1", "output": "intensity", "to": "beam.intensity" }`; with one output, or when
+  `output` is omitted, the first declared output is used. An effect `inputs` entry
+  `{ "from": "n1" }` always uses the first output.
+- Subgraphs may nest and may not reference themselves, directly or transitively. The number of
+  subgraph definitions is capped at 64 and nesting at 8; exceeding either fails that file only.
+  The expanded node and edge counts must stay within the graph caps (128 / 512).
+- A fault inside a macro names both ends, e.g.
+  `subgraph 'fade_noise' (node 'n1') → node 's3': input 'a' is not connected and has no default`.
+- A `subgraph` node without a `subgraphs` block is an error; macros are defined in the same file
+  in this version.
+
+#### Logic nodes
+
+Four kinds produce a value from comparisons and selection. Booleans are `1.0` (true) and `0.0`
+(false); any non-zero input is true.
+
+| kind | structural field | inputs | result |
+|---|---|---|---|
+| `compare` | `op`: `eq`, `ne`, `lt`, `le`, `gt`, `ge` | `a`, `b` (both required) | `1.0` or `0.0` |
+| `boolean` | `op`: `and`, `or`, `xor`, `not` | `a` (required); `b` required for `and`/`or`/`xor`, unused for `not` | `1.0` or `0.0` |
+| `if` | — | `condition` (required), `then`, `else` (default `0`) | `then` when `condition` is non-zero, else `else` |
+| `switch` | — | `index` (required), `case_0`, `case_1`, …, `default` (default `0`) | `case_<round(index)>` when present, else `default` |
+
+```json
+{ "id": "gate", "kind": "compare", "op": "gt", "inputs": { "a": { "from": "level" }, "b": 0.5 } },
+{ "id": "out",  "kind": "if", "inputs": { "condition": { "from": "gate" }, "then": 1.0, "else": 0.0 } }
+```
+
+`if`, `switch`, `boolean and` and `boolean or` evaluate only the branch that can change the
+result; the other side is never computed.
+
+The built-in `vfxweaver:graph_logic_demo` combines both: a `pulse` macro (a `time`/`math`/`compare`/
+`remap`/`if` chain with a `$period`/`$peak` parameter) drives the blur's `radius`, ramping it up for
+the first half of each `$period` and holding it at `0` for the second.
+
+**Not in this version.** Masks and per-pixel field functions (`{"field": ...}` inputs are refused with a named error) are planned but not implemented yet.
 
 ---
 
@@ -1331,7 +1403,7 @@ Versioned feature history — **[docs/CHANGELOG.md](CHANGELOG.md)**.
 Guide version: 33 — see changelog below.
 
 ### v33
-- **Value graphs** — an effect can drive any numeric input from an optional `graph` + `inputs` block (see [3.6](#36-value-graphs)): `constant`, `time`, `random`, `noise`, `curve`, `math`, `mix`, `clamp`, `remap`, `bind` and `expr` nodes are evaluated once per frame. Both blocks are additive — a definition without them behaves exactly as before, and a mod that does not know graphs ignores them, because graph wiring never lives inside `params`. A broken graph fails that file only, and the built-in `vfxweaver:graph_demo` is the reference example (45 built-ins).
+- **Value graphs** — an effect can drive any numeric input from an optional `graph` + `inputs` block (see [3.6](#36-value-graphs)): `constant`, `time`, `random`, `noise`, `curve`, `math`, `mix`, `clamp`, `remap`, `bind` and `expr` nodes plus the logic nodes `compare`, `boolean`, `if` and `switch`, and reusable `subgraphs` (macros with `$` parameters, local prefixed ids and named outputs), all evaluated once per frame. All blocks are additive — a definition without them behaves exactly as before, and a mod that does not know graphs ignores them, because graph wiring never lives inside `params`. A broken graph fails that file only, and the built-in `vfxweaver:graph_demo` is the reference example (45 built-ins).
 
 ### v32
 - **Block-model particles** — the `particles` effect can emit real block models instead of vanilla particles: `"particle": "block"` with a `block` state, or a reusable preset in `data/<namespace>/vfx_particles/<name>.json` (registerable from code with `VFXAPI.registerBlockParticle`). Each particle has block-display brightness (`-1` = world light, `[blockLight, skyLight]`), gravity, air friction, optional world collision with surface friction and bounce, size, lifetime and spin; `VFXAPI.spawnBlockParticle` spawns one immediately on the client.
