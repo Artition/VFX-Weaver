@@ -124,7 +124,7 @@ public final class VFXGraph {
 		}
 
 		for (final VFXGraphNode node : byId.values()) {
-			for (final String required : node.kind().requiredInputs()) {
+			for (final String required : node.requiredInputs()) {
 				// Structural fields (points/expr/bind) are validated in their kind-specific branch,
 				// not as edge inputs; only edge-acceptable required inputs are checked here.
 				if (node.kind().acceptsNodeInput(required) && !node.inputs().containsKey(required)) {
@@ -156,6 +156,8 @@ public final class VFXGraph {
 
 		String exprSource = null;
 		VFXGraphNode.MathOp mathOp = null;
+		VFXGraphNode.CompareOp compareOp = null;
+		VFXGraphNode.BooleanOp booleanOp = null;
 		float[] curveTimes = new float[0];
 		float[] curveValues = new float[0];
 		EasingFunction[] curveEasings = new EasingFunction[0];
@@ -184,6 +186,20 @@ public final class VFXGraph {
 				mathOp = VFXGraphNode.MathOp.fromString(opName);
 				if (mathOp == null) {
 					throw new IllegalArgumentException("node '" + id + "': unknown math op '" + opName + "'");
+				}
+			}
+			case COMPARE -> {
+				final String opName = strOr(nodeJson, "op", "");
+				compareOp = VFXGraphNode.CompareOp.fromString(opName);
+				if (compareOp == null) {
+					throw new IllegalArgumentException("node '" + id + "': unknown compare op '" + opName + "'");
+				}
+			}
+			case BOOLEAN -> {
+				final String opName = strOr(nodeJson, "op", "");
+				booleanOp = VFXGraphNode.BooleanOp.fromString(opName);
+				if (booleanOp == null) {
+					throw new IllegalArgumentException("node '" + id + "': unknown boolean op '" + opName + "'");
 				}
 			}
 			case EXPR -> {
@@ -244,7 +260,7 @@ public final class VFXGraph {
 			default -> {
 			}
 		}
-		return new VFXGraphNode(id, kind, inputs, exprSource, mathOp, curveTimes, curveValues, curveEasings, bound);
+		return new VFXGraphNode(id, kind, inputs, exprSource, mathOp, compareOp, booleanOp, curveTimes, curveValues, curveEasings, bound);
 	}
 
 	private static VFXGraphInput parseInput(final String nodeId, final String name, final JsonElement value) {

@@ -4,6 +4,7 @@ import dev.vfxweaver.effect.MathExpression;
 import dev.vfxweaver.effect.VFXWorldBindings;
 import dev.vfxweaver.noise.SimplexNoise;
 import java.util.Arrays;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Pull-based CPU evaluator for one {@link VFXGraph} instance. Created per running effect (in the
@@ -97,7 +98,10 @@ public final class VFXGraphEvaluator {
 	}
 
 	private float input(final VFXGraphNode node, final String name, final float fallback) {
-		final VFXGraphInput in = node.inputs().get(name);
+		return resolve(node.inputs().get(name), fallback);
+	}
+
+	private float resolve(final @Nullable VFXGraphInput in, final float fallback) {
 		if (in == null) {
 			return fallback;
 		}
@@ -165,7 +169,47 @@ public final class VFXGraphEvaluator {
 				final MathExpression expression = this.expressions[index];
 				yield expression == null ? 0.0F : expression.eval(this.elapsed, this.camX, this.camY, this.camZ);
 			}
+			case COMPARE -> compare(node);
+			case BOOLEAN -> bool(node);
+			case IF -> input(node, "condition", 0.0F) != 0.0F
+				? input(node, "then", 0.0F)
+				: input(node, "else", 0.0F);
+			case SWITCH -> {
+				final int which = Math.round(input(node, "index", 0.0F));
+				final VFXGraphInput chosen = node.inputs().get("case_" + which);
+				yield chosen == null ? input(node, "default", 0.0F) : resolve(chosen, 0.0F);
+			}
 		};
+	}
+
+	private float compare(final VFXGraphNode node) {
+		final float a = input(node, "a", 0.0F);
+		final float b = input(node, "b", 0.0F);
+		final boolean result = switch (node.compareOp()) {
+			case EQ -> a == b;
+			case NE -> a != b;
+			case LT -> a < b;
+			case LE -> a <= b;
+			case GT -> a > b;
+			case GE -> a >= b;
+		};
+		return result ? 1.0F : 0.0F;
+	}
+
+	/**
+	 * The boolean operators. {@code and}/{@code or} short-circuit: the {@code b} operand is
+	 * evaluated only when it can change the result, so a branch hidden behind a constant gets no
+	 * {@code eval} call at all.
+	 */
+	private float bool(final VFXGraphNode node) {
+		final boolean a = input(node, "a", 0.0F) != 0.0F;
+		final boolean result = switch (node.booleanOp()) {
+			case AND -> a && input(node, "b", 0.0F) != 0.0F;
+			case OR -> a || input(node, "b", 0.0F) != 0.0F;
+			case XOR -> a ^ (input(node, "b", 0.0F) != 0.0F);
+			case NOT -> !a;
+		};
+		return result ? 1.0F : 0.0F;
 	}
 
 	private float math(final VFXGraphNode node) {
