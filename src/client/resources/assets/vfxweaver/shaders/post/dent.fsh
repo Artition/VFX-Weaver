@@ -1,5 +1,7 @@
 #version 330
 
+#moj_import <vfxweaver:field.glsl>
+
 uniform sampler2D InSampler;
 
 in vec2 texCoord;
@@ -56,7 +58,9 @@ void main() {
 
     // strength > 0 shrinks the offset (pixels pulled INTO the point = dent),
     // strength < 0 grows it (pixels pushed OUT of the point = bulge).
-    float scale = 1.0 - strength * falloff;
+    // The field multiplies the animated strength per pixel (default 1.0 = no field).
+    float intensity = vfx_field_intensity(texCoord);
+    float scale = 1.0 - strength * intensity * falloff;
 
     vec2 uv = closestUv + vec2(d.x * scale / aspect, d.y * scale);
 
