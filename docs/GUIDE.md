@@ -2,7 +2,7 @@
 
 A client-side VFX library for Minecraft 26.2 / 26.1.x / 1.21.11 (Fabric and NeoForge). Screen post-processing (ping-pong FBO), camera shake, world overlays (block tint/outline), entity effects (tint/outline by UUID), keyframe animation, world/camera/player bindings, datapacks, network triggers and a public Java API.
 
-- Guide version: 33 (see [docs/CHANGELOG.md](CHANGELOG.md) for history)
+- Guide version: 34 (see [docs/CHANGELOG.md](CHANGELOG.md) for history)
 - Mod: `vfxweaver-1.2.0.jar` (one jar per Minecraft line and loader; Fabric requires Fabric API, NeoForge builds use the `-neoforge` suffix)
 
 Files: `data/<namespace>/vfx/<name>.json` and `data/<namespace>/vfx_curves/<name>.json`. After edits — `/reload`. The effect id = `<namespace>:<name>`. On a dedicated server, definitions and curves are automatically synced to clients on player join and after `/reload`, so custom (datapack) effects work for all players, not just on the server.
@@ -1240,7 +1240,111 @@ The built-in `vfxweaver:graph_logic_demo` combines both: a `pulse` macro (a `tim
 `remap`/`if` chain with a `$period`/`$peak` parameter) drives the blur's `radius`, ramping it up for
 the first half of each `$period` and holding it at `0` for the second.
 
-**Not in this version.** Masks and per-pixel field functions (`{"field": ...}` inputs are refused with a named error) are planned but not implemented yet.
+**Not in this version.** Masks are planned but not implemented yet. Per-pixel fields (below) are implemented.
+
+### 3.7 Per-pixel fields
+
+A **field** makes one numeric input vary *per pixel* instead of once per frame. It is written as an `inputs` entry with a `"field"` object — like §3.6, but evaluated inside the effect's shader instead of on the CPU:
+
+```jsonc
+"inputs": {
+	"intensity": { "field": "noise", "space": "screen", "scale": 18.0, "octaves": 3 }
+}
+```
+
+Fields are accepted only on **field-capable inputs**; today that is `dent.intensity`, a multiplier applied to the dent's `strength` (neutral `1.0`, so a dent without a field is unchanged). Every other input still takes a number, an animation, a binding, an expression or `{ "from": "<node>" }`. A field on any other input or effect is a per-file parse error naming the input. The whole block is additive: a definition without `inputs`/`field` behaves exactly as before, and a mod that does not know fields ignores them entirely.
+
+A field is either a **function leaf** (`"field": "<fn>"`) or a **composition** (`"op"`).
+
+#### Functions
+
+Every function has a fixed output type (`float`, `vec2` or `vec3`). `space` applies only to the *spatial* functions (`noise`, `shape`, `gradient`, `curve`, `texture`) and defaults to `world`.
+
+| `field` | Params (default) | Result |
+|---|---|---|
+| `constant` | `value` (1) | The literal value — a scalar source for composition |
+| `noise` | `scale` (1), `octaves` (1), `gain` (0.5), `lacunarity` (2) | Fractal 3D value noise, roughly `0..1` (`octaves` is an integer) |
+| `shape` | see the shape table below | `[0,1]` coverage of a primitive |
+| `gradient` | `angle` (0), `offset` (0), `scale` (1), `softness` (0) | A directional ramp along `angle` (radians) |
+| `curve` | `scale` (1); structural `points` (required) | 1-D transfer: screen — `uv.x × scale`; world — `fract(world.x × scale)`, sampled through the inline curve |
+| `texture` | `scale_x` (1), `scale_y` (1), `offset_x` (0), `offset_y` (0); structural `texture`, `channel` | A texture sample at the space coordinate |
+| `depth` | `near` (0), `far` (1) | Linearized scene depth |
+| `depth_gradient` | `near` (0), `far` (1) | Screen-space depth gradient magnitude, `0..1` |
+| `normal_facing` | `axis_x` (0), `axis_y` (1), `axis_z` (0), `threshold` (0.5) | How much the reconstructed surface normal faces the given axis |
+| `screen_uv` | — | The screen UV as `vec2` |
+| `world_pos` | — | The reconstructed world position as `vec3` |
+
+A `curve`'s `points` are a non-empty array of `{ "time": <number>, "value": <number> }` with strictly ascending times, up to 8 — structural, not animatable. `texture`'s `texture` is a resource id (e.g. `"minecraft:textures/block/stone"`) and `channel` is `r`, `g`, `b`, `a` or `luminance`; omitting `channel` yields the full `vec3`. At most **one texture leaf** is allowed per input.
+
+#### The shared shape set
+
+`shape` (a `float` coverage in `[0,1]`) is the single shape implementation:
+
+| Param | Default | Meaning |
+|---|---|---|
+| `primitive` | `circle` | `circle`, `ellipse`, `rect` or `polygon` |
+| `center` | `[0.5, 0.5]` | Centre in the space coordinate (two elements) |
+| `rotation` | 0 | Rotation in degrees |
+| `radius` | 0.35 | `circle`/`polygon` radius |
+| `radius_x`, `radius_y` | 0.35, 0.35 | `ellipse` radii |
+| `half_width`, `half_height` | 0.25, 0.25 | `rect` half-extents |
+| `corner_radius` | 0 | `rect` corner rounding |
+| `sides` | 6 | `polygon` sides (≥ 3, integer) |
+| `fill` | `solid` | `solid` or `stroke` |
+| `stroke_width` | 0.05 | Stroke thickness when `fill: stroke` |
+| `softness` | 0.01 | Edge softness |
+| `repeat` | `[1, 1]` | `[nx, ny]` tiling — a grid |
+
+`center` and `repeat` are two-element arrays whose elements are numbers or `{ "from": "<node>" }`. **`grid` is not a function: it is a `shape` with `repeat`. A `ring` is not a function: it is `shape` with `primitive: "ellipse"` and `fill: "stroke"`.**
+
+These primitives — plus the 3D `sphere`/`box` helpers used wherever a 3D coordinate exists — are a **shared** implementation: masks and `surface_pattern` consume the same `field.glsl` (`vfx_shape_sdf` for the raw distance, `vfx_shape_coverage` for the `[0,1]` coverage) and never re-implement shapes.
+
+#### Space, composition and caps
+
+`space: "screen"` evaluates in screen UV; `space: "world"` reconstructs a world coordinate from the scene depth. `depth`, `depth_gradient`, `normal_facing` and `world_pos` always need that depth. **Depth/world fields only produce meaningful values at screen layer 0** (`"screen_layer": 0`); at any other layer no valid depth is bound, the field falls back to the neutral value (`1.0`), and a field that needs depth logs a once-per-definition warning. Screen-space fields work at every layer.
+
+Composition combines fields, bounded like a small tree:
+
+```jsonc
+"intensity": {
+	"op": "multiply",
+	"a": { "field": "shape", "space": "screen", "primitive": "circle", "radius": 0.4 },
+	"b": { "field": "noise", "space": "screen", "scale": 6.0, "octaves": 3 }
+}
+```
+
+`op` is `multiply`, `add`, `subtract`, `mix`, `min` or `max`; `a` and `b` are required, and `mix` adds a `factor` (a `float` field). A `float` broadcasts against a vector; equal vector types combine componentwise; `vec2` against `vec3` is a parse error. Caps — a violation fails **that file only**, naming the input, function and parameter: composition depth 3, 4 leaves, 8 nodes, 8 curve points, one texture leaf per input.
+
+Any numeric field parameter is a number or `{ "from": "<node>" }` (an integer parameter is rounded after evaluation). `field`, `op`, `space`, `channel`, `texture`, `points`, `primitive` and `fill` are structural and not animatable.
+
+**Reference example.** The built-in `vfxweaver:dent_field_demo` is a dent whose strength is mottled by screen-space noise — `/vfx play vfxweaver:dent_field_demo`:
+
+```json
+{
+	"type": "dent",
+	"duration": 200,
+	"loop": true,
+	"persistent": true,
+	"fade_ticks": 10,
+	"params": {
+		"strength": { "start": 0.7, "end": 0.7 },
+		"radius": 0.4,
+		"center_x": 0.5,
+		"center_y": 0.5,
+		"screen_layer": 1
+	},
+	"inputs": {
+		"intensity": {
+			"field": "noise",
+			"space": "screen",
+			"scale": 18.0,
+			"octaves": 3,
+			"gain": 0.5,
+			"lacunarity": 2.0
+		}
+	}
+}
+```
 
 ---
 
@@ -1339,7 +1443,7 @@ Child effect fields: `effect` (id, required), `delay` (ticks from collection sta
 
 Built-ins ship as regular datapack JSON inside the mod jar (`data/vfxweaver/vfx/*.json`) — they load, sync and can be overridden by higher-priority packs exactly like custom definitions, and a broken one shows up in `/vfx list`/`/vfx validate` like any other. To tweak a built-in, copy its JSON out of the jar (`vfxweaver-1.1.0.jar → data/vfxweaver/vfx/…`) into your datapack under a new id.
 
-Post-processing: `vfxweaver:chromatic_aberration`, `vfxweaver:color_grade`, `vfxweaver:distortion`, `vfxweaver:dent`, `vfxweaver:gradient_map`, `vfxweaver:posterize`, `vfxweaver:blur`, `vfxweaver:pixelate`, `vfxweaver:hue_isolation`, `vfxweaver:vignette`, `vfxweaver:screen_flash`, `vfxweaver:motion_blur`, `vfxweaver:bloom`, `vfxweaver:film_grain`, `vfxweaver:scanlines`, `vfxweaver:depth_of_field`, `vfxweaver:letterbox`, `vfxweaver:invert`, `vfxweaver:vortex`, `vfxweaver:speed_lines`, `vfxweaver:slice_shift`, `vfxweaver:noise_warp`, `vfxweaver:solarize`, `vfxweaver:double_vision`, `vfxweaver:eyelids`, `vfxweaver:iris_wipe`, `vfxweaver:digital_glitch`, `vfxweaver:vhs`, `vfxweaver:shockwave`, `vfxweaver:afterimage`, `vfxweaver:stop_motion`, `vfxweaver:graph_demo`.
+Post-processing: `vfxweaver:chromatic_aberration`, `vfxweaver:color_grade`, `vfxweaver:distortion`, `vfxweaver:dent`, `vfxweaver:gradient_map`, `vfxweaver:posterize`, `vfxweaver:blur`, `vfxweaver:pixelate`, `vfxweaver:hue_isolation`, `vfxweaver:vignette`, `vfxweaver:screen_flash`, `vfxweaver:motion_blur`, `vfxweaver:bloom`, `vfxweaver:film_grain`, `vfxweaver:scanlines`, `vfxweaver:depth_of_field`, `vfxweaver:letterbox`, `vfxweaver:invert`, `vfxweaver:vortex`, `vfxweaver:speed_lines`, `vfxweaver:slice_shift`, `vfxweaver:noise_warp`, `vfxweaver:solarize`, `vfxweaver:double_vision`, `vfxweaver:eyelids`, `vfxweaver:iris_wipe`, `vfxweaver:digital_glitch`, `vfxweaver:vhs`, `vfxweaver:shockwave`, `vfxweaver:afterimage`, `vfxweaver:stop_motion`, `vfxweaver:graph_demo`, `vfxweaver:dent_field_demo`.
 
 World overlays: `vfxweaver:block_tint`, `vfxweaver:block_outline`, `vfxweaver:light_beam`, `vfxweaver:pulse_ring`, `vfxweaver:guide_line`, `vfxweaver:particles`, `vfxweaver:block_chain`.
 
@@ -1400,7 +1504,10 @@ Post-processing pipeline, world overlays, effect clock, load limits and fault to
 
 Versioned feature history — **[docs/CHANGELOG.md](CHANGELOG.md)**.
 
-Guide version: 33 — see changelog below.
+Guide version: 34 — see changelog below.
+
+### v34
+- **Per-pixel fields** — a field-capable input (currently `dent.intensity`) can carry a `{ "field": ... }` object that is evaluated per pixel inside the shader instead of once per frame (see [3.7](#37-per-pixel-fields)): the built-in functions `constant`, `noise`, `shape`, `gradient`, `curve`, `texture`, `depth`, `depth_gradient`, `normal_facing`, `screen_uv` and `world_pos`, the shared shape set (`circle`/`ellipse`/`rect`/`polygon` with `fill: solid|stroke`, `softness` and a `repeat` tiling modifier, plus the 3D `sphere`/`box` helpers), and bounded compositions (`multiply`/`add`/`subtract`/`mix`/`min`/`max`). The block is additive — a definition without fields is bit-for-bit unchanged, and a mod that does not know fields ignores them. Depth/world fields need screen layer 0 and otherwise fall back to the neutral value. The built-in `vfxweaver:dent_field_demo` is the reference example (47 built-ins).
 
 ### v33
 - **Value graphs** — an effect can drive any numeric input from an optional `graph` + `inputs` block (see [3.6](#36-value-graphs)): `constant`, `time`, `random`, `noise`, `curve`, `math`, `mix`, `clamp`, `remap`, `bind` and `expr` nodes plus the logic nodes `compare`, `boolean`, `if` and `switch`, and reusable `subgraphs` (macros with `$` parameters, local prefixed ids and named outputs), all evaluated once per frame. All blocks are additive — a definition without them behaves exactly as before, and a mod that does not know graphs ignores them, because graph wiring never lives inside `params`. A broken graph fails that file only, and the built-in `vfxweaver:graph_demo` is the reference example (45 built-ins).

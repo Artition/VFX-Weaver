@@ -2,6 +2,10 @@
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). The versions below are guide/feature-set versions of the mod (as they progressed historically, see `docs/GUIDE.md`), plus git release tags where applicable (`v1.0.x`, `gradle.properties` → `mod_version`). Add new entries at the top, in the same PR as the behavior change.
 
+## Unreleased / Guide v34
+### Added
+- **Per-pixel fields** — effect inputs may now carry a per-pixel field (built-in noise, tileable shapes — circle/ellipse/rect/polygon with solid or stroke fill — gradient, curve, texture and depth/world functions, composable). The first consumer is `dent.intensity`: `vfxweaver:dent_field_demo` is a dent whose strength is mottled by screen-space noise. Fields are additive — a definition without one behaves bit-for-bit as before.
+
 ## Unreleased / Guide v33
 ### Added
 - **Value graphs** - effect definitions can now drive a numeric parameter from an optional value graph (`graph` and `inputs` blocks; nodes for constants, time, random, noise, curves, math, mixing, clamping, remapping, bindings and expressions, evaluated once per frame). Both blocks are additive: a definition without them behaves exactly as before, and a mod that does not know graphs ignores them entirely because graph wiring never lives inside `params`. A broken graph fails only its own file, and the built-in `vfxweaver:graph_demo` is the reference example.
