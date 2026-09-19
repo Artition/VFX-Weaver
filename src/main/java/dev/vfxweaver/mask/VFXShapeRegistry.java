@@ -1,0 +1,80 @@
+package dev.vfxweaver.mask;
+
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Set;
+import org.jspecify.annotations.Nullable;
+
+/**
+ * The bounded custom-shape registry (expanded design). Code-registered shapes live in a local
+ * layer that survives reloads and is never synced; a datapack/resource-provided shape with the
+ * same id wins (mirroring {@code VFXDefinitionManager}'s two layers). Shapes are registered from
+ * {@code VFXAPI}; the mask parser resolves a leaf's shape id here.
+ */
+public final class VFXShapeRegistry {
+	/** The most custom shapes that may be registered at once. */
+	public static final int MAX_SHAPES = 64;
+
+	private static final VFXShapeRegistry INSTANCE = new VFXShapeRegistry();
+
+	private final Map<String, VFXCustomShape> shapes = new HashMap<>();
+	private final Map<String, VFXMaskShapeGlsl> plugins = new HashMap<>();
+
+	private VFXShapeRegistry() {
+	}
+
+	/** The singleton registry. */
+	public static VFXShapeRegistry get() {
+		return INSTANCE;
+	}
+
+	/**
+	 * Registers a composed custom shape.
+	 *
+	 * @return {@code false} when the registry is full
+	 */
+	public boolean register(final String id, final VFXCustomShape shape) {
+		if (this.shapes.size() >= MAX_SHAPES && !this.shapes.containsKey(id)) {
+			return false;
+		}
+		this.shapes.put(id, shape);
+		return true;
+	}
+
+	/** Removes a custom shape; {@code true} when one existed. */
+	public boolean unregister(final String id) {
+		final boolean existed = this.shapes.remove(id) != null;
+		this.plugins.remove(id);
+		return existed;
+	}
+
+	/** The shape with this id, or {@code null}. */
+	public @Nullable VFXCustomShape get(final String id) {
+		return this.shapes.get(id);
+	}
+
+	/**
+	 * Registers a GLSL-plugin shape. The plugin's id becomes a custom shape whose {@code family()}
+	 * is {@link VFXCustomShape.Family#GLSL_PLUGIN}; the client compiles it on demand.
+	 *
+	 * @return {@code false} when the registry is full
+	 */
+	public boolean registerGlsl(final String id, final VFXMaskShapeGlsl plugin) {
+		if (this.shapes.size() >= MAX_SHAPES && !this.shapes.containsKey(id)) {
+			return false;
+		}
+		this.plugins.put(id, plugin);
+		this.shapes.put(id, new VFXCustomShape(id, VFXMaskSpace.SCREEN, VFXCustomShape.Family.GLSL_PLUGIN, java.util.List.of(), java.util.List.of()));
+		return true;
+	}
+
+	/** The registered plugin source for this id, or {@code null}. */
+	public @Nullable VFXMaskShapeGlsl plugin(final String id) {
+		return this.plugins.get(id);
+	}
+
+	/** The registered ids (for validation and diagnostics). */
+	public Set<String> ids() {
+		return Set.copyOf(this.shapes.keySet());
+	}
+}

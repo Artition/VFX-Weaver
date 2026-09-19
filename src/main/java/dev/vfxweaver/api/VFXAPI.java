@@ -7,6 +7,9 @@ import dev.vfxweaver.effect.VFXBlockParticleSpec;
 import dev.vfxweaver.effect.VFXDefinition;
 import dev.vfxweaver.effect.VFXScoreboardSync;
 import dev.vfxweaver.effect.VFXServerEffects;
+import dev.vfxweaver.mask.VFXCustomShape;
+import dev.vfxweaver.mask.VFXMaskShapeGlsl;
+import dev.vfxweaver.mask.VFXShapeRegistry;
 import dev.vfxweaver.network.VFXTriggerPayload;
 import dev.vfxweaver.platform.VFXNetwork;
 import dev.vfxweaver.resource.VFXBlockParticleManager;
@@ -299,6 +302,62 @@ public final class VFXAPI {
 	 */
 	public static @Nullable VFXBlockParticleSpec blockParticle(final Identifier id) {
 		return VFXBlockParticleManager.get().get(id);
+	}
+
+	/**
+	 * Registers a custom mask shape (composed SDF), so datapack masks can reference it by id.
+	 * Additive: a mask that uses no custom shape is unaffected. Shapes live in a local layer that
+	 * survives reloads and is never synced to other players.
+	 *
+	 * @param id    the shape id referenced by {@code {"shape": "<id>"}}
+	 * @param shape the composed shape descriptor
+	 * @return {@code false} when the registry is full and the shape was dropped
+	 */
+	public static boolean registerMaskShape(final Identifier id, final VFXCustomShape shape) {
+		return VFXShapeRegistry.get().register(id.toString(), shape);
+	}
+
+	/**
+	 * Removes a custom mask shape registered with {@link #registerMaskShape(Identifier, VFXCustomShape)}.
+	 *
+	 * @param id the shape id
+	 * @return {@code true} when a shape with that id existed
+	 */
+	public static boolean unregisterMaskShape(final Identifier id) {
+		return VFXShapeRegistry.get().unregister(id.toString());
+	}
+
+	/**
+	 * Looks up a registered custom mask shape.
+	 *
+	 * @param id the shape id
+	 * @return the shape, or {@code null}
+	 */
+	public static @Nullable VFXCustomShape maskShape(final Identifier id) {
+		return VFXShapeRegistry.get().get(id.toString());
+	}
+
+	/**
+	 * Registers a GLSL-plugin mask shape. The plugin provides one function
+	 * ({@code float vfx_shape_custom(vec3 world, vec2 uv, vec4 p0, vec4 p1)}); the client compiles
+	 * it into a bounded shader variant, and a compile failure is isolated to the masks that use it.
+	 *
+	 * @param id     the shape id referenced by {@code {"shape": "<id>"}}
+	 * @param plugin the GLSL source provider
+	 * @return {@code false} when the registry is full and the shape was dropped
+	 */
+	public static boolean registerMaskShapeGlsl(final Identifier id, final VFXMaskShapeGlsl plugin) {
+		return VFXShapeRegistry.get().registerGlsl(id.toString(), plugin);
+	}
+
+	/**
+	 * Removes a GLSL-plugin mask shape.
+	 *
+	 * @param id the shape id
+	 * @return {@code true} when a shape with that id existed
+	 */
+	public static boolean unregisterMaskShapeGlsl(final Identifier id) {
+		return VFXShapeRegistry.get().unregister(id.toString());
 	}
 
 	/**

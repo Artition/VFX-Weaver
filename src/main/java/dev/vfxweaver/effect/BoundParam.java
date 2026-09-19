@@ -3,6 +3,7 @@ package dev.vfxweaver.effect;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
+import java.util.Locale;
 import org.jspecify.annotations.Nullable;
 
 /**
@@ -24,8 +25,10 @@ import org.jspecify.annotations.Nullable;
  * @param scale     multiplier applied to the evaluated value
  * @param objective scoreboard objective name (for {@link Kind#SCOREBOARD}); {@code null} otherwise
  * @param holder    scoreholder name whose score is read (for {@link Kind#SCOREBOARD}); {@code null} = the local viewing player
+ * @param source    the world-point origin of the binding's anchor (camera/player/entity/point/block),
+ *                  or {@code null} when the binding uses the literal {@code x}/{@code y}/{@code z}
  */
-public record BoundParam(Kind kind, double x, double y, double z, float yaw, float pitch, float range, boolean invert, float scale, @Nullable String objective, @Nullable String holder) {
+public record BoundParam(Kind kind, double x, double y, double z, float yaw, float pitch, float range, boolean invert, float scale, @Nullable String objective, @Nullable String holder, @Nullable Source source) {
 	public BoundParam {
 		if (scale == 0.0F) {
 			scale = 1.0F;
@@ -40,11 +43,22 @@ public record BoundParam(Kind kind, double x, double y, double z, float yaw, flo
 	 * @throws IllegalArgumentException when a required field is missing or malformed
 	 */
 	public static BoundParam parse(final JsonObject object) {
-		final Kind kind = Kind.fromString(str(object, "bind", ""));
+		final String bindName = str(object, "bind", "");
+		final SourceKind sourceKind = SourceKind.fromString(bindName);
+		final Kind kind;
+		Source source = null;
+		if (sourceKind != null) {
+			source = Source.parse(object);
+			final String derive = str(object, "derive", "point").trim().toLowerCase(Locale.ROOT);
+			kind = "screen_rect".equals(derive) ? Kind.SCREEN_RECT
+				: ("point".equals(derive) ? Kind.POINT : Kind.fromString(derive));
+		} else {
+			kind = Kind.fromString(bindName);
+		}
 		double x = 0.0;
 		double y = 0.0;
 		double z = 0.0;
-		if (kind.needsPos()) {
+		if (kind.needsPos() && source == null) {
 			final JsonElement posElement = object.get("pos");
 			if (posElement == null || !posElement.isJsonArray() || posElement.getAsJsonArray().size() != 3) {
 				throw new IllegalArgumentException("Binding 'pos' must be an array of [x, y, z]: " + object);
@@ -78,7 +92,136 @@ public record BoundParam(Kind kind, double x, double y, double z, float yaw, flo
 		final float scale = flt(object, "scale", 1.0F);
 		final float yaw = flt(object, "yaw", 0.0F);
 		final float pitch = flt(object, "pitch", 0.0F);
-		return new BoundParam(kind, x, y, z, yaw, pitch, range, invert, scale, objective, holder);
+		return new BoundParam(kind, x, y, z, yaw, pitch, range, invert, scale, objective, holder, source);
+	}
+
+	/**
+	 * The origin of a binding's world anchor. Resolved client-side once per frame by
+	 * {@link VFXWorldBindings} and cached; a selector is never scanned per pixel or per primitive.
+	 */
+	public enum SourceKind {
+		/** The active camera position. */
+		CAMERA("camera"),
+		/** The local player's position. */
+		PLAYER("player"),
+		/** An entity, by selector or UUID, at {@code feet}/{@code center}/{@code eyes} plus {@code offset}. */
+		ENTITY("entity"),
+		/** A fixed world point. */
+		POINT("point"),
+		/** A block position (resolved to the block's centre). */
+		BLOCK("block");
+
+		private final String id;
+
+		SourceKind(final String id) {
+			this.id = id;
+		}
+
+		/** The datapack spelling. */
+		public String id() {
+			return this.id;
+		}
+
+		/**
+		 * Resolves a source kind from its datapack spelling.
+		 *
+		 * @return the kind, or {@code null} when {@code name} is not a source (it is then a {@link Kind})
+		 */
+		public static @Nullable SourceKind fromString(final String name) {
+			if (name == null) {
+				return null;
+			}
+			final String normalized = name.trim().toLowerCase(Locale.ROOT);
+			for (final SourceKind kind : values()) {
+				if (kind.id.equals(normalized)) {
+					return kind;
+				}
+			}
+			return null;
+		}
+	}
+
+	/**
+	 * A world-point source for a binding's anchor.
+	 *
+	 * @param kind     where the point comes from
+	 * @param selector entity selector (ENTITY only, alternative to {@code uuid}), or {@code null}
+	 * @param uuid     entity UUID string (ENTITY only), or {@code null}
+	 * @param point    reference point on the entity: {@code feet}/{@code center}/{@code eyes}
+	 * @param offset   offset applied to the resolved point (ENTITY only)
+	 * @param x        fixed X (POINT/BLOCK only)
+	 * @param y        fixed Y (POINT/BLOCK only)
+	 * @param z        fixed Z (POINT/BLOCK only)
+	 */
+	public record Source(SourceKind kind, @Nullable String selector, @Nullable String uuid, String point, float[] offset, double x, double y, double z) {
+		public Source {
+			offset = offset.clone();
+		}
+
+		/**
+		 * Parses a source from a {@code { "bind": "<source>", ... }} object.
+		 *
+		 * @throws IllegalArgumentException when a required field is missing or malformed
+		 */
+		public static Source parse(final JsonObject object) {
+			final SourceKind kind = SourceKind.fromString(str(object, "bind", ""));
+			if (kind == null) {
+				throw new IllegalArgumentException("Unknown binding source: " + object);
+			}
+			String selector = null;
+			String uuid = null;
+			String point = "center";
+			float[] offset = new float[]{0.0F, 0.0F, 0.0F};
+			double x = 0.0;
+			double y = 0.0;
+			double z = 0.0;
+			switch (kind) {
+				case ENTITY -> {
+					if (object.has("uuid") && !object.get("uuid").isJsonNull()) {
+						uuid = object.get("uuid").getAsString();
+					} else if (object.has("selector") && !object.get("selector").isJsonNull()) {
+						selector = object.get("selector").getAsString();
+					} else {
+						throw new IllegalArgumentException("Binding source 'entity' needs 'selector' or 'uuid': " + object);
+					}
+					point = str(object, "point", "center").trim().toLowerCase(Locale.ROOT);
+					if (!point.equals("feet") && !point.equals("center") && !point.equals("eyes")) {
+						throw new IllegalArgumentException("Binding source 'entity' 'point' must be feet, center or eyes: " + object);
+					}
+					final JsonElement offsetElement = object.get("offset");
+					if (offsetElement != null && !offsetElement.isJsonNull()) {
+						if (!offsetElement.isJsonArray() || offsetElement.getAsJsonArray().size() != 3) {
+							throw new IllegalArgumentException("Binding source 'entity' 'offset' must be [x, y, z]: " + object);
+						}
+						final JsonArray array = offsetElement.getAsJsonArray();
+						offset = new float[]{array.get(0).getAsFloat(), array.get(1).getAsFloat(), array.get(2).getAsFloat()};
+					}
+				}
+				case POINT, BLOCK -> {
+					final JsonElement posElement = object.get("pos");
+					if (posElement == null || !posElement.isJsonArray() || posElement.getAsJsonArray().size() != 3) {
+						throw new IllegalArgumentException("Binding source '" + kind.id() + "' needs a 'pos' array of [x, y, z]: " + object);
+					}
+					final JsonArray pos = posElement.getAsJsonArray();
+					x = pos.get(0).getAsDouble();
+					y = pos.get(1).getAsDouble();
+					z = pos.get(2).getAsDouble();
+				}
+				case CAMERA, PLAYER -> {
+				}
+			}
+			return new Source(kind, selector, uuid, point, offset, x, y, z);
+		}
+
+		/** A stable key for the per-frame resolution cache. */
+		public String cacheKey() {
+			return switch (this.kind) {
+				case CAMERA -> "camera";
+				case PLAYER -> "player";
+				case ENTITY -> "entity:" + (this.uuid != null ? this.uuid : this.selector) + ":" + this.point + ":" + java.util.Arrays.toString(this.offset);
+				case POINT, BLOCK -> this.kind.id() + ":" + this.x + "," + this.y + "," + this.z;
+			};
+		}
 	}
 
 	private static String str(final JsonObject object, final String key, final String fallback) {
@@ -139,7 +282,11 @@ public record BoundParam(Kind kind, double x, double y, double z, float yaw, flo
 		/** Fraction of the day cycle, 0..1 (0 = sunrise of day 0). */
 		TIME_OF_DAY("time_of_day"),
 		/** A scoreholder's score on a scoreboard objective, divided by {@code range} (default 16). */
-		SCOREBOARD("scoreboard");
+		SCOREBOARD("scoreboard"),
+		/** A world point (vec3); only meaningful on a centre/point parameter. */
+		POINT("point"),
+		/** A derived entity screen rectangle (vec4: centre u, centre v, half-width, half-height). */
+		SCREEN_RECT("screen_rect");
 
 		/**
 		 * True when this kind needs a world {@code pos} anchor.
