@@ -1252,7 +1252,7 @@ A **field** makes one numeric input vary *per pixel* instead of once per frame. 
 }
 ```
 
-Fields are accepted only on **field-capable inputs**; today that is `dent.intensity`, a multiplier applied to the dent's `strength` (neutral `1.0`, so a dent without a field is unchanged). Every other input still takes a number, an animation, a binding, an expression or `{ "from": "<node>" }`. A field on any other input or effect is a per-file parse error naming the input. The whole block is additive: a definition without `inputs`/`field` behaves exactly as before, and a mod that does not know fields ignores them entirely.
+Fields are accepted only on **field-capable inputs**; today that is `dent.intensity`, a multiplier applied to the dent's `strength`, and `color_grade.tint_r`, the red tint channel (both neutral `1.0`, so an effect without a field is unchanged). Every other input still takes a number, an animation, a binding, an expression or `{ "from": "<node>" }`. A field on any other input or effect is a per-file parse error naming the input. The whole block is additive: a definition without `inputs`/`field` behaves exactly as before, and a mod that does not know fields ignores them entirely.
 
 A field is either a **function leaf** (`"field": "<fn>"`) or a **composition** (`"op"`).
 
@@ -1317,7 +1317,7 @@ Composition combines fields, bounded like a small tree:
 
 Any numeric field parameter is a number or `{ "from": "<node>" }` (an integer parameter is rounded after evaluation). `field`, `op`, `space`, `channel`, `texture`, `points`, `primitive` and `fill` are structural and not animatable.
 
-**Reference example.** The built-in `vfxweaver:dent_field_demo` is a dent whose strength is mottled by screen-space noise — `/vfx play vfxweaver:dent_field_demo`:
+**Reference examples.** The built-in `vfxweaver:dent_field_demo` is a dent whose strength is mottled by screen-space noise — `/vfx play vfxweaver:dent_field_demo` — and `vfxweaver:tint_field_demo` drives `color_grade.tint_r` from large screen-space noise patches, so the whole screen tints between red and cyan — `/vfx play vfxweaver:tint_field_demo`:
 
 ```json
 {
@@ -1338,6 +1338,37 @@ Any numeric field parameter is a number or `{ "from": "<node>" }` (an integer pa
 			"field": "noise",
 			"space": "screen",
 			"scale": 18.0,
+			"octaves": 3,
+			"gain": 0.5,
+			"lacunarity": 2.0
+		}
+	}
+}
+```
+
+The tint demo (`fade_ticks: 0` so it does not fade a field it cannot un-apply; `scale` is the noise frequency, so a small value gives large patches):
+
+```json
+{
+	"type": "color_grade",
+	"duration": 200,
+	"loop": true,
+	"persistent": true,
+	"fade_ticks": 0,
+	"params": {
+		"saturation": 1.0,
+		"contrast": 1.0,
+		"brightness": 1.0,
+		"tint_r": 4.0,
+		"tint_g": 1.0,
+		"tint_b": 1.0,
+		"screen_layer": 1
+	},
+	"inputs": {
+		"tint_r": {
+			"field": "noise",
+			"space": "screen",
+			"scale": 3.0,
 			"octaves": 3,
 			"gain": 0.5,
 			"lacunarity": 2.0
@@ -1507,7 +1538,7 @@ Versioned feature history — **[docs/CHANGELOG.md](CHANGELOG.md)**.
 Guide version: 34 — see changelog below.
 
 ### v34
-- **Per-pixel fields** — a field-capable input (currently `dent.intensity`) can carry a `{ "field": ... }` object that is evaluated per pixel inside the shader instead of once per frame (see [3.7](#37-per-pixel-fields)): the built-in functions `constant`, `noise`, `shape`, `gradient`, `curve`, `texture`, `depth`, `depth_gradient`, `normal_facing`, `screen_uv` and `world_pos`, the shared shape set (`circle`/`ellipse`/`rect`/`polygon` with `fill: solid|stroke`, `softness` and a `repeat` tiling modifier, plus the 3D `sphere`/`box` helpers), and bounded compositions (`multiply`/`add`/`subtract`/`mix`/`min`/`max`). The block is additive — a definition without fields is bit-for-bit unchanged, and a mod that does not know fields ignores them. Depth/world fields need screen layer 0 and otherwise fall back to the neutral value. The built-in `vfxweaver:dent_field_demo` is the reference example (47 built-ins).
+- **Per-pixel fields** — a field-capable input (currently `dent.intensity` and `color_grade.tint_r`) can carry a `{ "field": ... }` object that is evaluated per pixel inside the shader instead of once per frame (see [3.7](#37-per-pixel-fields)): the built-in functions `constant`, `noise`, `shape`, `gradient`, `curve`, `texture`, `depth`, `depth_gradient`, `normal_facing`, `screen_uv` and `world_pos`, the shared shape set (`circle`/`ellipse`/`rect`/`polygon` with `fill: solid|stroke`, `softness` and a `repeat` tiling modifier, plus the 3D `sphere`/`box` helpers), and bounded compositions (`multiply`/`add`/`subtract`/`mix`/`min`/`max`). The block is additive — a definition without fields is bit-for-bit unchanged, and a mod that does not know fields ignores them. Depth/world fields need screen layer 0 and otherwise fall back to the neutral value. The built-ins `vfxweaver:dent_field_demo` and `vfxweaver:tint_field_demo` are the reference examples (48 built-ins).
 
 ### v33
 - **Value graphs** — an effect can drive any numeric input from an optional `graph` + `inputs` block (see [3.6](#36-value-graphs)): `constant`, `time`, `random`, `noise`, `curve`, `math`, `mix`, `clamp`, `remap`, `bind` and `expr` nodes plus the logic nodes `compare`, `boolean`, `if` and `switch`, and reusable `subgraphs` (macros with `$` parameters, local prefixed ids and named outputs), all evaluated once per frame. All blocks are additive — a definition without them behaves exactly as before, and a mod that does not know graphs ignores them, because graph wiring never lives inside `params`. A broken graph fails that file only, and the built-in `vfxweaver:graph_demo` is the reference example (45 built-ins).

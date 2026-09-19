@@ -114,7 +114,7 @@ public final class VFXShaderPrograms {
 			return;
 		}
 		registerPost(VFXEffectType.CHROMATIC_ABERRATION, "intensity", "radius");
-		registerPost(VFXEffectType.COLOR_GRADE, "saturation", "contrast", "brightness", "tint_r", "tint_g", "tint_b");
+		registerFieldPost(VFXEffectType.COLOR_GRADE, new String[]{"saturation", "contrast", "brightness", "tint_g", "tint_b"}, "tint_r");
 		registerPost(VFXEffectType.DISTORTION, "amount", "radius");
 		registerFieldPost(VFXEffectType.DENT, new String[]{"strength", "radius", "center_x", "center_y", "line_mode", "x0", "y0", "x1", "y1"}, "intensity");
 		registerPost(VFXEffectType.GRADIENT_MAP, "from_r", "from_g", "from_b", "to_r", "to_g", "to_b", "intensity", "mode", "pos");

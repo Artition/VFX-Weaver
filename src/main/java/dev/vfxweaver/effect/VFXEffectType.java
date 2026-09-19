@@ -220,7 +220,8 @@ public enum VFXEffectType {
 	 * {@code VFXShaderPrograms}).
 	 */
 	private static final Map<VFXEffectType, Set<String>> FIELD_INPUTS = Map.of(
-		DENT, Set.of("intensity")
+		DENT, Set.of("intensity"),
+		COLOR_GRADE, Set.of("tint_r")
 	);
 
 	/**

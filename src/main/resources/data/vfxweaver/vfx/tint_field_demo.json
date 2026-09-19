@@ -1,0 +1,26 @@
+{
+  "type": "color_grade",
+  "duration": 200,
+  "loop": true,
+  "persistent": true,
+  "fade_ticks": 0,
+  "params": {
+    "saturation": 1.0,
+    "contrast": 1.0,
+    "brightness": 1.0,
+    "tint_r": 4.0,
+    "tint_g": 1.0,
+    "tint_b": 1.0,
+    "screen_layer": 1
+  },
+  "inputs": {
+    "tint_r": {
+      "field": "noise",
+      "space": "screen",
+      "scale": 3.0,
+      "octaves": 3,
+      "gain": 0.5,
+      "lacunarity": 2.0
+    }
+  }
+}

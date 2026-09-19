@@ -5,6 +5,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). The versions bel
 ## Unreleased / Guide v34
 ### Added
 - **Per-pixel fields** — effect inputs may now carry a per-pixel field (built-in noise, tileable shapes — circle/ellipse/rect/polygon with solid or stroke fill — gradient, curve, texture and depth/world functions, composable). The first consumer is `dent.intensity`: `vfxweaver:dent_field_demo` is a dent whose strength is mottled by screen-space noise. Fields are additive — a definition without one behaves bit-for-bit as before.
+- **Screen-tint field demo** — `color_grade.tint_r` is now field-capable too: the per-pixel value multiplies the animated red tint, so a noise field paints large red/cyan mottled patches across the whole screen. The built-in `vfxweaver:tint_field_demo` is the noticeable reference (48 built-ins).
 
 ## Unreleased / Guide v33
 ### Added
