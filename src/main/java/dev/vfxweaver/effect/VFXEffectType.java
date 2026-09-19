@@ -1,6 +1,8 @@
 package dev.vfxweaver.effect;
 
 import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
 
 /**
  * The built-in visual effect kinds this mod can render. Each kind maps to a fragment
@@ -208,5 +210,37 @@ public enum VFXEffectType {
 			}
 			return null;
 		}
+	}
+
+	/**
+	 * Inputs that accept the per-pixel {@code { "field": ... }} form (spec §2, §9 step 4). The
+	 * documented subset starts with the {@code intensity}/amount-like inputs; every other input
+	 * still accepts literals and graph references. Add an entry here together with the matching
+	 * shader uniforms when wiring a new effect (see the field-enabled pipeline in
+	 * {@code VFXShaderPrograms}).
+	 */
+	private static final Map<VFXEffectType, Set<String>> FIELD_INPUTS = Map.of(
+		DENT, Set.of("intensity")
+	);
+
+	/**
+	 * The input names of this effect that accept a per-pixel field (empty for most effects).
+	 */
+	public Set<String> fieldCapableInputs() {
+		return FIELD_INPUTS.getOrDefault(this, Set.of());
+	}
+
+	/**
+	 * True when {@code input} accepts a per-pixel field.
+	 */
+	public boolean acceptsField(final String input) {
+		return fieldCapableInputs().contains(input);
+	}
+
+	/**
+	 * The neutral value of a field-capable input (the value that leaves the effect unchanged).
+	 */
+	public float fieldNeutral(final String input) {
+		return 1.0F;
 	}
 }

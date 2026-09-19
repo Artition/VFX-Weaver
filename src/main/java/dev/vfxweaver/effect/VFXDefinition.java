@@ -4,6 +4,7 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonPrimitive;
+import dev.vfxweaver.field.VFXField;
 import dev.vfxweaver.graph.VFXGraph;
 import dev.vfxweaver.graph.VFXSubgraphExpander;
 import dev.vfxweaver.util.VFXLog;
@@ -45,6 +46,7 @@ public class VFXDefinition {
 	private final @Nullable String itemId;
 	private final @Nullable VFXGraph graph;
 	private final Map<String, String> graphInputs;
+	private final Map<String, VFXField> fields;
 
 	private VFXDefinition(
 		final Identifier id,
@@ -65,7 +67,8 @@ public class VFXDefinition {
 		final @Nullable String blockId,
 		final @Nullable String itemId,
 		final @Nullable VFXGraph graph,
-		final Map<String, String> graphInputs
+		final Map<String, String> graphInputs,
+		final Map<String, VFXField> fields
 	) {
 		this.id = id;
 		this.type = type;
@@ -86,6 +89,7 @@ public class VFXDefinition {
 		this.itemId = itemId;
 		this.graph = graph;
 		this.graphInputs = Map.copyOf(graphInputs);
+		this.fields = Map.copyOf(fields);
 	}
 
 	/**
@@ -154,7 +158,7 @@ public class VFXDefinition {
 		final @Nullable Identifier sound,
 		final @Nullable String entitySelector
 	) {
-		return new VFXDefinition(id, type, defaultDuration, defaultEasing, params, persistent, loop, fadeTicks, children, positions, List.of(), sound, entitySelector, null, null, null, null, null, Map.of());
+		return new VFXDefinition(id, type, defaultDuration, defaultEasing, params, persistent, loop, fadeTicks, children, positions, List.of(), sound, entitySelector, null, null, null, null, null, Map.of(), Map.of());
 	}
 
 	/**
@@ -212,6 +216,7 @@ public class VFXDefinition {
 			graphAliases = expanded.topLevelOutputs();
 		}
 		Map<String, String> graphInputs = new LinkedHashMap<>();
+		Map<String, VFXField> fields = new LinkedHashMap<>();
 		if (json.has("inputs") && !json.get("inputs").isJsonNull()) {
 			JsonObject inputsJson = GsonHelper.getAsJsonObject(json, "inputs");
 			for (Map.Entry<String, JsonElement> entry : inputsJson.entrySet()) {
@@ -234,7 +239,15 @@ public class VFXDefinition {
 						continue;
 					}
 					if (object.has("field")) {
-						throw new IllegalArgumentException("input '" + name + "': field functions are not implemented yet (spec step 4)");
+						if (object.has("from")) {
+							throw new IllegalArgumentException("input '" + name + "': a field object must not also have 'from'");
+						}
+						if (!type.acceptsField(name)) {
+							throw new IllegalArgumentException("input '" + name + "': fields are not supported here; field-capable inputs of '" + type.getName() + "' are " + type.fieldCapableInputs());
+						}
+						fields.put(name, VFXField.parse(name, object, graph));
+						params.putIfAbsent(name, ParamSpec.constant(type.fieldNeutral(name)));
+						continue;
 					}
 				}
 				throw new IllegalArgumentException("input '" + name + "' must be a number or { \"from\": \"<node>\" }");
@@ -286,7 +299,7 @@ public class VFXDefinition {
 			? GsonHelper.getAsString(json, "item")
 			: null;
 
-		return new VFXDefinition(id, type, duration, easing, params, persistent, loop, fadeTicks, children, positions, entityAnchors, sound, entitySelector, particleId, shape, blockId, itemId, graph, graphInputs);
+		return new VFXDefinition(id, type, duration, easing, params, persistent, loop, fadeTicks, children, positions, entityAnchors, sound, entitySelector, particleId, shape, blockId, itemId, graph, graphInputs, fields);
 	}
 
 	/**
@@ -553,7 +566,7 @@ public class VFXDefinition {
 		}
 		Map<String, ParamSpec> merged = new LinkedHashMap<>(this.params);
 		merged.putAll(overrides);
-		return new VFXDefinition(this.id, this.type, this.defaultDuration, this.defaultEasing, merged, this.persistent, this.loop, this.fadeTicks, this.children, this.positions, this.entityAnchors, this.sound, this.entitySelector, this.particleId, this.shape, this.blockId, this.itemId, this.graph, this.graphInputs);
+		return new VFXDefinition(this.id, this.type, this.defaultDuration, this.defaultEasing, merged, this.persistent, this.loop, this.fadeTicks, this.children, this.positions, this.entityAnchors, this.sound, this.entitySelector, this.particleId, this.shape, this.blockId, this.itemId, this.graph, this.graphInputs, this.fields);
 	}
 
 	/**
@@ -624,7 +637,7 @@ public class VFXDefinition {
 				VFXLog.warnOnce(LOGGER, "def:undeclared:" + this.getId() + ":" + entry.getKey(), "Effect '{}' received an override for undeclared parameter '{}' (applied as a constant)", this.getId(), entry.getKey());
 			}
 		}
-		return new VFXTimeline(duration, values, bindings, multipliers, expressions, this.graph, this.graphInputs, instanceSeed);
+		return new VFXTimeline(duration, values, bindings, multipliers, expressions, this.graph, this.graphInputs, this.fields, instanceSeed);
 	}
 
 	/**
@@ -671,6 +684,14 @@ public class VFXDefinition {
 	 */
 	public Map<String, String> getGraphInputs() {
 		return this.graphInputs;
+	}
+
+	/**
+	 * Per-pixel fields declared on field-capable inputs, by input name. Empty when the definition
+	 * declares none.
+	 */
+	public Map<String, VFXField> getFields() {
+		return this.fields;
 	}
 
 	/**
