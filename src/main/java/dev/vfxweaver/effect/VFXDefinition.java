@@ -5,6 +5,7 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonPrimitive;
 import dev.vfxweaver.graph.VFXGraph;
+import dev.vfxweaver.graph.VFXSubgraphExpander;
 import dev.vfxweaver.util.VFXLog;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -198,10 +199,17 @@ public class VFXDefinition {
 
 		// Optional graph (spec §3.1) and inputs (spec §3.2). Both are additive: a definition
 		// without them behaves exactly as before, and an older mod ignores them entirely
-		// because graph references never live inside "params".
+		// because graph references never live inside "params". `subgraphs` (spec §3.1.1) is a
+		// load-time macro layer: the expander flattens it before VFXGraph validates the result.
 		VFXGraph graph = null;
+		Map<String, String> graphAliases = Map.of();
 		if (json.has("graph") && !json.get("graph").isJsonNull()) {
-			graph = VFXGraph.parse(id.toString(), GsonHelper.getAsJsonObject(json, "graph"));
+			final JsonArray subgraphs = json.has("subgraphs") && json.get("subgraphs").isJsonArray()
+				? json.getAsJsonArray("subgraphs") : null;
+			final VFXSubgraphExpander.Result expanded = VFXSubgraphExpander.expand(
+				id.toString(), GsonHelper.getAsJsonObject(json, "graph"), subgraphs);
+			graph = expanded.graph();
+			graphAliases = expanded.topLevelOutputs();
 		}
 		Map<String, String> graphInputs = new LinkedHashMap<>();
 		if (json.has("inputs") && !json.get("inputs").isJsonNull()) {
@@ -217,10 +225,11 @@ public class VFXDefinition {
 					JsonObject object = value.getAsJsonObject();
 					if (object.has("from")) {
 						String nodeId = GsonHelper.getAsString(object, "from");
-						if (graph == null || graph.node(nodeId) == null) {
+						String resolved = graphAliases.getOrDefault(nodeId, nodeId);
+						if (graph == null || graph.node(resolved) == null) {
 							throw new IllegalArgumentException("input '" + name + "': graph node '" + nodeId + "' does not exist");
 						}
-						graphInputs.put(name, nodeId);
+						graphInputs.put(name, resolved);
 						params.putIfAbsent(name, ParamSpec.constant(0.0F));
 						continue;
 					}
