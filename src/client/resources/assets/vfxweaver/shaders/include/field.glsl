@@ -303,17 +303,17 @@ vec3 vfx_field_leaf(int i, vec2 uv) {
 		return vec3(vfx_linear_depth(vfx_raw_depth(uv), p.x, p.y));
 	}
 	if (fn == 7.0) {
-		vec2 step = fld_inv_size.xy;
+		vec2 texelStep = fld_inv_size.xy;
 		float d0 = vfx_linear_depth(vfx_raw_depth(uv), p.x, p.y);
-		float dx = vfx_linear_depth(vfx_raw_depth(uv + vec2(step.x, 0.0)), p.x, p.y) - d0;
-		float dy = vfx_linear_depth(vfx_raw_depth(uv + vec2(0.0, step.y)), p.x, p.y) - d0;
+		float dx = vfx_linear_depth(vfx_raw_depth(uv + vec2(texelStep.x, 0.0)), p.x, p.y) - d0;
+		float dy = vfx_linear_depth(vfx_raw_depth(uv + vec2(0.0, texelStep.y)), p.x, p.y) - d0;
 		float range = max(abs(p.y - p.x), 1.0e-4);
 		return vec3(clamp(length(vec2(dx, dy)) / range, 0.0, 1.0));
 	}
 	if (fn == 8.0) {
-		vec2 step = fld_inv_size.xy;
-		vec3 dx = vfx_world_pos(uv + vec2(step.x, 0.0)) - vfx_world_pos(uv);
-		vec3 dy = vfx_world_pos(uv + vec2(0.0, step.y)) - vfx_world_pos(uv);
+		vec2 texelStep = fld_inv_size.xy;
+		vec3 dx = vfx_world_pos(uv + vec2(texelStep.x, 0.0)) - vfx_world_pos(uv);
+		vec3 dy = vfx_world_pos(uv + vec2(0.0, texelStep.y)) - vfx_world_pos(uv);
 		vec3 normal = normalize(cross(dx, dy) + vec3(0.0, 0.0, 1.0e-6));
 		vec3 axis = normalize(vec3(p.x, p.y, p.z) + vec3(1.0e-6));
 		float facing = dot(normal, axis);

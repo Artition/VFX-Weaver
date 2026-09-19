@@ -105,17 +105,17 @@ float vfx_composed_leaf(int row, vec3 world, vec2 uv) {
         if (p >= parts) {
             break;
         }
-        int flat = row * MASK_MAX_CUSTOM_PARTS + p;
-        int kind = int(custom_kind[flat].x + 0.5);
-        int partSpace = int(custom_kind[flat].y + 0.5);
-        float rounding = custom_kind[flat].z;
-        float repeat = custom_kind[flat].w;
+        int partIndex = row * MASK_MAX_CUSTOM_PARTS + p;
+        int kind = int(custom_kind[partIndex].x + 0.5);
+        int partSpace = int(custom_kind[partIndex].y + 0.5);
+        float rounding = custom_kind[partIndex].z;
+        float repeat = custom_kind[partIndex].w;
         vec2 partUv = uv;
         if (repeat > 1.0) {
-            vec2 rel = uv - custom_center[flat].xy;
-            partUv = custom_center[flat].xy + (fract(rel * repeat) - 0.5) / repeat;
+            vec2 rel = uv - custom_center[partIndex].xy;
+            partUv = custom_center[partIndex].xy + (fract(rel * repeat) - 0.5) / repeat;
         }
-        float d = vfx_shape_sdf_dispatch(kind, partSpace, partUv, world, custom_center[flat].xyz, custom_center[flat].w, custom_params[flat], vec4(0.0)) - rounding;
+        float d = vfx_shape_sdf_dispatch(kind, partSpace, partUv, world, custom_center[partIndex].xyz, custom_center[partIndex].w, custom_params[partIndex], vec4(0.0)) - rounding;
         float cov = clamp(0.5 - d / 0.25, 0.0, 1.0);
         if (p == 0) {
             acc = cov;
