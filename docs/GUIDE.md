@@ -1395,6 +1395,17 @@ blocks); `fill: solid|stroke` with `stroke_width` draws a boundary band. Every n
 (`radius`, `half_width`, `center`, `softness`, …) takes a number, `{ "from": "<node>" }` or a world
 binding (`{ "bind": "entity", ... }`), so a shape can follow an entity.
 
+A scalar binding derives a number from its source. `"derive": "distance"` (the default) is the
+camera distance to the source in blocks, so
+`"radius": { "bind": "entity", "selector": "@e[type=minecraft:villager,limit=1]", "derive": "distance" }`
+makes the sphere grow as the viewer backs away from the villager (see `vfxweaver:mask_pulse_demo`);
+`"derive": "point"` yields the world position (valid on `center` only) and `"derive": "screen_rect"`
+projects the entity's bounding box into a UV rectangle (valid as `screen_rect` on a screen `rect`).
+A **binding that cannot be resolved** — the source entity is absent/off-screen, or there is no
+camera/player state — fails the whole mask closed: it contributes zero coverage (the effect applies
+nowhere) and reports once through `VFXLog.warnOnce`. It never falls back to the literal default,
+which for an unbound `rect` would be the whole screen.
+
 #### World-volume evaluation: `volume`
 
 A `sphere`/`box` leaf carries an optional `"volume"` field choosing how the volume is evaluated
@@ -1405,11 +1416,11 @@ against the scene. Both modes are first-class looks; the default is `"surface"`.
 | `"surface"` (default) | The visible surface is classified: a pixel is covered where the depth-reconstructed point lies inside the volume, so only geometry *inside* the region is tinted and the air/sky around it is not. This is the original look. | "Affect the things standing in this region" — the tint follows the objects, not the space. |
 | `"aura"` | The pixel's view ray is cast at the volume and the whole volume is filled — including air and sky — except where a nearer surface occludes it. | A glow/haze field that occupies the whole region, so it reads as a volume of light rather than a coat of paint on the objects. |
 
-Both modes fade their edge over the leaf's `softness`. In `aura` mode a pixel is covered where the
-ray enters the volume in front of the visible surface (or the visible surface sits inside the
-volume); coverage is 0 where a nearer surface occludes the volume and 0 where the ray misses it.
-Sky and missing depth count as "nothing occludes", so the aura still fills the volume's silhouette
-instead of vanishing against the sky.
+Both modes fade their edge over the leaf's `softness`. In `aura` mode the coverage is sampled at the
+volume depth nearest the viewer along the pixel's view ray, so the interior fills to full coverage
+and the silhouette edge fades from both sides; coverage is 0 where a nearer surface occludes the
+volume and 0 where the ray misses it. Sky and missing depth count as "nothing occludes", so the
+aura still fills the volume's silhouette instead of vanishing against the sky.
 
 ```json
 {
@@ -1431,12 +1442,14 @@ instead of vanishing against the sky.
 }
 ```
 
-**Reference examples.** `vfxweaver:mask_entity_demo` is an entity-following sphere in `aura` mode
-plus a screen rectangle; `vfxweaver:mask_world_demo` is the same entity-following sphere in the
-default `surface` mode — play one, then the other, to compare the two looks.
-`vfxweaver:mask_screen_demo` is a screen-only mask and works at any layer. The block-geometry
-(`mask_block_demo`) and custom-shape (`mask_custom_demo`) demos parse, but their coverage paths are
-deferred stubs and do not render yet.
+**Reference examples.** `vfxweaver:mask_entity_demo` is an entity-following sphere with a fixed
+`radius` of 4 blocks in `aura` mode plus a screen rectangle; `vfxweaver:mask_world_demo` is the same
+fixed-radius sphere in the default `surface` mode — play one, then the other, to compare the two
+looks. `vfxweaver:mask_pulse_demo` keeps the entity-following sphere but binds its `radius` with
+`"derive": "distance"`, so the sphere grows with the viewer's distance from the villager (a
+proximity pulse). `vfxweaver:mask_screen_demo` is a screen-only mask and works at any layer. The
+block-geometry (`mask_block_demo`) and custom-shape (`mask_custom_demo`) demos parse, but their
+coverage paths are deferred stubs and do not render yet.
 
 ---
 
@@ -1596,7 +1609,12 @@ Post-processing pipeline, world overlays, effect clock, load limits and fault to
 
 Versioned feature history — **[docs/CHANGELOG.md](CHANGELOG.md)**.
 
-Guide version: 35 — see changelog below.
+Guide version: 36 — see changelog below.
+
+### v36
+- **Mask bindings now fail closed** — a mask that uses a world binding which cannot be resolved (the source entity is absent or off-screen, or there is no camera/player state) contributes **zero** coverage, so the effect applies nowhere, instead of falling back to the leaf's literal default — which for a bound screen `rect` is the whole screen (the reported "whole screen tint when the villager is not resolvable"). The unresolved source still reports once through `VFXLog.warnOnce`. See [3.8](#38-masks).
+- **`aura` masks fill the volume at full strength** — the aura coverage is now sampled at the volume depth nearest the viewer along the view ray (the sphere's closest approach) instead of at the entry point on the boundary, so the interior reaches full coverage and the silhouette edge fades from both sides. See [3.8](#38-masks).
+- **Mask demos reworked** — `vfxweaver:mask_entity_demo` and its `surface` A/B partner `vfxweaver:mask_world_demo` now use a fixed `radius` of 4 blocks, so the aura bubble stays the same size as the viewer moves. The entity-following sphere whose radius grew with the viewer's distance moved to the new `vfxweaver:mask_pulse_demo`, which also documents the `"derive": "distance"` binding form (54 built-ins).
 
 ### v35
 - **World-volume masks gained an `aura` evaluation mode** — a `sphere`/`box` mask leaf now takes `"volume": "surface" | "aura"` (see [3.8](#38-masks)). `"surface"` is the default and keeps the original look (the visible surface is classified, so only geometry inside the volume is tinted); `"aura"` casts the pixel's view ray at the volume and fills the whole volume, including air and sky, wherever the scene does not occlude it, with the edge still fading over `softness`. Sky and missing depth count as "nothing occludes". The demo `vfxweaver:mask_entity_demo` (sphere + screen rect) now uses `aura`; `vfxweaver:mask_world_demo` is the same entity-following sphere in the default `surface` mode for an A/B comparison (53 built-ins).

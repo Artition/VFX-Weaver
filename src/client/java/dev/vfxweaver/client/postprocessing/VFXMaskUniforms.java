@@ -33,7 +33,8 @@ public final class VFXMaskUniforms {
 
 	/**
 	 * The value of one numeric mask slot: a world-coordinate binding wins over the definition's
-	 * literal/graph value, and a binding that cannot be resolved falls back to the literal default.
+	 * literal/graph value. A binding that cannot be resolved yields the literal default here, but
+	 * {@link #bindingsResolved} fails the whole mask closed before any packed value is used.
 	 */
 	private static float slotValue(final VFXMask mask, final VFXActiveEffect effect, final String slotName, final float fallback) {
 		final VFXMask.MaskSlot slot = mask.slots().get(slotName);
@@ -41,6 +42,39 @@ public final class VFXMaskUniforms {
 			return VFXWorldBindings.evaluate(slot.binding(), fallback);
 		}
 		return effect.getParam(slotName, fallback);
+	}
+
+	/**
+	 * True when every world-coordinate binding this mask uses resolves this frame. A mask with an
+	 * unresolved source (an entity that is absent or off-screen, no camera or player state) must
+	 * contribute zero coverage rather than fall through to its literal slot defaults: the literal
+	 * default of an unbound screen {@code rect} is a full-screen rectangle, which is why an absent
+	 * entity used to tint everything. A binding with no world source (literal {@code pos}) is
+	 * always resolved.
+	 */
+	private static boolean bindingsResolved(final VFXMask mask) {
+		for (final VFXMaskPrimitive primitive : mask.primitives()) {
+			final BoundParam centerBinding = primitive.centerBinding();
+			if (centerBinding != null) {
+				if (centerBinding.kind() == BoundParam.Kind.SCREEN_RECT) {
+					final float[] rect = VFXWorldBindings.evaluateScreenRect(centerBinding);
+					if (rect[2] < 0.0F || rect[3] < 0.0F) {
+						return false;
+					}
+				} else if (!VFXWorldBindings.isSourceResolved(centerBinding)) {
+					return false;
+				}
+			}
+			if (!VFXWorldBindings.isSourceResolved(primitive.sizeBinding())) {
+				return false;
+			}
+		}
+		for (final VFXMask.MaskSlot slot : mask.slots().values()) {
+			if (!VFXWorldBindings.isSourceResolved(slot.binding())) {
+				return false;
+			}
+		}
+		return true;
 	}
 
 	/**
@@ -112,6 +146,8 @@ public final class VFXMaskUniforms {
 	 * Unused primitives are written neutral and ignored because {@code mask_count} gates the loop.
 	 * A world leaf needs the matrix and camera; a purely screen mask ignores them. A composed custom
 	 * leaf's fixed parts are packed into the {@code custom_*} rows and its leaf slot stores the row.
+	 * An unresolved binding fails the mask closed: {@code mask_count} is written as zero (and
+	 * {@code invert} off, so the shader cannot flip the empty result to full coverage).
 	 */
 	public static void writeCoverage(
 		final Std140Builder builder,
@@ -123,14 +159,18 @@ public final class VFXMaskUniforms {
 		final float camZ,
 		final float time
 	) {
+		// Fail closed: an unresolved world binding makes the whole mask contribute zero coverage
+		// (no effect applies) instead of letting a bound screen rect fall back to its full-screen
+		// literal default.
+		final boolean resolved = bindingsResolved(mask);
 		// mat4 as four column vec4s (std140-identical to Std140Builder.putMat4f).
 		builder.putVec4(invViewProj.m00(), invViewProj.m01(), invViewProj.m02(), invViewProj.m03());
 		builder.putVec4(invViewProj.m10(), invViewProj.m11(), invViewProj.m12(), invViewProj.m13());
 		builder.putVec4(invViewProj.m20(), invViewProj.m21(), invViewProj.m22(), invViewProj.m23());
 		builder.putVec4(invViewProj.m30(), invViewProj.m31(), invViewProj.m32(), invViewProj.m33());
 		builder.putVec4(camX, camY, camZ, 0.0F);
-		builder.putFloat(mask.invert() ? 1.0F : 0.0F);
-		builder.putFloat(mask.primitives().size());
+		builder.putFloat(resolved && mask.invert() ? 1.0F : 0.0F);
+		builder.putFloat(resolved ? mask.primitives().size() : 0);
 		builder.putFloat(mask.needsDepth() ? 1.0F : 0.0F);
 		builder.putFloat(time);
 

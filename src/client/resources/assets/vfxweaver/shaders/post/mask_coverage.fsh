@@ -189,9 +189,11 @@ void main() {
                 // Volume entirely behind the camera.
                 cov = 0.0;
             } else {
-                // Closest approach along the visible ray: the entry on a hit, the root/slab "waist" on
-                // a miss, so the volume SDF below fades the silhouette from both sides of the edge.
-                float tRef = clamp(volumeHit ? max(tEnter, 0.0) : 0.5 * (tEnter + tExit), 0.0, sceneDist);
+                // Sample the volume SDF at the midpoint of the visible chord - the sphere's closest
+                // approach. Sampling the entry instead put the point on the boundary (distance 0),
+                // which flattened the whole interior to a half tint; the chord midpoint is deepest
+                // inside, so the interior reaches full coverage and the edge fades from both sides.
+                float tRef = clamp(0.5 * (tEnter + tExit), 0.0, sceneDist);
                 vec3 volumePoint = camPos.xyz + viewDir * tRef;
                 float d = vfx_shape_sdf_dispatch(kind, leafSpace, texCoord, volumePoint, shape_center[i].xyz, shape_center[i].w, shape_params0[i], shape_params1[i]);
                 if (shape_misc[i].x > 0.5) {

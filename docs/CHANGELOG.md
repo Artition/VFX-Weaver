@@ -2,6 +2,14 @@
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). The versions below are guide/feature-set versions of the mod (as they progressed historically, see `docs/GUIDE.md`), plus git release tags where applicable (`v1.0.x`, `gradle.properties` → `mod_version`). Add new entries at the top, in the same PR as the behavior change.
 
+## Unreleased / Guide v36
+### Fixed
+- **A mask with an unresolvable binding no longer tints the whole screen.** When a bound source could not be resolved (entity absent or off-screen, no camera/player state), the leaf fell through to its literal defaults — and a bound screen `rect`'s defaults are a full-screen rectangle — so the effect applied everywhere. A mask with any unresolved binding now contributes zero coverage (the effect applies nowhere), and the source still reports once through `VFXLog.warnOnce`; `evaluateScreenRect` now also warns when an entity is off-screen, not only when it is missing.
+- **`aura` volume masks fill at full strength.** The coverage was sampled at the ray's entry point on the volume boundary (distance 0), which flattened the interior to a half tint; it is now sampled at the closest approach along the view ray, so the interior reaches full coverage and the silhouette edge fades from both sides.
+
+### Changed
+- **Mask demos.** `vfxweaver:mask_entity_demo` and `vfxweaver:mask_world_demo` now use a fixed 4-block `radius`, so the aura bubble does not grow as the viewer backs away; the growing-sphere look moved to the new `vfxweaver:mask_pulse_demo` (a sphere whose `radius` is bound with `"derive": "distance"`, documented in `docs/GUIDE.md` §3.8). Built-ins now number 54.
+
 ## Unreleased / Guide v35
 ### Added
 - **World-volume mask `aura` mode** — a `sphere`/`box` mask leaf now takes `"volume": "surface" | "aura"` (see `docs/GUIDE.md` §3.8). `"surface"` is the default and keeps the original look (only geometry inside the volume is tinted); `"aura"` casts the pixel's view ray at the volume and fills the whole volume, including air and sky, wherever the scene does not occlude it. The built-in `vfxweaver:mask_entity_demo` uses `aura`; `vfxweaver:mask_world_demo` is the same entity-following sphere in `surface` mode for an A/B comparison (53 built-ins).

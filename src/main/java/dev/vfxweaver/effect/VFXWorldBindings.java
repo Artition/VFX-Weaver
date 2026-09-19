@@ -125,6 +125,23 @@ public final class VFXWorldBindings {
 		return resolved;
 	}
 
+	/**
+	 * True when a binding's world source can be resolved this frame. A binding with no world source
+	 * (a literal {@code pos}, or a non-source kind such as {@code screen_x}) is always resolved; a
+	 * camera, player, entity (selector or UUID) or point/block source is unresolved when the client
+	 * frame, player state or matching entity is unavailable. The mask coverage writer uses this to
+	 * fail a mask closed to zero coverage instead of falling through to its literal slot defaults.
+	 *
+	 * @param binding the binding, or {@code null} for an unbound slot
+	 * @return whether the binding is usable this frame
+	 */
+	public static boolean isSourceResolved(final @Nullable BoundParam binding) {
+		if (binding == null || binding.source() == null) {
+			return true;
+		}
+		return resolveSource(binding.source()) != null;
+	}
+
 	/** The world point of a {@code POINT}-kind binding, or {@code null}. */
 	public static float @Nullable [] evaluatePoint(final BoundParam binding) {
 		final Source source = binding.source();
@@ -151,7 +168,7 @@ public final class VFXWorldBindings {
 		final float[] box = reader.bounds(source.selector(), source.uuid());
 		if (box == null) {
 			SOURCE_CACHE.put(key, empty);
-			VFXLog.warnOnce(LOGGER, "binding:missing:" + source.cacheKey(), "Binding source '{}' could not be resolved; the literal fallback is used", source.cacheKey());
+			VFXLog.warnOnce(LOGGER, "binding:missing:" + source.cacheKey(), "Binding source '{}' could not be resolved to a screen rectangle", source.cacheKey());
 			return empty;
 		}
 		float minU = Float.MAX_VALUE;
@@ -165,6 +182,7 @@ public final class VFXWorldBindings {
 			final Vector4f clip = current.viewRotProj().transform(PROJECTION_SCRATCH.set(dx, dy, dz, 1.0F));
 			if (clip.w <= 0.05F) {
 				SOURCE_CACHE.put(key, empty);
+				VFXLog.warnOnce(LOGGER, "binding:missing:" + source.cacheKey(), "Binding source '{}' could not be resolved to a screen rectangle", source.cacheKey());
 				return empty;
 			}
 			final float u = clip.x / clip.w * 0.5F + 0.5F;
@@ -176,6 +194,7 @@ public final class VFXWorldBindings {
 		}
 		if (maxU < 0.0F || minU > 1.0F || maxV < 0.0F || minV > 1.0F) {
 			SOURCE_CACHE.put(key, empty);
+			VFXLog.warnOnce(LOGGER, "binding:missing:" + source.cacheKey(), "Binding source '{}' could not be resolved to a screen rectangle", source.cacheKey());
 			return empty;
 		}
 		final float[] rect = {(minU + maxU) * 0.5F, (minV + maxV) * 0.5F, (maxU - minU) * 0.5F, (maxV - minV) * 0.5F};

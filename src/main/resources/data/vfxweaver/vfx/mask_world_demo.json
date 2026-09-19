@@ -12,7 +12,7 @@
       "space": "world",
       "volume": "surface",
       "center": { "bind": "entity", "selector": "@e[type=minecraft:villager,limit=1]", "point": "center" },
-      "radius": { "bind": "entity", "selector": "@e[type=minecraft:villager,limit=1]", "derive": "distance" },
+      "radius": 4.0,
       "softness": 0.5
     }
   }

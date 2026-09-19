@@ -7,20 +7,13 @@
   "params": { "screen_layer": 1, "saturation": 0.0, "contrast": 1.0, "brightness": 1.0, "tint_r": 1.0, "tint_g": 0.2, "tint_b": 0.2 },
   "mask": {
     "invert": false,
-    "op": "union",
     "a": {
       "shape": "sphere",
       "space": "world",
       "volume": "aura",
       "center": { "bind": "entity", "selector": "@e[type=minecraft:villager,limit=1]", "point": "center" },
-      "radius": 4.0,
+      "radius": { "bind": "entity", "selector": "@e[type=minecraft:villager,limit=1]", "derive": "distance" },
       "softness": 0.5
-    },
-    "b": {
-      "shape": "rect",
-      "space": "screen",
-      "screen_rect": { "bind": "entity", "selector": "@e[type=minecraft:villager,limit=1]", "point": "center" },
-      "softness": 0.01
     }
   }
 }
