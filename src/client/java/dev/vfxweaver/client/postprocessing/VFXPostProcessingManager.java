@@ -32,6 +32,7 @@ import java.util.Map;
 /*import java.util.Optional;
 *///?}
 import java.util.OptionalInt;
+import java.util.function.Consumer;
 import net.minecraft.client.renderer.MappableRingBuffer;
 import net.minecraft.client.Minecraft;
 //? if <26.1 {
@@ -60,6 +61,10 @@ public final class VFXPostProcessingManager {
 	private static final Logger LOGGER = LoggerFactory.getLogger("vfxweaver/post");
 	private static final int SAMPLER_INFO_SIZE = new Std140SizeCalculator().putVec2().putVec2().get();
 	private static final int UBO_USAGE = 130;
+	/** Uniform-arena slot alignment; over-aligns to the 256-byte desktop stride to avoid device queries. */
+	private static final int ARENA_BLOCK_ALIGNMENT = 256;
+	/** Initial slot count of a per-pass uniform arena (grows only on an unusually busy frame). */
+	private static final int ARENA_INITIAL_CAPACITY = 16;
 
 	private final TextureTarget[] pingPong = new TextureTarget[2];
 	/** Double-buffered history for the feedback effects (afterimage). */
@@ -115,6 +120,9 @@ public final class VFXPostProcessingManager {
 			this.maskBefore = null;
 		}
 		this.stopMotionSlots.clear();
+		for (final VFXPass pass : this.passes.values()) {
+			pass.close();
+		}
 		this.passes.clear();
 		this.projectionMatrixBuffer = null;
 	}
@@ -294,8 +302,14 @@ public final class VFXPostProcessingManager {
 				}
 			}
 		} catch (Exception e) {
-			LOGGER.warn("Failed to apply VFX post-processing", e);
+			VFXLog.warnOnce(LOGGER, "post:apply:" + layer, "Failed to apply VFX post-processing", e);
 		} finally {
+			// Rotate each pass's uniform arena once, after all of this call's writes are recorded:
+			// a MappableRingBuffer must never be rotated into a slot whose fence belongs to the
+			// submit currently being built (26.2 throws "Cannot wait on a fence for the current submit").
+			for (final VFXPass pass : this.passes.values()) {
+				pass.endFrame();
+			}
 			RenderSystem.restoreProjectionMatrix();
 		}
 	}
@@ -523,11 +537,12 @@ public final class VFXPostProcessingManager {
 		private final RenderPipeline pipeline;
 		private final String[] configParams;
 		private final VFXShaderPrograms.PassRole role;
-		private final MappableRingBuffer samplerInfoUbo;
-		private final @Nullable MappableRingBuffer configUbo;
+		/** One arena for every uniform block this pass binds; a slot is handed out per write. */
+		private final UniformArena arena;
+		private final boolean hasConfig;
 		private final boolean usesDepth;
 		private final @Nullable String fieldInput;
-		private final @Nullable MappableRingBuffer fieldUbo;
+		private final boolean hasField;
 		private final boolean mask;
 		private final boolean coverage;
 		private final Map<String, com.mojang.blaze3d.textures.GpuTextureView> textureCache = new HashMap<>();
@@ -536,15 +551,14 @@ public final class VFXPostProcessingManager {
 			this.pipeline = info.pipeline();
 			this.configParams = info.configParams();
 			this.role = info.role();
-			this.samplerInfoUbo = new MappableRingBuffer(() -> this.pipeline.getLocation() + " SamplerInfo", UBO_USAGE, SAMPLER_INFO_SIZE);
-			this.configUbo = info.configUboSize() > 0
-				? new MappableRingBuffer(() -> this.pipeline.getLocation() + " Config", UBO_USAGE, Math.max(16, info.configUboSize()))
-				: null;
+			this.hasConfig = info.configUboSize() > 0;
+			this.hasField = info.usesField();
+			final int payload = Math.max(SAMPLER_INFO_SIZE, Math.max(
+				this.hasConfig ? info.configUboSize() : 0,
+				this.hasField ? VFXShaderPrograms.FIELD_CONFIG_SIZE : 0));
+			this.arena = new UniformArena(this.pipeline.getLocation() + " uniforms", payload);
 			this.usesDepth = info.usesDepth();
 			this.fieldInput = info.fieldInput();
-			this.fieldUbo = info.usesField()
-				? new MappableRingBuffer(() -> this.pipeline.getLocation() + " FieldConfig", UBO_USAGE, Math.max(16, VFXShaderPrograms.FIELD_CONFIG_SIZE))
-				: null;
 			this.mask = info.mask();
 			this.coverage = info.coverage();
 		}
@@ -555,6 +569,16 @@ public final class VFXPostProcessingManager {
 
 		@Nullable String fieldInput() {
 			return this.fieldInput;
+		}
+
+		/** Rotates this pass's uniform arena once per process call, never mid-submit. */
+		void endFrame() {
+			this.arena.endFrame();
+		}
+
+		/** Releases this pass's arena GPU buffers. */
+		void close() {
+			this.arena.close();
 		}
 
 		private void execute(
@@ -569,22 +593,13 @@ public final class VFXPostProcessingManager {
 			final @Nullable VFXFieldProgram fieldProgram,
 			final @Nullable RenderTarget coverage
 		) {
-			//? if <26.2 {
-			try (GpuBuffer.MappedView view = encoder.mapBuffer(this.samplerInfoUbo.currentBuffer(), false, true)) {
-			//?} else {
-			/*try (GpuBufferSlice.MappedView view = this.samplerInfoUbo.currentBuffer().map(false, true)) {
-			*///?}
-				Std140Builder.intoBuffer(view.data()).putVec2(output.width, output.height).putVec2(input.width, input.height);
-			}
+			final GpuBufferSlice samplerInfo = this.arena.write(encoder, builder ->
+				builder.putVec2(output.width, output.height).putVec2(input.width, input.height));
 
-			if (this.configUbo != null && effect != null) {
-				float weight = effect.getWeight();
-				//? if <26.2 {
-				try (GpuBuffer.MappedView view = encoder.mapBuffer(this.configUbo.currentBuffer(), false, true)) {
-				//?} else {
-				/*try (GpuBufferSlice.MappedView view = this.configUbo.currentBuffer().map(false, true)) {
-				*///?}
-					Std140Builder builder = Std140Builder.intoBuffer(view.data());
+			GpuBufferSlice config = null;
+			if (this.hasConfig && effect != null) {
+				final float weight = effect.getWeight();
+				config = this.arena.write(encoder, builder -> {
 					for (String param : this.configParams) {
 						// Reserved "time" and "hold" parameters: never faded, filled from the
 						// effect age / the CPU hold-gate instead of a user parameter.
@@ -600,26 +615,22 @@ public final class VFXPostProcessingManager {
 						float neutral = reserved ? Float.NaN : effect.getType().neutralValue(param);
 						builder.putFloat(Float.isNaN(neutral) ? raw : neutral + (raw - neutral) * weight);
 					}
-				}
+				});
 			}
 
-			if (this.fieldUbo != null && effect != null) {
+			GpuBufferSlice field = null;
+			if (this.hasField && effect != null) {
 				final float weight = effect.getWeight();
 				final float neutral = effect.getType().fieldNeutral(this.fieldInput);
 				final float raw = effect.getParam(this.fieldInput, neutral);
 				final float uniform = neutral + (raw - neutral) * weight;
 				final VFXFieldProgram program = fieldProgram == null ? VFXFieldProgram.empty() : fieldProgram;
-				//? if <26.2 {
-				try (GpuBuffer.MappedView view = encoder.mapBuffer(this.fieldUbo.currentBuffer(), false, true)) {
-				//?} else {
-				/*try (GpuBufferSlice.MappedView view = this.fieldUbo.currentBuffer().map(false, true)) {
-				*///?}
-					program.write(new VFXFieldValueWriterAdapter(Std140Builder.intoBuffer(view.data())),
+				field = this.arena.write(encoder, builder ->
+					program.write(new VFXFieldValueWriterAdapter(builder),
 						effect.getTimeline().getGraphEvaluator(), uniform, weight,
 						VFXFieldEnv.depthValid() ? 1.0F : 0.0F,
 						VFXFieldEnv.invWidth(), VFXFieldEnv.invHeight(),
-						VFXFieldEnv.invViewProj(), VFXFieldEnv.cameraX(), VFXFieldEnv.cameraY(), VFXFieldEnv.cameraZ());
-				}
+						VFXFieldEnv.invViewProj(), VFXFieldEnv.cameraX(), VFXFieldEnv.cameraY(), VFXFieldEnv.cameraZ()));
 			}
 
 			try (RenderPass renderPass = encoder.createRenderPass(
@@ -633,9 +644,9 @@ public final class VFXPostProcessingManager {
 				)) {
 				renderPass.setPipeline(this.pipeline);
 				RenderSystem.bindDefaultUniforms(renderPass);
-				renderPass.setUniform("SamplerInfo", this.samplerInfoUbo.currentBuffer());
-				if (this.configUbo != null) {
-					renderPass.setUniform("Config", this.configUbo.currentBuffer());
+				renderPass.setUniform("SamplerInfo", samplerInfo);
+				if (config != null) {
+					renderPass.setUniform("Config", config);
 				}
 				renderPass.bindTexture("InSampler", input.getColorTextureView(), samplerCache.getClampToEdge(FilterMode.LINEAR));
 				if (history != null) {
@@ -645,14 +656,14 @@ public final class VFXPostProcessingManager {
 					// The precomputed coverage; the consumer does no shape/depth work.
 					renderPass.bindTexture("CoverageSampler", coverage.getColorTextureView(), samplerCache.getClampToEdge(FilterMode.NEAREST));
 				}
-				if (this.fieldUbo != null) {
-					renderPass.setUniform("FieldConfig", this.fieldUbo.currentBuffer());
+				if (field != null) {
+					renderPass.setUniform("FieldConfig", field);
 				}
 				if (this.usesDepth && depthSource != null) {
 					// Depth is non-filterable: NEAREST only (depth findings).
 					renderPass.bindTexture("DepthSampler", depthSource.getDepthTextureView(), samplerCache.getClampToEdge(FilterMode.NEAREST));
 				}
-				if (this.fieldUbo != null) {
+				if (field != null) {
 					final String texture = fieldProgram == null ? null : fieldProgram.texture();
 					renderPass.bindTexture("fld_tex0", texture == null ? input.getColorTextureView() : resolveTexture(texture), samplerCache.getClampToEdge(FilterMode.LINEAR));
 				}
@@ -661,14 +672,6 @@ public final class VFXPostProcessingManager {
 				//?} else {
 				/*renderPass.draw(3, 1, 0, 0);
 				*///?}
-			}
-
-			this.samplerInfoUbo.rotate();
-			if (this.configUbo != null) {
-				this.configUbo.rotate();
-			}
-			if (this.fieldUbo != null) {
-				this.fieldUbo.rotate();
 			}
 		}
 
@@ -691,21 +694,12 @@ public final class VFXPostProcessingManager {
 			final float camZ,
 			final float time
 		) {
-			//? if <26.2 {
-			try (GpuBuffer.MappedView view = encoder.mapBuffer(this.samplerInfoUbo.currentBuffer(), false, true)) {
-			//?} else {
-			/*try (GpuBufferSlice.MappedView view = this.samplerInfoUbo.currentBuffer().map(false, true)) {
-			*///?}
-				Std140Builder.intoBuffer(view.data()).putVec2(coverageTarget.width, coverageTarget.height).putVec2(mainTarget.width, mainTarget.height);
-			}
-			if (this.configUbo != null) {
-				//? if <26.2 {
-				try (GpuBuffer.MappedView view = encoder.mapBuffer(this.configUbo.currentBuffer(), false, true)) {
-				//?} else {
-				/*try (GpuBufferSlice.MappedView view = this.configUbo.currentBuffer().map(false, true)) {
-				*///?}
-					VFXMaskUniforms.writeCoverage(Std140Builder.intoBuffer(view.data()), effect, mask, invViewProj, camX, camY, camZ, time);
-				}
+			final GpuBufferSlice samplerInfo = this.arena.write(encoder, builder ->
+				builder.putVec2(coverageTarget.width, coverageTarget.height).putVec2(mainTarget.width, mainTarget.height));
+			GpuBufferSlice config = null;
+			if (this.hasConfig) {
+				config = this.arena.write(encoder, builder ->
+					VFXMaskUniforms.writeCoverage(builder, effect, mask, invViewProj, camX, camY, camZ, time));
 			}
 			try (RenderPass renderPass = encoder.createRenderPass(
 					() -> "VFX coverage " + this.pipeline.getLocation(),
@@ -718,9 +712,9 @@ public final class VFXPostProcessingManager {
 				)) {
 				renderPass.setPipeline(this.pipeline);
 				RenderSystem.bindDefaultUniforms(renderPass);
-				renderPass.setUniform("SamplerInfo", this.samplerInfoUbo.currentBuffer());
-				if (this.configUbo != null) {
-					renderPass.setUniform("Config", this.configUbo.currentBuffer());
+				renderPass.setUniform("SamplerInfo", samplerInfo);
+				if (config != null) {
+					renderPass.setUniform("Config", config);
 				}
 				renderPass.bindTexture("DepthSampler", mainTarget.getDepthTextureView(), samplerCache.getClampToEdge(FilterMode.NEAREST));
 				// A block leaf samples the geometry scratch; a harmless placeholder bind when the mask
@@ -734,10 +728,6 @@ public final class VFXPostProcessingManager {
 				/*renderPass.draw(3, 1, 0, 0);
 				*///?}
 			}
-			this.samplerInfoUbo.rotate();
-			if (this.configUbo != null) {
-				this.configUbo.rotate();
-			}
 		}
 
 		/**
@@ -748,6 +738,84 @@ public final class VFXPostProcessingManager {
 		private com.mojang.blaze3d.textures.GpuTextureView resolveTexture(final String id) {
 			return this.textureCache.computeIfAbsent(id, key ->
 				Minecraft.getInstance().getTextureManager().getTexture(Identifier.parse(key)).getTextureView());
+		}
+	}
+
+	/**
+	 * One pass's uniform storage for a frame. A single {@link MappableRingBuffer} is acquired on the
+	 * first write of a {@code process} call and then handed out as aligned slices, so every write in
+	 * that call reuses one buffer and the ring is rotated once, at the end of the call. This keeps
+	 * the number of fence waits per frame bounded (one ring rotation per pass per process call) and
+	 * independent of the number of masked definitions, instead of rotating a shared buffer per pass
+	 * execution — which on 26.2 waits on a fence of the submit currently being built and throws
+	 * {@code IllegalStateException: Cannot wait on a fence for the current submit}. The arena grows
+	 * (retiring the old ring until the next rotation) only when a single call writes more slots than
+	 * the current capacity.
+	 */
+	private static final class UniformArena {
+		private final String label;
+		private final int blockSize;
+		private final List<MappableRingBuffer> retired = new ArrayList<>();
+		private MappableRingBuffer ring;
+		private int capacity;
+		private int nextBlock;
+		private boolean used;
+
+		private UniformArena(final String label, final int payloadSize) {
+			this.label = label;
+			this.blockSize = Math.max(ARENA_BLOCK_ALIGNMENT,
+				((payloadSize + ARENA_BLOCK_ALIGNMENT - 1) / ARENA_BLOCK_ALIGNMENT) * ARENA_BLOCK_ALIGNMENT);
+			this.capacity = ARENA_INITIAL_CAPACITY;
+			this.ring = new MappableRingBuffer(() -> this.label, UBO_USAGE, this.blockSize * this.capacity);
+		}
+
+		/** Writes one std140 payload into the next aligned slot and returns its slice. */
+		private GpuBufferSlice write(final CommandEncoder encoder, final Consumer<Std140Builder> writer) {
+			if (this.nextBlock >= this.capacity) {
+				this.grow(this.capacity * 2);
+			}
+			final GpuBufferSlice slice = this.ring.currentBuffer().slice((long) this.nextBlock * this.blockSize, this.blockSize);
+			this.nextBlock++;
+			//? if <26.2 {
+			try (GpuBuffer.MappedView view = encoder.mapBuffer(slice, false, true)) {
+				writer.accept(Std140Builder.intoBuffer(view.data()));
+			}
+			//?} else {
+			/*try (GpuBufferSlice.MappedView view = slice.map(false, true)) {
+				writer.accept(Std140Builder.intoBuffer(view.data()));
+			}
+			*///?}
+			this.used = true;
+			return slice;
+		}
+
+		/** Rotates the ring after the call's writes, unless nothing was written. */
+		private void endFrame() {
+			if (!this.used) {
+				return;
+			}
+			this.used = false;
+			this.nextBlock = 0;
+			this.ring.rotate();
+			for (final MappableRingBuffer old : this.retired) {
+				old.close();
+			}
+			this.retired.clear();
+		}
+
+		private void close() {
+			this.ring.close();
+			for (final MappableRingBuffer old : this.retired) {
+				old.close();
+			}
+			this.retired.clear();
+		}
+
+		private void grow(final int newCapacity) {
+			this.retired.add(this.ring);
+			this.capacity = newCapacity;
+			this.nextBlock = 0;
+			this.ring = new MappableRingBuffer(() -> this.label, UBO_USAGE, this.blockSize * this.capacity);
 		}
 	}
 
