@@ -477,44 +477,7 @@ public class VFXDefinition {
 	}
 
 	private static BoundParam parseBound(final JsonObject object) {
-		BoundParam.Kind kind = BoundParam.Kind.fromString(GsonHelper.getAsString(object, "bind"));
-		double x = 0.0;
-		double y = 0.0;
-		double z = 0.0;
-		if (kind.needsPos()) {
-			JsonArray pos = GsonHelper.getAsJsonArray(object, "pos");
-			if (pos.size() != 3) {
-				throw new IllegalArgumentException("Binding 'pos' must be an array of [x, y, z]: " + object);
-			}
-			x = pos.get(0).getAsDouble();
-			y = pos.get(1).getAsDouble();
-			z = pos.get(2).getAsDouble();
-		}
-		String objective = null;
-		String holder = null;
-		if (kind == BoundParam.Kind.SCOREBOARD) {
-			objective = GsonHelper.getAsString(object, "objective", "");
-			if (objective.isBlank()) {
-				throw new IllegalArgumentException("Binding 'scoreboard' needs a non-blank 'objective': " + object);
-			}
-			holder = object.has("holder") && !object.get("holder").isJsonNull() ? GsonHelper.getAsString(object, "holder") : null;
-			if (holder != null && holder.isBlank()) {
-				// A blank holder reads as "not specified" (the local viewing player).
-				holder = null;
-			}
-		}
-		float defaultRange = switch (kind) {
-			case LOOK, LOOK_AT -> 90.0F;
-			case SPEED -> 5.0F;
-			case SCOREBOARD -> 16.0F;
-			default -> 16.0F;
-		};
-		float range = GsonHelper.getAsFloat(object, "range", defaultRange);
-		boolean invert = GsonHelper.getAsBoolean(object, "invert", false);
-		float scale = GsonHelper.getAsFloat(object, "scale", 1.0F);
-		float yaw = GsonHelper.getAsFloat(object, "yaw", 0.0F);
-		float pitch = GsonHelper.getAsFloat(object, "pitch", 0.0F);
-		return new BoundParam(kind, x, y, z, yaw, pitch, range, invert, scale, objective, holder);
+		return BoundParam.parse(object);
 	}
 
 	/**

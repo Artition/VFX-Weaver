@@ -1,5 +1,8 @@
 package dev.vfxweaver.effect;
 
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
 import org.jspecify.annotations.Nullable;
 
 /**
@@ -27,6 +30,70 @@ public record BoundParam(Kind kind, double x, double y, double z, float yaw, flo
 		if (scale == 0.0F) {
 			scale = 1.0F;
 		}
+	}
+
+	/**
+	 * Parses a {@code {"bind": "...", ...}} object with plain Gson (no Minecraft types), so the
+	 * graph module can reuse it while staying MC-free.
+	 *
+	 * @param object the binding object, e.g. {@code {"bind":"proximity","pos":[0,0,0],"range":8}}
+	 * @throws IllegalArgumentException when a required field is missing or malformed
+	 */
+	public static BoundParam parse(final JsonObject object) {
+		final Kind kind = Kind.fromString(str(object, "bind", ""));
+		double x = 0.0;
+		double y = 0.0;
+		double z = 0.0;
+		if (kind.needsPos()) {
+			final JsonElement posElement = object.get("pos");
+			if (posElement == null || !posElement.isJsonArray() || posElement.getAsJsonArray().size() != 3) {
+				throw new IllegalArgumentException("Binding 'pos' must be an array of [x, y, z]: " + object);
+			}
+			final JsonArray pos = posElement.getAsJsonArray();
+			x = pos.get(0).getAsDouble();
+			y = pos.get(1).getAsDouble();
+			z = pos.get(2).getAsDouble();
+		}
+		String objective = null;
+		String holder = null;
+		if (kind == Kind.SCOREBOARD) {
+			objective = str(object, "objective", "");
+			if (objective.isBlank()) {
+				throw new IllegalArgumentException("Binding 'scoreboard' needs a non-blank 'objective': " + object);
+			}
+			final JsonElement holderElement = object.get("holder");
+			holder = holderElement != null && !holderElement.isJsonNull() ? holderElement.getAsString() : null;
+			if (holder != null && holder.isBlank()) {
+				holder = null;
+			}
+		}
+		final float defaultRange = switch (kind) {
+			case LOOK, LOOK_AT -> 90.0F;
+			case SPEED -> 5.0F;
+			case SCOREBOARD -> 16.0F;
+			default -> 16.0F;
+		};
+		final float range = flt(object, "range", defaultRange);
+		final boolean invert = boo(object, "invert", false);
+		final float scale = flt(object, "scale", 1.0F);
+		final float yaw = flt(object, "yaw", 0.0F);
+		final float pitch = flt(object, "pitch", 0.0F);
+		return new BoundParam(kind, x, y, z, yaw, pitch, range, invert, scale, objective, holder);
+	}
+
+	private static String str(final JsonObject object, final String key, final String fallback) {
+		final JsonElement element = object.get(key);
+		return element != null && !element.isJsonNull() ? element.getAsString() : fallback;
+	}
+
+	private static float flt(final JsonObject object, final String key, final float fallback) {
+		final JsonElement element = object.get(key);
+		return element != null && !element.isJsonNull() ? element.getAsFloat() : fallback;
+	}
+
+	private static boolean boo(final JsonObject object, final String key, final boolean fallback) {
+		final JsonElement element = object.get(key);
+		return element != null && !element.isJsonNull() ? element.getAsBoolean() : fallback;
 	}
 
 	/**
