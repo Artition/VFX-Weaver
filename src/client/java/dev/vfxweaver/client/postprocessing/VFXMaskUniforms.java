@@ -106,23 +106,25 @@ public final class VFXMaskUniforms {
 			}
 		}
 
+		// std140 lays every declared array out contiguously (all shape_op, then all field_params,
+		// ...), so the six per-primitive rows must be emitted grouped by field, not interleaved
+		// per primitive. Compute each primitive's rows first, then write them field by field; an
+		// absent primitive leaves its rows zeroed, which the mask_count gate ignores anyway.
+		final float[][][] rows = new float[VFXMask.MAX_PRIMITIVES][6][4];
 		for (int i = 0; i < VFXMask.MAX_PRIMITIVES; i++) {
 			final VFXMaskPrimitive primitive = i < mask.primitives().size() ? mask.primitives().get(i) : null;
 			if (primitive == null) {
-				for (int v = 0; v < 6; v++) {
-					builder.putVec4(0.0F, 0.0F, 0.0F, 0.0F);
-				}
 				continue;
 			}
 			final float operation = i == 0 ? 0.0F : mask.ops().get(i - 1).ordinal();
 			final Integer customRow = primitive.family() == VFXMaskPrimitive.Family.CUSTOM ? customRows.get(primitive.customShape()) : null;
-			builder.putVec4(primitive.kindCode(), operation, primitive.softnessDefault(), primitive.field().ordinal());
-			builder.putVec4(
+			rows[i][0] = new float[]{primitive.kindCode(), operation, primitive.softnessDefault(), primitive.field().ordinal()};
+			rows[i][1] = new float[]{
 				slotValue(mask, effect, primitive.fieldAmountSlot(), primitive.fieldAmountDefault()),
 				slotValue(mask, effect, primitive.fieldScaleSlot(), primitive.fieldScaleDefault()),
 				primitive.fieldSeed(),
 				primitive.space() == VFXMaskSpace.WORLD ? 1.0F : 0.0F
-			);
+			};
 			// A bound centre overrides the literal/graph centre; a derived screen rectangle overrides
 			// the centre AND the half-extents. Resolution is cached per frame by VFXWorldBindings.
 			final BoundParam centerBinding = primitive.centerBinding();
@@ -133,12 +135,12 @@ public final class VFXMaskUniforms {
 			final float[] rawScreenRect = centerBinding != null && centerBinding.kind() == BoundParam.Kind.SCREEN_RECT
 				? VFXWorldBindings.evaluateScreenRect(centerBinding) : null;
 			final float[] screenRect = rawScreenRect != null && rawScreenRect[2] >= 0.0F && rawScreenRect[3] >= 0.0F ? rawScreenRect : null;
-			builder.putVec4(
+			rows[i][2] = new float[]{
 				centerPoint != null ? centerPoint[0] : (screenRect != null ? screenRect[0] : slotValue(mask, effect, primitive.centerSlots()[0], primitive.centerDefaults()[0])),
 				centerPoint != null ? centerPoint[1] : (screenRect != null ? screenRect[1] : slotValue(mask, effect, primitive.centerSlots()[1], primitive.centerDefaults()[1])),
 				centerPoint != null ? centerPoint[2] : (screenRect != null ? 0.0F : (primitive.centerSlots().length > 2 ? slotValue(mask, effect, primitive.centerSlots()[2], primitive.centerDefaults()[2]) : 0.0F)),
 				slotValue(mask, effect, primitive.rotationSlot(), primitive.rotationDefault())
-			);
+			};
 			final float[] parameters = new float[VFXMaskSlots.MAX_LEAF_PARAMS];
 			for (int j = 0; j < primitive.parameterSlots().length && j < VFXMaskSlots.MAX_LEAF_PARAMS; j++) {
 				parameters[j] = slotValue(mask, effect, primitive.parameterSlots()[j], primitive.parameterDefaults()[j]);
@@ -153,9 +155,14 @@ public final class VFXMaskUniforms {
 					parameters[halfHeight] = screenRect[3];
 				}
 			}
-			builder.putVec4(parameters[0], parameters[1], parameters[2], parameters[3]);
-			builder.putVec4(parameters[4], parameters[5], parameters[6], parameters[7]);
-			builder.putVec4(primitive.fill().ordinal(), slotValue(mask, effect, primitive.strokeSlot(), primitive.strokeDefault()), i, customRow == null ? -1.0F : customRow);
+			rows[i][3] = new float[]{parameters[0], parameters[1], parameters[2], parameters[3]};
+			rows[i][4] = new float[]{parameters[4], parameters[5], parameters[6], parameters[7]};
+			rows[i][5] = new float[]{primitive.fill().ordinal(), slotValue(mask, effect, primitive.strokeSlot(), primitive.strokeDefault()), i, customRow == null ? -1.0F : customRow};
+		}
+		for (int row = 0; row < 6; row++) {
+			for (int i = 0; i < VFXMask.MAX_PRIMITIVES; i++) {
+				builder.putVec4(rows[i][row][0], rows[i][row][1], rows[i][row][2], rows[i][row][3]);
+			}
 		}
 
 		// custom_op per row: x=family (0 composed, 1 plugin), y=part count, z/w=the first two ops.
@@ -171,19 +178,26 @@ public final class VFXMaskUniforms {
 			final float op1 = parts > 2 ? shape.ops().get(1).ordinal() : 0.0F;
 			builder.putVec4(plugin ? 1.0F : 0.0F, parts, op0, op1);
 		}
+		// Same std140 grouping for the composed parts: all custom_kind, then custom_center, then
+		// custom_params, each indexed row * MAX_CUSTOM_PARTS + part (as the shader reads it).
+		final float[][][][] partRows = new float[VFXCustomShape.MAX_CUSTOM_LEAVES][VFXCustomShape.MAX_CUSTOM_PARTS][3][4];
 		for (int row = 0; row < VFXCustomShape.MAX_CUSTOM_LEAVES; row++) {
 			final VFXCustomShape shape = rowShapes[row];
 			for (int p = 0; p < VFXCustomShape.MAX_CUSTOM_PARTS; p++) {
 				if (shape == null || shape.family() != VFXCustomShape.Family.COMPOSED || p >= shape.parts().size()) {
-					builder.putVec4(0.0F, 0.0F, 0.0F, 0.0F); // kind
-					builder.putVec4(0.0F, 0.0F, 0.0F, 0.0F); // center
-					builder.putVec4(0.0F, 0.0F, 0.0F, 0.0F); // params
 					continue;
 				}
 				final VFXCustomShape.Part part = shape.parts().get(p);
-				builder.putVec4(part.shape().ordinal(), part.space() == VFXMaskSpace.WORLD ? 1.0F : 0.0F, part.rounding(), part.repeat());
-				builder.putVec4(part.center()[0], part.center()[1], part.center().length > 2 ? part.center()[2] : 0.0F, part.rotation());
-				builder.putVec4(part.params()[0], part.params().length > 1 ? part.params()[1] : 0.0F, part.params().length > 2 ? part.params()[2] : 0.0F, 0.0F);
+				partRows[row][p][0] = new float[]{part.shape().ordinal(), part.space() == VFXMaskSpace.WORLD ? 1.0F : 0.0F, part.rounding(), part.repeat()};
+				partRows[row][p][1] = new float[]{part.center()[0], part.center()[1], part.center().length > 2 ? part.center()[2] : 0.0F, part.rotation()};
+				partRows[row][p][2] = new float[]{part.params()[0], part.params().length > 1 ? part.params()[1] : 0.0F, part.params().length > 2 ? part.params()[2] : 0.0F, 0.0F};
+			}
+		}
+		for (int field = 0; field < 3; field++) {
+			for (int row = 0; row < VFXCustomShape.MAX_CUSTOM_LEAVES; row++) {
+				for (int p = 0; p < VFXCustomShape.MAX_CUSTOM_PARTS; p++) {
+					builder.putVec4(partRows[row][p][field][0], partRows[row][p][field][1], partRows[row][p][field][2], partRows[row][p][field][3]);
+				}
 			}
 		}
 	}
