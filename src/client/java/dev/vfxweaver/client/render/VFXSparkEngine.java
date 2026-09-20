@@ -180,7 +180,8 @@ public final class VFXSparkEngine {
 		for (int i = 0; i < count; i++) {
 			final Vec3 position = VFXWorldOverlayRenderer.sampleShape(shape, anchors, radius, height, turns, elapsed, random);
 			if (position == null) {
-				return;
+				// Unknown shape: stop emitting this frame (the warning is one-time per shape).
+				break;
 			}
 			final Vec3 direction;
 			if (aimDir != null) {
@@ -259,19 +260,6 @@ public final class VFXSparkEngine {
 				integrateBucket(level, bucket);
 			}
 			integrateBucket(level, STANDALONE);
-		}
-	}
-
-	/**
-	 * Drops a running effect instance's sparks. The next {@link #tick} would prune it anyway; this
-	 * lets a caller free them immediately.
-	 *
-	 * @param instanceKey the effect instance id
-	 */
-	public static void clear(final long instanceKey) {
-		final Bucket removed = EFFECT_BUCKETS.remove(instanceKey);
-		if (removed != null) {
-			releaseBucket(removed);
 		}
 	}
 

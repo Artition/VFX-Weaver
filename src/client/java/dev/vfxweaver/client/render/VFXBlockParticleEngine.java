@@ -89,6 +89,17 @@ public final class VFXBlockParticleEngine {
 	private static final Map<Long, Bucket> EFFECT_BUCKETS = new HashMap<>();
 	private static final Bucket STANDALONE = new Bucket();
 
+	/**
+	 * Reused transform scratch. The display stores the {@code Transformation}'s component
+	 * references in synched entity data and skips a field when the reference is unchanged, so the
+	 * values that must be re-detected each frame (translation, left rotation) are freshly allocated
+	 * while the never-changing ones (an identity right rotation, the zero item translation) are
+	 * shared constants and the slerp target is a private scratch (copied before it is stored).
+	 */
+	private static final Quaternionf IDENTITY_ROTATION = new Quaternionf();
+	private static final Vector3f ZERO_TRANSLATION = new Vector3f();
+	private static final Quaternionf SLERP_SCRATCH = new Quaternionf();
+
 	private static @Nullable ClientLevel lastLevel;
 	private static float lastClock = Float.NaN;
 	private static float accumulator;
@@ -120,6 +131,8 @@ public final class VFXBlockParticleEngine {
 		final Quaternionf prevOrientation;
 		/** Angular velocity in radians per tick; its direction is the (body-fixed) tumble axis. */
 		final Vector3f angularVelocity;
+		/** Uniform scale vector for the display transform, allocated once (the size is fixed per particle). */
+		final Vector3f transformScale;
 		final VFXBlockParticleSpec spec;
 		final @Nullable Display display;
 
@@ -131,6 +144,7 @@ public final class VFXBlockParticleEngine {
 			this.orientation = new Quaternionf(orientation);
 			this.prevOrientation = new Quaternionf(orientation);
 			this.angularVelocity = new Vector3f(angularVelocity);
+			this.transformScale = new Vector3f(spec.size(), spec.size(), spec.size());
 			this.display = display;
 		}
 	}
@@ -223,7 +237,8 @@ public final class VFXBlockParticleEngine {
 		for (int i = 0; i < count; i++) {
 			final Vec3 position = VFXWorldOverlayRenderer.sampleShape(shape, anchors, radius, height, turns, elapsed, random);
 			if (position == null) {
-				return;
+				// Unknown shape: stop emitting this frame (the warning is one-time per shape).
+				break;
 			}
 			double vx = 0.0;
 			double vy = velY;
@@ -321,19 +336,6 @@ public final class VFXBlockParticleEngine {
 		}
 		for (final Particle particle : STANDALONE.particles) {
 			updateDisplay(particle, fraction);
-		}
-	}
-
-	/**
-	 * Drops a running effect instance's particles (the effect stopped), removing their displays.
-	 * The next {@link #tick} would prune it anyway; this lets a caller free them immediately.
-	 *
-	 * @param instanceKey the effect instance id
-	 */
-	public static void clear(final long instanceKey) {
-		final Bucket removed = EFFECT_BUCKETS.remove(instanceKey);
-		if (removed != null) {
-			removeDisplays(removed);
 		}
 	}
 
@@ -442,15 +444,14 @@ public final class VFXBlockParticleEngine {
 		if (display == null) {
 			return;
 		}
-		final Vec3 position = new Vec3(
+		display.setPos(
 			Mth.lerp(fraction, particle.prev.x, particle.pos.x),
 			Mth.lerp(fraction, particle.prev.y, particle.pos.y),
 			Mth.lerp(fraction, particle.prev.z, particle.pos.z)
 		);
-		display.setPos(position.x, position.y, position.z);
 		// Slerp the orientation by the leftover tick fraction so the tumble is smooth between ticks.
-		final Quaternionf orientation = new Quaternionf(particle.prevOrientation).slerp(particle.orientation, fraction);
-		applyTransform(display, particle.spec.size(), orientation);
+		SLERP_SCRATCH.set(particle.prevOrientation).slerp(particle.orientation, fraction);
+		applyTransform(display, particle.transformScale, SLERP_SCRATCH);
 		// Re-anchor the one-tick interpolation window to the current tick every frame (the setter
 		// forces the synched-data update), so the display slerps from the previously rendered
 		// transformation to this frame's target instead of holding it until the next entity tick.
@@ -479,12 +480,17 @@ public final class VFXBlockParticleEngine {
 	 * transformation, so the item's centre is at the display origin and needs no translation. (That
 	 * built-in flip is the item's own base orientation; the tumble composes on top of it.)</p>
 	 */
-	private static void applyTransform(final Display display, final float size, final Quaternionf orientation) {
-		final Vector3f scale = new Vector3f(size, size, size);
-		final Vector3f translation = display instanceof Display.ItemDisplay
-			? new Vector3f()
-			: orientation.transform(new Vector3f(0.5F * size, 0.5F * size, 0.5F * size)).negate();
-		display.setTransformation(new Transformation(translation, new Quaternionf(orientation), scale, new Quaternionf()));
+	private static void applyTransform(final Display display, final Vector3f scale, final Quaternionf orientation) {
+		final Vector3f translation;
+		if (display instanceof Display.ItemDisplay) {
+			// Value never changes, so a shared zero vector is safe (the entity-data setter skips it).
+			translation = ZERO_TRANSLATION;
+		} else {
+			translation = new Vector3f(0.5F * scale.x, 0.5F * scale.y, 0.5F * scale.z);
+			orientation.transform(translation);
+			translation.negate();
+		}
+		display.setTransformation(new Transformation(translation, new Quaternionf(orientation), scale, IDENTITY_ROTATION));
 	}
 
 	/** Creates and adds the display entity for one particle; {@code null} when the spec cannot draw. */
@@ -514,7 +520,7 @@ public final class VFXBlockParticleEngine {
 		if (spec.brightness() >= 0) {
 			display.setBrightnessOverride(Brightness.unpack(spec.brightness()));
 		}
-		applyTransform(display, spec.size(), orientation);
+		applyTransform(display, new Vector3f(spec.size(), spec.size(), spec.size()), orientation);
 		// Make the display interpolate its transformation over exactly one tick. Without this the
 		// render state is only rebuilt on the entity tick, so a transformation refreshed every frame
 		// still renders as the old ~20 Hz stepped spin.

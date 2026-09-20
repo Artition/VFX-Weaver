@@ -531,7 +531,8 @@ public final class VFXWorldOverlayRenderer {
 			// Jitter the sample time within the frame so high rates fill spirals evenly.
 			Vec3 p = sampleShape(shape, anchors, radius, height, turns, elapsed + spin, random);
 			if (p == null) {
-				return;
+				// Unknown shape: stop emitting this frame (the warning is one-time per shape).
+				break;
 			}
 			double vx = 0.0;
 			double vy = velY;
@@ -572,6 +573,21 @@ public final class VFXWorldOverlayRenderer {
 			}
 			engine.add(particle);
 		}
+	}
+
+	/**
+	 * Drops per-instance state whose effect instance is no longer live. {@code PARTICLE_BUDGETS},
+	 * {@code AIMED_PARTICLES} and {@code CHAIN_SIMS} are keyed by instance id and the manager only
+	 * ever allocates new ids, so without this they would leak one entry per stopped effect. Called
+	 * once per frame with the live world-overlay instance ids (the same prune the spark and
+	 * block-particle engines do for their own buckets).
+	 *
+	 * @param liveInstances instance ids of the running world-overlay effects
+	 */
+	private static void pruneInstanceState(final Set<Long> liveInstances) {
+		PARTICLE_BUDGETS.keySet().retainAll(liveInstances);
+		AIMED_PARTICLES.keySet().retainAll(liveInstances);
+		CHAIN_SIMS.keySet().retainAll(liveInstances);
 	}
 
 	/**
@@ -1053,7 +1069,9 @@ public final class VFXWorldOverlayRenderer {
 		// running; their effect buckets are pruned against the active instance sets.
 		Set<Long> blockInstances = new HashSet<>();
 		Set<Long> sparkInstances = new HashSet<>();
+		Set<Long> liveInstances = new HashSet<>();
 		for (VFXActiveEffect effect : effects) {
+			liveInstances.add(effect.getInstanceId());
 			if (effect.getType() == VFXEffectType.PARTICLES) {
 				if (VFXBlockParticleEngine.isModelMode(effect)) {
 					blockInstances.add(effect.getInstanceId());
@@ -1062,6 +1080,10 @@ public final class VFXWorldOverlayRenderer {
 				}
 			}
 		}
+		// Per-instance renderer state (particle budgets, aimed-particle lists, chain simulations)
+		// is keyed by instance id and would otherwise leak once the effect stops; prune it the same
+		// way the engines prune their buckets.
+		pruneInstanceState(liveInstances);
 		VFXBlockParticleEngine.tick(level, manager.getClock(), blockInstances);
 		VFXSparkEngine.tick(level, manager.getClock(), sparkInstances);
 		if (effects.isEmpty()) {
