@@ -84,6 +84,14 @@ layout(std140) uniform Config {
 
 out vec4 fragColor;
 
+// Coverage of a single (non-repeating) pattern tile: falls off over `softness` (cell units) outside
+// the [0,1] tile. A procedural figure is bounded by its SDF radius; a texture cell is not, and the
+// clamps inside vfx_texture_sheet_uv would smear the cell's edge texel across the surface.
+float vfx_pattern_tile_coverage(vec2 uv, float softness) {
+	vec2 outside = max(abs(uv - vec2(0.5)) - vec2(0.5), vec2(0.0));
+	return 1.0 - clamp(max(outside.x, outside.y) / max(softness, 1.0e-4), 0.0, 1.0);
+}
+
 void main() {
     vec4 base = texture(InSampler, texCoord);
 
@@ -165,6 +173,15 @@ void main() {
         float texCoverage = 0.0;
         if (mod(floor(tex_flags / 2.0), 2.0) >= 0.5) {
             vec2 uv = vfx_shape_cell(cell, vec2(repeat_x, repeat_y), rotation) + 0.5;
+            // A single tile (repeat <= 1 on both axes) is unbounded: vfx_shape_cell skips its
+            // fract, so uv runs far outside [0,1]. Bound the tile here from the raw coordinate
+            // (the whole [0,1]^2 cell, before the aspect letterbox) and clamp so the edge texel
+            // cannot smear; a tiling pattern stays in [0,1) via the fract and needs neither.
+            float tileCov = 1.0;
+            if (repeat_x <= 1.0 && repeat_y <= 1.0) {
+                tileCov = vfx_pattern_tile_coverage(uv, softness);
+                uv = clamp(uv, 0.0, 1.0);
+            }
             if (mod(floor(tex_flags / 4.0), 2.0) >= 0.5) {
                 // preserve: keep the *cell's* pixel aspect, not the whole sheet's — a non-square
                 // sheet cell (cols != rows) must not stretch the figure. cell aspect =
@@ -177,6 +194,7 @@ void main() {
             vec4 texel = vfx_texture_sample(PatternSampler, uv,
                 vec4(tex_u0, tex_v0, tex_u1, tex_v1), vec2(tex_cols, tex_rows), tex_frame, halfTexel);
             texCoverage = clamp(vfx_texture_channel(texel, int(tex_channel + 0.5)), 0.0, 1.0);
+            texCoverage *= tileCov;
             patternRGB = mix(texel.rgb, texel.rgb * vec3(color_r, color_g, color_b), clamp(texture_tint, 0.0, 1.0));
         }
         if (shape_present >= 0.5) {

@@ -13,7 +13,9 @@
 
 // The pattern's cell coordinate: rotate about the anchor, then apply the repeat/tile modifier. The
 // result is in [-0.5, 0.5] (or tiled copies of it). Both the procedural figure and a texture figure
-// call this, so a texture is projected and tiled exactly like the figure it replaces.
+// call this, so a texture is projected and tiled exactly like the figure it replaces. With repeat
+// <= 1 on both axes the result is UNBOUNDED (the fract is skipped): a procedural figure is bounded
+// by its SDF radius, a texture consumer must bound its own tile (see surface_pattern.fsh).
 vec2 vfx_shape_cell(vec2 p, vec2 repeat, float rotationDeg) {
 	float rot = radians(rotationDeg);
 	float c = cos(rot);

@@ -311,9 +311,9 @@ same-id built-in (the datapack/server layer wins), so a demo written as `vfxweav
 loaded at all, and you break the built-in. Use the pack's namespace (`vfx_demos:<name>`) for its
 effects and spark presets; keep `vfxweaver:` only when the intent really is to shadow a built-in.
 
-The `26.2test` Prism instance's test pack is at
+The `26.2fabric` Prism instance's test pack is at
 `<instance>/minecraft/saves/<world>/datapacks/vfx_demos/` (currently
-`C:\Users\Light Flight PC\AppData\Roaming\PrismLauncher\instances\26.2test\minecraft\saves\New World\datapacks\vfx_demos`,
+`C:\Users\Light Flight PC\AppData\Roaming\PrismLauncher\instances\26.2fabric\minecraft\saves\New World\datapacks\vfx_demos`,
 world `New World` — check `logs/latest.log` for the loaded level), with `pack.mcmeta` using the 26.2
 `min_format`/`max_format` form (`"min_format": [107, 1]` with a plain-int `"max_format": 107`, copied
 from the vanilla datapacks inside the client jar — an array `max_format` fails to parse, the pack
