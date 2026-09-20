@@ -179,21 +179,28 @@ void main() {
                 cov = vfx_composed_leaf(row, world, texCoord);
             }
         } else if ((kind == 4 || kind == 5) && shape_volume[i].x > 0.5) {
-            // Aura: cast the pixel's view ray at the volume and compare its entry against the scene
-            // distance. The reconstructed point (the far plane for sky) gives a valid direction.
+            // Aura: cast the pixel's view ray at the volume. Coverage is the volume's own silhouette,
+            // sampled at the deepest point of the chord, masked by scene occlusion. The reconstructed
+            // point (the far plane for sky) gives the view direction.
             vec3 viewDir = normalize(world - camPos.xyz);
             float tEnter;
             float tExit;
-            bool volumeHit = vfx_volume_ray(kind, camPos.xyz, viewDir, shape_center[i].xyz, shape_center[i].w, shape_params0[i], tEnter, tExit);
-            if (tExit < 0.0) {
-                // Volume entirely behind the camera.
+            vfx_volume_ray(kind, camPos.xyz, viewDir, shape_center[i].xyz, shape_center[i].w, shape_params0[i], tEnter, tExit);
+            // A degenerate chord - the sphere tangent at the camera (cc == 0: the radius is bound to
+            // the camera distance, so the camera sits ON the surface) or entirely behind it - can
+            // leave tExit at 0 or a rounding pair of tEnter. Such a chord is not a visible volume;
+            // sampling it would put the point on the boundary (SDF distance 0) and paint a spurious
+            // half tint over the whole view. Reject it.
+            float chordEps = 1.0e-4 * max(1.0, length(shape_center[i].xyz - camPos.xyz));
+            if (tExit <= chordEps) {
                 cov = 0.0;
             } else {
                 // Sample the volume SDF at the midpoint of the visible chord - the sphere's closest
-                // approach. Sampling the entry instead put the point on the boundary (distance 0),
-                // which flattened the whole interior to a half tint; the chord midpoint is deepest
-                // inside, so the interior reaches full coverage and the edge fades from both sides.
-                float tRef = clamp(0.5 * (tEnter + tExit), 0.0, sceneDist);
+                // approach (the chord centre for a box) - clamped into the forward chord so a camera
+                // inside the volume samples at itself (still inside, full coverage). Deliberately NOT
+                // clamped to sceneDist: that sampled the SDF at a point reconstructed from the depth
+                // buffer, so depth error became a coverage step and banded the silhouette into rings.
+                float tRef = clamp(0.5 * (tEnter + tExit), 0.0, tExit);
                 vec3 volumePoint = camPos.xyz + viewDir * tRef;
                 float d = vfx_shape_sdf_dispatch(kind, leafSpace, texCoord, volumePoint, shape_center[i].xyz, shape_center[i].w, shape_params0[i], shape_params1[i]);
                 if (shape_misc[i].x > 0.5) {
@@ -204,11 +211,16 @@ void main() {
                 d += fieldValue(int(so.w + 0.5), auraFieldPos, field_params[i].y, field_params[i].z) * field_params[i].x;
                 float softness = max(so.z, 1.0e-4);
                 float silhouette = clamp(0.5 - d / softness, 0.0, 1.0);
-                // Occlusion: a visible surface nearer than the volume entry hides the aura; on a miss
-                // there is no entry to occlude, so only the silhouette fade applies.
+                // Occlusion: a visible surface nearer than the volume entry hides the aura. The entry
+                // is compared against a distance reconstructed from the depth buffer, so the
+                // threshold carries a slack proportional to that distance (a fixed world bias cannot
+                // survive large distances); the relative slack keeps depth error from banding the
+                // edge, and stays well below softness at close range. A camera inside the volume
+                // (tEnter <= 0) is never occluded - the volume surrounds it.
                 float occluded = 1.0;
-                if (volumeHit) {
-                    occluded = clamp(0.5 - (max(tEnter, 0.0) - sceneDist) / softness, 0.0, 1.0);
+                if (tEnter > 0.0) {
+                    float depthSlack = sceneDist * 2.0e-3;
+                    occluded = clamp(0.5 - (tEnter - sceneDist - depthSlack) / softness, 0.0, 1.0);
                 }
                 cov = silhouette * occluded;
             }
