@@ -2,6 +2,10 @@
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). The versions below are guide/feature-set versions of the mod (as they progressed historically, see `docs/GUIDE.md`), plus git release tags where applicable (`v1.0.x`, `gradle.properties` → `mod_version`). Add new entries at the top, in the same PR as the behavior change.
 
+## Unreleased / Guide v38
+### Added
+- **New `surface_pattern` effect** — a world-anchored shape pattern (`circle`/`ellipse`/`rect`/`polygon`, tiled by a `repeat` modifier) projected onto the terrain behind each pixel, so it stays fixed to world blocks as you move. The figure lives in a top-level `pattern` block (never in `params`), the anchor is the shape's `center`, the effect's first `position` or the camera, and a grid is a repeated figure while a ring is an `ellipse` with `fill: stroke`. It reads scene depth, so it renders on **26.1.2+** and needs `"screen_layer": 0`; additive, no existing definition changes behaviour. See `docs/GUIDE.md` §2.1.
+
 ## Unreleased / Guide v37
 ### Added
 - **`VFXAPI.sendMaskMove` / `VFXAPI.maskMove`** — move one mask leaf to a world position by setting its three reserved `mask.p<N>.center_x|center_y|center_z` params (ordinary animatable effect params). Call it every tick to follow a point, and use it to drive a mask from the server when a client-side entity binding is not enough (an entity outside the client's tracking range is genuinely unresolvable on the client). See `docs/API.md`.

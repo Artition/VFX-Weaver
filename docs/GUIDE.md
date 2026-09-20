@@ -494,6 +494,70 @@ Stop-motion / papercraft: the picture updates only a few times per second while 
 /vfx play vfxweaver:stop_motion {[fps:8]}
 ```
 
+#### `surface_pattern`
+A shape pattern projected onto the terrain behind each pixel: a world-anchored figure (circle, ellipse, rect or polygon) drawn on whatever surface the scene depth reconstructs, so it stays fixed to world blocks as you turn and walk. It reads scene depth, so it **renders on Minecraft 26.1.2+ only** (on 1.21.11 the type exists but draws nothing) and must run at `"screen_layer": 0` — the single scene depth buffer is only intact below the first-person hand.
+
+| Param | Default | Description |
+|---|---|---|
+| `screen_layer` | 0 | Must be 0 for a meaningful result (depth is the hand-only buffer at layer 1+) |
+| `tile_scale` | 1 | World size of one cell in blocks (larger = bigger figure) |
+| `line_width` | — | Numeric override of the shape's structural `stroke_width` (cell units) |
+| `color_r` / `color_g` / `color_b` | 1 / 1 / 1 | Pattern colour |
+| `opacity` | 1 (fades to 0) | Overall strength |
+| `fade_radius` | 0 | Distance from the anchor at which the pattern fades out, blocks (0 = no fade) |
+| `normal_mask` | 0 | Minimum absolute Y of the surface normal — `0.6` keeps floors/ceilings and excludes walls (0 = off) |
+| `distort` | 0 | World-space sine warp of the pattern coordinate (0 = off) |
+
+The figure is a top-level structural `pattern` block — the strings and figure numbers live there, never in `params` (which stays numeric and animatable), so an older mod ignores the whole block. It is owned by the shared shape library and uses the same figures as §3.7's `shape` field:
+
+| Field | Default | Meaning |
+|---|---|---|
+| `figure` | `circle` | `circle` (`radius`); `ellipse` (`radius_x`/`radius_y`); `rect` (`half_width`/`half_height`, optional `corner_radius`); `polygon` (`sides` ≥ 3, `radius`) |
+| `center` | — | Optional literal `[x, y, z]` world anchor. When absent the anchor is the effect's first world `position` (e.g. via `/vfx playat`, `positions` or an entity anchor), else the camera |
+| `rotation` | 0 | Figure rotation in degrees in the world XZ plane (`center.y` is accepted but unused by the projection) |
+| `fill` | `solid` | `solid` or `stroke` |
+| `stroke_width` | 0.05 | Stroke thickness when `fill: stroke` (overridable by `params.line_width`) |
+| `softness` | 0.01 | Edge softness |
+| `repeat` | `[1, 1]` | `[nx, ny]` tiling of the figure inside a cell, each `1..64` |
+
+**A grid is not a mode** — it is any figure with a `repeat` greater than 1 (or a stroked `rect`); **a ring is not a mode** — it is `ellipse` with `"fill": "stroke"`. To limit the pattern to a region, use the shared `mask` block (§3.8), not a `surface_pattern` field.
+
+```json
+{
+	"type": "surface_pattern",
+	"duration": 200,
+	"persistent": true,
+	"loop": true,
+	"fade_ticks": 10,
+	"params": {
+		"screen_layer": 0,
+		"tile_scale": 2.0,
+		"color_r": 0.3,
+		"color_g": 0.9,
+		"color_b": 1.0,
+		"opacity": 0.6,
+		"fade_radius": 32.0,
+		"normal_mask": 0.6,
+		"distort": 0.0
+	},
+	"pattern": {
+		"figure": "rect",
+		"fill": "stroke",
+		"half_width": 0.5,
+		"half_height": 0.5,
+		"corner_radius": 0.0,
+		"rotation": 0.0,
+		"stroke_width": 0.04,
+		"softness": 0.01,
+		"repeat": [1, 1]
+	}
+}
+```
+
+```
+/vfx play vfxweaver:surface_pattern
+```
+
 ### 2.2 World overlays (block geometry)
 
 #### `block_tint`
@@ -1672,7 +1736,10 @@ Post-processing pipeline, world overlays, effect clock, load limits and fault to
 
 Versioned feature history — **[docs/CHANGELOG.md](CHANGELOG.md)**.
 
-Guide version: 37 — see changelog below.
+Guide version: 38 — see changelog below.
+
+### v38
+- **New `surface_pattern` effect** — a world-anchored shape pattern (`circle`/`ellipse`/`rect`/`polygon`, tiled by a structural `repeat` modifier) projected onto the terrain behind each pixel, so it stays fixed to world blocks. Additive: it renders on 26.1.2+ (it reads scene depth), needs `"screen_layer": 0`, and no existing definition changes behaviour. The figure strings live in a top-level `pattern` block, never in `params`. See [2.1](#surface_pattern).
 
 ### v37
 - **Mask bindings now fail closed per leaf** (was per mask) — an unresolved binding (the source entity is absent or off-screen, or outside the client's tracking range, or there is no camera/player state) zeroes **only that leaf's** coverage, so an entity leaving the view no longer makes the whole effect vanish while a still-resolved world leaf knows where it is. An unresolved leaf still never expands coverage, and an `invert` mask does not turn an all-unresolved (empty) result into full screen. See [3.8](#38-masks).
