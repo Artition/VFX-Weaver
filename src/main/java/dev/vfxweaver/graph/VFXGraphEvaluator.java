@@ -87,11 +87,18 @@ public final class VFXGraphEvaluator {
 	 * Evaluates a node by its precomputed cache slot, for packed consumers (the field program)
 	 * that resolved {@code { "from": <node> }} ids once at pack time.
 	 *
+	 * <p>The {@code fallback} reaches a {@code bind} node that has no explicit {@code fallback}
+	 * input, exactly as {@link #evaluate(String, float)} does; the node is memoised for the frame,
+	 * so when several field parameters share one fallback-less bind node the first parameter
+	 * evaluated that frame fixes the fallback every consumer sees. Give the bind node its own
+	 * {@code fallback} input when different parameters need different defaults.</p>
+	 *
 	 * @param index    slot from {@link VFXGraph#indexOf(String)}
-	 * @param fallback value returned when the slot is out of range
+	 * @param fallback value returned when the slot is out of range, and the default a fallback-less
+	 *                 {@code bind} node resolves to when it cannot resolve
 	 */
 	public float evaluateIndex(final int index, final float fallback) {
-		return index < 0 || index >= this.cache.length ? fallback : eval(index);
+		return index < 0 || index >= this.cache.length ? fallback : eval(index, fallback);
 	}
 
 	private float eval(final int index) {
