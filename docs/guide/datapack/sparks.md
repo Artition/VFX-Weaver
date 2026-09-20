@@ -6,7 +6,7 @@ literal `"particle": "spark"` for the built-in defaults. Spark presets use the s
 registry as block/item presets (datapack + `VFXAPI.registerSpark`, both capped at 256, never
 synced) and share the `vfx_particles` directory; `"kind"` selects the parser. The shared directory,
 two-layer rules, caps and per-file parse isolation are described on
-[Block and item particles](../particles.md).
+[Block and item particles](particles.md).
 
 | field | type | default | meaning |
 |---|---|---|---|

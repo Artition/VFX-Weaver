@@ -7,7 +7,7 @@ uses the inline `block`/`item` form (see below). The file's `kind` field selects
 - **omitted** (or anything other than `"spark"`) — a **block/item model** preset: the particle is a
   real block or item model (this page).
 - `"kind": "spark"` — a **glowing sprite** preset: the particle is an additive camera-facing quad
-  ([Spark presets](particles/sparks.md)).
+  ([Spark presets](sparks.md)).
 
 Both kinds share one two-layer registry, the `vfx_particles` directory and the `particles` effect:
 
@@ -45,7 +45,7 @@ inline, or a reusable preset:
   such particle nothing is emitted and the mod logs one warning (the documented fallback).
 
 Everything else (shape, `rate`, positions/bindings, aimed mode) works exactly as the vanilla
-`particles` effect — see the [`particles` effect](effects.md#particles) in the effects guide. The
+`particles` effect — see the [`particles` effect](../effects/world/particles.md) page. The
 model's physics and light are taken from the spec and overridden per effect by these params:
 
 | Param | Default (inline/preset) | Description |
@@ -243,10 +243,10 @@ VFXAPI.spawnBlockParticle(preset, new Vec3(x, y, z), new Vec3(0.0, 0.3, 0.0));
 preset, and `VFXAPI.blockParticle(id)` looks one up (datapack or local). `VFXBlockParticleSpec`
 builders: `builder(BlockState)`, `builder(Item)`, `builder(ItemStack)`, `item(Item)` and
 `item(ItemStack)`. `VFXAPI.spawnBlockParticle(spec, position, velocity)` spawns one particle
-immediately (no effect instance, no packet). See [docs/API.md](../API.md) for the full reference.
+immediately (no effect instance, no packet). See [docs/API.md](../../API.md) for the full reference.
 
 The spark equivalents — `VFXAPI.registerSpark` / `unregisterSpark` / `spark` / `spawnSpark` — are on
-the [Spark presets](particles/sparks.md) page.
+the [Spark presets](sparks.md) page.
 
 ## Caps and fault tolerance
 

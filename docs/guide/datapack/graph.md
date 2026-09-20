@@ -1,6 +1,5 @@
 # Value graphs
 
-## 3.6 Value graphs
 
 An effect can drive any of its numeric inputs from a small value graph that the client evaluates once per frame. The block is optional and additive: a definition without `graph`/`inputs` behaves exactly as before, and a mod that does not know graphs ignores them entirely, because graph wiring lives in a separate top-level `inputs` block (or in graph edges) and never inside `params`.
 
@@ -141,4 +140,4 @@ The built-in `vfxweaver:graph_logic_demo` combines both: a `pulse` macro (a `tim
 `remap`/`if` chain with a `$period`/`$peak` parameter) drives the blur's `radius`, ramping it up for
 the first half of each `$period` and holding it at `0` for the second.
 
-Masks are implemented (see [3.8](masks.md#38-masks)): an optional top-level `mask` block restricts where a post-processing effect applies, evaluated once per frame in a coverage prepass at screen layer 0.
+Masks are implemented (see [Masks](masks.md)): an optional top-level `mask` block restricts where a post-processing effect applies, evaluated once per frame in a coverage prepass at screen layer 0.

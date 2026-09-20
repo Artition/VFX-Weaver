@@ -1,6 +1,5 @@
 # Masks
 
-## 3.8 Masks
 
 A top-level `mask` block restricts where a post-processing effect applies. The coverage is
 computed once per frame in a prepass at screen layer 0 (the only layer where scene depth is
@@ -70,7 +69,7 @@ The mask's numeric leaves are ordinary animatable effect parameters under reserv
 declaration order (0-based). Because they are ordinary params, keyframes, `expr`, graph
 `{ "from": node }` driven inputs, datapack bindings and every live-edit API (`sendSetParam`,
 `sendKeyframe`, `setParam`, …) work on them unchanged. The `mask.` prefix is reserved (see
-[docs/API.md](../API.md)).
+[docs/API.md](../../API.md)).
 
 #### World-volume evaluation: `volume`
 

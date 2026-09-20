@@ -1,6 +1,5 @@
 # Per-pixel fields
 
-## 3.7 Per-pixel fields
 
 A **field** makes one numeric input vary *per pixel* instead of once per frame. It is written as an `inputs` entry with a `"field"` object — like §3.6, but evaluated inside the effect's shader instead of on the CPU:
 
