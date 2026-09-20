@@ -614,7 +614,6 @@ public final class VFXPostProcessingManager {
 		private final @Nullable String fieldInput;
 		private final boolean hasField;
 		private final boolean mask;
-		private final boolean coverage;
 		/** True when this pass's {@code Config} starts with {@code mat4 inv_view_proj} and it binds {@code DepthSampler}. */
 		private final boolean depthConfig;
 		/** The depth pass's resolved anchor (the shape centre / effect world position / player), reused every frame. */
@@ -639,7 +638,6 @@ public final class VFXPostProcessingManager {
 			this.usesDepth = info.usesDepth();
 			this.fieldInput = info.fieldInput();
 			this.mask = info.mask();
-			this.coverage = info.coverage();
 			this.depthConfig = info.depthConfig();
 		}
 
@@ -678,9 +676,14 @@ public final class VFXPostProcessingManager {
 
 			// The structural shape/surface/texture describe the world anchor and the figure; the
 			// shared VFXShape owns them and the reserved Config names carry them to the shader.
-			// Resolved before the uniform lambda so the lambda can capture them as final locals.
-			final VFXShape shape = this.depthConfig && effect != null ? shapeSpec(effect) : null;
-			final VFXSurfaceSelection surface = this.depthConfig && effect != null ? surfaceSpec(effect) : null;
+			// One definition lookup per execute (was three: shape, surface and the anchor's
+			// pos_x/y/z probe) is enough for the whole pass. Resolved before the uniform lambda so
+			// the lambda can capture them as final locals.
+			final VFXDefinition definition = this.depthConfig && effect != null
+				? VFXDefinitionManager.get().get(effect.getId())
+				: null;
+			final VFXShape shape = definition == null ? null : definition.getPattern();
+			final VFXSurfaceSelection surface = definition == null ? null : definition.getSurface();
 			final PatternTexture patternTexture = this.depthConfig && effect != null
 				? resolvePatternTexture(shape == null ? null : shape.texture(), effect.getId())
 				: PatternTexture.ABSENT;
@@ -688,7 +691,7 @@ public final class VFXPostProcessingManager {
 			if (this.hasConfig && effect != null) {
 				final float weight = effect.getWeight();
 				if (this.depthConfig) {
-					this.resolveAnchor(effect, shape);
+					this.resolveAnchor(effect, shape, definition);
 				}
 				config = this.arena.write(encoder, builder -> {
 					if (this.depthConfig) {
@@ -961,7 +964,8 @@ public final class VFXPostProcessingManager {
 			final int flagBits = PatternTexture.AUTHORED | (spec.preserveAspect() ? PatternTexture.PRESERVE : 0);
 			//? if >=26.1 {
 			try {
-				final net.minecraft.resources.Identifier textureId = net.minecraft.resources.Identifier.parse(spec.id());
+				// Parsed once at definition-parse time (VFXTexture.parsedId), never re-parsed here.
+				final net.minecraft.resources.Identifier textureId = spec.parsedId();
 				final net.minecraft.client.resources.model.sprite.AtlasManager atlasManager =
 					Minecraft.getInstance().getAtlasManager();
 				if (spec.source() == VFXTexture.Source.STANDALONE) {
@@ -1004,7 +1008,7 @@ public final class VFXPostProcessingManager {
 				final net.minecraft.resources.Identifier atlasDefinition = switch (spec.source()) {
 					case BLOCK -> net.minecraft.data.AtlasIds.BLOCKS;
 					case ITEM -> net.minecraft.data.AtlasIds.ITEMS;
-					default -> net.minecraft.resources.Identifier.parse(spec.atlas());
+					default -> spec.parsedAtlasId();
 				};
 				final net.minecraft.client.renderer.texture.TextureAtlas atlas =
 					atlasManager.getAtlasOrThrow(atlasDefinition);
@@ -1013,7 +1017,7 @@ public final class VFXPostProcessingManager {
 				if (spec.source() == VFXTexture.Source.ATLAS) {
 					// An explicit atlas + id: the id is the sprite id in that atlas, used verbatim.
 					sprite = atlasManager.get(new net.minecraft.client.resources.model.sprite.SpriteId(
-						atlasTextureId, net.minecraft.resources.Identifier.parse(spec.id())));
+						atlasTextureId, textureId));
 				} else {
 					sprite = findSprite(atlasManager, atlasTextureId, textureId);
 				}
@@ -1065,11 +1069,13 @@ public final class VFXPostProcessingManager {
 			final net.minecraft.resources.Identifier textureId
 		) {
 			final net.minecraft.resources.Identifier stripped = stripPrefix(textureId, "block/", "item/");
-			final java.util.List<net.minecraft.resources.Identifier> candidates = stripped == null
-				? java.util.List.of(textureId)
-				: java.util.List.of(textureId, stripped);
+			// Probe the two spellings without allocating a candidate list (this runs per frame).
 			net.minecraft.client.renderer.texture.TextureAtlasSprite missing = null;
-			for (final net.minecraft.resources.Identifier candidate : candidates) {
+			for (int i = 0; i < 2; i++) {
+				final net.minecraft.resources.Identifier candidate = i == 0 ? textureId : stripped;
+				if (candidate == null) {
+					continue;
+				}
 				final net.minecraft.client.resources.model.sprite.SpriteId key =
 					new net.minecraft.client.resources.model.sprite.SpriteId(atlasTextureId, candidate);
 				final net.minecraft.client.renderer.texture.TextureAtlasSprite sprite = atlasManager.get(key);
@@ -1121,26 +1127,16 @@ public final class VFXPostProcessingManager {
 		}
 		//?}
 
-		/** The structural shape of a {@code surface_pattern} effect, or {@code null}. */
-		private static @Nullable VFXShape shapeSpec(final VFXActiveEffect effect) {
-			final VFXDefinition definition = VFXDefinitionManager.get().get(effect.getId());
-			return definition == null ? null : definition.getPattern();
-		}
-
-		/** The structural surface selection of a {@code surface_pattern} effect, or {@code null} for legacy. */
-		private static @Nullable VFXSurfaceSelection surfaceSpec(final VFXActiveEffect effect) {
-			final VFXDefinition definition = VFXDefinitionManager.get().get(effect.getId());
-			return definition == null ? null : definition.getSurface();
-		}
-
 		/**
 		 * Fills {@link #scratchAnchor}: the shape's structural centre, else the effect instance's
 		 * world position — its runtime move, then its first declared {@code positions} slot, then
 		 * authored {@code pos_x/pos_y/pos_z} — else the local player's position for a
 		 * player-anchored play. The camera is never the anchor: a camera-only change (F5, third
 		 * person, or any camera motion) must not slide a pattern that is fixed to the world.
+		 *
+		 * @param definition the effect's definition, already resolved once by the caller
 		 */
-		private void resolveAnchor(final VFXActiveEffect effect, final @Nullable VFXShape shape) {
+		private void resolveAnchor(final VFXActiveEffect effect, final @Nullable VFXShape shape, final @Nullable VFXDefinition definition) {
 			if (shape != null && shape.center() != null) {
 				final float[] center = shape.center();
 				this.scratchAnchor.set(center[0], center[1], center[2]);
@@ -1158,7 +1154,7 @@ public final class VFXPostProcessingManager {
 				this.scratchAnchor.set(pos.getX() + 0.5F, pos.getY() + 0.5F, pos.getZ() + 0.5F);
 				return;
 			}
-			if (hasPositionBind(effect)) {
+			if (hasPositionBind(definition)) {
 				this.scratchAnchor.set(
 					effect.getParam("pos_x", 0.0F), effect.getParam("pos_y", 0.0F), effect.getParam("pos_z", 0.0F));
 				return;
@@ -1172,8 +1168,7 @@ public final class VFXPostProcessingManager {
 		}
 
 		/** True when the definition authors {@code pos_x/pos_y/pos_z}, the position binds that drive the anchor. */
-		private static boolean hasPositionBind(final VFXActiveEffect effect) {
-			final VFXDefinition definition = VFXDefinitionManager.get().get(effect.getId());
+		private static boolean hasPositionBind(final @Nullable VFXDefinition definition) {
 			return definition != null && (definition.getParams().containsKey("pos_x")
 				|| definition.getParams().containsKey("pos_y")
 				|| definition.getParams().containsKey("pos_z"));

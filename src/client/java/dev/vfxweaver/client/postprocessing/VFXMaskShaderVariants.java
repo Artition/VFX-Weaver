@@ -156,7 +156,7 @@ public final class VFXMaskShaderVariants {
 			return fail(key, "the GLSL plugin failed to compile");
 		}
 		SOURCES.put(key, injected);
-		return new VFXShaderPrograms.ProgramInfo(pipeline, new String[0], VFXMaskUniforms.uboSize(), VFXShaderPrograms.PassRole.NORMAL, false, null, false, true);
+		return new VFXShaderPrograms.ProgramInfo(pipeline, new String[0], VFXMaskUniforms.uboSize(), VFXShaderPrograms.PassRole.NORMAL, false, null, false, false);
 		//?}
 	}
 
