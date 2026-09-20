@@ -4,6 +4,7 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import dev.vfxweaver.effect.VFXBlockParticleSpec;
+import dev.vfxweaver.effect.VFXSparkSpec;
 import java.io.IOException;
 import java.io.Reader;
 import java.util.HashMap;
@@ -57,6 +58,11 @@ public class VFXBlockParticleManager extends SimplePreparableReloadListener<Map<
 	/** Code-registered presets (the local layer): never replaced by a reload, datapack wins per id. */
 	private final Map<Identifier, VFXBlockParticleSpec> localSpecs = new ConcurrentHashMap<>();
 	private final Map<Identifier, String> localErrors = new ConcurrentHashMap<>();
+
+	/** Datapack spark presets ({@code "kind": "spark"}), replaced by every reload. */
+	private volatile Map<Identifier, VFXSparkSpec> sparkSpecs = Map.of();
+	/** Code-registered spark presets (the local layer): never replaced by a reload, datapack wins per id. */
+	private final Map<Identifier, VFXSparkSpec> localSparkSpecs = new ConcurrentHashMap<>();
 
 	private VFXBlockParticleManager() {
 	}
@@ -131,21 +137,40 @@ public class VFXBlockParticleManager extends SimplePreparableReloadListener<Map<
 	}
 
 	/**
-	 * Replaces the datapack layer with the given raw JSON and re-parses it. The code-registered
-	 * local layer is untouched. Called by the reload listener.
+	 * Replaces the datapack layer with the given raw JSON and re-parses it. A file with
+	 * {@code "kind": "spark"} populates the spark layer; anything else is a block/item preset
+	 * exactly as before. The code-registered local layers are untouched.
 	 *
 	 * @param rawJsons preset id to JSON source
 	 */
 	public void apply(final Map<Identifier, String> rawJsons) {
 		Map<Identifier, VFXBlockParticleSpec> parsed = new LinkedHashMap<>();
+		Map<Identifier, VFXSparkSpec> parsedSparks = new LinkedHashMap<>();
 		Map<Identifier, String> errors = new LinkedHashMap<>();
+		boolean warnedBlockCap = false;
+		boolean warnedSparkCap = false;
 		for (Entry<Identifier, String> entry : rawJsons.entrySet()) {
-			if (parsed.size() >= MAX_SPECS) {
-				LOGGER.warn("Datapack block-particle preset limit ({}) reached; '{}' and later files are ignored", MAX_SPECS, entry.getKey());
-				break;
-			}
 			try {
-				parsed.put(entry.getKey(), parseSpec(entry.getValue()));
+				final JsonObject object = StrictJsonParser.parse(entry.getValue()).getAsJsonObject();
+				if (isSpark(object)) {
+					if (parsedSparks.size() >= MAX_SPECS) {
+						if (!warnedSparkCap) {
+							LOGGER.warn("Datapack spark-preset limit ({}) reached; later spark files are ignored", MAX_SPECS);
+							warnedSparkCap = true;
+						}
+						continue;
+					}
+					parsedSparks.put(entry.getKey(), VFXSparkSpec.parse(object));
+				} else {
+					if (parsed.size() >= MAX_SPECS) {
+						if (!warnedBlockCap) {
+							LOGGER.warn("Datapack block-particle preset limit ({}) reached; later block files are ignored", MAX_SPECS);
+							warnedBlockCap = true;
+						}
+						continue;
+					}
+					parsed.put(entry.getKey(), parseSpec(object));
+				}
 			} catch (RuntimeException e) {
 				// One broken file must never abort the whole datapack reload (e.g. an
 				// ItemStack construction throwing before item components are bound). Record it
@@ -155,8 +180,9 @@ public class VFXBlockParticleManager extends SimplePreparableReloadListener<Map<
 			}
 		}
 		this.specs = Map.copyOf(parsed);
+		this.sparkSpecs = Map.copyOf(parsedSparks);
 		this.parseErrors = Map.copyOf(errors);
-		LOGGER.info("Loaded {} block-particle presets", this.specs.size());
+		LOGGER.info("Loaded {} block-particle and {} spark presets", this.specs.size(), this.sparkSpecs.size());
 	}
 
 	/**
@@ -190,11 +216,67 @@ public class VFXBlockParticleManager extends SimplePreparableReloadListener<Map<
 	}
 
 	/**
-	 * Parses one datapack preset; throws on a missing/ambiguous model, an unknown block state or
-	 * item, or a bad value. Exactly one of {@code block} / {@code item} must be present.
+	 * Returns the spark preset for the given id (datapack or code-registered), or {@code null}.
+	 * The datapack layer wins over a local registration for the same id. Never returns a
+	 * block/item preset, so block-mode detection is unaffected.
 	 */
-	private static VFXBlockParticleSpec parseSpec(final String json) {
-		JsonObject object = StrictJsonParser.parse(json).getAsJsonObject();
+	public @Nullable VFXSparkSpec getSpark(final Identifier id) {
+		VFXSparkSpec loaded = this.sparkSpecs.get(id);
+		return loaded != null ? loaded : this.localSparkSpecs.get(id);
+	}
+
+	/**
+	 * All currently known spark presets: the datapack set plus the code-registered ones (the
+	 * datapack entry wins on a collision).
+	 */
+	public Map<Identifier, VFXSparkSpec> getSparkSpecs() {
+		Map<Identifier, VFXSparkSpec> merged = new LinkedHashMap<>(this.localSparkSpecs);
+		merged.putAll(this.sparkSpecs);
+		return Map.copyOf(merged);
+	}
+
+	/**
+	 * Registers a spark preset supplied in code (the local layer). Bounded by {@link #MAX_SPECS}
+	 * and never touched by a datapack reload.
+	 *
+	 * @param id   the preset id
+	 * @param spec the preset
+	 * @return {@code false} when the layer is full and the registration was dropped
+	 */
+	public boolean registerLocalSpark(final Identifier id, final VFXSparkSpec spec) {
+		if (!this.localSparkSpecs.containsKey(id) && this.localSparkSpecs.size() >= MAX_SPECS) {
+			LOGGER.warn("Local spark preset limit ({}) reached; '{}' is ignored", MAX_SPECS, id);
+			return false;
+		}
+		this.localSparkSpecs.put(id, spec);
+		this.localErrors.remove(id);
+		return true;
+	}
+
+	/**
+	 * Removes a spark preset registered through {@link #registerLocalSpark(Identifier, VFXSparkSpec)}.
+	 * Datapack presets are not affected.
+	 *
+	 * @param id the preset id
+	 * @return {@code true} when a local spark preset with that id existed
+	 */
+	public boolean unregisterLocalSpark(final Identifier id) {
+		this.localErrors.remove(id);
+		return this.localSparkSpecs.remove(id) != null;
+	}
+
+	/** True when a preset JSON declares {@code "kind": "spark"} (case-insensitive). */
+	private static boolean isSpark(final JsonObject object) {
+		final JsonElement kind = object.get("kind");
+		return kind != null && !kind.isJsonNull() && "spark".equalsIgnoreCase(kind.getAsString());
+	}
+
+	/**
+	 * Parses one datapack block/item preset; throws on a missing/ambiguous model, an unknown
+	 * block state or item, or a bad value. Exactly one of {@code block} / {@code item} must be
+	 * present.
+	 */
+	private static VFXBlockParticleSpec parseSpec(final JsonObject object) {
 		boolean hasBlock = object.has("block") && !object.get("block").isJsonNull();
 		boolean hasItem = object.has("item") && !object.get("item").isJsonNull();
 		if (hasBlock == hasItem) {
