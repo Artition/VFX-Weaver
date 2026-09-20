@@ -1,0 +1,1299 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="A client-side VFX library/API for Minecraft on Fabric and NeoForge: screen post-processing, camera shake, world overlays, entity effects, datapack-defined effects, network triggers and a public Java API.">
+      
+      
+      
+        <link rel="canonical" href="https://artition.github.io/VFX-Weaver/2.0.0/ARCHITECTURE/">
+      
+      
+        <link rel="prev" href="../API/">
+      
+      
+        <link rel="next" href="../CHANGELOG/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Architecture - VFX Weaver</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#architecture" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="VFX Weaver" class="md-header__button md-logo" aria-label="VFX Weaver" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            VFX Weaver
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Architecture
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m14.3 16-.7-2h-3.2l-.7 2H7.8L11 7h2l3.2 9zM20 8.69V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12zm-9.15 3.96h2.3L12 9z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_2" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to system preference"  type="radio" name="__palette" id="__palette_2">
+    
+      <label class="md-header__button md-icon" title="Switch to system preference" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/Artition/VFX-Weaver" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    Artition/VFX-Weaver
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="VFX Weaver" class="md-nav__button md-logo" aria-label="VFX Weaver" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    VFX Weaver
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/Artition/VFX-Weaver" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    Artition/VFX-Weaver
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guide/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting started
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guide/commands/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Commands
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guide/effects/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Effects and the datapack format
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guide/surface-pattern/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Surface pattern
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guide/graph/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Value graphs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guide/fields/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Per-pixel fields
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guide/masks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Masks
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2_8" >
+        
+          
+          <label class="md-nav__link" for="__nav_2_8" id="__nav_2_8_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Custom particles
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_2_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Custom particles
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guide/particles/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Block and item particles
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guide/particles/sparks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Spark presets
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guide/changelog/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Guide changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../API/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Java API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#context-and-goals" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Context and goals
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#core-systems" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Core systems
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#loader-platform-layer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Loader platform layer
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#data-flow-per-frame" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Data flow per frame
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#post-processing-pipeline" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Post-processing (pipeline)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#per-pixel-fields" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Per-pixel fields
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#world-overlays" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        World overlays
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#entity-effects-second-model-pass" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Entity effects (second model pass)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#flashback-integration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Flashback integration
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#load-limits-protection-against-effect-spam" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Load limits (protection against effect spam)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#fault-tolerance" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fault tolerance
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../CHANGELOG/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#context-and-goals" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Context and goals
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#core-systems" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Core systems
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#loader-platform-layer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Loader platform layer
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#data-flow-per-frame" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Data flow per frame
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#post-processing-pipeline" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Post-processing (pipeline)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#per-pixel-fields" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Per-pixel fields
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#world-overlays" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        World overlays
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#entity-effects-second-model-pass" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Entity effects (second model pass)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#flashback-integration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Flashback integration
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#load-limits-protection-against-effect-spam" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Load limits (protection against effect spam)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#fault-tolerance" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fault tolerance
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="architecture">Architecture<a class="headerlink" href="#architecture" title="Permanent link">&para;</a></h1>
+<h2 id="context-and-goals">Context and goals<a class="headerlink" href="#context-and-goals" title="Permanent link">&para;</a></h2>
+<p>vfxweaver is a client-side VFX library for a Fabric mod: the server triggers effects over the network (or another mod — directly via <code>VFXAPI</code> on the client), the client plays and renders them. Goals: (1) declarative effects via datapack JSON without recompiling, (2) bounded render load even with many concurrent effects, (3) fault tolerance — one broken effect/datapack file must not break the rest.</p>
+<h2 id="core-systems">Core systems<a class="headerlink" href="#core-systems" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>                     ┌──────────────────────┐
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a> datapack JSON  ─────▶│ VFXDefinitionManager │  (common: main + client-as-single-player)
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>                     └──────────┬───────────┘
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>                                │ VFXDefinition (type-safe model)
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>                                ▼
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a> /vfx play, VFXAPI ──▶  VFXEffectManager (client)  ──▶ VFXActiveEffect (timeline + positions + fade)
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>                                │
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>              ┌─────────────────┼─────────────────────┬──────────────────┐
+<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>              ▼                 ▼                     ▼                  ▼
+<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>   VFXPostProcessingManager  VFXWorldOverlayRenderer  CameraShakeManager  VFXEntityEffectRenderer
+<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>   (shader post-effects)     (block_tint/outline)     (camera shake,     (entity_tint/outline,
+<a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>                                                        FOV)                second model pass)
+<a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a>              │
+<a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a>              ▼
+<a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a>   FlashbackCompat (client, optional) ── writes replay actions into Flashback.RECORDER
+<a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a>   VFXServerEffects (server) ────────── re-applies remembered effects to (re)joining players
+</code></pre></div>
+<ul>
+<li><strong><code>VFXDefinitionManager</code></strong> (main) — definition registry: built-ins (<code>registerBuiltIns()</code>) + datapack (<code>data/&lt;ns&gt;/vfx/&lt;name&gt;.json</code>, reloaded via <code>SimplePreparableReloadListener</code>). Registered on both the server and the client (for single-player).</li>
+<li><strong><code>VFXEffectManager</code></strong> (client, singleton) — the single source of truth about what is currently playing: the <code>active</code> list (<code>List&lt;VFXActiveEffect&gt;</code>) and <code>scheduled</code> (deferred collection children), a shared effect <code>clock</code> timer in ticks.</li>
+<li><strong><code>VFXActiveEffect</code></strong> — one playing instance: <code>VFXTimeline</code> (animated params + world bindings) + fade-in/out weight + a list of positions (for world overlays) + a list of target UUIDs (for entity effects).</li>
+<li><strong><code>VFXPostProcessingManager</code></strong> (client) — runs active post-effects through ping-pong <code>TextureTarget</code>s every frame.</li>
+<li><strong><code>VFXWorldOverlayRenderer</code></strong> (client) — draws <code>block_tint</code>/<code>block_outline</code> over block geometry via <code>LevelRenderEvents.AFTER_TRANSLUCENT_TERRAIN</code>.</li>
+<li><strong><code>VFXEntityEffectRenderer</code></strong> (client) — registers custom pipelines/render types for <code>entity_tint</code>/<code>entity_outline</code>; the actual drawing is done by the <code>LivingEntityRendererMixin</code> in a second model pass.</li>
+<li><strong><code>CameraShakeManager</code>/<code>CameraMixin</code></strong> (client) — sums the noise of all active <code>camera_shake</code> effects into a position/rotation offset, applied by a mixin to <code>Camera</code>.</li>
+<li><strong><code>VFXWorldBindings</code></strong> (main, but data lives on the client only) — computes <code>bind</code> params (<code>screen_x</code>, <code>proximity</code>, <code>look</code>, <code>distance</code>, <code>look_x/y/z</code>, <code>player_x/y/z</code>, <code>camera_yaw_delta</code>/<code>pitch_delta</code> and player state: <code>health</code>/<code>hunger</code>/<code>speed</code>/<code>light_level</code>/<code>time_of_day</code>) relative to the current camera frame and the player snapshot.</li>
+</ul>
+<h2 id="loader-platform-layer">Loader platform layer<a class="headerlink" href="#loader-platform-layer" title="Permanent link">&para;</a></h2>
+<p>The core systems above are loader-agnostic — they never import <code>net.fabricmc.*</code> or <code>net.neoforged.*</code>; the loader is reached only through the platform packages:</p>
+<ul>
+<li><strong><code>VFXPlatform</code></strong> (main) — loader name and mod-loaded queries (<code>isModLoaded</code>, <code>name</code>).</li>
+<li><strong><code>VFXNetwork</code></strong> (main) — payload registration and transport (<code>registerCommon</code>, <code>sendToPlayer</code>, <code>allPlayers</code>) plus the client-receiver dispatch table (<code>registerClientReceive</code>/<code>dispatchClient</code>).</li>
+<li><strong><code>VFXLoaderEvents</code></strong> (main) — server lifecycle, tick, command registration, datapack reload and player-join wiring (including the definition/curve sync).</li>
+<li><strong><code>VFXClientNetwork</code></strong> (client) — registers the client-bound receivers on the loader's client networking API and forwards them to <code>VFXNetwork.dispatchClient</code>.</li>
+<li><strong><code>VFXClientRenderHooks</code></strong> (client) — client lifecycle/tick/join events and the world-overlay render-event plumbing, capturing the camera and geometry sink so <code>VFXWorldOverlayRenderer</code> stays loader-agnostic.</li>
+</ul>
+<p>The entry points are guarded per loader: <code>VFXMod</code> (Fabric <code>ModInitializer</code>) and <code>VFXNeoForgeMod</code> (<code>@Mod</code>) on the common side, and <code>VFXClient</code> (<code>ClientModInitializer</code> / <code>@Mod(dist = Dist.CLIENT)</code>) on the client. <strong>Client-only safety:</strong> all client code stays in <code>src/client</code> and <code>src/main</code> never references it, so the dedicated server never loads a client class.</p>
+<h2 id="data-flow-per-frame">Data flow per frame<a class="headerlink" href="#data-flow-per-frame" title="Permanent link">&para;</a></h2>
+<ol>
+<li><code>GameRendererMixin.vfxweaver$render</code> (injection before <code>FogRenderer.endFrame</code>) — called once per frame:</li>
+<li>updates <code>VFXWorldBindings</code> from the current camera (position, yaw/pitch, view-rotation-projection matrix);</li>
+<li>advances <code>VFXEffectManager.clock</code> by <code>deltaTicks</code> (<code>DeltaTracker.getGameTimeDeltaTicks()</code>, 0 on pause);</li>
+<li><code>VFXEffectManager.update()</code> — removes finished effects, fires due collection children, advances timelines;</li>
+<li><code>VFXPostProcessingManager.process(...)</code> — runs the chain of shader passes.</li>
+<li><code>CameraMixin</code> (injections in <code>Camera.calculateFov</code>/<code>update</code>) — reads the already-updated <code>VFXEffectManager</code> for the FOV delta and camera shake.</li>
+<li><code>LevelRenderEvents.AFTER_TRANSLUCENT_TERRAIN</code> — <code>VFXWorldOverlayRenderer</code> draws world overlays for active <code>block_tint</code>/<code>block_outline</code>.</li>
+<li>In entity rendering, <code>LivingEntityRendererMixin</code> (injection right after the vanilla <code>submitModel</code> in <code>submit</code>) reads the entity's UUID from the render state (<code>ITomVFXEntityState</code>, filled in <code>extractRenderState</code>) for every living entity and, if there is an active <code>entity_tint</code>/<code>entity_outline</code> for that UUID, calls <code>submitNodeCollector.submitModel</code> again with a custom render type — a second pass over the original model in the same transform space.</li>
+</ol>
+<h2 id="post-processing-pipeline">Post-processing (pipeline)<a class="headerlink" href="#post-processing-pipeline" title="Permanent link">&para;</a></h2>
+<p>The hook is right before <code>FogRenderer.endFrame()</code> in <code>GameRenderer.render</code>, i.e. after the world and the vanilla post chain, but before the GUI. Each active post-effect expands into one or more shader passes (<code>VFXShaderPrograms.getPrograms(type)</code>, e.g. <code>blur</code> = X+Y). A copy of <code>mainTarget</code> → <code>pingPong[0]</code>, then the pass chain alternates <code>pingPong[0]</code>/<code>pingPong[1]</code>, the last pass writes back into <code>mainTarget</code>. Each pass is an ortho projection + a <code>SamplerInfo</code> UBO (in/out sizes) + an optional <code>Config</code> UBO (effect params, blended with the neutral value by the current fade weight — <code>VFXEffectType.neutralValue</code>), both via <code>MappableRingBuffer</code> (mapped and rotated every frame).</p>
+<h2 id="per-pixel-fields">Per-pixel fields<a class="headerlink" href="#per-pixel-fields" title="Permanent link">&para;</a></h2>
+<p>A field-capable input (currently <code>dent.intensity</code> and <code>color_grade.tint_r</code>) may carry a <code>{ "field": ... }</code> object that varies per pixel. The model lives in the MC-free <code>dev.vfxweaver.field</code> package (shared <code>src/main</code>, no <code>net.minecraft.*</code>/<code>com.mojang.*</code>): <code>VFXField</code> parses and validates the tree (type coercion, depth/leaf/node/texture caps, graph references on numeric parameters), and <code>VFXFieldProgram</code> flattens it once per instance into the fixed uniform program (leaf metadata, a <code>MAX_PARAMS</code>-wide parameter vector per leaf, a curve pool and a post-order instruction list). <code>VFXDefinition</code> stores the fields and <code>VFXTimeline</code> packs them, exposing <code>getFieldProgram</code>, <code>fieldNeedsDepth</code> and the per-frame graph evaluator. At runtime <code>VFXPostProcessingManager</code> writes a <code>FieldConfig</code> UBO each frame from the packed program plus a preallocated inverse view-projection (<code>VFXFieldEnv</code>), binds the main target's depth as <code>DepthSampler</code> (NEAREST) and the optional field texture as <code>fld_tex0</code>, and <code>assets/vfxweaver/shaders/include/field.glsl</code> evaluates the built-in functions and the composition program.</p>
+<ul>
+<li><strong>UBO field-order rule.</strong> <code>field.glsl</code>'s <code>FieldConfig</code> declaration order, <code>VFXFieldProgram.write</code>'s emission order and <code>VFXShaderPrograms.FIELD_CONFIG_SIZE</code> are one positional std140 contract — change all three together. The four leading floats are <code>fld_uniform</code>, <code>fld_depth_valid</code>, <code>fld_leaf_count</code>, <code>fld_weight</code>; <code>fld_weight</code> reuses the padding the three-float form left before <code>fld_leaf_fn</code>, so the later offsets are unchanged.</li>
+<li><strong>Fade.</strong> <code>vfx_field_intensity</code> blends the field against its neutral <code>1.0</code> by <code>fld_weight</code>, so a field-driven input reaches exactly the neutral value at weight 0 (<code>dent_field_demo</code> / <code>tint_field_demo</code> no longer need <code>fade_ticks: 0</code> for correctness).</li>
+<li><strong>Shared shapes.</strong> <code>field.glsl</code> owns the 2D <code>circle</code>/<code>ellipse</code>/<code>rect</code>/<code>polygon</code> (with <code>fill</code>, <code>stroke_width</code>, <code>softness</code>, <code>repeat</code>) and the 3D <code>sphere</code>/<code>box</code> helpers; masks and <code>surface_pattern</code> consume <code>vfx_shape_sdf</code>/<code>vfx_shape_coverage</code> and never re-implement them.</li>
+<li><strong>Layer 0.</strong> Depth/world fields reconstruct a world position from the scene depth, which is only valid at screen layer 0; elsewhere the Java side marks the depth invalid and the shader returns the neutral value (a once-per-definition warning is logged for fields that need depth). Screen-space fields work at every layer.</li>
+</ul>
+<h2 id="world-overlays">World overlays<a class="headerlink" href="#world-overlays" title="Permanent link">&para;</a></h2>
+<p><code>block_tint</code>/<code>block_outline</code> are drawn not as a shader pass but as geometry: the block model's baked quads (<code>ModelManager.getBlockStateModelSet()</code>, fallback a full cube), transformed in a <code>PoseStack</code> relative to the camera. <code>block_outline</code> supports two modes (the <code>shell</code> param): <code>0</code> — walls (each face is extruded outwards along its normal, physically cannot cover the block), <code>1</code> — a classic scaled shell with back faces + back-face culling, clipped by the block's own depth buffer.</p>
+<h2 id="entity-effects-second-model-pass">Entity effects (second model pass)<a class="headerlink" href="#entity-effects-second-model-pass" title="Permanent link">&para;</a></h2>
+<p><code>entity_tint</code>/<code>entity_outline</code> are also geometry, but of the entity model rather than the world: <code>LivingEntityRendererMixin</code> in <code>submit</code> calls <code>submitNodeCollector.submitModel</code> again with the same <code>model</code>/<code>state</code>/<code>poseStack</code> but a different <code>RenderType</code>. Vanilla <code>EntityRenderState</code> has no UUID field — a mixin on <code>LivingEntityRenderState</code> adds one (the <code>ITomVFXEntityState</code> interface), filled in <code>extractRenderState</code>. Both render types use <code>DefaultVertexFormat.ENTITY</code> (model vertices; the shader ignores textures/overlay/lightmap) with custom pipelines (<code>assets/vfxweaver/shaders/core/entity_fx.{vsh,fsh}</code>) over <code>MATRICES_FOG_LIGHT_DIR_SNIPPET</code> — the standard UBOs (Projection/DynamicTransforms/Fog/Globals) are bound the standard way, no separate UBOs needed.</p>
+<ul>
+<li><code>entity_tint</code>: a fill of the model; the effect ARGB is passed as <code>tintedColor</code> to <code>submitModel</code> and becomes the vertex color. Two modes selected by the boolean <code>texture</code>: <code>1</code> — recolour the texture (texture rgb × effect color, keeps the texture alpha), <code>0</code> — flat color with the texture only as an alpha mask (like vanilla <code>rendertype_outline</code>). Depth <code>LEQUAL</code> (occluded) or <code>ALWAYS_PASS</code> (<code>through_blocks: 1</code>), <code>TRANSLUCENT</code> blending — lands in the <code>ModelFeatureRenderer</code> translucent bucket and draws after opaque entity bodies.</li>
+<li><code>entity_outline</code>: an inverted hull — the model is scaled by <code>1 + width</code> around its vertical centre (<code>boundingBoxHeight/2</code>), the fragment shader discards front faces (<code>gl_FrontFacing</code>), depth <code>LEQUAL</code> leaves only the rim behind the silhouette (or <code>ALWAYS_PASS</code> for through-wall glow). Width is set by scale, not a uniform: the <code>submitModel</code> path has no way to bind a custom UBO for a per-draw value, and the pipeline API has no front-cull.</li>
+</ul>
+<p>Both effects bind the entity texture as <code>Sampler0</code> and use it as an alpha mask: texels with zero alpha are discarded, so the effect follows the texture silhouette rather than a flat box around the model. Render types are memoized by the texture <code>Identifier</code> (<code>LivingEntityRenderer.getTextureLocation(state)</code>, passed from the mixin); pipelines are shared per (mode, through-blocks).</p>
+<p>Targets are set by UUID: <code>/vfx playentity &lt;effect&gt; &lt;selector&gt;</code> collects up to 16 UUIDs and sends them in <code>vfxweaver:vfx_trigger</code> (<code>entityUuids</code>); <code>VFXEffectManager.getActiveEntityEffects(uuid)</code> finds the active effects for a specific entity. The UUID cap is <code>VFXTriggerPayload.MAX_ENTITY_UUIDS</code>.</p>
+<h2 id="flashback-integration">Flashback integration<a class="headerlink" href="#flashback-integration" title="Permanent link">&para;</a></h2>
+<p>Flashback (https://modrinth.com/mod/flashback) is a <strong>soft dependency</strong>: the mod works without it, and nothing in the code compiles against it — all access is reflective (<code>Class.forName</code>, <code>Proxy</code>), guarded by <code>FabricLoader.isModLoaded("flashback")</code>.</p>
+<ul>
+<li>
+<p><strong><code>FlashbackCompat</code></strong> (client) — registered as an <code>Action</code> (<code>vfxweaver:effect_trigger</code>) in Flashback's <code>ActionRegistry</code>. Client-local plays (<code>VFXAPI.playEffect</code> through <code>VFXClientAPI</code>) are written into the active replay via <code>Recorder.submitCustomTask</code> (<code>effectId + durationTicks + easing + params</code>); on playback Flashback calls the action's <code>handle</code>, which decodes the payload and re-triggers the effect on the render thread. A per-tick <code>END_CLIENT_TICK</code> hook detects a recording start (<code>Flashback.RECORDER</code> becoming non-null and ready) and snapshots the already-running effects so they appear from the first replay tick. Persistent/looping effects are skipped (no recorded stop event → they would loop forever). Server-triggered effects are <em>not</em> recorded here — they travel as <code>vfxweaver:vfx_trigger</code> packets which Flashback captures and replays itself.</p>
+</li>
+<li>
+<p><strong><code>VFXServerEffects</code></strong> (server) — remembers every <code>VFXAPI.sendEffect</code> per player (<code>player → effectId → params/duration/easing/startTick</code>). On player (re)join (<code>SYNC_DATA_PACK_CONTENTS</code>, after datapack sync) the still-active effects are re-sent with their remaining duration; expired entries are pruned, persistent (<code>-1</code>) always re-applied. Bounded per player (<code>MAX_EFFECTS_PER_PLAYER</code>). Disabled while a Flashback replay is being played back (<code>Flashback.isInReplay()</code>) so effects already carried by the replay are not doubled.</p>
+</li>
+</ul>
+<h2 id="load-limits-protection-against-effect-spam">Load limits (protection against effect spam)<a class="headerlink" href="#load-limits-protection-against-effect-spam" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Constant</th>
+<th>Value</th>
+<th>Where</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>MAX_ACTIVE_EFFECTS</code></td>
+<td>64</td>
+<td><code>VFXEffectManager</code> — on overflow the oldest active is removed, with a warning in the log</td>
+</tr>
+<tr>
+<td><code>MAX_SCHEDULED_EFFECTS</code></td>
+<td>128</td>
+<td><code>VFXEffectManager</code> — extra collection children are dropped</td>
+</tr>
+<tr>
+<td><code>MAX_COLLECTION_DEPTH</code></td>
+<td>4</td>
+<td><code>VFXEffectManager</code> — deeper nested collections are ignored</td>
+</tr>
+</tbody>
+</table>
+<p>Any new collection/map that grows from network or datapack input must get a similar limit (see <code>AGENTS.md</code>).</p>
+<h2 id="fault-tolerance">Fault tolerance<a class="headerlink" href="#fault-tolerance" title="Permanent link">&para;</a></h2>
+<ul>
+<li><code>VFXDefinitionManager.prepare()</code> — one broken datapack entry is logged and skipped, the rest load normally (see <code>docs/CHANGELOG.md</code>, the <code>IllegalArgumentException</code> fix).</li>
+<li><code>VFXWorldOverlayRenderer.render()</code> — each effect's render is wrapped in try/catch with a log; an error in one effect does not block the rest or drop the frame.</li>
+<li><code>VFXClient.handleTrigger</code> — a packet with a mismatched <code>protocolVersion</code> is silently ignored instead of crashing.</li>
+</ul>
+<hr />
+<p>See also: <a href="../API/">API.md</a> — the public Java API and network protocol, <a href="../guide/">guide/</a> — the user guide.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+  <script>var tabs=__md_get("__tabs");if(Array.isArray(tabs))e:for(var set of document.querySelectorAll(".tabbed-set")){var labels=set.querySelector(".tabbed-labels");for(var tab of tabs)for(var label of labels.getElementsByTagName("label"))if(label.innerText.trim()===tab){var input=document.getElementById(label.htmlFor);input.checked=!0;continue e}}</script>
+
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      Authored by Artition &middot; MIT licensed
+    </div>
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+      <div class="md-progress" data-md-component="progress" role="progressbar"></div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.instant", "navigation.instant.progress", "navigation.sections", "navigation.top", "navigation.tracking", "toc.follow", "search.suggest", "search.highlight", "content.code.copy", "content.tabs.link"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"alias": true, "default": "latest", "provider": "mike"}}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>
