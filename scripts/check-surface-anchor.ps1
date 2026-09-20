@@ -4,8 +4,16 @@
 # position, never the camera: a camera-only change (F5 / third person) must not slide the
 # projection over the ground. Precedence: an authored shape `center` wins, else the effect's
 # runtime move (`sendMove`/`moveEffect`), else its first declared `positions` slot (`/vfx playat`),
-# else authored `pos_x/pos_y/pos_z` binds, else the local player's position for a player-anchored
-# play. The camera snapshot is removed from the resolver.
+# else authored `pos_x/pos_y/pos_z` binds, else the local player's EYE position for a
+# player-anchored play. The camera snapshot is removed from the resolver.
+#
+# The player fallback is the EYE, not the feet (regression 2026-09-20): the anchor's Y is the
+# wall projection's centre (`centerP.y = center.y`), so an anchor at the feet puts the figure on
+# the floor line and half of it below the wall, inside the ground - the "wall mode stopped
+# working" report. Floors are unaffected (they ignore the anchor Y: `centerP = center.xz`), which
+# is why only walls regressed when 762c836 moved the anchor from the camera (the eye) to the
+# player's feet. The eye height is a player property (sneak/swim change it), not the camera, so
+# the pattern still never slides when only the camera moves.
 #
 # Usage: powershell -ExecutionPolicy Bypass -File scripts/check-surface-anchor.ps1
 # Exits 1 (after listing the problem) on a mismatch; 0 when the contract holds.
@@ -69,9 +77,33 @@ if ($manager -notmatch "private static boolean hasPositionBind\(final @Nullable 
 if ($manager -notmatch 'definition\.getParams\(\)\.containsKey\("pos_x"\)') {
 	$problems.Add("hasPositionBind does not check the authored pos_x parameter")
 }
+# 6) the player fallback anchors at the player's EYE, not the feet; otherwise a wall projection
+#    is centred on the floor line and the figure's lower half is buried in the ground.
+if ($anchor -notmatch 'player\.py\(\) \+ eyeHeight') {
+	$problems.Add("the player fallback anchors at the feet (player.py()), not the eye: the wall figure is buried in the floor")
+}
+if ($anchor -notmatch 'getEyeHeight\(\)') {
+	$problems.Add("the player fallback does not read the player's eye height")
+}
+
+# 7) numeric proof of the wall burial, for a built-in-sized figure (half-extent 0.5 cell at
+#    tile_scale 2 = 1 block) on a wall rising from the player's feet (world Y = 0 at the feet):
+#    a feet anchor spans [-1, +1] (half the figure below the wall), an eye anchor (1.62) spans
+#    [0.62, 2.62] (all of it on the wall). The check fails if the visible fraction regresses.
+$figureHalf = 1.0                 # 0.5 cell * tile_scale 2.0
+[double]$eyeHeight = 1.62         # standing eye height
+$feetFraction = ($figureHalf - 0.0) / (2.0 * $figureHalf)       # of [-1, 1], only [0, 1] is above the floor
+$eyeFraction = [Math]::Min(1.0, ($eyeHeight + $figureHalf) / (2.0 * $figureHalf))
+if ($feetFraction -ge 1.0) {
+	$problems.Add("the feet-anchor geometry check is wrong: a feet anchor hides part of the figure on a wall")
+}
+if ([Math]::Abs($eyeFraction - 1.0) -gt 1.0e-9) {
+	$problems.Add("an eye-anchored figure must be fully on the wall above the feet (visible fraction ~1)")
+}
 
 Write-Host "surface_pattern anchor source check"
-Write-Host "  anchor: center -> move -> positions -> pos binds -> player; camera is never consulted"
+Write-Host "  anchor: center -> move -> positions -> pos binds -> player EYE; camera is never consulted"
+Write-Host "  wall figure visible above the feet: feet anchor $([Math]::Round($feetFraction, 3)), eye anchor $([Math]::Round($eyeFraction, 3))"
 if ($problems.Count -gt 0) {
 	$problems | ForEach-Object { Write-Host "  - $_" }
 	Write-Error "surface_pattern anchor source check failed ($($problems.Count) problem(s))."

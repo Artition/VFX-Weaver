@@ -1136,9 +1136,17 @@ public final class VFXPostProcessingManager {
 		/**
 		 * Fills {@link #scratchAnchor}: the shape's structural centre, else the effect instance's
 		 * world position — its runtime move, then its first declared {@code positions} slot, then
-		 * authored {@code pos_x/pos_y/pos_z} — else the local player's position for a
+		 * authored {@code pos_x/pos_y/pos_z} — else the local player's <b>eye</b> position for a
 		 * player-anchored play. The camera is never the anchor: a camera-only change (F5, third
 		 * person, or any camera motion) must not slide a pattern that is fixed to the world.
+		 *
+		 * <p>The player fallback is the eye, not the feet. The anchor's Y centres the wall
+		 * projection ({@code centerP.y = center.y}), so an anchor at the feet puts the figure on
+		 * the floor line and its lower half sits below the wall (buried in the ground) — the
+		 * reported regression, and the floor/wall corner it then straddles is what flickers. The
+		 * pre-762c836 camera anchor was the eye and carried the figure correctly onto walls; using
+		 * the player's own eye height keeps that placement without consulting the camera, so the
+		 * pattern still never slides when only the camera moves.
 		 *
 		 * @param definition the effect's definition, already resolved once by the caller
 		 */
@@ -1167,7 +1175,9 @@ public final class VFXPostProcessingManager {
 			}
 			final VFXWorldBindings.PlayerState player = VFXWorldBindings.playerState();
 			if (player != null) {
-				this.scratchAnchor.set(player.px(), player.py(), player.pz());
+				final Minecraft minecraft = Minecraft.getInstance();
+				final float eyeHeight = minecraft.player == null ? 0.0F : minecraft.player.getEyeHeight();
+				this.scratchAnchor.set(player.px(), player.py() + eyeHeight, player.pz());
 				return;
 			}
 			this.scratchAnchor.set(0.0F, 0.0F, 0.0F);
