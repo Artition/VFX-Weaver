@@ -52,15 +52,21 @@ public final class VFXShaderPrograms {
 	 * Describes one effect shader: its pipeline plus the ordered float parameter names of the
 	 * {@code Config} uniform block and its std140-aligned byte size. {@code mask} marks the shared
 	 * coverage-read consumer, {@code coverage} the coverage prepass (whose {@code Config} is written
-	 * by {@link VFXMaskUniforms}, not the generic per-param loop).
+	 * by {@link VFXMaskUniforms}, not the generic per-param loop). {@code depthConfig} marks a pass
+	 * whose {@code Config} starts with {@code mat4 inv_view_proj} (written by the manager, not by
+	 * the per-param loop) and which binds {@code DepthSampler}: {@code surface_pattern}.
 	 */
-	public record ProgramInfo(RenderPipeline pipeline, String[] configParams, int configUboSize, PassRole role, boolean usesDepth, @Nullable String fieldInput, boolean mask, boolean coverage) {
+	public record ProgramInfo(RenderPipeline pipeline, String[] configParams, int configUboSize, PassRole role, boolean usesDepth, @Nullable String fieldInput, boolean mask, boolean coverage, boolean depthConfig) {
+		public ProgramInfo(final RenderPipeline pipeline, final String[] configParams, final int configUboSize, final PassRole role, final boolean usesDepth, final @Nullable String fieldInput, final boolean mask, final boolean coverage) {
+			this(pipeline, configParams, configUboSize, role, usesDepth, fieldInput, mask, coverage, false);
+		}
+
 		public ProgramInfo(final RenderPipeline pipeline, final String[] configParams, final int configUboSize, final PassRole role) {
-			this(pipeline, configParams, configUboSize, role, false, null, false, false);
+			this(pipeline, configParams, configUboSize, role, false, null, false, false, false);
 		}
 
 		public ProgramInfo(final RenderPipeline pipeline, final String[] configParams, final int configUboSize) {
-			this(pipeline, configParams, configUboSize, PassRole.NORMAL, false, null, false, false);
+			this(pipeline, configParams, configUboSize, PassRole.NORMAL, false, null, false, false, false);
 		}
 
 		/** True when this pipeline declares the {@code FieldConfig} uniform block. */
@@ -172,6 +178,21 @@ public final class VFXShaderPrograms {
 		registerPost(VFXEffectType.SHOCKWAVE, "center_x", "center_y", "radius", "width", "amplitude", "sharpness");
 		registerFeedbackEffects();
 		registerPost(VFXEffectType.NOISE_WARP, "scale", "amplitude", "contrast", "coherence", "speed", "drift_x", "drift_y", "seed", "time");
+
+		// surface_pattern reads scene depth and reconstructs a world position: it is the only pass
+		// that needs the depth mechanism (spec §5, §9 step 5). Registered on 26.x only — the depth
+		// mechanism was verified on 26.1.2/26.2, and the pass is a no-op on 1.21.11. Every shape
+		// number is uploaded; the shared shape library dispatches on it, so there is no grid/ring
+		// branch on this side.
+		//? if >=26.1 {
+		registerDepthPost(VFXEffectType.SURFACE_PATTERN,
+			"tile_scale", "color_r", "color_g", "color_b", "opacity",
+			"fade_radius", "normal_mask", "distort",
+			"center_x", "center_y", "center_z", "shape", "fill",
+			"rotation", "stroke_width", "softness", "repeat_x", "repeat_y",
+			"radius", "radius_x", "radius_y", "half_width", "half_height",
+			"corner_radius", "sides", "time");
+		//?}
 
 		copyPipeline = RenderPipelines.register(
 			RenderPipeline.builder(RenderPipelines.POST_PROCESSING_SNIPPET)
@@ -349,6 +370,34 @@ public final class VFXShaderPrograms {
 			*///?}
 		RenderPipeline pipeline = RenderPipelines.register(builder.build());
 		PROGRAMS.put(type, List.of(new ProgramInfo(pipeline, params, align16(params.length * 4), PassRole.NORMAL, true, fieldInput, false, false)));
+	}
+
+	/**
+	 * Registers a single-pass effect that reads the scene depth as {@code DepthSampler}, in
+	 * addition to the usual {@code InSampler} and the {@code SamplerInfo}/{@code Config} UBOs.
+	 * The shader's {@code Config} block must declare {@code mat4 inv_view_proj;} first, then the
+	 * {@code params} floats in the exact order given here (std140 offsets are positional). The
+	 * shape itself is evaluated by the shared shape library; this pass supplies its numbers.
+	 */
+	private static void registerDepthPost(final VFXEffectType type, final String... params) {
+		Identifier location = Identifier.fromNamespaceAndPath("vfxweaver", "post/" + type.getName());
+		RenderPipeline pipeline = RenderPipeline.builder(RenderPipelines.POST_PROCESSING_SNIPPET)
+			.withLocation(location)
+			.withVertexShader("core/screenquad")
+			.withFragmentShader(location)
+			//? if <26.2 {
+			.withSampler("InSampler")
+			.withSampler("DepthSampler")
+			.withUniform("SamplerInfo", UniformType.UNIFORM_BUFFER)
+			.withUniform("Config", UniformType.UNIFORM_BUFFER)
+			//?} else {
+			/*.withBindGroupLayout(BindGroupLayouts.IN_SAMPLER)
+			.withBindGroupLayout(DEPTH_SAMPLER_LAYOUT)
+			.withBindGroupLayout(SAMPLER_INFO_CONFIG_LAYOUT)
+			*///?}
+			.build();
+		RenderPipelines.register(pipeline);
+		PROGRAMS.put(type, List.of(new ProgramInfo(pipeline, params, 64 + align16(params.length * 4), PassRole.NORMAL, true, null, false, false, true)));
 	}
 
 	/**
