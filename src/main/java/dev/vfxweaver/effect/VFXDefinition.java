@@ -6,6 +6,7 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonPrimitive;
 import dev.vfxweaver.field.VFXField;
 import dev.vfxweaver.field.VFXShape;
+import dev.vfxweaver.field.VFXSurfaceSelection;
 import dev.vfxweaver.graph.VFXGraph;
 import dev.vfxweaver.graph.VFXSubgraphExpander;
 import dev.vfxweaver.mask.VFXMask;
@@ -51,6 +52,7 @@ public class VFXDefinition {
 	private final Map<String, VFXField> fields;
 	private final @Nullable VFXMask mask;
 	private final @Nullable VFXShape pattern;
+	private final @Nullable VFXSurfaceSelection surface;
 
 	private VFXDefinition(
 		final Identifier id,
@@ -74,7 +76,8 @@ public class VFXDefinition {
 		final Map<String, String> graphInputs,
 		final Map<String, VFXField> fields,
 		final @Nullable VFXMask mask,
-		final @Nullable VFXShape pattern
+		final @Nullable VFXShape pattern,
+		final @Nullable VFXSurfaceSelection surface
 	) {
 		this.id = id;
 		this.type = type;
@@ -98,6 +101,7 @@ public class VFXDefinition {
 		this.fields = Map.copyOf(fields);
 		this.mask = mask;
 		this.pattern = pattern;
+		this.surface = surface;
 	}
 
 	/**
@@ -166,7 +170,7 @@ public class VFXDefinition {
 		final @Nullable Identifier sound,
 		final @Nullable String entitySelector
 	) {
-		return new VFXDefinition(id, type, defaultDuration, defaultEasing, params, persistent, loop, fadeTicks, children, positions, List.of(), sound, entitySelector, null, null, null, null, null, Map.of(), Map.of(), null, null);
+		return new VFXDefinition(id, type, defaultDuration, defaultEasing, params, persistent, loop, fadeTicks, children, positions, List.of(), sound, entitySelector, null, null, null, null, null, Map.of(), Map.of(), null, null, null);
 	}
 
 	/**
@@ -338,7 +342,13 @@ public class VFXDefinition {
 			? VFXShape.parse(GsonHelper.getAsJsonObject(json, "pattern"))
 			: null;
 
-		return new VFXDefinition(id, type, duration, easing, params, persistent, loop, fadeTicks, children, positions, entityAnchors, sound, entitySelector, particleId, shape, blockId, itemId, graph, graphInputs, fields, mask, pattern);
+		// Optional structural surface selection (design 2026-09-20). Additive: without it the
+		// shader keeps the legacy numeric normal_mask and no band; unknown to an older mod.
+		VFXSurfaceSelection surface = json.has("surface") && !json.get("surface").isJsonNull()
+			? VFXSurfaceSelection.parse(GsonHelper.getAsJsonObject(json, "surface"))
+			: null;
+
+		return new VFXDefinition(id, type, duration, easing, params, persistent, loop, fadeTicks, children, positions, entityAnchors, sound, entitySelector, particleId, shape, blockId, itemId, graph, graphInputs, fields, mask, pattern, surface);
 	}
 
 	/**
@@ -605,7 +615,7 @@ public class VFXDefinition {
 		}
 		Map<String, ParamSpec> merged = new LinkedHashMap<>(this.params);
 		merged.putAll(overrides);
-		return new VFXDefinition(this.id, this.type, this.defaultDuration, this.defaultEasing, merged, this.persistent, this.loop, this.fadeTicks, this.children, this.positions, this.entityAnchors, this.sound, this.entitySelector, this.particleId, this.shape, this.blockId, this.itemId, this.graph, this.graphInputs, this.fields, this.mask, this.pattern);
+		return new VFXDefinition(this.id, this.type, this.defaultDuration, this.defaultEasing, merged, this.persistent, this.loop, this.fadeTicks, this.children, this.positions, this.entityAnchors, this.sound, this.entitySelector, this.particleId, this.shape, this.blockId, this.itemId, this.graph, this.graphInputs, this.fields, this.mask, this.pattern, this.surface);
 	}
 
 	/**
@@ -834,6 +844,15 @@ public class VFXDefinition {
 	 */
 	public @Nullable VFXShape getPattern() {
 		return this.pattern;
+	}
+
+	/**
+	 * The optional structural surface selection of a {@code surface_pattern} definition (the
+	 * top-level {@code surface} block), or {@code null} when the definition has none — in which
+	 * case the shader keeps the legacy numeric {@code normal_mask} behaviour.
+	 */
+	public @Nullable VFXSurfaceSelection getSurface() {
+		return this.surface;
 	}
 
 	/**
