@@ -54,6 +54,54 @@ public abstract class GameRendererMixin {
 			return;
 		}
 
+		// The effect clock and the camera/player snapshots are refreshed by vfxweaver$renderLayer0,
+		// which runs inside renderLevel BEFORE this hook (renderLevel is called at the top of
+		// render, FogRenderer.endFrame at the end). Layer 0 therefore sees the current frame's time
+		// and player state; layers 1/2 (here and at TAIL) reuse the same snapshot. Advancing here
+		// again would double-advance the clock.
+
+		// Layer 1: above the world and the first-person hand, below the GUI (default).
+		//? if <26.2 {
+		VFXPostProcessingManager.get().process(manager, minecraft.getMainRenderTarget(), 1);
+		//?} else {
+		/*VFXPostProcessingManager.get().process(manager, minecraft.gameRenderer.mainRenderTarget(), 1);
+		*///?}
+	}
+
+	/**
+	 * Layer 0 screen effects run right before the first-person hand is rendered, so they affect
+	 * only the world frame and stay under the hand and the GUI.
+	 *
+	 * <p>This hook also refreshes the shared effect clock and the camera/player snapshots: it runs
+	 * earlier in the frame than the {@code FogRenderer.endFrame} hook (which only applies layer 1),
+	 * so layer 0 — where {@code surface_pattern} runs by default — sees the current frame's clock
+	 * and the interpolated player position instead of trailing them by one frame.
+	 */
+	@Inject(method = "renderLevel(Lnet/minecraft/client/DeltaTracker;)V", at = @At(
+		value = "INVOKE",
+		target = "Lcom/mojang/blaze3d/systems/CommandEncoder;clearDepthTexture(Lcom/mojang/blaze3d/textures/GpuTexture;D)V"
+	))
+	private void vfxweaver$renderLayer0(final DeltaTracker deltaTracker, final CallbackInfo ci) {
+		Minecraft minecraft = Minecraft.getInstance();
+		if (minecraft.level == null) {
+			return;
+		}
+		vfxweaver$updateFrame(minecraft, deltaTracker);
+		//? if <26.2 {
+		VFXPostProcessingManager.get().process(VFXEffectManager.get(), minecraft.getMainRenderTarget(), 0);
+		//?} else {
+		/*VFXPostProcessingManager.get().process(VFXEffectManager.get(), minecraft.gameRenderer.mainRenderTarget(), 0);
+		*///?}
+	}
+
+	/**
+	 * Advances the shared effect clock and republishes the camera and local-player snapshots for
+	 * the current frame. Called once per frame from the layer-0 hook, before any layer processes.
+	 *
+	 * @param minecraft the client (a level is guaranteed to be loaded)
+	 * @param deltaTracker the frame's delta tracker
+	 */
+	private void vfxweaver$updateFrame(final Minecraft minecraft, final DeltaTracker deltaTracker) {
 		float deltaTicks = minecraft.isPaused() ? 0.0F : deltaTracker.getGameTimeDeltaTicks();
 		// Interpolate the player position across the current frame so player-bound overlays move
 		// smoothly instead of stepping at the 20 Hz game tick.
@@ -100,35 +148,8 @@ public abstract class GameRendererMixin {
 				(float) Mth.lerp(partialTick, player.zo, player.getZ())
 			);
 		}
-		manager.advance(deltaTicks);
-		manager.update();
-
-		// Layer 1: above the world and the first-person hand, below the GUI (default).
-		//? if <26.2 {
-		VFXPostProcessingManager.get().process(manager, minecraft.getMainRenderTarget(), 1);
-		//?} else {
-		/*VFXPostProcessingManager.get().process(manager, minecraft.gameRenderer.mainRenderTarget(), 1);
-		*///?}
-	}
-
-	/**
-	 * Layer 0 screen effects run right before the first-person hand is rendered, so they affect
-	 * only the world frame and stay under the hand and the GUI.
-	 */
-	@Inject(method = "renderLevel(Lnet/minecraft/client/DeltaTracker;)V", at = @At(
-		value = "INVOKE",
-		target = "Lcom/mojang/blaze3d/systems/CommandEncoder;clearDepthTexture(Lcom/mojang/blaze3d/textures/GpuTexture;D)V"
-	))
-	private void vfxweaver$renderLayer0(final DeltaTracker deltaTracker, final CallbackInfo ci) {
-		Minecraft minecraft = Minecraft.getInstance();
-		if (minecraft.level == null) {
-			return;
-		}
-		//? if <26.2 {
-		VFXPostProcessingManager.get().process(VFXEffectManager.get(), minecraft.getMainRenderTarget(), 0);
-		//?} else {
-		/*VFXPostProcessingManager.get().process(VFXEffectManager.get(), minecraft.gameRenderer.mainRenderTarget(), 0);
-		*///?}
+		VFXEffectManager.get().advance(deltaTicks);
+		VFXEffectManager.get().update();
 	}
 
 	/**
