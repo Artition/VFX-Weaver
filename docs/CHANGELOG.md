@@ -2,6 +2,13 @@
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). The versions below are guide/feature-set versions of the mod (as they progressed historically, see `docs/GUIDE.md`), plus git release tags where applicable (`v1.0.x`, `gradle.properties` → `mod_version`). Add new entries at the top, in the same PR as the behavior change.
 
+## Unreleased / Guide v44
+### Added
+- **`surface.stitch` — opt-in floor-anchored unfolding for `surface_pattern`.** A boolean in the structural `surface` block (default `false`): with `"stitch": true` a vertical wall is unfolded into the floor plane (its own horizontal axis kept, the other floor axis offset by `world.y - center.y`, always away from the viewer / into the wall), so the floor coordinate continues past the wall base and the pattern is continuous across the floor/wall edge. Additive and off by default — without it the hard floor/wall plane switch is byte-for-byte unchanged, so the built-in and every existing definition render exactly as before. Place the anchor at floor level (an explicit `pattern.center`, a literal `positions` entry, or the `pos_x`/`pos_y`/`pos_z` binds at the player's feet) for a continuous seam; an anchor above the floor (e.g. the player's eye at feet + ~1.6) shifts the wall by `floor_y - center.y`. See `docs/GUIDE.md` §2.1.
+
+### Fixed
+- **`normal_mask: 1.0` coverage no longer flickers.** The `1.0` fallback compared the *raw* depth-derived normal against exactly `1.0`; a normalized normal is numerically almost never exactly `1.0` (`0.9999…`), so the coverage flickered at the threshold (worst at grazing angles near the floor). It now tests the **snapped** normal (`abs(n.y) >= 0.5`), which is exact for an axis-aligned block face and therefore stable. See `docs/GUIDE.md` §2.1.
+
 ## Unreleased / Guide v43
 ### Added
 - **`/vfx stop [<player>]`** stops every active effect of a player (default: the executing player). It reuses the existing per-effect stop payload on the server and, for the executor's own client, also clears effects played locally (single player / a client-only mod). The old `/vfx stop <effect> [players]` form is unchanged; a bare token is parsed as an `<effect>` first, so target a player with a selector (`@p`/`@a`). New `VFXAPI.sendStopAll(ServerPlayer)` (documented in `docs/API.md`). See `docs/GUIDE.md` §1.

@@ -26,6 +26,13 @@ import java.util.Locale;
  * north (−Z), {@code 3} south (+Z), {@code 4} west (−X), {@code 5} east (+X). Minecraft's axis
  * convention: +X = east, +Z = south, north = −Z, west = −X.
  *
+ * <p>The optional {@code stitch} boolean (default {@code false}) is the "floor-anchored unfolding"
+ * mode: with it on, a vertical wall's coordinate is unfolded into the floor plane (the floor axis
+ * continues past the wall base) so the pattern is continuous across the floor/wall edge. It is
+ * additive and off by default, so every definition that omits it keeps today's hard floor/wall
+ * plane switch exactly. See {@code post/surface_pattern.fsh} for the formula and its documented
+ * limitation (the anchor must sit at floor level for the seam to be continuous).
+ *
  * <p>This block is optional and additive: when it is absent the shader keeps the legacy numeric
  * {@code normal_mask} behaviour and no band applies. Strings/enums are structural and never live in
  * {@code params} (numeric only), following the same rule as the {@code pattern} block.
@@ -65,12 +72,14 @@ public final class VFXSurfaceSelection {
 	private final float min;
 	private final float max;
 	private final float bandSoftness;
+	private final boolean stitch;
 
-	private VFXSurfaceSelection(final int faceMask, final float min, final float max, final float bandSoftness) {
+	private VFXSurfaceSelection(final int faceMask, final float min, final float max, final float bandSoftness, final boolean stitch) {
 		this.faceMask = faceMask;
 		this.min = min;
 		this.max = max;
 		this.bandSoftness = bandSoftness;
+		this.stitch = stitch;
 	}
 
 	/**
@@ -79,13 +88,14 @@ public final class VFXSurfaceSelection {
 	 * @param json the {@code surface} object (e.g. {@code {"faces": ["up"], "min": 64, "max": 96}})
 	 * @return the parsed selection, never {@code null}
 	 * @throws IllegalArgumentException on an unknown key/face token, an empty {@code faces} array,
-	 *         more than {@link #MAX_TOKENS} tokens, a non-finite bound, {@code min > max}, or
-	 *         {@code band_softness} outside {@code [0, MAX_BAND_SOFTNESS]}
+	 *         more than {@link #MAX_TOKENS} tokens, a non-finite bound, {@code min > max},
+	 *         {@code band_softness} outside {@code [0, MAX_BAND_SOFTNESS]}, or a non-boolean
+	 *         {@code stitch}
 	 */
 	public static VFXSurfaceSelection parse(final JsonObject json) {
 		for (final String key : json.keySet()) {
-			if (!"faces".equals(key) && !"min".equals(key) && !"max".equals(key) && !"band_softness".equals(key)) {
-				throw new IllegalArgumentException("surface: unknown key '" + key + "' (expected faces, min, max, band_softness)");
+			if (!"faces".equals(key) && !"min".equals(key) && !"max".equals(key) && !"band_softness".equals(key) && !"stitch".equals(key)) {
+				throw new IllegalArgumentException("surface: unknown key '" + key + "' (expected faces, min, max, band_softness, stitch)");
 			}
 		}
 
@@ -138,7 +148,9 @@ public final class VFXSurfaceSelection {
 			bandSoftness = Math.min(bandSoftness, (max - min) * 0.5F);
 		}
 
-		return new VFXSurfaceSelection(faceMask, min, max, bandSoftness);
+		final boolean stitch = json.has("stitch") && !json.get("stitch").isJsonNull() && bool(json.get("stitch"), "stitch");
+
+		return new VFXSurfaceSelection(faceMask, min, max, bandSoftness, stitch);
 	}
 
 	/** The 6-bit face mask (bit {@code i} = face id {@code i}). */
@@ -159,6 +171,11 @@ public final class VFXSurfaceSelection {
 	/** Half-width (blocks) of the band's soft edge; {@code 0} means the exact hard test. */
 	public float bandSoftness() {
 		return this.bandSoftness;
+	}
+
+	/** {@code true} when a vertical wall is unfolded into the floor plane (opt-in, default false). */
+	public boolean stitch() {
+		return this.stitch;
 	}
 
 	/** Expands one token to its face bits, or {@code 0} when the token is unknown. */
@@ -203,5 +220,12 @@ public final class VFXSurfaceSelection {
 			throw new IllegalArgumentException("surface: '" + key + "' must be finite, got " + value);
 		}
 		return value;
+	}
+
+	private static boolean bool(final JsonElement element, final String key) {
+		if (!element.isJsonPrimitive() || !element.getAsJsonPrimitive().isBoolean()) {
+			throw new IllegalArgumentException("surface: '" + key + "' must be a boolean");
+		}
+		return element.getAsBoolean();
 	}
 }

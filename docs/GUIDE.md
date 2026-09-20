@@ -536,6 +536,7 @@ An optional top-level structural `surface` block (strings/enums, never in `param
 | `min` | −∞ | Inclusive lower bound of the band, **along the fragment's dominant axis**: Y for `up`/`down`, X for `east`/`west`, Z for `north`/`south` |
 | `max` | +∞ | Inclusive upper bound of the band, same axis as `min` |
 | `band_softness` | 0 | Half-width in blocks of a soft fade centred on `min` and `max` (`0..4`). A surface lying exactly on a bound otherwise shimmers, because the depth-reconstructed axis coordinate jitters across the hard test from pixel to pixel; a small value (e.g. `0.05`) removes it while keeping the band interior solid. A requested value wider than half the band (`max - min`) is clamped to half the band, so a narrow band never loses full coverage at its centre. `0` = the exact hard edge, so definitions that omit it are unchanged |
+| `stitch` | `false` | Opt-in **floor-anchored unfolding**. When `true`, a vertical wall is unfolded into the floor plane, so the floor coordinate continues beyond the wall base and the pattern is continuous across the floor/wall edge. The wall's own horizontal axis is kept (`x` for north/south, `z` for east/west) and the other floor axis is offset by `world.y - center.y`, in the direction **away from the viewer / into the wall / beyond the visible floor** (so the figure is not painted twice on the visible floor). Off (the default), the hard floor/wall plane switch is unchanged |
 
 An unknown key or face token, an empty `faces` array, more than 8 tokens, a non-finite bound, `band_softness` outside `0..4`, or `min > max` is a per-file parse error. A `surface_pattern` whose `positions` contains an entity anchor is also a parse error — the pattern anchor is a world point (the shader would otherwise silently fall back to the player).
 
@@ -553,6 +554,14 @@ An unknown key or face token, an empty `faces` array, more than 8 tokens, a non-
 ```
 
 The first is a floor band on world Y; the second is a band along world X on the east/west walls; the third is a band along world Z on the north/south walls (the axes follow `faces`, not always Y); the fourth is a floor band whose `min` bound sits exactly on the surface the player stands on, so its edge is faded over `band_softness` to stop it shimmering.
+
+**Floor-anchored unfolding (`surface.stitch`).** By default a wall is projected onto its own plane (`u = cross(worldUp, n)` across, world Y up) and a floor onto world XZ — two different physical planes, so a figure can never be continuous across a floor/wall edge. `"stitch": true` removes that seam for the common floor+walls case: a wall is **unfolded into the floor plane**, keeping its own horizontal axis and offsetting the other floor axis by `world.y - center.y` (`north`/`south` keep `x` and offset `z`, `west`/`east` keep `z` and offset `x`), so the floor coordinate continues past the wall base. The offset is always directed away from the viewer (into the wall, beyond the visible floor), which is what stops the figure being painted twice on the visible floor.
+
+It is additive and **off by default** — without it every existing definition renders exactly as before. The one thing to get right is the anchor: at a wall base `world.y` equals the floor's Y, so the unfolded coordinate equals the floor coordinate there only when the anchor sits **at floor level** (`center.y == floor_y`). If the anchor is above the floor (for example the player's eye, feet + ~1.6), the wall pattern is shifted by `floor_y - center.y` and the seam has a discontinuity of that size. Place the anchor at floor level with an explicit `pattern.center`, a literal `positions` entry, or the `pos_x`/`pos_y`/`pos_z` binds at the player's feet (`{"bind": "player_y"}`).
+
+```json
+"surface": { "faces": ["up", "north", "south", "east", "west"], "stitch": true }
+```
 
 **Textured figure (`pattern.texture`).** An optional structural `texture` object inside `pattern` replaces the procedural figure with a real texture projected onto the same surface — the same faces, band, fade, `distort` and `opacity`. The texture **is** the figure; an authored `figure` becomes its mask (`coverage = texture channel × shape coverage`), so a texture with no `figure` is not clipped. Without a `texture` the block is bit-for-bit the procedural figure.
 
@@ -1875,7 +1884,11 @@ Post-processing pipeline, world overlays, effect clock, load limits and fault to
 
 Versioned feature history — **[docs/CHANGELOG.md](CHANGELOG.md)**.
 
-Guide version: 43 — see changelog below.
+Guide version: 44 — see changelog below.
+
+### v44
+- **`surface.stitch` — opt-in floor-anchored unfolding.** A new boolean in the structural `surface` block (default `false`). With `"stitch": true` a vertical wall is unfolded into the floor plane (its own horizontal axis kept, the other floor axis offset by `world.y - center.y`, away from the viewer), so the floor coordinate continues past the wall base and the pattern is continuous across the floor/wall edge. Additive and off by default — without it the hard floor/wall plane switch is unchanged, so every existing definition and the built-in render exactly as before. Place the anchor at floor level (an explicit `pattern.center`, a literal `positions` entry, or the `pos_x`/`pos_y`/`pos_z` binds at the player's feet) for a continuous seam; an anchor above the floor (e.g. the player's eye) shifts the wall by `floor_y - center.y`. See [2.1](#surface_pattern).
+- **`normal_mask: 1.0` coverage is no longer noisy.** The `1.0` fallback compared the *raw* depth-derived normal against exactly `1.0`, which a normalized normal numerically almost never reaches (`0.9999…`), so coverage flickered at the threshold (worst at grazing angles near the floor). It now tests the **snapped** normal (`abs(n.y) >= 0.5`), which is exact for an axis-aligned block face.
 
 ### v43
 - **`/vfx stop [<player>]` stops every active effect of a player.** With no argument it stops all of the executing player's effects; with a player (selector) it stops that player's effects. It reuses the existing per-effect stop payload on the server and, for the executor's own client, also clears effects played locally (single player / a client-only mod). The old `/vfx stop <effect> [players]` form is unchanged: a bare token is parsed as an `<effect>` first, so use a selector (`@p`/`@a`) to target a player. New `VFXAPI.sendStopAll(ServerPlayer)`.

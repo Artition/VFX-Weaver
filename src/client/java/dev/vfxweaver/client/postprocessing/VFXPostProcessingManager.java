@@ -756,6 +756,9 @@ public final class VFXPostProcessingManager {
 								case "tex_channel" -> patternTexture.channel();
 								case "tex_px_w" -> patternTexture.pxW();
 								case "tex_px_h" -> patternTexture.pxH();
+								// surface.stitch: unfold a vertical wall into the floor plane. With no
+								// surface block this is 0 = today's hard floor/wall switch.
+								case "stitch" -> surface == null || !surface.stitch() ? 0.0F : 1.0F;
 								default -> effect.getParam(param, 0.0F);
 							};
 						} else {
@@ -1196,7 +1199,7 @@ public final class VFXPostProcessingManager {
 				case "center_x", "center_y", "center_z", "shape", "fill", "rotation", "stroke_width",
 					"softness", "repeat_x", "repeat_y", "radius", "radius_x", "radius_y",
 					"half_width", "half_height", "corner_radius", "sides",
-					"face_mask", "band_min", "band_max", "band_softness" -> true;
+					"face_mask", "band_min", "band_max", "band_softness", "stitch" -> true;
 				case "shape_present", "tex_u0", "tex_v0", "tex_u1", "tex_v1", "tex_aspect",
 					"tex_cols", "tex_rows", "tex_frame", "tex_flags", "tex_channel",
 					"tex_px_w", "tex_px_h" -> true;

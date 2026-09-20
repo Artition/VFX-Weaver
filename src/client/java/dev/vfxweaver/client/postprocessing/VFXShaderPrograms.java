@@ -206,7 +206,10 @@ public final class VFXShaderPrograms {
 			// the half-texel sheet inset).
 			"shape_present", "tex_u0", "tex_v0", "tex_u1", "tex_v1", "tex_aspect",
 			"tex_cols", "tex_rows", "tex_frame", "tex_flags", "tex_channel", "texture_tint",
-			"tex_px_w", "tex_px_h");
+			"tex_px_w", "tex_px_h",
+			// stitch: 1 = unfold a vertical wall into the floor plane (surface.stitch flag), appended
+			// last so no earlier std140 offset shifts, 0 = today's hard floor/wall switch.
+			"stitch");
 		*///?}
 
 		copyPipeline = RenderPipelines.register(

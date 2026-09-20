@@ -59,7 +59,7 @@ if ($programs -notmatch '"band_max"\s*,\s*"band_softness"') {
 if ($manager -notmatch 'case\s+"band_softness"') {
 	$problems.Add("VFXPostProcessingManager does not resolve the 'band_softness' Config name")
 }
-if ($manager -notmatch '"band_softness"\s*->\s*true') {
+if ($manager -notmatch '"band_softness"[^\r\n]*->\s*true') {
 	$problems.Add("VFXPostProcessingManager.isReservedDepthParam does not list 'band_softness'")
 }
 

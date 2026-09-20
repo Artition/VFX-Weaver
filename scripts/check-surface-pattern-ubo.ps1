@@ -51,6 +51,13 @@ foreach ($m in [regex]::Matches($body, '"([^"]+)"')) { $javaNames.Add($m.Groups[
 if ($shaderNames.Count -ne $javaNames.Count) {
 	$problems.Add("Config float count: shader $($shaderNames.Count) vs registerDepthPost $($javaNames.Count)")
 }
+# The positional contract has a fixed float count (44 floats after mat4 inv_view_proj, plus the
+# appended 'stitch' = 45). A hard count catches a field added to one side only or both sides
+# silently forgetting one; bump this when a real field is appended.
+$expectedFloatCount = 45
+if ($shaderNames.Count -ne $expectedFloatCount) {
+	$problems.Add("Config float count: shader $($shaderNames.Count) vs expected $expectedFloatCount")
+}
 $count = [Math]::Min($shaderNames.Count, $javaNames.Count)
 for ($i = 0; $i -lt $count; $i++) {
 	if ($shaderNames[$i] -ne $javaNames[$i]) {
@@ -75,6 +82,16 @@ foreach ($name in @('shape_present', 'tex_u0', 'tex_v0', 'tex_u1', 'tex_v1', 'te
 }
 if ($reservedBody -match '"texture_tint"') {
 	$problems.Add("isReservedDepthParam must not reserve 'texture_tint' (it is a fade-weighted param)")
+}
+# stitch is appended after tex_px_h and resolved from the surface block, not the timeline.
+if ($shaderNames -notcontains 'stitch') {
+	$problems.Add("surface_pattern.fsh Config block is missing 'stitch'")
+}
+if ($reservedBody -notmatch '"stitch"') {
+	$problems.Add("isReservedDepthParam does not list 'stitch'")
+}
+if ($switchBody -notmatch 'case\s+"stitch"') {
+	$problems.Add("VFXPostProcessingManager does not resolve the 'stitch' Config name")
 }
 if ($switchBody -notmatch 'case\s+"tex_frame"\s*->\s*effect\.getParam\("frame"') {
 	$problems.Add("the manager does not read the animatable 'frame' param into tex_frame")

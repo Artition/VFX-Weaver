@@ -83,6 +83,10 @@ layout(std140) uniform Config {
     // inset (0.5 / pixels) so a filtered sample of a cell edge cannot bleed into the next cell.
     float tex_px_w;
     float tex_px_h;
+    // Appended after tex_px_h (VFXShaderPrograms.registerDepthPost, positional std140). 1 when the
+    // definition's surface block set "stitch": true, so a vertical wall is unfolded into the floor
+    // plane (see the projection branch in main); 0 keeps today's hard floor/wall plane switch.
+    float stitch;
 };
 
 out vec4 fragColor;
@@ -129,6 +133,24 @@ void main() {
     //   east  (+X) u=-Z  p=(-z, y)   west  (-X) u=+Z  p=( z, y)
     // Both axes are in world units, so the figure's aspect is preserved on walls. The band runs
     // along the axis the projection picked: Y for up/down, X for east/west, Z for north/south.
+    //
+    // With `stitch` on (opt-in, default off) a wall is instead unfolded into the floor plane, so the
+    // floor coordinate continues past the wall base and the pattern is continuous across the edge.
+    // unfold = world.y - center.y is the height above the anchor; the wall's own horizontal axis is
+    // kept and the other floor axis is offset by ±unfold, chosen so the unfold goes *away* from the
+    // viewer, into the wall, beyond the visible floor (+Z unfolds to -Z, -Z to +Z, +X to -X, -X to
+    // +X) - that is what stops the figure being painted twice on the visible floor:
+    //   north (-Z): p = (x, z + unfold)   south (+Z): p = (x, z - unfold)
+    //   west  (-X): p = (x + unfold, z)   east  (+X): p = (x - unfold, z)
+    // centerP = center.xz in every case. At a wall base world.y == floor_y, so unfold equals
+    // floor_y - center.y; when the anchor sits at floor level (center.y == floor_y) the unfolded
+    // coordinate *equals* the floor coordinate there, i.e. the pattern is continuous across the
+    // edge. Documented limitation: if the anchor is not at floor level (e.g. the player eye is
+    // feet + ~1.6) the wall pattern is shifted by floor_y - center.y and the seam has a
+    // discontinuity of that size - place the anchor at floor level (an explicit pattern.center or a
+    // positions entry, or the pos_x/pos_y/pos_z binds at the player's feet). With stitch off this
+    // branch is byte-for-byte the previous hard switch, so existing definitions and the shipped
+    // built-in are unchanged.
     vec3 center = vec3(center_x, center_y, center_z);
     vec2 p;
     vec2 centerP;
@@ -137,6 +159,19 @@ void main() {
         p = world.xz;
         centerP = center.xz;
         bandAxis = world.y;
+    } else if (stitch != 0.0) {
+        float unfold = world.y - center.y;
+        centerP = center.xz;
+        if (faceId == 2) {
+            p = vec2(world.x, world.z + unfold);
+        } else if (faceId == 3) {
+            p = vec2(world.x, world.z - unfold);
+        } else if (faceId == 4) {
+            p = vec2(world.x + unfold, world.z);
+        } else {
+            p = vec2(world.x - unfold, world.z);
+        }
+        bandAxis = faceId >= 4 ? world.x : world.z;
     } else {
         vec3 u = cross(vec3(0.0, 1.0, 0.0), n);
         p = vec2(dot(world, u), world.y);
