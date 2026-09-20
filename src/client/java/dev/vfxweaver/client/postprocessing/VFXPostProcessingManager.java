@@ -510,10 +510,15 @@ public final class VFXPostProcessingManager {
 	 * loudly instead of reading as zeros; it would have caught a short range, a stale size or a
 	 * reordered/renamed field.
 	 *
-	 * <p>An infrastructure miss (a non-GL backend, a shader that has not compiled yet, an LWJGL
-	 * failure) only warns once — the game must not die because a debug query was unavailable. An
-	 * actual layout mismatch logs at ERROR and throws; the caller's {@code process} catch reports
-	 * it once. The set keeps this to one query per pipeline per process, never per frame.
+		 * <p>The member names are queried bare (the spec form returned by {@code glGetActiveUniform})
+		 * with a block-qualified fallback, and a member the driver does not list is skipped rather
+		 * than fed to {@code glGetActiveUniformsiv} as {@code -1} (which is {@code GL_INVALID_VALUE}).
+		 *
+		 * <p>An infrastructure miss (a non-GL backend, a shader that has not compiled yet, an LWJGL
+		 * failure) only warns once — the game must not die because a debug query was unavailable. An
+		 * actual layout mismatch logs at ERROR and marks the pipeline failed; it never throws, so a
+		 * false positive cannot turn one frame into a dropped post layer. The set keeps this to one
+		 * query per pipeline per process, never per frame.
 	 *
 	 * @param pipeline the compiled depth pass pipeline
 	 * @param names    the registered {@code Config} float names, in positional order
@@ -539,25 +544,55 @@ public final class VFXPostProcessingManager {
 			}
 			final int[] blockSize = new int[1];
 			GL31.glGetActiveUniformBlockiv(programId, blockIndex, GL31.GL_UNIFORM_BLOCK_DATA_SIZE, blockSize);
-			final CharSequence[] qualified = new CharSequence[names.length];
-			for (int i = 0; i < names.length; i++) {
-				qualified[i] = "Config." + names[i];
-			}
 			final int[] indices = new int[names.length];
-			final int[] offsets = new int[names.length];
-			try (org.lwjgl.system.MemoryStack stack = org.lwjgl.system.MemoryStack.stackPush()) {
-				final java.nio.IntBuffer buffer = stack.mallocInt(names.length);
-				GL31.glGetUniformIndices(programId, qualified, buffer);
-				buffer.get(indices);
-				GL31.glGetActiveUniformsiv(programId, indices, GL31.GL_UNIFORM_OFFSET, offsets);
-			}
-			for (int i = 0; i < names.length; i++) {
-				if (indices[i] < 0) {
-					throw new IllegalStateException("the '" + qualified[i] + "' uniform is not active");
+			// The spec name of a uniform-block member is the bare member name as returned by
+			// glGetActiveUniform; some drivers additionally accept the block-qualified form, and at
+			// least one rejects the qualified form (it returned -1 for every name, which fed a -1
+			// index to glGetActiveUniformsiv = GL_INVALID_VALUE and aborted the whole post layer).
+			// Query the bare name first, then fill the misses from the qualified name.
+			queryUniformIndices(programId, names, false, indices);
+			boolean missingBare = false;
+			for (final int index : indices) {
+				if (index < 0) {
+					missingBare = true;
+					break;
 				}
+			}
+			if (missingBare) {
+				final int[] qualified = new int[names.length];
+				queryUniformIndices(programId, names, true, qualified);
+				for (int i = 0; i < names.length; i++) {
+					if (indices[i] < 0) {
+						indices[i] = qualified[i];
+					}
+				}
+			}
+			int active = 0;
+			for (final int index : indices) {
+				if (index >= 0) {
+					active++;
+				}
+			}
+			if (active == 0) {
+				throw new IllegalStateException("no Config member uniform is active (the driver exposed none of " + names.length + " names)");
+			}
+			final int[] activeIndices = new int[active];
+			final int[] activeSlots = new int[active];
+			int next = 0;
+			for (int i = 0; i < names.length; i++) {
+				if (indices[i] >= 0) {
+					activeIndices[next] = indices[i];
+					activeSlots[next] = i;
+					next++;
+				}
+			}
+			final int[] offsets = new int[active];
+			GL31.glGetActiveUniformsiv(programId, activeIndices, GL31.GL_UNIFORM_OFFSET, offsets);
+			for (int a = 0; a < active; a++) {
+				final int i = activeSlots[a];
 				final int expected = 64 + 4 * i;
-				if (offsets[i] != expected) {
-					throw new IllegalStateException("std140 offset drift: '" + names[i] + "' is at " + offsets[i] + ", expected " + expected);
+				if (offsets[a] != expected) {
+					throw new IllegalStateException("std140 offset drift: '" + names[i] + "' is at " + offsets[a] + ", expected " + expected);
 				}
 			}
 			final int expectedSize = VFXShaderPrograms.depthConfigSize(names.length);
@@ -573,14 +608,38 @@ public final class VFXPostProcessingManager {
 			}
 			VERIFIED_DEPTH_CONFIGS.add(key);
 		} catch (final IllegalStateException e) {
+			// A false positive must not take a frame down: the old throw aborted the whole post
+			// layer on the first frame (it read as "textured patterns show nothing"). Log loudly
+			// once, then keep rendering.
 			FAILED_DEPTH_CONFIGS.add(key);
-			LOGGER.error("VFX surface_pattern Config layout guard failed for {}: {}", key, e.getMessage());
-			throw e;
+			LOGGER.error("VFX surface_pattern Config layout guard failed for {}: {} (the pass keeps rendering)", key, e.getMessage());
 		} catch (final RuntimeException e) {
 			// No GL backend / shader not compiled yet / LWJGL failure: never take the game down over
 			// an unavailable debug query; the positional contract check still runs in the build.
 			VFXLog.warnOnce(LOGGER, "depth-config-guard:" + key,
 				"Could not verify the std140 layout of {} ({}); the positional check in scripts/ still applies", key, e.getMessage());
+		}
+	}
+
+	/**
+	 * Fills {@code out} with the driver's uniform index for each name (bare, or {@code Config.}
+	 * qualified), or {@code -1} where the driver reports none. {@code glGetActiveUniformsiv} must
+	 * never receive {@code -1}, so the caller filters the misses before the offset query.
+	 *
+	 * @param programId the linked GL program
+	 * @param names     the {@code Config} member names, in positional order
+	 * @param qualified true to query {@code Config.<name>}, false for the bare member name
+	 * @param out       receives one index per name ({@code -1} when absent)
+	 */
+	private static void queryUniformIndices(final int programId, final String[] names, final boolean qualified, final int[] out) {
+		final CharSequence[] requested = new CharSequence[names.length];
+		for (int i = 0; i < names.length; i++) {
+			requested[i] = qualified ? "Config." + names[i] : names[i];
+		}
+		try (org.lwjgl.system.MemoryStack stack = org.lwjgl.system.MemoryStack.stackPush()) {
+			final java.nio.IntBuffer buffer = stack.mallocInt(names.length);
+			GL31.glGetUniformIndices(programId, requested, buffer);
+			buffer.get(out);
 		}
 	}
 	//?}
@@ -1025,8 +1084,12 @@ public final class VFXPostProcessingManager {
 		/**
 		 * Resolves a {@code pattern.texture} spec to the values the shader needs: the sampler's
 		 * texture view, the sprite UV rect (an atlas sub-rect, or {@code 0..1} for standalone), the
-		 * pixel aspect, the sheet grid and the channel. The atlas API exists only on {@code >=26.1}
-		 * (the pass itself is only registered there), so the whole body is guarded.
+		 * pixel aspect, the sheet grid and the channel. The standalone path is shared; the atlas
+		 * lookup is per node — the {@code >=26.1} nodes use the {@code sprite} AtlasManager
+		 * ({@code SpriteId} keyed by the atlas texture id), the remapped {@code 1.21.11} node uses
+		 * the older {@code model} AtlasManager whose {@code TextureAtlas.getSprite} substitutes the
+		 * missing sprite. Every resolved path funnels through {@link #resolved} (the only place the
+		 * {@code RESOLVED} bit is set), so the shader's fail-closed gate is right on every node.
 		 *
 		 * <p>A missing sprite inside a valid atlas is fail-visible (draws the missing texture) and
 		 * warned once per effect; an unknown atlas or an unreadable standalone texture is
@@ -1038,88 +1101,160 @@ public final class VFXPostProcessingManager {
 				return PatternTexture.ABSENT;
 			}
 			final int flagBits = PatternTexture.AUTHORED | (spec.preserveAspect() ? PatternTexture.PRESERVE : 0);
-			//? if >=26.1 {
+			// Parsed once at definition-parse time (VFXTexture.parsedId), never re-parsed here.
+			final net.minecraft.resources.Identifier textureId = spec.parsedId();
 			try {
-				// Parsed once at definition-parse time (VFXTexture.parsedId), never re-parsed here.
-				final net.minecraft.resources.Identifier textureId = spec.parsedId();
-				final net.minecraft.client.resources.model.sprite.AtlasManager atlasManager =
-					Minecraft.getInstance().getAtlasManager();
 				if (spec.source() == VFXTexture.Source.STANDALONE) {
-					// Standalone resolution mirrors the field-texture path (TextureManager.getTexture
-					// returns a SimpleTexture, creating it on demand, and logs "Missing resource" once
-					// when the file is absent). On 26.x a texture id carries its extension — vanilla
-					// blits `textures/gui/title/minecraft.png` — and TextureManager hands the id
-					// straight to ResourceManager.getResourceOrThrow, so the authored
-					// `…/textures/…` form (no extension) is completed with `.png` here. Without this
-					// the resource manager looked for the extensionless path and every standalone
-					// pattern failed closed. No view means the loader was unreachable, so it fails closed.
-					final net.minecraft.resources.Identifier standaloneId = withPng(textureId);
-					final net.minecraft.client.renderer.texture.AbstractTexture texture =
-						Minecraft.getInstance().getTextureManager().getTexture(standaloneId);
-					final com.mojang.blaze3d.textures.GpuTextureView view = texture.getTextureView();
-					if (view == null) {
-						VFXLog.warnOnce(LOGGER, "surface_pattern:texture:" + effectId,
-							"surface_pattern '{}': texture '{}' did not upload a GPU view; drawing nothing", effectId, spec.id());
-						return new PatternTexture(null, 0.0F, 0.0F, 1.0F, 1.0F, 1.0F, (float) flagBits, spec.sheetCols(), spec.sheetRows(), spec.channel().code(), 1.0F, 1.0F);
-					}
-					final com.mojang.blaze3d.textures.GpuTexture gpu = texture.getTexture();
-					final float pxW = Math.max(1, gpu == null ? 1 : gpu.getWidth(0));
-					final float pxH = Math.max(1, gpu == null ? 1 : gpu.getHeight(0));
-					// A standalone texture has no atlas aspect: its pixel aspect is its width/height
-					// (the sheet cell aspect is then tex_aspect * rows / cols in the shader). The old
-					// hardcoded 1.0 made `preserve` a no-op for a non-square pack texture.
-					final float aspect = pxW / pxH;
-					return new PatternTexture(view, 0.0F, 0.0F, 1.0F, 1.0F, aspect,
-						(float) (flagBits | PatternTexture.RESOLVED), spec.sheetCols(), spec.sheetRows(), spec.channel().code(), pxW, pxH);
+					return resolveStandalonePattern(spec, effectId, flagBits, textureId);
 				}
-				// The 26.2 AtlasManager keeps two maps: `atlasById`, keyed by the atlas
-				// *definition* id (AtlasIds.BLOCKS = minecraft:blocks, AtlasIds.ITEMS = minecraft:items)
-				// which serves getAtlasOrThrow, and `atlasByTexture`, keyed by the atlas *texture* id
-				// (TextureAtlas.LOCATION_BLOCKS = minecraft:textures/atlas/blocks.png). The sprite
-				// lookup (`get(SpriteId)`) is keyed by the texture id too: `spriteLookup` is populated
-				// with `new SpriteId(config.textureId, spriteId)`. So resolve the atlas by its
-				// definition id, then take the texture id from TextureAtlas.location() for the
-				// SpriteId. Passing the definition id to the SpriteId misses the lookup and throws
-				// "Invalid atlas texture id: minecraft:blocks" (the previous bug).
-				final net.minecraft.resources.Identifier atlasDefinition = switch (spec.source()) {
-					case BLOCK -> net.minecraft.data.AtlasIds.BLOCKS;
-					case ITEM -> net.minecraft.data.AtlasIds.ITEMS;
-					default -> spec.parsedAtlasId();
-				};
-				final net.minecraft.client.renderer.texture.TextureAtlas atlas =
-					atlasManager.getAtlasOrThrow(atlasDefinition);
-				final net.minecraft.resources.Identifier atlasTextureId = atlas.location();
-				final net.minecraft.client.renderer.texture.TextureAtlasSprite sprite;
-				if (spec.source() == VFXTexture.Source.ATLAS) {
-					// An explicit atlas + id: the id is the sprite id in that atlas, used verbatim.
-					sprite = atlasManager.get(new net.minecraft.client.resources.model.sprite.SpriteId(
-						atlasTextureId, textureId));
-				} else {
-					sprite = findSprite(atlasManager, atlasTextureId, textureId);
-				}
-				if (sprite == null) {
-					VFXLog.warnOnce(LOGGER, "surface_pattern:texture:" + effectId,
-						"surface_pattern '{}': sprite '{}' is missing from atlas '{}'; drawing nothing", effectId, spec.id(), atlasDefinition);
-					return new PatternTexture(null, 0.0F, 0.0F, 1.0F, 1.0F, 1.0F, (float) flagBits, spec.sheetCols(), spec.sheetRows(), spec.channel().code(), 1.0F, 1.0F);
-				}
-				if (isMissingSprite(sprite)) {
-					VFXLog.warnOnce(LOGGER, "surface_pattern:texture:" + effectId,
-						"surface_pattern '{}': sprite '{}' is missing from atlas '{}'; drawing the missing texture", effectId, spec.id(), atlasDefinition);
-				}
-				final int spriteWidth = sprite.contents().width();
-				final int spriteHeight = sprite.contents().height();
-				final float aspect = spriteHeight > 0 ? spriteWidth / (float) spriteHeight : 1.0F;
-				return new PatternTexture(atlas.getTextureView(), sprite.getU0(), sprite.getV0(), sprite.getU1(), sprite.getV1(),
-					aspect, (float) (flagBits | PatternTexture.RESOLVED), spec.sheetCols(), spec.sheetRows(), spec.channel().code(),
-					Math.max(1, spriteWidth), Math.max(1, spriteHeight));
+				//? if >=26.1 {
+				return resolveAtlasPattern(spec, effectId, flagBits, textureId);
+				//?} else {
+				/*return resolveAtlasPatternLegacy(spec, effectId, flagBits, textureId);*/
+				//?}
 			} catch (RuntimeException e) {
 				VFXLog.warnOnce(LOGGER, "surface_pattern:texture:" + effectId,
 					"surface_pattern '{}': texture '{}' could not be resolved ({}); drawing nothing", effectId, spec.id(), e.getMessage());
-				return new PatternTexture(null, 0.0F, 0.0F, 1.0F, 1.0F, 1.0F, (float) flagBits, spec.sheetCols(), spec.sheetRows(), spec.channel().code(), 1.0F, 1.0F);
+				return unresolved(spec, flagBits);
 			}
-			//?} else {
-			/*return new PatternTexture(null, 0.0F, 0.0F, 1.0F, 1.0F, 1.0F, (float) flagBits, spec.sheetCols(), spec.sheetRows(), spec.channel().code(), 1.0F, 1.0F);*/
-			//?}
+		}
+
+		/**
+		 * Resolves a standalone resource-pack texture with the field-texture path: a texture id
+		 * carries its extension on every node, and {@code TextureManager.getTexture} hands the id
+		 * straight to the resource manager, so the authored {@code …/textures/…} form is completed
+		 * with {@code .png} (without it the manager looked for the extensionless path and every
+		 * standalone pattern failed closed). No view means the loader was unreachable.
+		 */
+		private static PatternTexture resolveStandalonePattern(
+			final VFXTexture spec, final Identifier effectId, final int flagBits, final net.minecraft.resources.Identifier textureId
+		) {
+			final net.minecraft.resources.Identifier standaloneId = withPng(textureId);
+			final net.minecraft.client.renderer.texture.AbstractTexture texture =
+				Minecraft.getInstance().getTextureManager().getTexture(standaloneId);
+			final com.mojang.blaze3d.textures.GpuTextureView view = texture.getTextureView();
+			if (view == null) {
+				VFXLog.warnOnce(LOGGER, "surface_pattern:texture:" + effectId,
+					"surface_pattern '{}': texture '{}' did not upload a GPU view; drawing nothing", effectId, spec.id());
+				return unresolved(spec, flagBits);
+			}
+			final com.mojang.blaze3d.textures.GpuTexture gpu = texture.getTexture();
+			final float pxW = Math.max(1, gpu == null ? 1 : gpu.getWidth(0));
+			final float pxH = Math.max(1, gpu == null ? 1 : gpu.getHeight(0));
+			// A standalone texture has no atlas aspect: its pixel aspect is its width/height (the
+			// sheet cell aspect is then tex_aspect * rows / cols in the shader). The old hardcoded
+			// 1.0 made `preserve` a no-op for a non-square pack texture.
+			final float aspect = pxW / pxH;
+			return resolved(spec, view, 0.0F, 0.0F, 1.0F, 1.0F, aspect, flagBits, pxW, pxH);
+		}
+
+		//? if >=26.1 {
+		/**
+		 * Resolves a block/item/explicit-atlas sprite on the {@code >=26.1} nodes. The 26.x
+		 * AtlasManager keeps two maps: {@code atlasById}, keyed by the atlas *definition* id
+		 * ({@code AtlasIds.BLOCKS} = {@code minecraft:blocks}) which serves {@code getAtlasOrThrow},
+		 * and {@code atlasByTexture}, keyed by the atlas *texture* id
+		 * ({@code TextureAtlas.location()} = {@code minecraft:textures/atlas/blocks.png}). The sprite
+		 * lookup ({@code get(SpriteId)}) is keyed by the texture id too, so the atlas is resolved by
+		 * its definition id and the {@code SpriteId} by {@code TextureAtlas.location()}; passing the
+		 * definition id to the {@code SpriteId} misses and throws "Invalid atlas texture id".
+		 */
+		private static PatternTexture resolveAtlasPattern(
+			final VFXTexture spec, final Identifier effectId, final int flagBits, final net.minecraft.resources.Identifier textureId
+		) {
+			final net.minecraft.client.resources.model.sprite.AtlasManager atlasManager =
+				Minecraft.getInstance().getAtlasManager();
+			final net.minecraft.resources.Identifier atlasDefinition = atlasDefinition(spec);
+			final net.minecraft.client.renderer.texture.TextureAtlas atlas =
+				atlasManager.getAtlasOrThrow(atlasDefinition);
+			final net.minecraft.resources.Identifier atlasTextureId = atlas.location();
+			final net.minecraft.client.renderer.texture.TextureAtlasSprite sprite;
+			if (spec.source() == VFXTexture.Source.ATLAS) {
+				// An explicit atlas + id: the id is the sprite id in that atlas, used verbatim.
+				sprite = atlasManager.get(new net.minecraft.client.resources.model.sprite.SpriteId(
+					atlasTextureId, textureId));
+			} else {
+				sprite = findSprite(atlasManager, atlasTextureId, textureId);
+			}
+			if (sprite == null) {
+				VFXLog.warnOnce(LOGGER, "surface_pattern:texture:" + effectId,
+					"surface_pattern '{}': sprite '{}' is missing from atlas '{}'; drawing nothing", effectId, spec.id(), atlasDefinition);
+				return unresolved(spec, flagBits);
+			}
+			if (isMissingSprite(sprite)) {
+				VFXLog.warnOnce(LOGGER, "surface_pattern:texture:" + effectId,
+					"surface_pattern '{}': sprite '{}' is missing from atlas '{}'; drawing the missing texture", effectId, spec.id(), atlasDefinition);
+			}
+			return fromSprite(spec, atlas.getTextureView(), sprite, flagBits);
+		}
+		//?}
+
+		//? if <26.1 {
+		/*// Resolves a block/item/explicit-atlas sprite on the remapped 1.21.11 node. Its AtlasManager
+		// lives in client.resources.model and exposes no SpriteId: the atlas is resolved by its
+		// definition id (AtlasIds), and the sprite by TextureAtlas.getSprite, which substitutes the
+		// atlas's missing sprite for an unknown name (the isMissingSprite test then fails visible,
+		// matching 26.x).
+		private static PatternTexture resolveAtlasPatternLegacy(
+			final VFXTexture spec, final Identifier effectId, final int flagBits, final net.minecraft.resources.Identifier textureId
+		) {
+			final net.minecraft.client.resources.model.AtlasManager atlasManager =
+				Minecraft.getInstance().getAtlasManager();
+			final net.minecraft.resources.Identifier atlasDefinition = atlasDefinition(spec);
+			final net.minecraft.client.renderer.texture.TextureAtlas atlas =
+				atlasManager.getAtlasOrThrow(atlasDefinition);
+			final net.minecraft.client.renderer.texture.TextureAtlasSprite sprite = atlas.getSprite(textureId);
+			if (sprite == null) {
+				VFXLog.warnOnce(LOGGER, "surface_pattern:texture:" + effectId,
+					"surface_pattern '{}': sprite '{}' is missing from atlas '{}'; drawing nothing", effectId, spec.id(), atlasDefinition);
+				return unresolved(spec, flagBits);
+			}
+			if (isMissingSprite(sprite)) {
+				VFXLog.warnOnce(LOGGER, "surface_pattern:texture:" + effectId,
+					"surface_pattern '{}': sprite '{}' is missing from atlas '{}'; drawing the missing texture", effectId, spec.id(), atlasDefinition);
+			}
+			return fromSprite(spec, atlas.getTextureView(), sprite, flagBits);
+		}*/
+		//?}
+
+		/** The atlas *definition* id for a block/item/atlas source (the same {@code AtlasIds} on every node). */
+		private static net.minecraft.resources.Identifier atlasDefinition(final VFXTexture spec) {
+			return switch (spec.source()) {
+				case BLOCK -> net.minecraft.data.AtlasIds.BLOCKS;
+				case ITEM -> net.minecraft.data.AtlasIds.ITEMS;
+				default -> spec.parsedAtlasId();
+			};
+		}
+
+		/** The shared sprite descriptor: a sprite's UV sub-rect, pixel aspect and pixel size. */
+		private static PatternTexture fromSprite(
+			final VFXTexture spec,
+			final com.mojang.blaze3d.textures.GpuTextureView atlasView,
+			final net.minecraft.client.renderer.texture.TextureAtlasSprite sprite,
+			final int flagBits
+		) {
+			final int spriteWidth = sprite.contents().width();
+			final int spriteHeight = sprite.contents().height();
+			final float aspect = spriteHeight > 0 ? spriteWidth / (float) spriteHeight : 1.0F;
+			return resolved(spec, atlasView, sprite.getU0(), sprite.getV0(), sprite.getU1(), sprite.getV1(),
+				aspect, flagBits, Math.max(1, spriteWidth), Math.max(1, spriteHeight));
+		}
+
+		/** The single resolved-descriptor factory: the only place the {@code RESOLVED} flag bit is set. */
+		private static PatternTexture resolved(
+			final VFXTexture spec,
+			final com.mojang.blaze3d.textures.GpuTextureView view,
+			final float u0, final float v0, final float u1, final float v1,
+			final float aspect, final int flagBits, final float pxW, final float pxH
+		) {
+			return new PatternTexture(view, u0, v0, u1, v1, aspect, (float) (flagBits | PatternTexture.RESOLVED),
+				spec.sheetCols(), spec.sheetRows(), spec.channel().code(), pxW, pxH);
+		}
+
+		/** A failed resolution: authored but not resolved, so the shader draws nothing (fail-closed). */
+		private static PatternTexture unresolved(final VFXTexture spec, final int flagBits) {
+			return new PatternTexture(null, 0.0F, 0.0F, 1.0F, 1.0F, 1.0F, (float) flagBits,
+				spec.sheetCols(), spec.sheetRows(), spec.channel().code(), 1.0F, 1.0F);
 		}
 
 		//? if >=26.1 {
@@ -1181,12 +1316,13 @@ public final class VFXPostProcessingManager {
 			}
 			return net.minecraft.resources.Identifier.fromNamespaceAndPath(id.getNamespace(), trimmed);
 		}
+		//?}
 
 		/**
 		 * True when the sprite is the atlas's generated missing sprite ({@code minecraft:missingno},
 		 * what {@code TextureAtlas.getSprite} substitutes for an unknown name). The sprite's own
-		 * {@code isMissing} accessor only exists from a later line, so the shared missing location
-		 * is compared instead — the same recipe on 26.1.2 and 26.2.
+		 * {@code isMissing} accessor only exists on a later line, so the shared missing location is
+		 * compared instead — the same recipe on every node.
 		 */
 		private static boolean isMissingSprite(final net.minecraft.client.renderer.texture.TextureAtlasSprite sprite) {
 			return sprite.contents().name().equals(net.minecraft.client.renderer.texture.MissingTextureAtlasSprite.getLocation());
@@ -1201,7 +1337,6 @@ public final class VFXPostProcessingManager {
 		private static net.minecraft.resources.Identifier withPng(final net.minecraft.resources.Identifier id) {
 			return id.getPath().endsWith(".png") ? id : id.withSuffix(".png");
 		}
-		//?}
 
 		/**
 		 * Fills {@link #scratchAnchor}: the shape's structural centre, else the effect instance's

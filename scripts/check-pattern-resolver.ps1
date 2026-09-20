@@ -90,6 +90,48 @@ if ($manager -notmatch '//\? if >=26\.1 \{\r?\n\t\t/\*\*\r?\n\t\t \* Finds a blo
 	$problems.Add("findSprite is not inside a >=26.1 guard (the sprite package does not exist on 1.21.11)")
 }
 
+# --- every node resolves for real: both guards call a real resolver, never the neutral fallback ---
+# The dispatcher must hand the >=26.1 nodes to resolveAtlasPattern and the <26.1 node to
+# resolveAtlasPatternLegacy (the old <26.1 branch returned an authored-but-unresolved descriptor
+# directly, so tex_flags never reached RESOLVED and every textured pattern drew nothing there).
+if ($manager -notmatch '//\? if >=26\.1 \{\r?\n\t+return resolveAtlasPattern\(spec, effectId, flagBits, textureId\);') {
+	$problems.Add("the >=26.1 branch of resolvePatternTexture does not call resolveAtlasPattern")
+}
+if ($manager -notmatch 'return resolveAtlasPatternLegacy\(spec, effectId, flagBits, textureId\);') {
+	$problems.Add("the <26.1 branch of resolvePatternTexture has no resolveAtlasPatternLegacy call (a neutral fallback never sets RESOLVED)")
+}
+if ($manager -match '/\*return new PatternTexture\(null, 0\.0F, 0\.0F, 1\.0F, 1\.0F, 1\.0F, \(float\) flagBits') {
+	$problems.Add("the <26.1 branch still returns the neutral fallback PatternTexture directly")
+}
+if ($manager -notmatch '//\? if <26\.1 \{\r?\n\t\t/\*//[\s\S]{0,900}?private static PatternTexture resolveAtlasPatternLegacy\(') {
+	$problems.Add("resolveAtlasPatternLegacy is not declared inside a <26.1 guard")
+}
+# The legacy resolver must resolve a real sprite through the 1.21.11 model AtlasManager.
+if ($manager -notmatch 'private static PatternTexture resolveAtlasPatternLegacy\([\s\S]*?Minecraft\.getInstance\(\)\.getAtlasManager\(\)[\s\S]*?getAtlasOrThrow\(atlasDefinition\)[\s\S]*?atlas\.getSprite\(textureId\)') {
+	$problems.Add("resolveAtlasPatternLegacy does not resolve the 1.21.11 atlas/sprite (getAtlasManager -> getAtlasOrThrow -> TextureAtlas.getSprite)")
+}
+if ($manager -notmatch 'private static PatternTexture resolveAtlasPatternLegacy\([\s\S]*?return fromSprite\(') {
+	$problems.Add("resolveAtlasPatternLegacy does not funnel its sprite through fromSprite()")
+}
+
+# --- the RESOLVED flag bit is set by one factory every source form routes through ----------------
+if ($manager -notmatch 'private static PatternTexture resolved\(') {
+	$problems.Add("the resolver has no shared resolved(...) factory")
+}
+$resolvedHits = ([regex]::Matches($manager, 'flagBits \| PatternTexture\.RESOLVED')).Count
+if ($resolvedHits -ne 1) {
+	$problems.Add("the RESOLVED bit is OR'd in $resolvedHits places; it must be set only by resolved(...)")
+}
+if ($manager -notmatch 'private static PatternTexture resolveStandalonePattern\([\s\S]{0,1400}?return resolved\(') {
+	$problems.Add("the standalone source does not funnel its view through resolved() (RESOLVED would never be set)")
+}
+if ($manager -notmatch 'private static PatternTexture fromSprite\([\s\S]{0,900}?return resolved\(') {
+	$problems.Add("the atlas sprite path does not funnel its view through resolved() (RESOLVED would never be set)")
+}
+if ($manager -notmatch 'private static PatternTexture resolveAtlasPattern\([\s\S]*?return fromSprite\(') {
+	$problems.Add("the >=26.1 atlas source does not funnel its sprite through fromSprite()")
+}
+
 Write-Host "Textured surface_pattern resolver check"
 if ($problems.Count -gt 0) {
 	$problems | ForEach-Object { Write-Host "  - $_" }
@@ -97,4 +139,5 @@ if ($problems.Count -gt 0) {
 	exit 1
 }
 Write-Host "Resolver OK: getAtlasOrThrow by definition id, SpriteId by atlas.location() texture id, .png-completed standalone ids, fail-closed null views, shared missing-sprite test, 26.1-only helpers."
+Write-Host "Real resolver on every node: >=26.1 resolveAtlasPattern, <26.1 resolveAtlasPatternLegacy (no neutral fallback); RESOLVED set once by resolved(...) for standalone and both atlas paths."
 exit 0

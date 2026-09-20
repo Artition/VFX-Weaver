@@ -121,6 +121,29 @@ if ($manager -notmatch 'GL_UNIFORM_BLOCK_DATA_SIZE' -or $manager -notmatch 'GL_U
 if ($manager -notmatch 'verifyDepthConfigLayout\(') {
 	$problems.Add("the registration-time layout guard verifyDepthConfigLayout is missing")
 }
+# The uniform lookup must use the bare member name (the spec form) with a qualified fallback, and
+# must never feed a -1 index to glGetActiveUniformsiv (that is GL_INVALID_VALUE and aborted the
+# whole post layer on the first frame of a textured pattern: "Failed to apply VFX post-processing").
+if ($manager -notmatch 'queryUniformIndices\(programId, names, false, indices\)') {
+	$problems.Add("the layout guard does not query the bare member names first")
+}
+if ($manager -notmatch 'queryUniformIndices\(programId, names, true, qualified\)') {
+	$problems.Add("the layout guard has no block-qualified fallback for the member names")
+}
+if ($manager -notmatch 'GL31\.glGetActiveUniformsiv\(programId, activeIndices,') {
+	$problems.Add("the layout guard does not filter -1 indices before glGetActiveUniformsiv")
+}
+if ($manager -match 'glGetActiveUniformsiv\(programId, indices,') {
+	$problems.Add("the layout guard still passes the raw (possibly -1) indices to glGetActiveUniformsiv")
+}
+# A guard failure must not abort the frame (throwing from execute skipped the pass and read as
+# "textured patterns show nothing").
+if ($manager -match 'Config layout guard failed[\s\S]{0,160}?throw e;') {
+	$problems.Add("the layout guard rethrows, aborting the whole post layer on a false positive")
+}
+if ($manager -notmatch 'Config layout guard failed for \{\}: \{\} \(the pass keeps rendering\)') {
+	$problems.Add("the layout guard failure message does not state that rendering continues")
+}
 # The guard's expected block size must use the same name-list-derived helper as the registration.
 if ($manager -notmatch 'VFXShaderPrograms\.depthConfigSize\(names\.length\)') {
 	$problems.Add("the layout guard does not size the expected block from the name list")
