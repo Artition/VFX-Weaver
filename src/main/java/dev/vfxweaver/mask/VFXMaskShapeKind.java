@@ -11,33 +11,30 @@ import java.util.Locale;
  *
  * <p>The signed-distance implementation of every kind lives in the shared shape/field library
  * ({@code shaders/include/field.glsl}); this enum only mirrors the JSON names, the default space,
- * the per-kind numeric parameter names/defaults, the world-only flag and the integer flag used at
- * parse time so the mask parser can validate and lower them into slots. Do not add distance math
+ * the per-kind numeric parameter names/defaults and the world-only flag. Do not add distance math
  * here. The block-geometry and custom-shape families are not enum kinds (see
  * {@link VFXMaskPrimitive}); they carry a {@link VFXMaskBlockSelection} or a registry id.
  */
 public enum VFXMaskShapeKind {
-	CIRCLE("circle", VFXMaskSpace.SCREEN, false, List.of("radius"), new float[]{0.5F}, List.of()),
-	ELLIPSE("ellipse", VFXMaskSpace.SCREEN, false, List.of("radius_x", "radius_y"), new float[]{0.5F, 0.3F}, List.of()),
-	RECT("rect", VFXMaskSpace.SCREEN, false, List.of("half_width", "half_height", "corner_radius"), new float[]{0.5F, 0.5F, 0.0F}, List.of()),
-	POLYGON("polygon", VFXMaskSpace.SCREEN, false, List.of("radius", "sides"), new float[]{0.5F, 6.0F}, List.of("sides")),
-	SPHERE("sphere", VFXMaskSpace.WORLD, true, List.of("radius"), new float[]{8.0F}, List.of()),
-	BOX("box", VFXMaskSpace.WORLD, true, List.of("half_width", "half_height", "half_depth"), new float[]{4.0F, 4.0F, 4.0F}, List.of());
+	CIRCLE("circle", VFXMaskSpace.SCREEN, false, List.of("radius"), new float[]{0.5F}),
+	ELLIPSE("ellipse", VFXMaskSpace.SCREEN, false, List.of("radius_x", "radius_y"), new float[]{0.5F, 0.3F}),
+	RECT("rect", VFXMaskSpace.SCREEN, false, List.of("half_width", "half_height", "corner_radius"), new float[]{0.5F, 0.5F, 0.0F}),
+	POLYGON("polygon", VFXMaskSpace.SCREEN, false, List.of("radius", "sides"), new float[]{0.5F, 6.0F}),
+	SPHERE("sphere", VFXMaskSpace.WORLD, true, List.of("radius"), new float[]{8.0F}),
+	BOX("box", VFXMaskSpace.WORLD, true, List.of("half_width", "half_height", "half_depth"), new float[]{4.0F, 4.0F, 4.0F});
 
 	private final String id;
 	private final VFXMaskSpace space;
 	private final boolean worldOnly;
 	private final List<String> parameterNames;
 	private final float[] parameterDefaults;
-	private final List<String> integerParameters;
 
-	VFXMaskShapeKind(final String id, final VFXMaskSpace space, final boolean worldOnly, final List<String> parameterNames, final float[] parameterDefaults, final List<String> integerParameters) {
+	VFXMaskShapeKind(final String id, final VFXMaskSpace space, final boolean worldOnly, final List<String> parameterNames, final float[] parameterDefaults) {
 		this.id = id;
 		this.space = space;
 		this.worldOnly = worldOnly;
 		this.parameterNames = parameterNames;
 		this.parameterDefaults = parameterDefaults;
-		this.integerParameters = integerParameters;
 	}
 
 	/** The datapack spelling of this shape. */
@@ -63,11 +60,6 @@ public enum VFXMaskShapeKind {
 	/** The per-kind default for each name in {@link #parameterNames()}. */
 	public float[] parameterDefaults() {
 		return this.parameterDefaults.clone();
-	}
-
-	/** True when the named parameter is an integer (rounded after graph evaluation). */
-	public boolean integerParameter(final String name) {
-		return this.integerParameters.contains(name);
 	}
 
 	/**

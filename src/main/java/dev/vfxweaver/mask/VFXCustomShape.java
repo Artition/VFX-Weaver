@@ -11,8 +11,10 @@ import java.util.List;
  * {@link VFXMaskShapeGlsl} function, compiled into a bounded shader variant.
  *
  * <p>A registered shape is immutable and uses only literal values (no graph animation inside the
- * shape). When a mask references it as a leaf, the leaf's eight animatable params are passed to the
- * composed parts / plugin, so the shape can still be driven by the mask.
+ * shape). A GLSL-plugin leaf receives the mask leaf's eight animatable params as {@code p0}/{@code p1}
+ * (see {@link VFXMaskShapeGlsl}); a composed leaf's parts are literal-only - the leaf's params and
+ * falloff are not threaded into the composed parts, only the leaf's {@code softness} scales the
+ * composed result's edge.
  */
 public final class VFXCustomShape {
 	/** The most parts a composed custom shape may have (2 composition ops fit in the packed header). */

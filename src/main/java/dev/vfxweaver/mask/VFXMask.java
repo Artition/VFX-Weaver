@@ -93,19 +93,10 @@ public final class VFXMask {
 	}
 
 	/**
-	 * The conservative softness of the composed result: the maximum over the leaves (spec §4).
-	 * Kept because composition in coverage space preserves it and a future composite field needs
-	 * it; the v1 coverage prepass applies each leaf's falloff with its own softness.
+	 * True when at least one leaf is a block-geometry leaf (the prepass then runs the geometry
+	 * contribution). At most one block leaf is allowed (the parser enforces it): every block leaf
+	 * shares the single geometry scratch.
 	 */
-	public float softness() {
-		float max = 0.0F;
-		for (final VFXMaskPrimitive primitive : this.primitives) {
-			max = Math.max(max, primitive.softnessDefault());
-		}
-		return max;
-	}
-
-	/** True when at least one leaf is a block-geometry leaf (the prepass then runs the geometry contribution). */
 	public boolean hasBlockLeaf() {
 		for (final VFXMaskPrimitive primitive : this.primitives) {
 			if (primitive.family() == VFXMaskPrimitive.Family.BLOCK) {
