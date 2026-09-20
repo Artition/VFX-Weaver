@@ -2,6 +2,14 @@
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). The versions below are guide/feature-set versions of the mod (as they progressed historically, see `docs/GUIDE.md`), plus git release tags where applicable (`v1.0.x`, `gradle.properties` → `mod_version`). Add new entries at the top, in the same PR as the behavior change.
 
+## Unreleased / Guide v40
+### Added
+- **Textured `surface_pattern` figures** — the structural `pattern` block now accepts an optional `texture` object, so a `surface_pattern`'s figure can be a real texture projected onto the same surface, not only a procedural `circle`/`ellipse`/`rect`/`polygon`. A block-atlas sprite, an item-atlas sprite, any other atlas sprite or a standalone resource-pack texture resolves to a texture plus the sprite UV sub-rect the shader needs. The texture **is** the figure, and an authored `figure` becomes its mask (a texture with no `figure` is not clipped). New `params`: `rotation` (overrides the structural rotation, spins figure and texture together), `frame` (sprite-sheet cell, graph-drivable) and `texture_tint` (`0..1` recolour). See `docs/GUIDE.md` §2.1.
+- **`pattern.texture` vocabulary** — `id` (required), `source` (`block`/`item`/`atlas`/`standalone`, inferred from the id when omitted), `atlas` (for `source: "atlas"`), `channel` (`alpha` default; `luminance`/`r`/`g`/`b` for textures without alpha), `sheet` (`[cols, rows]`, each `1..16`, `cols*rows <= 256`) and `aspect` (`preserve` default / `stretch`). Atlas sprites use their stitched sub-rect and follow the atlas animation; standalone textures sample `0..1`. Unknown keys and a bad source/channel/sheet/aspect are per-file parse errors.
+
+### Fixed
+- **A cached texture view no longer dangles after `/reload` or a resource-pack change.** The texture loaders close and recreate their GPU view while reusing the descriptor, so the field `texture` function's cached `GpuTextureView` was stale after a reload. The cache now holds the descriptor and re-derives the view on every use (and the new pattern texture re-resolves each frame, picking up a re-stitched atlas).
+
 ## Unreleased / Guide v39
 ### Added
 - **`surface_pattern` surface selection** — an optional top-level structural `surface` block selects which face orientations receive the pattern and an optional world band. `faces` takes `up`/`down`/`north`/`south`/`east`/`west`, the axis aliases `x`/`y`/`z` and the groups `horizontal`/`vertical`/`all` (default `["up"]`, at most 8 tokens); `min`/`max` are an inclusive band applied **along the fragment's dominant axis** — Y for up/down, X for east/west, Z for north/south. Unknown keys/tokens and `min > max` are per-file parse errors. Additive: without the block the legacy numeric `normal_mask` behaviour is unchanged, so the built-in and every existing definition render exactly as before. See `docs/GUIDE.md` §2.1.

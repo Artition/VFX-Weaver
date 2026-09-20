@@ -507,6 +507,9 @@ A shape pattern projected onto the terrain behind each pixel: a world-anchored f
 | `fade_radius` | 0 | Distance from the anchor at which the pattern fades out, blocks (0 = no fade) |
 | `normal_mask` | 0 | Legacy orientation filter: minimum absolute Y of the surface normal — `0.6` keeps floors/ceilings and excludes walls (0 = off). Ignored when a `surface` block is present |
 | `distort` | 0 | World-space sine warp of the pattern coordinate (0 = off) |
+| `rotation` | — | Numeric override of the structural `pattern.rotation` in degrees (keyframes/`expr`/graph-driven like any param). Spins the figure and a texture together |
+| `frame` | 0 | Sprite-sheet frame index when a `pattern.texture` `sheet` is set (rounded, wrapped into `0..cols*rows-1`); literal, keyframe, `expr` or `{ "from": "<node>" }` graph-driven |
+| `texture_tint` | 0 | `0` = draw the texture's own RGB; `1` = multiply it by `color_r/g/b`. `opacity` always scales the coverage |
 
 The figure is a top-level structural `pattern` block — the strings and figure numbers live there, never in `params` (which stays numeric and animatable), so an older mod ignores the whole block. It is owned by the shared shape library and uses the same figures as §3.7's `shape` field:
 
@@ -549,6 +552,54 @@ An unknown key or face token, more than 8 tokens, a non-finite bound, `band_soft
 ```
 
 The first is a floor band on world Y; the second is a band along world X on the east/west walls; the third is a band along world Z on the north/south walls (the axes follow `faces`, not always Y); the fourth is a floor band whose `min` bound sits exactly on the surface the player stands on, so its edge is faded over `band_softness` to stop it shimmering.
+
+**Textured figure (`pattern.texture`).** An optional structural `texture` object inside `pattern` replaces the procedural figure with a real texture projected onto the same surface — the same faces, band, fade, `distort` and `opacity`. The texture **is** the figure; an authored `figure` becomes its mask (`coverage = texture channel × shape coverage`), so a texture with no `figure` is not clipped. Without a `texture` the block is bit-for-bit the procedural figure.
+
+| Field | Default | Meaning |
+|---|---|---|
+| `id` | — (required) | The sprite id (atlas sources) or texture id (standalone), e.g. `minecraft:block/nether_portal`, `minecraft:item/apple`, `minecraft:textures/block/stone`, `mypack:textures/vfx/pentagram` |
+| `source` | inferred | `block`, `item`, `atlas` or `standalone`. Inferred from the id when omitted: contains `textures/` → `standalone`; path starts `item/` → `item`; starts `block/` → `block`. An ambiguous id is a parse error |
+| `atlas` | — | The atlas resource id, required only for `source: "atlas"` (e.g. `minecraft:particles`) and rejected otherwise |
+| `channel` | `alpha` | Which component is coverage: `alpha` (transparent texels show nothing), `luminance`, `r`, `g` or `b` (for textures with no alpha) |
+| `sheet` | `[1, 1]` | Sprite-sheet grid `[cols, rows]` inside the sprite/texture; each `1..16` and `cols*rows <= 256`. The displayed cell is the numeric `frame` param |
+| `aspect` | `preserve` | `preserve` keeps the texture's pixel aspect (one repeat covers `tile_scale` blocks along the longer pixel axis; the shorter axis is scaled by the aspect); `stretch` maps the whole square cell to the sprite |
+
+An atlas source (`block`/`item`/`atlas`) samples the stitched atlas at the sprite's own sub-rect and follows the atlas animation automatically (an animated block/item sprite needs no `frame`); `standalone` samples a resource-pack texture over `0..1`. Tiling is the figure's structural `repeat`, never sampler wrap, and the sampler clamps to the sprite rect so a repeat cannot bleed into a neighbouring sprite. Unknown keys, a bad `source`/`channel`/`aspect`, a blank `id`, `atlas` on a non-atlas source, a bad `sheet`, or an `id` whose source cannot be inferred are per-file parse errors. A sprite missing from a valid atlas is drawn as the missing texture and warned once; an unknown atlas or an unreadable standalone texture draws nothing (fail-closed) and warns once — never a full-screen fill. The texture is re-resolved every frame, so `/reload` and resource-pack changes pick up the re-stitched atlas and recreate the sampler view.
+
+```json
+{
+	"type": "surface_pattern",
+	"params": { "screen_layer": 0, "tile_scale": 2.0, "color_b": 0.6, "opacity": 0.85, "fade_radius": 48.0 },
+	"surface": { "faces": ["up"] },
+	"pattern": {
+		"figure": "circle", "radius": 0.5, "softness": 0.02,
+		"texture": { "id": "minecraft:block/nether_portal", "source": "block", "channel": "alpha" }
+	}
+}
+```
+```json
+{
+	"type": "surface_pattern",
+	"duration": 200, "persistent": true, "loop": true,
+	"params": {
+		"screen_layer": 0, "opacity": 0.9, "fade_radius": 40.0,
+		"rotation": { "keyframes": [ { "time": 0, "value": 0 }, { "time": 200, "value": 360, "easing": "linear" } ] },
+		"tile_scale": { "start": 1.0, "end": 3.0, "easing": "ease_in_out" },
+		"frame": { "from": "frame_t" }
+	},
+	"surface": { "faces": ["up"] },
+	"pattern": {
+		"texture": { "id": "mypack:textures/vfx/summon", "source": "standalone", "sheet": [4, 4], "channel": "alpha" }
+	},
+	"graph": {
+		"nodes": [
+			{ "id": "t", "kind": "time", "inputs": { "speed": 1.0 } },
+			{ "id": "frame_t", "kind": "math", "op": "floor", "inputs": { "a": { "from": "t" } } }
+		]
+	}
+}
+```
+The first clips a block-atlas sprite to a soft circle; the second spins (`rotation` keyframes) and pulses (`tile_scale`) a standalone 4×4 sheet whose `frame` is graph-driven (`time` → `math:floor`).
 
 ```json
 {
@@ -1804,7 +1855,11 @@ Post-processing pipeline, world overlays, effect clock, load limits and fault to
 
 Versioned feature history — **[docs/CHANGELOG.md](CHANGELOG.md)**.
 
-Guide version: 39 — see changelog below.
+Guide version: 40 — see changelog below.
+
+### v40
+- **Textured `surface_pattern` figures** — the structural `pattern` block accepts an optional `texture` object: a real texture (a block-atlas sprite, an item-atlas sprite, any atlas sprite, or a standalone resource-pack texture) projected onto the same surface the figure uses. `id` is required; `source` (`block`/`item`/`atlas`/`standalone`) is inferred from the id when omitted; `channel` (`alpha` default, `luminance`/`r`/`g`/`b`), `sheet` (`[cols, rows]`, `1..16`, `cols*rows <= 256`) and `aspect` (`preserve`/`stretch`) are optional. The texture is the figure and an authored `figure` becomes its mask (a texture with no figure is not clipped). New animatable params `rotation` (overrides the structural rotation), `frame` (sprite-sheet cell) and `texture_tint` (`0..1` recolour). Atlas sprites use their stitched sub-rect and animate with the atlas; standalone textures sample `0..1`. Additive: without a `texture` the block renders exactly as before. See [2.1](#surface_pattern).
+- **Texture reload fix** — a texture view cached across a resource reload used to dangle (the loaders close and recreate it); the cache now stores the descriptor and re-derives the view, for both the field `texture` function and the new pattern texture.
 
 ### v39
 - **`surface_pattern` surface selection** — an optional top-level structural `surface` block selects which face orientations receive the pattern (`faces`: `up`/`down`/`north`/`south`/`east`/`west`, axis aliases `x`/`y`/`z`, groups `horizontal`/`vertical`/`all`) and an optional inclusive band (`min`/`max`) applied **along the fragment's dominant axis** (Y for up/down, X for east/west, Z for north/south). Without the block the legacy numeric `normal_mask` behaviour is unchanged, so the built-in and every existing definition keep rendering exactly as before. The projection now follows the fragment's dominant world normal, so vertical walls get an upright, un-mirrored figure instead of a sheared XZ one. See [2.1](#surface_pattern).
