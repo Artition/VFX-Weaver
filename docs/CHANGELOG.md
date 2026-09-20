@@ -1,47 +1,151 @@
 # Changelog
 
-Format follows [Keep a Changelog](https://keepachangelog.com/). The versions below are guide/feature-set versions of the mod (as they progressed historically, see `docs/GUIDE.md`), plus git release tags where applicable (`v1.0.x`, `gradle.properties` → `mod_version`). Add new entries at the top, in the same PR as the behavior change.
+Format follows [Keep a Changelog](https://keepachangelog.com/).
+
+**This page is the authoritative record of released mod versions.** The newest entry is the current
+mod version (`2.0.0`, read from `mod_version` in the build). Each `##` heading names a release; where
+a release shipped with a guide revision the heading shows both numbers (`v1.2.0 / Guide v32`), and a
+heading titled only `Guide vN` is a guide change that shipped without a mod version bump. The two
+numbers are independent: the **mod version** is what you download, the **guide revision** is how many
+times this documentation has been revised. The authoritative record of guide revisions is the
+[Guide changelog](guide/changelog.md). Which jar to download for your Minecraft line and loader is in
+the [download table](index.md#download). Add new entries at the top, in the same PR as the behaviour
+change.
 
 ## Unreleased
 
 ## 2.0.0 — 2026-09-20
+
+2.0.0 gathers everything that landed after the previous release. Nearly all of it is additive —
+existing datapacks keep working unchanged — and it is the first release to carry the six
+Fabric + NeoForge jars for the 26.2 / 26.1.x / 1.21.11 lines.
+
 ### Added
-- **Value graphs** — an effect definition can drive any numeric input from an optional `graph` + `inputs` block: `constant`, `time`, `random`, `noise`, `curve`, `math`, `mix`, `clamp`, `remap`, `bind` and `expr` nodes, the `compare`/`boolean`/`if`/`switch` logic kinds (short-circuit evaluation) and reusable `subgraphs` (parse-time macros with `$` parameters, local ids and named outputs, nesting cap 8). Evaluated once per frame. Both blocks are additive — a definition without them behaves exactly as before, and a mod that does not know graphs ignores them, because graph wiring never lives inside `params`. A broken graph fails only its own file. Reference built-ins: `vfxweaver:graph_demo` and `vfxweaver:graph_logic_demo`.
-- **Per-pixel fields** — an effect input may carry a per-pixel field evaluated inside the shader: the built-in `constant`, `noise`, `shape` (`circle`/`ellipse`/`rect`/`polygon` with `fill: solid|stroke`, `softness` and a `repeat` tiling modifier, plus the 3D `sphere`/`box` helpers), `gradient`, `curve`, `texture`, `depth`, `depth_gradient`, `normal_facing`, `screen_uv` and `world_pos` functions, and bounded compositions (`multiply`/`add`/`subtract`/`mix`/`min`/`max`). The first consumers are `dent.intensity` and `color_grade.tint_r`: a noise field mottles the dent (`vfxweaver:dent_field_demo`) and paints large red/cyan patches across the screen (`vfxweaver:tint_field_demo`). Additive — a definition without fields is bit-for-bit unchanged. Depth/world fields need `"screen_layer": 0` and otherwise fall back to the neutral value.
-- **Masks** — restrict where an effect applies, from a composed tree of leaves (`union`/`intersection`/`difference`, left-nesting only, plus `invert`): screen shapes and world volumes (`sphere`/`box` with `volume: "surface" | "aura"`), block-geometry leaves (a block id/tag scan at an animatable centre, with `select`, region and `occlude`) and code-registered GLSL-plugin shapes. Bindings fail closed **per leaf** (an unresolved source drops only that leaf and can never expand coverage, even inverted); a mask whose only sources are unresolvable contributes zero instead of falling back to a literal full-screen shape. `aura` volumes fill at full strength, sampled at the closest approach along the view ray. New `VFXAPI.sendMaskMove`/`VFXAPI.maskMove` moves one leaf by setting its reserved `mask.p<N>.center_x|center_y|center_z` params (call it every tick to follow a point, or to drive a mask from the server when a client-side entity binding cannot resolve). Mask coverage is screen-space, computed at layer 0 against the intact scene depth.
-- **`surface_pattern`** — a world-anchored figure (`circle`/`ellipse`/`rect`/`polygon`, tiled by the structural `repeat` modifier) projected onto the terrain behind each pixel, so it stays fixed to world blocks. A structural `surface` block selects `faces` (`up`/`down`/`north`/`south`/`east`/`west`, the axis aliases `x`/`y`/`z` and the `horizontal`/`vertical`/`all` groups, default `["up"]`) and an inclusive `min`/`max` band applied along the fragment's dominant axis, with `band_softness` fading the edge over a small world-space distance; `stitch: true` switches to a planar (top-down) projection, so a wall column shows exactly the floor row it stands on, for any anchor height. The projection follows the fragment's dominant world normal (floors/ceilings keep world XZ, a wall reads upright and un-mirrored), `distort` follows the chosen plane, and the anchor is the effect instance's world position — never the camera. An optional `pattern.texture` turns the figure into a real texture: `id` (required) with `source` (`block`/`item`/`atlas`/`standalone`, inferred from the id when omitted), `atlas`, `channel` (`alpha` default; `luminance`/`r`/`g`/`b`), `sheet` (`[cols, rows]`, each `1..16`, `cols*rows <= 256`) and `aspect` (`preserve` default / `stretch`); textures are sampled with NEAREST filtering (crisp pixel art), atlas sprites use their stitched sub-rect and follow the atlas animation, and an authored `figure` masks the texture. New animatable params `rotation`, `frame` and `texture_tint`. Additive and off/missing by default.
-- **Spark particles (`particles` spark mode + `kind: "spark"` presets)** — the `particles` effect can emit glowing additive sprites: `"particle": "spark"` (defaults) or a `vfx_particles` preset with `"kind": "spark"` (`vfxweaver:ember` ships built in), with `count`, `speed`, `spread`, `life`, `gravity`, `bounce`, `size`, `trail`, `glow` and the `size_curve`/`color_curve`; the emitter reuses the effect's `shape`/`radius`/`height`/`turns`. Registered or overridden from code with `VFXAPI.registerSpark`/`spark`/`spawnSpark`. Client-local, never synced, capped; existing `particles` and `block_chain` behaviour is unchanged. The built-ins `vfxweaver:ember` and `vfxweaver:sparks` are playable references.
-- **`/vfx stop [<player>]`** — stops every active effect of a player (default: the executing player). It reuses the per-effect stop payload on the server and, for the executor's own client, also clears effects played locally (single player / a client-only mod). The old `/vfx stop <effect> [players]` form is unchanged; a bare token is parsed as an `<effect>` first, so target a player with a selector (`@p`/`@a`). New `VFXAPI.sendStopAll(ServerPlayer)`.
+
+- **Value graphs** — an effect definition can drive any numeric input from a small node graph
+  (`graph` + `inputs`) instead of one constant. Nodes: `constant`, `time`, `random`, `noise`,
+  `curve`, `math`, `mix`, `clamp`, `remap`, `bind`, `expr` and the logic nodes `compare`, `boolean`,
+  `if`, `switch`; reusable `subgraphs` act as macros. Wiring is optional and lives outside `params`,
+  so an older build ignores it and you can remove it without touching the rest. Reference built-ins:
+  `vfxweaver:graph_demo` and `vfxweaver:graph_logic_demo`.
+- **Per-pixel fields** — a field-capable input can vary *per pixel* instead of once per frame, using
+  the built-in `noise`, `shape`, `gradient`, `curve`, `texture`, `depth`, `normal_facing`, `screen_uv`
+  and `world_pos` functions and simple compositions. First consumers: `dent.intensity` and
+  `color_grade.tint_r` (built-ins `vfxweaver:dent_field_demo`, `vfxweaver:tint_field_demo`).
+  Depth/world fields need `screen_layer: 0`; elsewhere they return the neutral value.
+- **Masks** — restrict where a post-processing effect applies, from a tree of screen shapes, world
+  volumes (`sphere`/`box` with `volume: "surface"` or `"aura"`), block-geometry leaves and
+  code-registered GLSL shapes. A leaf whose source entity cannot be resolved drops **only that
+  leaf**, never the whole mask, and never expands coverage. `VFXAPI.sendMaskMove`/`maskMove` moves
+  one leaf from the server or every tick.
+- **`surface_pattern`** — projects a figure (or a texture) onto the terrain behind each pixel,
+  anchored to a world position, with a structural `surface` block choosing which faces receive it
+  (`faces`, an inclusive `min`/`max` band, `band_softness`) and an optional `pattern.texture`.
+  Additive; needs `screen_layer: 0`.
+- **Spark particles** — the `particles` effect can emit glowing additive sprites
+  (`"particle": "spark"`, or a `vfx_particles` preset with `"kind": "spark"`) with `count`, `speed`,
+  `life`, `gravity`, `bounce`, `size`, `trail`, `glow` and size/colour curves. Built-in presets and
+  playable references: `vfxweaver:ember`, `vfxweaver:sparks`.
+- **`/vfx stop [<player>]`** — stops every active effect of a player (default: the executor). The old
+  `/vfx stop <effect> [players]` form is unchanged; a bare token is read as an effect first, so
+  target a player with a selector (`@p`/`@a`).
 
 ### Changed
-- **Scene depth now works on every supported line, not only 26.2.** `surface_pattern`, the depth/world field functions (`depth`, `depth_gradient`, `normal_facing`, `world_pos`) and the depth-needing mask families (a `world` leaf, an `aura` volume, a block leaf's `occlude`) were gated to 26.2 because the world reconstruction assumed 26.2's reversed depth. The per-node convention is proven from the real client jars — 26.2 is **reversed** (`glClipControl(GL_LOWER_LEFT, GL_ZERO_TO_ONE)` plus a near/far-swapped projection, near = 1, far = 0), 26.1.2 and 1.21.11 are **standard** (near = 0, far = 1) — and injected into the single shared shader source as `VFX_DEPTH_REVERSED`, which converts the raw sampled depth, picks the correct sky test and the correct block-occlusion comparison per node. Additive: 26.2 behaviour is unchanged, and a depth-needing effect still fails closed (zero coverage, no wrong sample) when no trustworthy depth is available.
-- **The effect clock and camera/player snapshots advance before screen layer 0.** They advanced in the `FogRenderer.endFrame` hook, which runs after `renderLevel`, so layer 0 (where `surface_pattern` runs by default) used the previous frame's time and player position. Layer 0 now advances and republishes them; layers 1/2 reuse the same snapshot and nothing advances twice.
-- **One shared depth/world reconstruction** moved into `include/camera.glsl`, imported by both `field.glsl` and `surface_pattern.fsh` (was duplicated inline). The `normal_facing` field function now returns an outward, camera-facing normal.
-- **Two concurrent plays of one masked definition share a single coverage** (the first play's animated centre/radius/softness wins); play two definitions if the masks must differ.
-- **Mask coverage is screen-space**, computed at layer 0 against the intact scene depth, so an effect consuming a mask at a later layer tints the first-person hand wherever a masked block lies behind it; run the masked effect at `screen_layer: 0`, or depth-occlude the consumer, to avoid it.
-- **Mask demos reworked.** `vfxweaver:mask_entity_demo` and its `surface` A/B partner `vfxweaver:mask_world_demo` use a fixed 4-block `radius`; the growing-sphere look moved to the new `vfxweaver:mask_pulse_demo`, which also documents the `"derive": "distance"` binding form.
-- **Test/demo effects are iterated as a datapack, not baked into the mod.** The graph/field/mask/`surface_pattern`/spark demos plus the `particles`/`block_chain`/`ember`/`sparks` references can be edited in the local test pack (`saves/<world>/datapacks/vfx_demos/`; a datapack definition overrides a same-id built-in) and picked up with `/reload` — no rebuild, restart or redeploy. The shipped built-ins are unchanged.
-- **Internal cleanup** — removed the dead `ProgramInfo.coverage`/`VFXPass.coverage` flag (it was written and never read; the coverage prepass is identified by its pipeline/`PassRole`).
+
+- **Scene depth works on every supported Minecraft line, not only 26.2.** `surface_pattern`, the
+  depth/world field functions and the depth-based mask shapes used to render on 26.2 alone. They now
+  render on 26.1.2 and 1.21.11 as well; 26.2 behaviour is unchanged, and where no trustworthy depth is
+  available the effect still fails closed rather than sampling the wrong convention.
+- **`surface_pattern` no longer trails the player by one frame** at `screen_layer: 0` — the effect
+  clock and camera/player snapshots now advance before layer 0.
+- **Two plays of one masked definition share a single coverage** (the first play's animated
+  centre/radius/softness wins). Put the two masks in distinct definitions if they must differ.
+- **Mask coverage is screen-space, computed at layer 0** against the intact scene depth. A masked
+  effect running at a later layer can therefore tint the first-person hand where a masked block lies
+  behind it; run the masked effect at `screen_layer: 0`, or depth-occlude the consumer, to avoid it.
+- **The bundled mask demos were reworked** for a clearer A/B: `vfxweaver:mask_entity_demo` and
+  `vfxweaver:mask_world_demo` use a fixed 4-block radius, and `vfxweaver:mask_pulse_demo` shows the
+  growing-sphere, distance-derived look.
 
 ### Fixed
-- **Network `sendSetParamExpr` and `sendMove` now do what they say.** The client receiver only handled `STOP`, and the `SET_EXPR`/`MOVE` checks were nested inside the `STOP` branch where they were unreachable, so both actions fell through to the default and were replayed as a **play** — the network counterparts of the documented API silently restarted the effect and broke Flashback replay of live edits. Each action now has one reachable handler.
-- **A `persistent: true` effect without `loop` now animates and emits again.** Persistence was modelled by an `Integer.MAX_VALUE`-tick timeline, so `start`/`end` parameters froze at their start value and spark emission budgets divided to ~0. Persistence is now a lifecycle flag: the timeline uses the definition's own duration (so `start`/`end` animate once and then hold the final value, matching the docs), the instance never ends until stopped, and emission rates are correct. Looping and plain-duration effects are unchanged.
-- **Per-instance particle state no longer leaks.** The vanilla-particle budgets, the aimed-particle lists, the `block_chain` rope simulations and the spark budgets are keyed by instance id and were never removed when an effect stopped; they are now pruned against the live instance set every frame.
-- **Textured `surface_pattern` projections resolve on every node.** The texture resolver was guarded to `>=26.1` and left a neutral fallback on the `1.21.11` node, so a texture never resolved, the `RESOLVED` flag bit was never set and the shader's fail-closed texture branch drew nothing. It now has a real implementation on every node — 26.2/26.1.2 via the `sprite` AtlasManager, 1.21.11 via the remapped model AtlasManager and `TextureAtlas.getSprite` — with every source form (`block`/`item`/`atlas`/`standalone`) funnelling through one factory that sets the flag bit. The resolver also uses the correct 26.2 atlas keys (the atlas by its definition id, the sprite by `TextureAtlas.location()`), completes a standalone `…/textures/…` id with `.png`, and `aspect: preserve` uses the texture's (and a sheet cell's) real pixel aspect; a missing sprite is fail-visible (the vanilla missing texture) rather than drawing nothing.
-- **The `surface_pattern` std140 layout guard no longer aborts the post layer.** It queried `glGetUniformIndices` with block-qualified names (`Config.tile_scale`); on a driver that reports only the bare member name this returned `-1`, which was passed to `glGetActiveUniformsiv` (`GL_INVALID_VALUE`) and threw out of the pass, so the first frame of a textured pattern failed with "Failed to apply VFX post-processing". It now queries the bare name first with a qualified fallback, skips members the driver does not list, and logs at ERROR without throwing.
-- **A cached texture view no longer dangles after `/reload` or a resource-pack change.** The texture loaders close and recreate their GPU view while reusing the descriptor, so the field `texture` function's cached `GpuTextureView` was stale after a reload. The cache now holds the descriptor and re-derives the view on every use (and the new pattern texture re-resolves each frame, picking up a re-stitched atlas).
-- **`normal_mask: 1.0` coverage no longer flickers or evaluates an undefined `smoothstep`.** The `1.0` fallback compared the **raw** depth-derived normal against exactly `1.0` — a normalized normal numerically almost never reaches it (`0.9999…`) — so coverage flickered at the threshold, and the upper edge `min(normal_mask + 0.2, 1.0)` collapsed onto the lower one at `1.0` (undefined in GLSL). `normal_mask` is now clamped to `0..1` and `1.0` uses the **snapped** normal (`abs(n.y) >= 0.5`), exact for an axis-aligned block face.
-- **Animated mask `softness` now takes effect.** The `.soft` slot was a registered, animatable parameter, but the coverage writer packed the parse-time default straight into `shape_op[i].z`; keyframes, graph `{ "from": node }` inputs and `setParam("mask.pN.soft", …)` did nothing. The animated value is now written (with the parse-time default as fallback), and it also drives a composed custom leaf's falloff (previously hard-fixed at `0.25`).
-- **Mask composition, caps and the block leaf are enforced and animatable.** A right-nested composition (`union(A, intersection(B, C))`) is now a per-file parse error, since the shader folds left-associatively and it used to silently mis-evaluate; only left-nesting is accepted. A third custom leaf (which aliased row 0) and a second block leaf (which folded the shared geometry scratch against itself) are per-file parse errors. A block leaf's centre is animatable again through `sendMaskMove`/`maskMove`, graph centre slots and live `setParam`.
-- **The coverage/geometry passes respect the depth gate, consistently across nodes.** `depthRecipeVerified()` gated `surface_pattern` but not masks, so a world/aura mask could sample depth with the wrong convention; a depth-needing mask now fails closed and its depth-tested block pass is disabled where depth is not trusted. The gate itself was left in the 26.2 Stonecutter form, so the active `26.1.2` Fabric node compiled `true` while every other node compiled `false`; the active form is now the `false` branch.
-- **A screen-only mask renders on every node again.** When the reversed-depth recipe is not trusted, the coverage prepass bound the coverage target's own colour texture as the `DepthSampler` placeholder while drawing into it (a feedback loop, undefined on some drivers). It now binds the main target's depth view (else its colour view), so a mask that needs no depth renders exactly as on 26.2. A masked effect that starts after layer 0 also no longer samples an uninitialised coverage target (it is cleared on creation).
-- **A malformed field `texture` id fails closed for that one effect** instead of throwing from `Identifier.parse` into the layer-wide catch and skipping every post effect that frame; an invalid `pattern.texture.id`/`atlas` is a per-file parse error.
-- **`surface_pattern` parse and projection fixes.** `surface.faces: []` is now a parse error (was a zero face mask); `pattern.center_x`/`center_y`/`center_z` are rejected with a pointer at `pattern.center`; an entity-anchored `positions` entry is rejected (its anchor silently fell back to the player); a band narrower than `2 * band_softness` now reaches full coverage at its centre (`band_softness` is clamped to half the band width); `distort` warps the in-plane coordinate instead of translating a flat floor/wall; the band edge fades over `band_softness` instead of shimmering; and the pattern no longer slides when only the camera moves (the anchor is the instance's world position).
-- **Textured `surface_pattern` figures are crisp, not blurry.** The pattern texture is sampled with **NEAREST** filtering and no mipmaps, one repeat spans `tile_scale` blocks; sprite-sheet cells are mapped exactly and inset by half a texel (no neighbour bleed), `preserve` uses the cell's pixel aspect (a non-square cell no longer stretches), and `frame` wraps into `0..cols*rows-1`.
-- **An explicit instance id no longer stacks duplicates.** Replaying the same `sendEffect(..., instanceId, ...)` appended a second instance and a later `sendStop`/`sendMove` only touched the first match; a non-zero id now restarts that instance in place, so the id remains a unique handle.
-- **A disconnecting player's recorded effects are released** (`VFXServerEffects`), alongside their scoreboard subscriptions, so a long-lived server no longer accumulates per-player state for players who left.
-- **An unknown `particles` `shape` stops that frame's emission cleanly** (`break`) instead of discarding the frame budget through an early `return`.
-- **Less per-frame work in the post chain.** One definition lookup per `surface_pattern` pass instead of three, the texture id parsed once at definition-parse time, no candidate-list allocation in the sprite probe, cached block selection that resolves each model once, live-source shader variants (a registered GLSL plugin's GLSL, or a resource reload, no longer leaves a stale compiled variant), and a uniform arena grown mid-frame no longer closes its retired ring in the same `endFrame` (a potential use-after-free — retired rings now survive one extra frame).
+
+- **`VFXAPI.sendSetParamExpr` and `sendMove` over the network now do what their names say.** Both were
+  misread by the client as a *play* and silently restarted the effect instead of editing or moving it;
+  each action now has its own handler, so live edits work and replay correctly.
+- **A `persistent: true` effect without `loop` animates and emits again.** Its `start`/`end` params
+  used to freeze at their start value and particle/spark emission budgets could round down to nothing.
+- **Long sessions no longer leak per-effect particle state** — particle budgets, aimed-particle lists,
+  rope simulations and spark budgets are cleaned up when an effect stops.
+- **Textured `surface_pattern` figures resolve on every node**, a missing sprite now shows the vanilla
+  missing texture instead of drawing nothing, and the projections are crisp (NEAREST sampling, no
+  mip bleed).
+- **A cached texture view no longer goes stale after `/reload` or a resource-pack change.**
+- **`surface_pattern` band edges and `normal_mask: 1.0` no longer flicker.**
+- **Mask correctness batch** — animated `softness` now applies, right-nested compositions and
+  over-cap leaves are per-file errors instead of mis-evaluating, and a block leaf's centre is
+  animatable again.
+- **A purely screen-space mask renders on every node and every layer**, including where scene depth
+  is unavailable.
+- **A malformed field `texture` id fails only that one effect**, not every post effect for the frame.
+- **`surface_pattern` parse and projection fixes** — an empty `faces` list, `pattern.center_x/y/z` and
+  entity-anchored `positions` are now parse errors that name the problem.
+- **A repeated explicit instance id no longer stacks duplicates** — replaying a play with a non-zero
+  id restarts that instance in place, so `sendStop`/`sendMove` still address it.
+- **A disconnecting player's server-side effect memory is released**, so a long-lived server no longer
+  accumulates per-player state for players who left.
+- **An unknown `particles` `shape` stops that frame cleanly** instead of discarding the frame's
+  emission budget.
+- **Less per-frame work in the post chain** (fewer lookups, cached block selection, parsed texture
+  ids, no per-frame allocation in the sprite probe), and a mid-frame uniform-arena growth no longer
+  risks using freed memory on the following frame.
+
+### Technical notes (for developers)
+
+The user-visible list above is the changelog proper; these are the implementation details behind it.
+
+- **Per-node depth convention, proven from the real client jars.** 26.2 is reversed
+  (`glClipControl(GL_LOWER_LEFT, GL_ZERO_TO_ONE)` plus a near/far-swapped projection: near = 1,
+  far = 0, `CompareOp.GREATER_THAN_OR_EQUAL`); 26.1.2 and 1.21.11 are standard (near = 0, far = 1).
+  The flag is a per-node compile-time constant (`VFXShaderPrograms.DEPTH_REVERSED`) injected as the
+  `VFX_DEPTH_REVERSED` shader define, and the single shared reconstruction in `include/camera.glsl`
+  converts the raw depth, picks the sky test and the block-occlusion comparison. `depthRecipeVerified()`
+  gates every depth-needing pass.
+- **The effect clock** moved from the `FogRenderer.endFrame` hook (which runs after `renderLevel`) to
+  before layer 0; layers 1/2 reuse the same snapshot and nothing advances twice.
+- **One shared depth/world reconstruction** in `include/camera.glsl`, imported by `field.glsl` and
+  `surface_pattern.fsh` (was duplicated); `normal_facing` now returns an outward, camera-facing normal.
+- **Network receiver dispatch** gives `STOP`, `SET_EXPR` and `MOVE` each one reachable handler (they
+  were nested inside the `STOP` branch); the wire format is unchanged.
+- **Persistence is a lifecycle flag**, not an `Integer.MAX_VALUE`-tick timeline, so animated params and
+  emission budgets behave normally until stopped.
+- **Per-instance state** (vanilla-particle budgets, aimed-particle lists, `block_chain` rope
+  simulations, spark budgets) is keyed by instance id and pruned against the live set every frame.
+- **Texture resolution** has a real per-node implementation: 26.2/26.1.2 via the sprite `AtlasManager`
+  (`SpriteId` keyed by `TextureAtlas.location()`), 1.21.11 via the remapped model `AtlasManager` and
+  `TextureAtlas.getSprite`; every source form funnels through one `resolved(...)` factory that sets
+  the `RESOLVED` flag bit, and a standalone `…/textures/…` id gets `.png`.
+- **The std140 layout guard** queries the bare member name first with a qualified fallback, skips
+  members the driver does not list, and logs at ERROR without throwing, so a driver that reports only
+  bare names cannot drop the post layer.
+- **The cached texture view is re-derived** from its descriptor on every use, because a reload closes
+  and recreates the loaders' GPU view while reusing the descriptor.
+- **`normal_mask: 1.0`** now tests the snapped normal (`abs(n.y) >= 0.5`) instead of the raw normal,
+  and `normal_mask` is clamped to `0..1` to avoid a collapsed `smoothstep` edge.
+- **Animated mask `softness`** is written into `shape_op[i].z` with the parse-time default as
+  fallback, and also drives a composed custom leaf's falloff (previously hard-fixed at `0.25`).
+- **Mask composition** folds left-associatively, so a right-nested `op`, a third custom leaf and a
+  second block leaf are per-file parse errors rather than silent mis-evaluation.
+- **The coverage prepass** binds the main target's depth view (else its colour view) as the
+  `DepthSampler` placeholder when depth is untrusted, avoiding a feedback loop with the coverage
+  target's own texture.
+- **Parse fixes**: an empty `surface.faces` is an error, `pattern.center_x/y/z` is rejected in favour
+  of `pattern.center`, an entity-anchored `positions` entry on a `surface_pattern` is rejected, and an
+  invalid `pattern.texture.id`/`atlas` is a per-file error.
+- **Crisp pattern textures**: NEAREST filtering, no mipmaps, each repeat spans `tile_scale` blocks,
+  sprite-sheet cells are inset by half a texel, `preserve` uses the cell's real pixel aspect, and
+  `frame` wraps into `0..cols*rows-1`.
+- **Internal cleanup**: removed the write-only `ProgramInfo.coverage`/`VFXPass.coverage` flag (the
+  coverage prepass is identified by its pipeline/`PassRole`).
 
 ## v1.2.0 / Guide v32
 ### Added
@@ -233,7 +337,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). The versions bel
 - **Server-side effect memory (`VFXServerEffects`)** — effects sent via `VFXAPI.sendEffect` are remembered per player and re-applied on reconnect/join with their remaining duration (persistent `-1` effects always; finite ones while not expired). Pruned when expired; disabled during Flashback replay playback so replays are not doubled.
 
 ### Changed
-- **Minecraft support widened to 26.1 – 26.1.2** (built against 26.1.2, `fabric.mod.json` `"minecraft": "~26.1"` covers the whole line; verified the API compiles on 26.1.2 without changes).
+- **Minecraft support widened to 26.1 – 26.1.2** (built against 26.1.2; the mod metadata's Minecraft range covers the whole 26.1 line, verified to compile on 26.1.2 without changes).
 - **`speed_lines` reworked** — lines now emanate from the screen borders as wedges (full width at the edge, clipped by it, tapering to a point towards the centre) with sharp step edges, instead of a radial band around the centre. New `length_rand` param (0..1) controls how much the per-line length varies with the seed.
 
 ## v1.0.0 / Guide v16
@@ -288,7 +392,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). The versions bel
 ### Changed
 - `getModelQuads()` (`VFXWorldOverlayRenderer`) now logs an error when collecting block geometry instead of silently swallowing it.
 ### Docs
-- The user guide moved to `docs/GUIDE.md`; added `README.md`, `AGENTS.md`, `CONTRIBUTING.md`, `docs/API.md`, `docs/ARCHITECTURE.md`, `docs/CHANGELOG.md`.
+- The user guide was restructured, and the project gained separate Java API, architecture and changelog documents alongside the README and contribution guide.
 
 ## v11
 - `block_outline` has two modes by the boolean `shell` (default `0`): `0` — extruded walls, `1` — a classic scaled shell with back faces, clipped by the block via the depth buffer.
