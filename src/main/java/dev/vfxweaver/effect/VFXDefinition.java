@@ -5,6 +5,7 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonPrimitive;
 import dev.vfxweaver.field.VFXField;
+import dev.vfxweaver.field.VFXShape;
 import dev.vfxweaver.graph.VFXGraph;
 import dev.vfxweaver.graph.VFXSubgraphExpander;
 import dev.vfxweaver.mask.VFXMask;
@@ -49,6 +50,7 @@ public class VFXDefinition {
 	private final Map<String, String> graphInputs;
 	private final Map<String, VFXField> fields;
 	private final @Nullable VFXMask mask;
+	private final @Nullable VFXShape pattern;
 
 	private VFXDefinition(
 		final Identifier id,
@@ -71,7 +73,8 @@ public class VFXDefinition {
 		final @Nullable VFXGraph graph,
 		final Map<String, String> graphInputs,
 		final Map<String, VFXField> fields,
-		final @Nullable VFXMask mask
+		final @Nullable VFXMask mask,
+		final @Nullable VFXShape pattern
 	) {
 		this.id = id;
 		this.type = type;
@@ -94,6 +97,7 @@ public class VFXDefinition {
 		this.graphInputs = Map.copyOf(graphInputs);
 		this.fields = Map.copyOf(fields);
 		this.mask = mask;
+		this.pattern = pattern;
 	}
 
 	/**
@@ -162,7 +166,7 @@ public class VFXDefinition {
 		final @Nullable Identifier sound,
 		final @Nullable String entitySelector
 	) {
-		return new VFXDefinition(id, type, defaultDuration, defaultEasing, params, persistent, loop, fadeTicks, children, positions, List.of(), sound, entitySelector, null, null, null, null, null, Map.of(), Map.of(), null);
+		return new VFXDefinition(id, type, defaultDuration, defaultEasing, params, persistent, loop, fadeTicks, children, positions, List.of(), sound, entitySelector, null, null, null, null, null, Map.of(), Map.of(), null, null);
 	}
 
 	/**
@@ -326,7 +330,15 @@ public class VFXDefinition {
 			? GsonHelper.getAsString(json, "item")
 			: null;
 
-		return new VFXDefinition(id, type, duration, easing, params, persistent, loop, fadeTicks, children, positions, entityAnchors, sound, entitySelector, particleId, shape, blockId, itemId, graph, graphInputs, fields, mask);
+		// Optional structural shape pattern (spec §6.2, design change 2026-09-19). The figure model
+		// (circle/ellipse/rect/polygon, fill, repeat) is owned by the shared shape/field library;
+		// this only parses the structural block and carries it. Strings/enum choices never live in
+		// "params" (numeric only) and the whole block is invisible to an older mod (unknown key).
+		VFXShape pattern = json.has("pattern") && !json.get("pattern").isJsonNull()
+			? VFXShape.parse(GsonHelper.getAsJsonObject(json, "pattern"))
+			: null;
+
+		return new VFXDefinition(id, type, duration, easing, params, persistent, loop, fadeTicks, children, positions, entityAnchors, sound, entitySelector, particleId, shape, blockId, itemId, graph, graphInputs, fields, mask, pattern);
 	}
 
 	/**
@@ -593,7 +605,7 @@ public class VFXDefinition {
 		}
 		Map<String, ParamSpec> merged = new LinkedHashMap<>(this.params);
 		merged.putAll(overrides);
-		return new VFXDefinition(this.id, this.type, this.defaultDuration, this.defaultEasing, merged, this.persistent, this.loop, this.fadeTicks, this.children, this.positions, this.entityAnchors, this.sound, this.entitySelector, this.particleId, this.shape, this.blockId, this.itemId, this.graph, this.graphInputs, this.fields, this.mask);
+		return new VFXDefinition(this.id, this.type, this.defaultDuration, this.defaultEasing, merged, this.persistent, this.loop, this.fadeTicks, this.children, this.positions, this.entityAnchors, this.sound, this.entitySelector, this.particleId, this.shape, this.blockId, this.itemId, this.graph, this.graphInputs, this.fields, this.mask, this.pattern);
 	}
 
 	/**
@@ -814,6 +826,14 @@ public class VFXDefinition {
 	 */
 	public @Nullable String getBlockId() {
 		return this.blockId;
+	}
+
+	/**
+	 * The optional structural shape pattern of a {@code surface_pattern} definition, or
+	 * {@code null} when the definition has none (the renderer then draws nothing).
+	 */
+	public @Nullable VFXShape getPattern() {
+		return this.pattern;
 	}
 
 	/**
