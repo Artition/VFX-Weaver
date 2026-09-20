@@ -575,9 +575,10 @@ public final class VFXPostProcessingManager {
 	/**
 	 * Creates a colour render target; 26.2 requires an explicit GPU format.
 	 *
-	 * <p>The coverage/geometry data is single-channel, but {@link TextureTarget} exposes no
-	 * single-channel format on the 26.1 line and the shared shader writes a {@code vec4} attachment,
-	 * so these stay RGBA8; the unused channels are simply not sampled.
+	 * <p>The coverage/geometry data is single-channel, but a render target's format must match the
+	 * pipeline's {@code ColorTargetState}: the shared coverage/block-geometry pipelines declare
+	 * RGBA8 (and the 26.1 line exposes no per-target format), so a single-channel target would need
+	 * a per-node pipeline change. These stay RGBA8; the unused channels are simply not sampled.
 	 */
 	private static TextureTarget createTarget(final String label, final int width, final int height, final boolean useDepth) {
 		//? if <26.2 {
