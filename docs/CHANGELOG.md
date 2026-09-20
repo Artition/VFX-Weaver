@@ -9,6 +9,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). The versions bel
 
 ### Fixed
 - **A cached texture view no longer dangles after `/reload` or a resource-pack change.** The texture loaders close and recreate their GPU view while reusing the descriptor, so the field `texture` function's cached `GpuTextureView` was stale after a reload. The cache now holds the descriptor and re-derives the view on every use (and the new pattern texture re-resolves each frame, picking up a re-stitched atlas).
+- **Textured `surface_pattern` resolution fixed.** A block/item/atlas sprite now resolves through the correct 26.2 atlas keys — the atlas is looked up by its definition id (`minecraft:blocks`) while the sprite is keyed by the atlas *texture* id (`minecraft:textures/atlas/blocks.png`, from `TextureAtlas.location()`) — so every block/item pattern stops failing closed with `Invalid atlas texture id`. A standalone `…/textures/…` id is completed with `.png` before loading, so a resource-pack texture is actually found. A `math` graph node now accepts `floor` (the documented sprite-sheet frame op), so `frame` can be driven by the graph.
 
 ## Unreleased / Guide v39
 ### Added

@@ -126,9 +126,6 @@ Here the `ellipse` clips the pentagram to a circle (the texture has no alpha out
   "nodes": [
     { "id": "t", "kind": "time", "inputs": { "speed": 1.0 } },
     { "id": "frame_t", "kind": "math", "op": "floor", "inputs": { "a": { "from": "t" } } }
-  ],
-  "edges": [
-    { "from": "t", "to": "frame_t", "input": "a" }
   ]
 }
 ```
