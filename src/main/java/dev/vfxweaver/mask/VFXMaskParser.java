@@ -15,9 +15,11 @@ import org.jspecify.annotations.Nullable;
  * every fault throws {@link IllegalArgumentException} naming the offending field, which
  * {@code VFXDefinitionManager} catches so one broken file does not take down the pack.
  *
- * <p>Composition is flattened depth-first; a leaf's reserved slot index is assigned in that same
- * order, so it always matches {@link VFXMask#primitives()}. Shape parameter names and defaults are
- * mirrored from {@link VFXMaskShapeKind}; the shape math is the shared library's.
+ * <p>Composition is flattened depth-first and folded left-associatively by the shader, so only
+ * left-nesting is accepted: a composition in the right operand is rejected (it would flatten to a
+ * different tree). A leaf's reserved slot index is assigned in depth-first order, so it always
+ * matches {@link VFXMask#primitives()}. Shape parameter names and defaults are mirrored from
+ * {@link VFXMaskShapeKind}; the shape math is the shared library's.
  */
 public final class VFXMaskParser {
 	private static final float SCREEN_DEFAULT_SOFTNESS = 0.01F;
@@ -41,7 +43,17 @@ public final class VFXMaskParser {
 	 */
 	public static VFXMask parse(final String owner, final JsonObject json) {
 		final boolean invert = bool(json, "invert", false);
-		final VFXMaskSpace topSpace = VFXMaskSpace.fromString(str(json, "space", null));
+		// A present-but-invalid top-level "space" is a typo, not "absent": it must throw like an
+		// invalid leaf-level space instead of silently falling back to the default.
+		final VFXMaskSpace topSpace;
+		if (json.has("space") && !json.get("space").isJsonNull()) {
+			topSpace = VFXMaskSpace.fromString(json.get("space").getAsString());
+			if (topSpace == null) {
+				throw new IllegalArgumentException("mask: 'space' must be 'screen' or 'world'");
+			}
+		} else {
+			topSpace = null;
+		}
 		final Map<String, VFXMask.MaskSlot> slots = new LinkedHashMap<>();
 		final int[] counter = {0};
 		// A mask is either a composition ({"op": ..., "a": ..., "b": ...}) or a single leaf,
@@ -60,6 +72,26 @@ public final class VFXMaskParser {
 		}
 		if (partial.primitives().size() > VFXMask.MAX_PRIMITIVES) {
 			throw new IllegalArgumentException("mask: " + partial.primitives().size() + " shapes exceed the limit of " + VFXMask.MAX_PRIMITIVES);
+		}
+		// The shader packs one custom row per distinct custom shape (custom_op has only
+		// MAX_CUSTOM_LEAVES slots) and a single geometry scratch is shared by every block leaf, so
+		// a third custom leaf or a second block leaf would alias row 0 / fold a coverage against
+		// itself. Reject both here, with the cap named, rather than render them as garbage.
+		int customLeaves = 0;
+		int blockLeaves = 0;
+		for (final VFXMaskPrimitive primitive : partial.primitives()) {
+			if (primitive.customShape() != null) {
+				customLeaves++;
+			}
+			if (primitive.family() == VFXMaskPrimitive.Family.BLOCK) {
+				blockLeaves++;
+			}
+		}
+		if (customLeaves > VFXCustomShape.MAX_CUSTOM_LEAVES) {
+			throw new IllegalArgumentException("mask: " + customLeaves + " custom leaves exceed the limit of " + VFXCustomShape.MAX_CUSTOM_LEAVES);
+		}
+		if (blockLeaves > 1) {
+			throw new IllegalArgumentException("mask: a mask may carry at most one block leaf (all block leaves share one geometry scratch)");
 		}
 		return new VFXMask(invert, partial.primitives(), partial.ops(), slots);
 	}
@@ -87,6 +119,14 @@ public final class VFXMaskParser {
 			}
 			final Partial left = parseNode(a.getAsJsonObject(), topSpace, depth + 1, false, counter, slots);
 			final Partial right = parseNode(b.getAsJsonObject(), topSpace, depth + 1, false, counter, slots);
+			// The leaves are flattened depth-first and the shader folds them left-associatively
+			// (acc = op(acc, leaf)). That is only equivalent to the authored tree when every
+			// composition nests on the LEFT: a right-nested operand such as
+			// union(A, intersection(B, C)) would flatten to min(max(A, B), C). Reject it instead
+			// of silently mis-evaluating.
+			if (!right.ops().isEmpty()) {
+				throw new IllegalArgumentException("mask: the right operand of op '" + op.id() + "' is itself a composition; nest compositions on the left (e.g. intersection before union)");
+			}
 			final List<VFXMaskPrimitive> primitives = new ArrayList<>(left.primitives());
 			primitives.addAll(right.primitives());
 			final List<VFXMaskOp> ops = new ArrayList<>(left.ops());
