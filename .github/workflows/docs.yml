@@ -1,4 +1,16 @@
-# Build the MkDocs site and publish it to GitHub Pages.
+# Build the MkDocs site and publish it to GitHub Pages with mike.
+#
+# mike publishes every version to the `gh-pages` branch and keeps a `versions.json`
+# the Material version selector reads. The Pages source must therefore be
+# "Deploy from a branch" -> `gh-pages` / (root); the old artifact-based
+# ("GitHub Actions") flow was replaced by this job and must not be re-added, or the
+# two deployments fight over the same site.
+#
+# The deployed version is read from `mod_version` in gradle.properties, so the docs
+# and the mod cannot drift. To publish a future release, bump mod_version and push
+# (this workflow redeploys), or run mike by hand:
+#   mike deploy --push --update-aliases <version> latest && mike set-default --push latest
+# Old versions stay on gh-pages; the alias `latest` always points at the newest.
 name: docs
 on:
   push:
@@ -7,24 +19,25 @@ on:
       - 'docs/**'
       - 'mkdocs.yml'
       - 'requirements-docs.txt'
+      - 'gradle.properties'
       - '.github/workflows/docs.yml'
   workflow_dispatch:
 
 permissions:
-  contents: read
-  pages: write
-  id-token: write
+  contents: write
 
 concurrency:
-  group: pages
+  group: docs
   cancel-in-progress: false
 
 jobs:
-  build:
+  deploy:
     runs-on: ubuntu-latest
     steps:
-      - name: checkout repository
+      - name: checkout repository (full history for mike)
         uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
       - name: setup python
         uses: actions/setup-python@v5
         with:
@@ -33,22 +46,16 @@ jobs:
           cache-dependency-path: requirements-docs.txt
       - name: install docs requirements
         run: pip install -r requirements-docs.txt
-      - name: configure pages
-        uses: actions/configure-pages@v5
-      - name: build site
+      - name: read the mod version
+        id: version
+        run: echo "value=$(grep -E '^mod_version=' gradle.properties | cut -d= -f2)" >> "$GITHUB_OUTPUT"
+      - name: build site (strict)
         run: mkdocs build --strict
-      - name: upload pages artifact
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: site
-
-  deploy:
-    needs: build
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - name: deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
+      - name: configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+      - name: deploy with mike
+        run: |
+          mike deploy --push --update-aliases "${{ steps.version.outputs.value }}" latest
+          mike set-default --push latest

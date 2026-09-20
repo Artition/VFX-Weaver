@@ -80,6 +80,26 @@ mkdocs serve        # live preview on http://127.0.0.1:8000
 mkdocs build --strict
 ```
 
+The published site is **versioned with [mike](https://github.com/jimporter/mike)**. The CI
+job (`.github/workflows/docs.yml`) deploys the version read from `mod_version` in
+`gradle.properties` — so the docs and the mod cannot drift — to the `gh-pages` branch, and
+points the `latest` alias at it.
+
+**Required repository setting:** the GitHub Pages source must be **Deploy from a branch →
+`gh-pages` / (root)**, *not* "GitHub Actions". mike pushes a branch; the previous
+artifact-based workflow used the "GitHub Actions" source, and leaving both in place makes
+the two deployments fight over the same site.
+
+To publish a future version, bump `mod_version` and push (CI redeploys), or run the deploy
+once by hand:
+
+```bash
+mike deploy --push --update-aliases <version> latest
+mike set-default --push latest
+```
+
+Older versions stay on `gh-pages` and remain selectable in the header dropdown.
+
 ## License
 
 MIT — see the header in `fabric.mod.json` (`"license": "MIT"`).
