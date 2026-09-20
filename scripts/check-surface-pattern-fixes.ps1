@@ -81,6 +81,15 @@ if ($pattern -notmatch 'float nm = clamp\(normal_mask, 0\.0, 1\.0\);') {
 if ($pattern -notmatch 'nmUpper > nm \? smoothstep\(nm, nmUpper, abs\(nRaw\.y\)\)') {
 	$problems.Add("surface_pattern.fsh does not guard the collapsed smoothstep edge (nmUpper > nm)")
 }
+# The fallback at normal_mask == 1.0 must test the *snapped* normal: abs(nRaw.y) is a normalized
+# depth-derived value (~0.9999...) and flickered at the threshold; abs(n.y) >= 0.5 is exact for an
+# axis-aligned face.
+if ($pattern -notmatch 'abs\(n\.y\) >= 0\.5 \? 1\.0 : 0\.0') {
+	$problems.Add("surface_pattern.fsh fallback does not test the snapped normal (abs(n.y) >= 0.5)")
+}
+if ($pattern -match 'abs\(nRaw\.y\) >= nm \? 1\.0') {
+	$problems.Add("surface_pattern.fsh still tests the raw normal at the collapsed smoothstep edge (noisy at grazing angles)")
+}
 
 # --- 4. distort phase is in-plane ------------------------------------------------------------------
 if ($pattern -match 'float phase = dot\(world, n\);') {

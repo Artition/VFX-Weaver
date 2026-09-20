@@ -226,9 +226,13 @@ void main() {
         // strictly above the lower one. At normal_mask == 1.0 the old min(normal_mask + 0.2, 1.0)
         // collapsed the two edges to the same value, and smoothstep(edge0 == edge1, ...) is
         // undefined in GLSL; the fallback is the exact hard test (only a vertical normal passes).
+        // The fallback compares the *snapped* normal: a normalized depth-derived normal is
+        // numerically almost never exactly 1.0 (0.9999...), so `abs(nRaw.y) >= 1.0` flickered at the
+        // threshold (worst at grazing angles near the floor). The snapped normal is exactly
+        // 1.0/0.0 on an axis-aligned block face, so `abs(n.y) >= 0.5` is exact and stable.
         float nm = clamp(normal_mask, 0.0, 1.0);
         float nmUpper = min(nm + 0.2, 1.0);
-        faceCov = nm <= 0.0 ? 1.0 : (nmUpper > nm ? smoothstep(nm, nmUpper, abs(nRaw.y)) : (abs(nRaw.y) >= nm ? 1.0 : 0.0));
+        faceCov = nm <= 0.0 ? 1.0 : (nmUpper > nm ? smoothstep(nm, nmUpper, abs(nRaw.y)) : (abs(n.y) >= 0.5 ? 1.0 : 0.0));
     }
     // Band along the dominant axis, with an optional soft edge of half-width `band_softness`
     // (world units): the reconstructed axis coordinate of a surface lying exactly on a bound
