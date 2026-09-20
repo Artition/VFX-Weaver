@@ -8,7 +8,6 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.resources.Identifier;
 import net.minecraft.world.phys.Vec3;
 import org.jspecify.annotations.Nullable;
-import org.jspecify.annotations.Nullable;
 
 /**
  * A single running instance of a {@link VFXDefinition}. Holds a {@link VFXTimeline} that is
@@ -25,6 +24,8 @@ public class VFXActiveEffect {
 	private final VFXTimeline timeline;
 	private final int fadeTicks;
 	private final boolean loop;
+	/** True when the instance never ends on its own (only stop/fade does); see {@link #isFinished()}. */
+	private final boolean persistent;
 	private final List<BlockPos> positions;
 	private final List<UUID> entityUuids;
 	private final List<ResolvedAnchor> anchors;
@@ -134,6 +135,21 @@ public class VFXActiveEffect {
 	 * @param itemId     item id for inline item-mode particles ({@code null} = renderer default)
 	 */
 	public VFXActiveEffect(final Identifier id, final VFXEffectType type, final long instanceId, final long instanceSeed, final float startTime, final VFXTimeline timeline, final int fadeTicks, final boolean loop, final List<BlockPos> positions, final List<UUID> entityUuids, final List<ResolvedAnchor> anchors, final @Nullable String particleId, final @Nullable String shape, final @Nullable String blockId, final @Nullable String itemId) {
+		this(id, type, instanceId, instanceSeed, startTime, timeline, fadeTicks, loop, false, positions, entityUuids, anchors, particleId, shape, blockId, itemId);
+	}
+
+	/**
+	 * Creates a new effect instance with the full state, including the definition-level string
+	 * fields used by {@code particles}/{@code block_chain} effects, the inline item-mode id and
+	 * whether the instance is persistent (never ends on its own).
+	 *
+	 * @param particleId vanilla particle id for {@code particles} effects ({@code null} = renderer default)
+	 * @param shape      emission shape for {@code particles} effects ({@code null} = renderer default)
+	 * @param blockId    block id for {@code block_chain} / inline block-mode particles ({@code null} = renderer default)
+	 * @param itemId     item id for inline item-mode particles ({@code null} = renderer default)
+	 * @param persistent true when the instance never ends until stopped (persistent/looping definition)
+	 */
+	public VFXActiveEffect(final Identifier id, final VFXEffectType type, final long instanceId, final long instanceSeed, final float startTime, final VFXTimeline timeline, final int fadeTicks, final boolean loop, final boolean persistent, final List<BlockPos> positions, final List<UUID> entityUuids, final List<ResolvedAnchor> anchors, final @Nullable String particleId, final @Nullable String shape, final @Nullable String blockId, final @Nullable String itemId) {
 		this.id = id;
 		this.type = type;
 		this.instanceId = instanceId;
@@ -142,6 +158,7 @@ public class VFXActiveEffect {
 		this.timeline = timeline;
 		this.fadeTicks = fadeTicks;
 		this.loop = loop;
+		this.persistent = persistent;
 		this.positions = List.copyOf(positions);
 		this.entityUuids = List.copyOf(entityUuids);
 		this.anchors = List.copyOf(anchors);
@@ -208,7 +225,7 @@ public class VFXActiveEffect {
 
 	/**
 	 * True when the effect reached the end of its timeline, finished fading out, or never ends
-	 * because it loops (looping instances only end once stopped).
+	 * because it loops or is persistent (looping/persistent instances only end once stopped).
 	 */
 	public boolean isFinished() {
 		if (this.isFadingOut()) {
@@ -221,6 +238,11 @@ public class VFXActiveEffect {
 		// remove it instead of letting it linger (persistent instances would never end otherwise).
 		if (this.timeline.isZeroedOut()) {
 			return true;
+		}
+		if (this.persistent) {
+			// "Never ends" is this flag, not an enormous timeline duration: the timeline still
+			// animates over its own (finite) duration and holds the final value.
+			return false;
 		}
 		return this.timeline.isFinished();
 	}
@@ -287,6 +309,15 @@ public class VFXActiveEffect {
 	 */
 	public boolean isLooping() {
 		return this.loop;
+	}
+
+	/**
+	 * True when the instance never ends on its own (a persistent or looping definition); only
+	 * {@code stop} (and its fade) ends it. A persistent non-loop instance still animates its
+	 * timeline once and holds the final value.
+	 */
+	public boolean isPersistent() {
+		return this.persistent;
 	}
 
 	public VFXTimeline getTimeline() {

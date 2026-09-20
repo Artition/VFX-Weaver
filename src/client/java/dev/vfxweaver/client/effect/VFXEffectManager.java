@@ -42,6 +42,8 @@ public class VFXEffectManager {
 	private static final int MAX_ACTIVE_EFFECTS = 64;
 	private static final int MAX_SCHEDULED_EFFECTS = 128;
 	private static final int MAX_DURATION_TICKS = 20 * 60 * 60; // 1 real hour, safety cap on server-supplied duration
+	/** Timeline duration used for an id that resolves a type but has no definition (no default to read). */
+	private static final int DEFAULT_PARAM_DURATION = 40;
 
 	private final List<VFXActiveEffect> active = new ArrayList<>();
 	private final List<ScheduledPlay> scheduled = new ArrayList<>();
@@ -177,6 +179,24 @@ public class VFXEffectManager {
 		return this.play(effectId, durationTicks, instanceId, position, entityUuids, params, easing, 0, elapsedTicks, null, List.of());
 	}
 
+	/**
+	 * The timeline duration a play builds. A loop's period is always the definition duration;
+	 * otherwise a positive payload duration wins, and with neither the definition default is used.
+	 * A persistent instance is kept alive by its lifecycle flag, so its timeline may still be a
+	 * normal finite duration (it animates once and holds the final value).
+	 *
+	 * @param loop               whether the definition loops
+	 * @param clampedTicks       the payload duration clamped to {@code [0, MAX_DURATION_TICKS]}
+	 * @param definitionDuration the definition's default duration (or the fallback for a definition-less id)
+	 * @return the timeline duration in ticks
+	 */
+	static int resolveTimelineDuration(final boolean loop, final int clampedTicks, final int definitionDuration) {
+		if (loop) {
+			return definitionDuration;
+		}
+		return clampedTicks > 0 ? clampedTicks : definitionDuration;
+	}
+
 	private long play(final Identifier effectId, final int durationTicks, final long instanceId, final @Nullable Vec3 position, final List<UUID> entityUuids, final Map<String, Float> params, final EasingFunction easing, final int depth, final int elapsedTicks, final @Nullable VFXDefinition predefined, final List<Identifier> collections) {
 		VFXDefinition definition = predefined != null ? predefined : VFXDefinitionManager.get().get(effectId);
 		VFXEffectType type = definition != null ? definition.getType() : VFXEffectType.fromString(effectId.getPath());
@@ -227,11 +247,14 @@ public class VFXEffectManager {
 		// from a hostile/buggy server would otherwise pin an effect forever. Definition-driven
 		// persistent/loop effects still run forever as intended.
 		boolean persistentFromServer = definition == null && durationTicks < 0;
-		boolean persistent = definition != null && (definition.isPersistent() || loop);
+		boolean persistent = persistentFromServer || (definition != null && (definition.isPersistent() || loop));
 		int clampedTicks = Math.min(Math.max(durationTicks, 0), MAX_DURATION_TICKS);
-		int duration = persistent
-			? (loop ? definition.getDefaultDuration() : Integer.MAX_VALUE)
-			: (persistentFromServer ? Integer.MAX_VALUE : (clampedTicks > 0 ? clampedTicks : (definition != null ? definition.getDefaultDuration() : 40)));
+		int definitionDuration = definition != null ? definition.getDefaultDuration() : DEFAULT_PARAM_DURATION;
+		// "Never ends" is the lifecycle flag (see VFXActiveEffect.isFinished), not an enormous
+		// duration: a 2^31-tick timeline froze start/end animation at the start value and divided
+		// particle emission budgets to ~0. A persistent non-loop instance instead animates
+		// start->end over the definition duration, then holds the final value forever.
+		int duration = resolveTimelineDuration(loop, clampedTicks, definitionDuration);
 		EasingFunction effectiveEasing = easing != null ? easing : (definition != null ? definition.getDefaultEasing() : EasingFunction.builtIn(EasingType.LINEAR));
 		long instanceSeed = ThreadLocalRandom.current().nextLong();
 		VFXTimeline timeline = definition != null
@@ -275,9 +298,15 @@ public class VFXEffectManager {
 			}
 			anchors = List.copyOf(built);
 		}
-		VFXActiveEffect effect = new VFXActiveEffect(effectId, type, id, instanceSeed, this.clock, timeline, fadeTicks, loop, positions, entityUuids, anchors, definition != null ? definition.getParticleId() : null, definition != null ? definition.getShape() : null, definition != null ? definition.getBlockId() : null, definition != null ? definition.getItemId() : null);
-		// Same-id replays stack as independent instances (e.g. several dents at once);
-		// /vfx stop removes every instance of the id, stop(instanceId) removes one. MAX_ACTIVE_EFFECTS caps the total.
+		// An explicit instance id is a caller-assigned handle: restart that slot instead of stacking
+		// a duplicate, so a later stop(instanceId)/move and the spark/block buckets (keyed by
+		// instance id) can never address the wrong instance. Auto-allocated ids always stack
+		// (several dents at once); /vfx stop still removes every instance of an id.
+		if (instanceId != 0L) {
+			this.active.removeIf(existing -> existing.getInstanceId() == instanceId);
+		}
+		VFXActiveEffect effect = new VFXActiveEffect(effectId, type, id, instanceSeed, this.clock, timeline, fadeTicks, loop, persistent, positions, entityUuids, anchors, definition != null ? definition.getParticleId() : null, definition != null ? definition.getShape() : null, definition != null ? definition.getBlockId() : null, definition != null ? definition.getItemId() : null);
+		// Same-id replays with auto-allocated ids stack as independent instances; MAX_ACTIVE_EFFECTS caps the total.
 		while (this.active.size() >= MAX_ACTIVE_EFFECTS) {
 			LOGGER.warn("Active VFX effect limit ({}) reached; removing oldest effect '{}'", MAX_ACTIVE_EFFECTS, this.active.get(0).getId());
 			this.active.remove(0);

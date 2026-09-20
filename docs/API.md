@@ -21,6 +21,8 @@ boolean sendEffect(ServerPlayer player, Identifier effectId, Vec3 worldPos, Map<
 
 // Same with an explicit instance id (0 = the client assigns one). Lets you later stop exactly
 // this instance via sendStop(player, effectId, instanceId) instead of every instance of the effect.
+// The id is a unique handle: playing it again restarts that instance in place instead of adding a
+// duplicate, so sendStop/sendMove always address the instance you played.
 boolean sendEffect(ServerPlayer player, Identifier effectId, long instanceId, @Nullable Vec3 worldPos, Map<String, Float> overrides, @Nullable EasingType easing);
 
 // Explicit variant without consulting the definition registry — all packet fields are set manually.

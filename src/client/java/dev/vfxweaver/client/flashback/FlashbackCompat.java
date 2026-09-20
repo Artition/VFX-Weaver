@@ -219,7 +219,7 @@ public final class FlashbackCompat {
 				// Without a recorded stop event a looping/persistent effect would loop forever
 				// during playback, so only finite-duration effects are snapshotted.
 				if (effect.getType() == VFXEffectType.COLLECTION || effect.getType() == VFXEffectType.CAMERA_SHAKE
-					|| effect.isLooping() || timeline.getDuration() >= Integer.MAX_VALUE - 1) {
+					|| effect.isLooping() || effect.isPersistent()) {
 					continue;
 				}
 				int duration = Math.max(1, (int) Math.ceil(timeline.getDuration() - timeline.getElapsed()));
