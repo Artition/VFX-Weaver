@@ -10,13 +10,13 @@
       
       
       
-        <link rel="canonical" href="https://artition.github.io/VFX-Weaver/2.0.0/guide/commands/">
+        <link rel="canonical" href="https://artition.github.io/VFX-Weaver/2.0.0/guide/recipes/">
       
       
-        <link rel="prev" href="../effects/collection/">
+        <link rel="prev" href="../commands/">
       
       
-        <link rel="next" href="../recipes/">
+        <link rel="next" href="../datapack/format/">
       
       
         
@@ -27,7 +27,7 @@
     
     
       
-        <title>Commands - VFX Weaver</title>
+        <title>Triggering effects - VFX Weaver</title>
       
     
     
@@ -78,7 +78,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#commands" class="md-skip">
+        <a href="#triggering-effects" class="md-skip">
           Skip to content
         </a>
       
@@ -117,7 +117,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Commands
+              Triggering effects
             
           </span>
         </div>
@@ -2012,6 +2012,33 @@
       
   
   
+  
+  
+    <li class="md-nav__item">
+      <a href="../commands/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Commands
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
     
   
   
@@ -2031,7 +2058,7 @@
   <span class="md-ellipsis">
     
   
-    Commands
+    Triggering effects
   
 
     
@@ -2049,7 +2076,7 @@
   <span class="md-ellipsis">
     
   
-    Commands
+    Triggering effects
   
 
     
@@ -2075,10 +2102,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#vfx-play-effect-paramvalue-players" class="md-nav__link">
+  <a href="#1-play-an-effect-from-a-function" class="md-nav__link">
     <span class="md-ellipsis">
       
-        /vfx play &lt;effect&gt; [{[param:value],...}] [players]
+        1. Play an effect from a function
       
     </span>
   </a>
@@ -2086,10 +2113,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#vfx-playat-effect-x-y-z-players" class="md-nav__link">
+  <a href="#2-play-an-effect-when-the-world-loads" class="md-nav__link">
     <span class="md-ellipsis">
       
-        /vfx playat &lt;effect&gt; &lt;x&gt; &lt;y&gt; &lt;z&gt; [{[...]}] [players]
+        2. Play an effect when the world loads
       
     </span>
   </a>
@@ -2097,10 +2124,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#vfx-playentity-effect-targets-players" class="md-nav__link">
+  <a href="#3-play-an-effect-on-first-join-advancement" class="md-nav__link">
     <span class="md-ellipsis">
       
-        /vfx playentity &lt;effect&gt; [{[...]}] &lt;targets&gt; [players]
+        3. Play an effect on first join (advancement)
       
     </span>
   </a>
@@ -2108,10 +2135,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#vfx-set-effect-paramvalue-players" class="md-nav__link">
+  <a href="#4-play-an-effect-when-the-player-takes-damage-scoreboard-tick-check" class="md-nav__link">
     <span class="md-ellipsis">
       
-        /vfx set &lt;effect&gt; {[param:value],...} [players]
+        4. Play an effect when the player takes damage (scoreboard tick check)
       
     </span>
   </a>
@@ -2119,10 +2146,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#vfx-stop-effect-players" class="md-nav__link">
+  <a href="#5-play-an-effect-when-the-player-kills-an-entity-repeatable-advancement" class="md-nav__link">
     <span class="md-ellipsis">
       
-        /vfx stop &lt;effect&gt; [players]
+        5. Play an effect when the player kills an entity (repeatable advancement)
       
     </span>
   </a>
@@ -2130,10 +2157,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#vfx-stop-player" class="md-nav__link">
+  <a href="#6-play-on-a-player-at-a-world-position-or-on-an-entity" class="md-nav__link">
     <span class="md-ellipsis">
       
-        /vfx stop [&lt;player&gt;]
+        6. Play on a player, at a world position, or on an entity
       
     </span>
   </a>
@@ -2141,10 +2168,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#vfx-list" class="md-nav__link">
+  <a href="#7-drive-a-param-from-a-scoreboard" class="md-nav__link">
     <span class="md-ellipsis">
       
-        /vfx list
+        7. Drive a param from a scoreboard
       
     </span>
   </a>
@@ -2152,21 +2179,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#vfx-validate-namespace" class="md-nav__link">
+  <a href="#8-stop-what-you-started" class="md-nav__link">
     <span class="md-ellipsis">
       
-        /vfx validate [namespace]
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#notes" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Notes
+        8. Stop what you started
       
     </span>
   </a>
@@ -2188,33 +2204,6 @@
   
 </nav>
       
-    </li>
-  
-
-    
-      
-      
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../recipes/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Triggering effects
-  
-
-    
-  </span>
-  
-  
-
-      </a>
     </li>
   
 
@@ -2694,10 +2683,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#vfx-play-effect-paramvalue-players" class="md-nav__link">
+  <a href="#1-play-an-effect-from-a-function" class="md-nav__link">
     <span class="md-ellipsis">
       
-        /vfx play &lt;effect&gt; [{[param:value],...}] [players]
+        1. Play an effect from a function
       
     </span>
   </a>
@@ -2705,10 +2694,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#vfx-playat-effect-x-y-z-players" class="md-nav__link">
+  <a href="#2-play-an-effect-when-the-world-loads" class="md-nav__link">
     <span class="md-ellipsis">
       
-        /vfx playat &lt;effect&gt; &lt;x&gt; &lt;y&gt; &lt;z&gt; [{[...]}] [players]
+        2. Play an effect when the world loads
       
     </span>
   </a>
@@ -2716,10 +2705,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#vfx-playentity-effect-targets-players" class="md-nav__link">
+  <a href="#3-play-an-effect-on-first-join-advancement" class="md-nav__link">
     <span class="md-ellipsis">
       
-        /vfx playentity &lt;effect&gt; [{[...]}] &lt;targets&gt; [players]
+        3. Play an effect on first join (advancement)
       
     </span>
   </a>
@@ -2727,10 +2716,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#vfx-set-effect-paramvalue-players" class="md-nav__link">
+  <a href="#4-play-an-effect-when-the-player-takes-damage-scoreboard-tick-check" class="md-nav__link">
     <span class="md-ellipsis">
       
-        /vfx set &lt;effect&gt; {[param:value],...} [players]
+        4. Play an effect when the player takes damage (scoreboard tick check)
       
     </span>
   </a>
@@ -2738,10 +2727,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#vfx-stop-effect-players" class="md-nav__link">
+  <a href="#5-play-an-effect-when-the-player-kills-an-entity-repeatable-advancement" class="md-nav__link">
     <span class="md-ellipsis">
       
-        /vfx stop &lt;effect&gt; [players]
+        5. Play an effect when the player kills an entity (repeatable advancement)
       
     </span>
   </a>
@@ -2749,10 +2738,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#vfx-stop-player" class="md-nav__link">
+  <a href="#6-play-on-a-player-at-a-world-position-or-on-an-entity" class="md-nav__link">
     <span class="md-ellipsis">
       
-        /vfx stop [&lt;player&gt;]
+        6. Play on a player, at a world position, or on an entity
       
     </span>
   </a>
@@ -2760,10 +2749,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#vfx-list" class="md-nav__link">
+  <a href="#7-drive-a-param-from-a-scoreboard" class="md-nav__link">
     <span class="md-ellipsis">
       
-        /vfx list
+        7. Drive a param from a scoreboard
       
     </span>
   </a>
@@ -2771,21 +2760,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#vfx-validate-namespace" class="md-nav__link">
+  <a href="#8-stop-what-you-started" class="md-nav__link">
     <span class="md-ellipsis">
       
-        /vfx validate [namespace]
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#notes" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Notes
+        8. Stop what you started
       
     </span>
   </a>
@@ -2823,72 +2801,139 @@
   
 
 
-<h1 id="commands">Commands<a class="headerlink" href="#commands" title="Permanent link">&para;</a></h1>
-<p>Every command is under <code>/vfx</code>. <strong>Permissions:</strong> <code>/vfx play</code>, <code>/vfx playat</code>, <code>/vfx playentity</code>,
-<code>/vfx stop</code> and <code>/vfx set</code> need operator rights (gamemaster level); <code>/vfx list</code> is open to everyone.</p>
-<h2 id="vfx-play-effect-paramvalue-players"><code>/vfx play &lt;effect&gt; [{[param:value],...}] [players]</code><a class="headerlink" href="#vfx-play-effect-paramvalue-players" title="Permanent link">&para;</a></h2>
-<p>Play an effect (default: to yourself). The optional param-map overrides the definition's default
-params, including world coordinates (<code>pos_x/y/z</code>) - like <code>overrides</code> in the Java API. Tab
-autocompletes.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>/vfx play vfxweaver:chromatic_aberration
-<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>/vfx play vfxweaver:blur {[radius:10]}
-<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>/vfx play mymap:flash {[color_r:1],[alpha:0.8]} @a
+<h1 id="triggering-effects">Triggering effects<a class="headerlink" href="#triggering-effects" title="Permanent link">&para;</a></h1>
+<p>Every recipe here is a complete, copy-pasteable way to fire an effect from a game event. They build
+on <a href="../first-datapack/">Your first datapack, from zero</a>: the files live in the same <code>mymap</code> pack, and
+the namespace is your own. Run <code>/reload</code> after adding or editing any of them.</p>
+<blockquote>
+<p><strong>Permissions.</strong> Functions run at <strong>permission level 2</strong> (gamemaster) by default, exactly what the
+mutating <code>/vfx</code> commands (<code>play</code>, <code>playat</code>, <code>playentity</code>, <code>stop</code>, <code>set</code>) require. That is why a
+function can play an effect <em>for a player who is not an operator</em> — the permission belongs to the
+function, not the viewer. Typing the same command in chat still needs op.</p>
+</blockquote>
+<h2 id="1-play-an-effect-from-a-function">1. Play an effect from a function<a class="headerlink" href="#1-play-an-effect-from-a-function" title="Permanent link">&para;</a></h2>
+<p><code>data/mymap/function/effects/blur.mcfunction</code>:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nb">vfx</span><span class="w"> </span><span class="kc">play</span><span class="w"> </span><span class="nf">vfxweaver:blur</span><span class="w"> </span><span class="p">{[</span><span class="na">radius</span><span class="p">:</span><span class="mf">8</span><span class="p">]}</span><span class="w"> </span><span class="nv">@s</span>
 </code></pre></div>
-<p>Repeated <code>/vfx play</code> of the same effect <strong>does not replace</strong> the playing instance - it adds another
-independent one (several dents on screen at once). Up to 64 effects play at once in total.</p>
-<h2 id="vfx-playat-effect-x-y-z-players"><code>/vfx playat &lt;effect&gt; &lt;x&gt; &lt;y&gt; &lt;z&gt; [{[...]}] [players]</code><a class="headerlink" href="#vfx-playat-effect-x-y-z-players" title="Permanent link">&para;</a></h2>
-<p>Play an effect anchored to world coordinates. The client re-anchors spatial bindings (<code>screen_x/y</code>,
-<code>proximity</code>) to that point and uses it for the effect's positions (e.g. <code>block_tint</code>/<code>block_outline</code>).</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>/vfx playat vfxweaver:light_beam 8 70 8 {[radius:2],[top_scale:2]}
+<p>Run it in game with <code>/function mymap:effects/blur</code> (it affects the executing player; run it from a
+command block or <code>execute as</code> to pick someone else).</p>
+<h2 id="2-play-an-effect-when-the-world-loads">2. Play an effect when the world loads<a class="headerlink" href="#2-play-an-effect-when-the-world-loads" title="Permanent link">&para;</a></h2>
+<p>Handy for smoke tests. Register a <code>load</code> function tag so the game runs it once on world load.</p>
+<p><code>data/mymap/function/setup.mcfunction</code>:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="nb">tellraw</span><span class="w"> </span><span class="nv">@a</span><span class="w"> </span><span class="p">{</span><span class="na">"text"</span><span class="p">:</span><span class="s2">"[mymap] VFX effect pack loaded"</span><span class="p">,</span><span class="na">"color"</span><span class="p">:</span><span class="s2">"green"</span><span class="p">}</span>
 </code></pre></div>
-<h2 id="vfx-playentity-effect-targets-players"><code>/vfx playentity &lt;effect&gt; [{[...]}] &lt;targets&gt; [players]</code><a class="headerlink" href="#vfx-playentity-effect-targets-players" title="Permanent link">&para;</a></h2>
-<p>Play an effect on selected entities (a selector, e.g. <code>@e[type=!player,distance=..10]</code>). Targets are
-passed by UUID (up to 16) and apply to <code>entity_tint</code>/<code>entity_outline</code>/<code>entity_displace</code>. An effect
-definition may instead carry an <code>entity_selector</code> field, in which case plain <code>/vfx play</code> finds its own
-targets.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>/vfx playentity vfxweaver:entity_outline @e[type=pig,limit=1] {[width:0.1]}
-<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>/vfx playentity vfxweaver:entity_tint @e[type=!player,distance=..10]
+<p><code>data/minecraft/tags/function/load.json</code>:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="p">{</span><span class="w"> </span><span class="nt">"values"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"mymap:setup"</span><span class="p">]</span><span class="w"> </span><span class="p">}</span>
 </code></pre></div>
-<h2 id="vfx-set-effect-paramvalue-players"><code>/vfx set &lt;effect&gt; {[param:value],...} [players]</code><a class="headerlink" href="#vfx-set-effect-paramvalue-players" title="Permanent link">&para;</a></h2>
-<p>Live override of params of a <strong>running</strong> effect, without restarting the timeline. If the effect is not
-running, a new instance starts with those values and the definition's own <code>duration</code> (it ends on
-schedule like a normal play). Tab walks the syntax: <code>{</code> → <code>[</code> → param name → <code>:</code> value → <code>]</code> → <code>,</code>
-(new pair) or <code>}</code>.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>/vfx set vfxweaver:blur {[radius:12]}
+<h2 id="3-play-an-effect-on-first-join-advancement">3. Play an effect on first join (advancement)<a class="headerlink" href="#3-play-an-effect-on-first-join-advancement" title="Permanent link">&para;</a></h2>
+<p>An advancement with the <code>minecraft:tick</code> trigger is granted on the first tick a player is in the
+world; its reward function runs once, as that player.</p>
+<p><code>data/mymap/advancement/first_join.json</code>:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="p">{</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="w">    </span><span class="nt">"criteria"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="w">        </span><span class="nt">"tick"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">"trigger"</span><span class="p">:</span><span class="w"> </span><span class="s2">"minecraft:tick"</span><span class="w"> </span><span class="p">}</span>
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="w">    </span><span class="p">},</span>
+<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="w">    </span><span class="nt">"rewards"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">"function"</span><span class="p">:</span><span class="w"> </span><span class="s2">"mymap:on_first_join"</span><span class="w"> </span><span class="p">}</span>
+<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="p">}</span>
 </code></pre></div>
-<h2 id="vfx-stop-effect-players"><code>/vfx stop &lt;effect&gt; [players]</code><a class="headerlink" href="#vfx-stop-effect-players" title="Permanent link">&para;</a></h2>
-<p>Stop the effect (all its instances). Effects with <code>fade_ticks &gt; 0</code> fade out smoothly; otherwise they
-are removed instantly. Stopping one instance of an effect is only possible through the Java API
-(<a href="../../API/"><code>sendStop</code></a>).</p>
-<h2 id="vfx-stop-player"><code>/vfx stop [&lt;player&gt;]</code><a class="headerlink" href="#vfx-stop-player" title="Permanent link">&para;</a></h2>
-<p>Stop <strong>every</strong> active effect of a player (default: the executing player). Also clears effects the
-executor's own client played locally. A bare token is parsed as an <code>&lt;effect&gt;</code> first, so target a
-player with a selector (<code>@p</code>/<code>@a</code>) or a name that is not a valid effect id.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>/vfx stop vfxweaver:blur
-<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>/vfx stop @a
+<p><code>data/mymap/function/on_first_join.mcfunction</code>:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="nb">vfx</span><span class="w"> </span><span class="kc">play</span><span class="w"> </span><span class="nf">vfxweaver:screen_flash</span><span class="w"> </span><span class="p">{[</span><span class="na">color_r</span><span class="p">:</span><span class="mf">0.2</span><span class="p">]</span><span class="err">,</span><span class="p">[</span><span class="na">color_g</span><span class="p">:</span><span class="mf">0.8</span><span class="p">]</span><span class="err">,</span><span class="p">[</span><span class="na">color_b</span><span class="p">:</span><span class="mf">1.0</span><span class="p">]</span><span class="err">,</span><span class="p">[</span><span class="na">alpha</span><span class="p">:</span><span class="mf">0.4</span><span class="p">]}</span><span class="w"> </span><span class="nv">@s</span>
 </code></pre></div>
-<h2 id="vfx-list"><code>/vfx list</code><a class="headerlink" href="#vfx-list" title="Permanent link">&para;</a></h2>
-<p>List all loaded definitions (built-ins + datapack).</p>
-<h2 id="vfx-validate-namespace"><code>/vfx validate [namespace]</code><a class="headerlink" href="#vfx-validate-namespace" title="Permanent link">&para;</a></h2>
-<p>Dry-run health check: prints how many definitions loaded and lists every broken datapack file with
-its parse error (optionally filtered by namespace, tab-completed). Operator-only. Useful for datapack
-development and server admin checks without digging through logs.</p>
-<h2 id="notes">Notes<a class="headerlink" href="#notes" title="Permanent link">&para;</a></h2>
-<ul>
-<li><strong>Param-map limits:</strong> the param-map overrides <em>params only</em> - <code>duration</code> and <code>fade_ticks</code> are
-  definition fields and cannot be changed from a command. To get a persistent built-in effect with a
-  smooth exit, wrap it in a datapack definition (<a href="../datapack/format/">Datapack format</a>).</li>
-<li><strong><code>expr</code> is datapack-only:</strong> command param-maps accept floats, not expressions
-  (<a href="../datapack/expr/">Expressions</a>).</li>
-<li>Effects are defined in datapacks - see the <a href="../datapack/format/">Datapack format</a> and the
-  <a href="../effects/">effect pages</a>. Collections (several effects from one play) are a definition type,
-  not a command: <a href="../effects/collection/">collection</a>.</li>
-</ul>
+<h2 id="4-play-an-effect-when-the-player-takes-damage-scoreboard-tick-check">4. Play an effect when the player takes damage (scoreboard tick check)<a class="headerlink" href="#4-play-an-effect-when-the-player-takes-damage-scoreboard-tick-check" title="Permanent link">&para;</a></h2>
+<p>This fires <strong>every</strong> time health drops, so it repeats. It needs two scoreboard objectives and three
+functions.</p>
+<p><code>data/mymap/function/setup.mcfunction</code> (extend the load recipe's file):</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="nb">scoreboard</span><span class="w"> </span><span class="kc">objectives</span><span class="w"> </span><span class="kc">add</span><span class="w"> </span><span class="kc">vfx.health</span><span class="w"> </span><span class="kc">dummy</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="nb">scoreboard</span><span class="w"> </span><span class="kc">objectives</span><span class="w"> </span><span class="kc">add</span><span class="w"> </span><span class="kc">vfx.prev</span><span class="w"> </span><span class="kc">dummy</span>
+</code></pre></div>
+<p><code>data/mymap/function/tick.mcfunction</code> (runs every tick):</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="nb">execute</span><span class="w"> </span><span class="kc">as</span><span class="w"> </span><span class="nv">@a</span><span class="w"> </span><span class="kc">at</span><span class="w"> </span><span class="nv">@s</span><span class="w"> </span><span class="kc">run</span><span class="nb"> function</span><span class="w"> </span><span class="nf">mymap:check_damage</span>
+</code></pre></div>
+<p><code>data/mymap/function/check_damage.mcfunction</code> (runs as one player):</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="nb">scoreboard</span><span class="w"> </span><span class="kc">players</span><span class="w"> </span><span class="kc">operation</span><span class="w"> </span><span class="nv">@s</span><span class="w"> </span><span class="kc">vfx.prev</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nv">@s</span><span class="w"> </span><span class="kc">vfx.health</span>
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="nb">execute</span><span class="w"> </span><span class="kc">store</span><span class="w"> </span><span class="kc">result</span><span class="w"> </span><span class="kc">score</span><span class="w"> </span><span class="nv">@s</span><span class="w"> </span><span class="kc">vfx.health</span><span class="w"> </span><span class="kc">run</span><span class="nb"> data</span><span class="w"> </span><span class="kc">get</span><span class="w"> </span><span class="kc">entity</span><span class="w"> </span><span class="nv">@s</span><span class="w"> </span><span class="kc">Health</span>
+<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="nb">execute</span><span class="w"> </span><span class="kc">if</span><span class="w"> </span><span class="kc">score</span><span class="w"> </span><span class="nv">@s</span><span class="w"> </span><span class="kc">vfx.health</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="nv">@s</span><span class="w"> </span><span class="kc">vfx.prev</span><span class="w"> </span><span class="kc">run</span><span class="nb"> function</span><span class="w"> </span><span class="nf">mymap:on_damage</span>
+</code></pre></div>
+<p><code>data/mymap/function/on_damage.mcfunction</code>:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="nb">vfx</span><span class="w"> </span><span class="kc">play</span><span class="w"> </span><span class="nf">vfxweaver:screen_flash</span><span class="w"> </span><span class="p">{[</span><span class="na">color_r</span><span class="p">:</span><span class="mf">1.0</span><span class="p">]</span><span class="err">,</span><span class="p">[</span><span class="na">color_g</span><span class="p">:</span><span class="mf">0.1</span><span class="p">]</span><span class="err">,</span><span class="p">[</span><span class="na">color_b</span><span class="p">:</span><span class="mf">0.1</span><span class="p">]</span><span class="err">,</span><span class="p">[</span><span class="na">alpha</span><span class="p">:</span><span class="mf">0.5</span><span class="p">]}</span><span class="w"> </span><span class="nv">@s</span>
+</code></pre></div>
+<p>Register the tick function in <code>data/minecraft/tags/function/tick.json</code>:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="p">{</span><span class="w"> </span><span class="nt">"values"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"mymap:tick"</span><span class="p">]</span><span class="w"> </span><span class="p">}</span>
+</code></pre></div>
+<p><code>vfx.health</code> holds the health read this tick, <code>vfx.prev</code> the value from the tick before; when the
+current value drops below the previous one, the player was hurt.</p>
+<h2 id="5-play-an-effect-when-the-player-kills-an-entity-repeatable-advancement">5. Play an effect when the player kills an entity (repeatable advancement)<a class="headerlink" href="#5-play-an-effect-when-the-player-kills-an-entity-repeatable-advancement" title="Permanent link">&para;</a></h2>
+<p>Advancements are normally granted once, so the reward function revokes it again — that makes the
+trigger repeatable.</p>
+<p><code>data/mymap/advancement/zombie_kill.json</code>:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="p">{</span>
+<a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="w">    </span><span class="nt">"criteria"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a><span class="w">        </span><span class="nt">"killed"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a><span class="w">            </span><span class="nt">"trigger"</span><span class="p">:</span><span class="w"> </span><span class="s2">"minecraft:player_killed_entity"</span><span class="p">,</span>
+<a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a><span class="w">            </span><span class="nt">"conditions"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">"entity"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">"type"</span><span class="p">:</span><span class="w"> </span><span class="s2">"minecraft:zombie"</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="p">}</span>
+<a id="__codelineno-10-6" name="__codelineno-10-6" href="#__codelineno-10-6"></a><span class="w">        </span><span class="p">}</span>
+<a id="__codelineno-10-7" name="__codelineno-10-7" href="#__codelineno-10-7"></a><span class="w">    </span><span class="p">},</span>
+<a id="__codelineno-10-8" name="__codelineno-10-8" href="#__codelineno-10-8"></a><span class="w">    </span><span class="nt">"rewards"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">"function"</span><span class="p">:</span><span class="w"> </span><span class="s2">"mymap:on_zombie_kill"</span><span class="w"> </span><span class="p">}</span>
+<a id="__codelineno-10-9" name="__codelineno-10-9" href="#__codelineno-10-9"></a><span class="p">}</span>
+</code></pre></div>
+<p><code>data/mymap/function/on_zombie_kill.mcfunction</code>:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="nb">vfx</span><span class="w"> </span><span class="kc">play</span><span class="w"> </span><span class="nf">vfxweaver:camera_shake</span><span class="w"> </span><span class="p">{[</span><span class="na">amplitude_y</span><span class="p">:</span><span class="mf">0.3</span><span class="p">]</span><span class="err">,</span><span class="p">[</span><span class="na">frequency</span><span class="p">:</span><span class="mf">20</span><span class="p">]}</span><span class="w"> </span><span class="nv">@s</span>
+<a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a><span class="nb">advancement</span><span class="w"> </span><span class="kc">revoke</span><span class="w"> </span><span class="nv">@s</span><span class="w"> </span><span class="kc">only</span><span class="w"> </span><span class="nf">mymap:zombie_kill</span>
+</code></pre></div>
+<p>Change the <code>entity.type</code> to match any mob, or drop the <code>conditions</code> block to fire on any kill.</p>
+<h2 id="6-play-on-a-player-at-a-world-position-or-on-an-entity">6. Play on a player, at a world position, or on an entity<a class="headerlink" href="#6-play-on-a-player-at-a-world-position-or-on-an-entity" title="Permanent link">&para;</a></h2>
+<p>The three targets are three different commands.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="c1"># 1) On a player (screen-space / world overlays that follow them)</span>
+<a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a><span class="nb">vfx</span><span class="w"> </span><span class="kc">play</span><span class="w"> </span><span class="nf">vfxweaver:blur</span><span class="w"> </span><span class="p">{[</span><span class="na">radius</span><span class="p">:</span><span class="mf">8</span><span class="p">]}</span><span class="w"> </span><span class="nv">@s</span>
+<a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a>
+<a id="__codelineno-12-4" name="__codelineno-12-4" href="#__codelineno-12-4"></a><span class="c1"># 2) On every connected player</span>
+<a id="__codelineno-12-5" name="__codelineno-12-5" href="#__codelineno-12-5"></a><span class="nb">vfx</span><span class="w"> </span><span class="kc">play</span><span class="w"> </span><span class="nf">vfxweaver:blur</span><span class="w"> </span><span class="p">{[</span><span class="na">radius</span><span class="p">:</span><span class="mf">8</span><span class="p">]}</span><span class="w"> </span><span class="nv">@a</span>
+<a id="__codelineno-12-6" name="__codelineno-12-6" href="#__codelineno-12-6"></a>
+<a id="__codelineno-12-7" name="__codelineno-12-7" href="#__codelineno-12-7"></a><span class="c1"># 3) At an exact world position (light_beam, block_tint, pulse_ring, ...)</span>
+<a id="__codelineno-12-8" name="__codelineno-12-8" href="#__codelineno-12-8"></a><span class="nb">vfx</span><span class="w"> </span><span class="kc">playat</span><span class="w"> </span><span class="nf">vfxweaver:light_beam</span><span class="w"> </span><span class="mf">8</span><span class="w"> </span><span class="mf">70</span><span class="w"> </span><span class="mf">8</span><span class="w"> </span><span class="p">{[</span><span class="na">radius</span><span class="p">:</span><span class="mf">2</span><span class="p">]</span><span class="err">,</span><span class="p">[</span><span class="na">top_scale</span><span class="p">:</span><span class="mf">2</span><span class="p">]}</span>
+<a id="__codelineno-12-9" name="__codelineno-12-9" href="#__codelineno-12-9"></a>
+<a id="__codelineno-12-10" name="__codelineno-12-10" href="#__codelineno-12-10"></a><span class="c1"># 4) At an entity's position (relative coordinates from execute)</span>
+<a id="__codelineno-12-11" name="__codelineno-12-11" href="#__codelineno-12-11"></a><span class="nb">execute</span><span class="w"> </span><span class="kc">at</span><span class="w"> </span><span class="nv">@e</span><span class="p">[</span><span class="na">type</span><span class="p">=</span><span class="nt">minecraft:zombie</span><span class="p">,</span><span class="na">limit</span><span class="p">=</span><span class="mf">1</span><span class="p">]</span><span class="w"> </span><span class="kc">run</span><span class="nb"> vfx</span><span class="w"> </span><span class="kc">playat</span><span class="w"> </span><span class="nf">vfxweaver:light_beam</span><span class="w"> </span><span class="o">~</span><span class="w"> </span><span class="o">~</span><span class="w"> </span><span class="o">~</span><span class="w"> </span><span class="p">{[</span><span class="na">radius</span><span class="p">:</span><span class="mf">2</span><span class="p">]}</span>
+<a id="__codelineno-12-12" name="__codelineno-12-12" href="#__codelineno-12-12"></a>
+<a id="__codelineno-12-13" name="__codelineno-12-13" href="#__codelineno-12-13"></a><span class="c1"># 5) On an entity (entity_tint / entity_outline / entity_displace, targeted by selector)</span>
+<a id="__codelineno-12-14" name="__codelineno-12-14" href="#__codelineno-12-14"></a><span class="nb">vfx</span><span class="w"> </span><span class="kc">playentity</span><span class="w"> </span><span class="nf">vfxweaver:entity_outline</span><span class="w"> </span><span class="nv">@e</span><span class="p">[</span><span class="na">type</span><span class="p">=</span><span class="nt">minecraft:zombie</span><span class="p">,</span><span class="na">limit</span><span class="p">=</span><span class="mf">1</span><span class="p">]</span><span class="w"> </span><span class="p">{[</span><span class="na">width</span><span class="p">:</span><span class="mf">0.12</span><span class="p">]}</span>
+</code></pre></div>
+<p><code>/vfx playat</code> takes absolute or <code>~</code> relative coordinates, so recipe 4 works wherever the entity
+stands. <code>/vfx playentity</code> sends the effect to the executing player by default; add a trailing player
+selector to show it to others (e.g. <code>... @e[...] @a</code>).</p>
+<h2 id="7-drive-a-param-from-a-scoreboard">7. Drive a param from a scoreboard<a class="headerlink" href="#7-drive-a-param-from-a-scoreboard" title="Permanent link">&para;</a></h2>
+<p>A definition can read a scoreboard value live; the parameter follows the score with no command loop.
+Put this in <code>data/mymap/vfx/tension_blur.json</code>:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="p">{</span>
+<a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a><span class="w">    </span><span class="nt">"type"</span><span class="p">:</span><span class="w"> </span><span class="s2">"blur"</span><span class="p">,</span>
+<a id="__codelineno-13-3" name="__codelineno-13-3" href="#__codelineno-13-3"></a><span class="w">    </span><span class="nt">"persistent"</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
+<a id="__codelineno-13-4" name="__codelineno-13-4" href="#__codelineno-13-4"></a><span class="w">    </span><span class="nt">"fade_ticks"</span><span class="p">:</span><span class="w"> </span><span class="mi">10</span><span class="p">,</span>
+<a id="__codelineno-13-5" name="__codelineno-13-5" href="#__codelineno-13-5"></a><span class="w">    </span><span class="nt">"params"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-13-6" name="__codelineno-13-6" href="#__codelineno-13-6"></a><span class="w">        </span><span class="nt">"radius"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">"bind"</span><span class="p">:</span><span class="w"> </span><span class="s2">"scoreboard"</span><span class="p">,</span><span class="w"> </span><span class="nt">"objective"</span><span class="p">:</span><span class="w"> </span><span class="s2">"mymap.tension"</span><span class="p">,</span><span class="w"> </span><span class="nt">"range"</span><span class="p">:</span><span class="w"> </span><span class="mi">10</span><span class="p">,</span><span class="w"> </span><span class="nt">"scale"</span><span class="p">:</span><span class="w"> </span><span class="mi">20</span><span class="w"> </span><span class="p">}</span>
+<a id="__codelineno-13-7" name="__codelineno-13-7" href="#__codelineno-13-7"></a><span class="w">    </span><span class="p">}</span>
+<a id="__codelineno-13-8" name="__codelineno-13-8" href="#__codelineno-13-8"></a><span class="p">}</span>
+</code></pre></div>
+<p>Then:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="nb">scoreboard</span><span class="w"> </span><span class="kc">objectives</span><span class="w"> </span><span class="kc">add</span><span class="w"> </span><span class="kc">mymap.tension</span><span class="w"> </span><span class="kc">dummy</span>
+<a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a><span class="nb">scoreboard</span><span class="w"> </span><span class="kc">players</span><span class="w"> </span><span class="kc">set</span><span class="w"> </span><span class="nv">@s</span><span class="w"> </span><span class="kc">mymap.tension</span><span class="w"> </span><span class="mf">5</span>
+<a id="__codelineno-14-3" name="__codelineno-14-3" href="#__codelineno-14-3"></a><span class="nb">vfx</span><span class="w"> </span><span class="kc">play</span><span class="w"> </span><span class="nf">mymap:tension_blur</span>
+</code></pre></div>
+<p>The blur radius tracks the score from 0 to 20 as the score runs 0 to 10 (<code>score / range × scale</code>),
+and updates on its own while the effect is persistent. Stop it with
+<code>vfx stop mymap:tension_blur</code>. On a dedicated server the value is pushed to clients, so it works for
+players who do not have the objective displayed.</p>
+<h2 id="8-stop-what-you-started">8. Stop what you started<a class="headerlink" href="#8-stop-what-you-started" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="nb">vfx</span><span class="w"> </span><span class="kc">stop</span><span class="w"> </span><span class="nf">vfxweaver:blur</span>
+<a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a><span class="nb">vfx</span><span class="w"> </span><span class="kc">stop</span><span class="w"> </span><span class="nf">mymap:tension_blur</span><span class="w"> </span><span class="nv">@a</span>
+<a id="__codelineno-15-3" name="__codelineno-15-3" href="#__codelineno-15-3"></a><span class="nb">vfx</span><span class="w"> </span><span class="kc">stop</span><span class="w"> </span><span class="nv">@a</span>
+</code></pre></div>
+<p><code>/vfx stop &lt;effect&gt;</code> stops every instance of that effect; <code>/vfx stop [&lt;player&gt;]</code> stops every active
+effect of a player (default: the executor). See <a href="../commands/">Commands</a> for the full surface.</p>
 <h2 id="see-also">See also<a class="headerlink" href="#see-also" title="Permanent link">&para;</a></h2>
 <ul>
-<li><a href="../">Getting started</a> - install and your first effect.</li>
-<li><a href="../datapack/format/">Datapack format</a> - files, definition fields, positions.</li>
-<li><a href="../../API/">Java API</a> - the same triggers from code.</li>
+<li><a href="../first-datapack/">Your first datapack, from zero</a> — the datapack layout these recipes assume.</li>
+<li><a href="../commands/">Commands</a> — every <code>/vfx</code> subcommand and its arguments.</li>
+<li><a href="../datapack/format/">Datapack format</a> — definition fields, <code>positions</code>, validation.</li>
 </ul>
 
 
