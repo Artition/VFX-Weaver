@@ -311,6 +311,22 @@ same-id built-in (the datapack/server layer wins), so a demo written as `vfxweav
 loaded at all, and you break the built-in. Use the pack's namespace (`vfx_demos:<name>`) for its
 effects and spark presets; keep `vfxweaver:` only when the intent really is to shadow a built-in.
 
+**Deploy to the test instances only when their name is `{version}{loader}`** — one Prism instance per
+node, all six under `C:\Users\Light Flight PC\AppData\Roaming\PrismLauncher\instances\`:
+
+| node | instance | jar |
+|---|---|---|
+| `26.2` | `26.2fabric` | `vfxweaver-<v>+26.2.jar` |
+| `26.2-neoforge` | `26.2neoforge_test` | `vfxweaver-<v>+26.2-neoforge.jar` |
+| `26.1.2` | `26.1fabric` | `vfxweaver-<v>+26.1.2.jar` (the `26.1.2` build serves every `26.1.x`) |
+| `26.1.2-neoforge` | `26.1.2neoforge` | `vfxweaver-<v>+26.1.2-neoforge.jar` |
+| `1.21.11` | `1.21.11fabric` | `vfxweaver-<v>+1.21.11.jar` |
+| `1.21.11-neoforge` | `1.21.11neoforge` | `vfxweaver-<v>+1.21.11-neoforge.jar` |
+
+Deploy = remove the old `vfxweaver*.jar` (never `*-sources.jar`) from `<instance>\minecraft\mods` and
+copy the node's `versions/<node>/build/libs/` jar in (`-Force` if the game holds it). Do not touch any
+other instance — they are the owner's play worlds, not test rigs.
+
 The `26.2fabric` Prism instance's test pack is at
 `<instance>/minecraft/saves/<world>/datapacks/vfx_demos/` (currently
 `C:\Users\Light Flight PC\AppData\Roaming\PrismLauncher\instances\26.2fabric\minecraft\saves\New World\datapacks\vfx_demos`,
