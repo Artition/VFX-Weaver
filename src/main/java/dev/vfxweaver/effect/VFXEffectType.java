@@ -97,6 +97,8 @@ public enum VFXEffectType {
 	STOP_MOTION("stop_motion"),
 	/** An animated value-noise field warps the picture in soft fluid patches. */
 	NOISE_WARP("noise_warp"),
+	/** A world-anchored shape pattern (circle/ellipse/rect/polygon, tiled by `repeat`) projected onto the depth-reconstructed surface (post pass at screen layer 0). */
+	SURFACE_PATTERN("surface_pattern"),
 	/** Not an effect itself: plays a list of child effects with per-child delays. */
 	COLLECTION("collection");
 
@@ -184,6 +186,7 @@ public enum VFXEffectType {
 		}
 		case AFTERIMAGE -> "intensity".equals(parameter) ? 0.0F : Float.NaN;
 		case STOP_MOTION -> "fps".equals(parameter) ? 0.0F : Float.NaN;
+		case SURFACE_PATTERN -> "opacity".equals(parameter) ? 0.0F : Float.NaN;
 		default -> Float.NaN;
 		};
 	}
