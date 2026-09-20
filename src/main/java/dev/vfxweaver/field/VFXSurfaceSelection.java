@@ -13,6 +13,12 @@ import java.util.Locale;
  * shader selects the projection plane from the reconstructed world normal and tests the mask; this
  * only validates the authored values and carries them.
  *
+ * <p>The optional {@code band_softness} is the half-width (in blocks) of the band's soft edge,
+ * centred on {@code min}/{@code max}. Without it a surface that lies exactly on a bound shimmers,
+ * because the depth-reconstructed axis coordinate jitters across the hard inclusive test from pixel
+ * to pixel; the fade keeps the interior fully on and the outside fully off. {@code 0} (the default)
+ * keeps the exact hard test, so an authored definition that omits it is unchanged.
+ *
  * <p>Face ids (one bit each, fixed order): {@code 0} up (+Y), {@code 1} down (−Y), {@code 2}
  * north (−Z), {@code 3} south (+Z), {@code 4} west (−X), {@code 5} east (+X). Minecraft's axis
  * convention: +X = east, +Z = south, north = −Z, west = −X.
@@ -43,17 +49,25 @@ public final class VFXSurfaceSelection {
 	/** Safety cap on authored face tokens before expansion (external datapack input). */
 	public static final int MAX_TOKENS = 8;
 
+	/** Soft-edge half-width used when {@code band_softness} is omitted: the exact hard test. */
+	public static final float DEFAULT_BAND_SOFTNESS = 0.0F;
+
+	/** Safety cap on {@code band_softness} (external datapack input); 4 blocks is already very soft. */
+	public static final float MAX_BAND_SOFTNESS = 4.0F;
+
 	/** Every face selected — the {@code all} group. */
 	private static final int ALL = (1 << 6) - 1;
 
 	private final int faceMask;
 	private final float min;
 	private final float max;
+	private final float bandSoftness;
 
-	private VFXSurfaceSelection(final int faceMask, final float min, final float max) {
+	private VFXSurfaceSelection(final int faceMask, final float min, final float max, final float bandSoftness) {
 		this.faceMask = faceMask;
 		this.min = min;
 		this.max = max;
+		this.bandSoftness = bandSoftness;
 	}
 
 	/**
@@ -62,12 +76,13 @@ public final class VFXSurfaceSelection {
 	 * @param json the {@code surface} object (e.g. {@code {"faces": ["up"], "min": 64, "max": 96}})
 	 * @return the parsed selection, never {@code null}
 	 * @throws IllegalArgumentException on an unknown key/face token, more than {@link #MAX_TOKENS}
-	 *         tokens, a non-finite bound, or {@code min > max}
+	 *         tokens, a non-finite bound, {@code min > max}, or {@code band_softness} outside
+	 *         {@code [0, MAX_BAND_SOFTNESS]}
 	 */
 	public static VFXSurfaceSelection parse(final JsonObject json) {
 		for (final String key : json.keySet()) {
-			if (!"faces".equals(key) && !"min".equals(key) && !"max".equals(key)) {
-				throw new IllegalArgumentException("surface: unknown key '" + key + "' (expected faces, min, max)");
+			if (!"faces".equals(key) && !"min".equals(key) && !"max".equals(key) && !"band_softness".equals(key)) {
+				throw new IllegalArgumentException("surface: unknown key '" + key + "' (expected faces, min, max, band_softness)");
 			}
 		}
 
@@ -95,7 +110,18 @@ public final class VFXSurfaceSelection {
 			throw new IllegalArgumentException("surface: 'min' (" + min + ") must not be greater than 'max' (" + max + ")");
 		}
 
-		return new VFXSurfaceSelection(faceMask, min, max);
+		float bandSoftness = DEFAULT_BAND_SOFTNESS;
+		if (json.has("band_softness") && !json.get("band_softness").isJsonNull()) {
+			bandSoftness = number(json.get("band_softness"), "band_softness");
+			if (bandSoftness < 0.0F) {
+				throw new IllegalArgumentException("surface: 'band_softness' must be >= 0, got " + bandSoftness);
+			}
+			if (bandSoftness > MAX_BAND_SOFTNESS) {
+				throw new IllegalArgumentException("surface: 'band_softness' must be <= " + MAX_BAND_SOFTNESS + ", got " + bandSoftness);
+			}
+		}
+
+		return new VFXSurfaceSelection(faceMask, min, max, bandSoftness);
 	}
 
 	/** The 6-bit face mask (bit {@code i} = face id {@code i}). */
@@ -111,6 +137,11 @@ public final class VFXSurfaceSelection {
 	/** Inclusive upper bound of the band, along the fragment's dominant normal axis. */
 	public float max() {
 		return this.max;
+	}
+
+	/** Half-width (blocks) of the band's soft edge; {@code 0} means the exact hard test. */
+	public float bandSoftness() {
+		return this.bandSoftness;
 	}
 
 	/** Expands one token to its face bits, or {@code 0} when the token is unknown. */

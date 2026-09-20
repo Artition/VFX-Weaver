@@ -531,8 +531,9 @@ An optional top-level structural `surface` block (strings/enums, never in `param
 | `faces` | `["up"]` | Which face orientations get the pattern. Tokens: `up`, `down`, `north`, `south`, `east`, `west`; axis aliases `x` (= west+east), `y` (= up+down), `z` (= north+south); groups `horizontal` (= up+down), `vertical` (= north+south+east+west), `all`. At most 8 tokens; duplicates collapse |
 | `min` | −∞ | Inclusive lower bound of the band, **along the fragment's dominant axis**: Y for `up`/`down`, X for `east`/`west`, Z for `north`/`south` |
 | `max` | +∞ | Inclusive upper bound of the band, same axis as `min` |
+| `band_softness` | 0 | Half-width in blocks of a soft fade centred on `min` and `max` (`0..4`). A surface lying exactly on a bound otherwise shimmers, because the depth-reconstructed axis coordinate jitters across the hard test from pixel to pixel; a small value (e.g. `0.05`) removes it while keeping the band interior solid. `0` = the exact hard edge, so definitions that omit it are unchanged |
 
-An unknown key or face token, more than 8 tokens, a non-finite bound, or `min > max` is a per-file parse error.
+An unknown key or face token, more than 8 tokens, a non-finite bound, `band_softness` outside `0..4`, or `min > max` is a per-file parse error.
 
 ```json
 "surface": { "faces": ["up"], "min": 60, "max": 72 }
@@ -543,8 +544,11 @@ An unknown key or face token, more than 8 tokens, a non-finite bound, or `min > 
 ```json
 "surface": { "faces": ["z"], "min": -8, "max": 8 }
 ```
+```json
+"surface": { "faces": ["up"], "min": 128, "max": 256, "band_softness": 0.05 }
+```
 
-The first is a floor band on world Y; the second is a band along world X on the east/west walls; the third is a band along world Z on the north/south walls (the axes follow `faces`, not always Y).
+The first is a floor band on world Y; the second is a band along world X on the east/west walls; the third is a band along world Z on the north/south walls (the axes follow `faces`, not always Y); the fourth is a floor band whose `min` bound sits exactly on the surface the player stands on, so its edge is faded over `band_softness` to stop it shimmering.
 
 ```json
 {
@@ -1804,6 +1808,7 @@ Guide version: 39 — see changelog below.
 
 ### v39
 - **`surface_pattern` surface selection** — an optional top-level structural `surface` block selects which face orientations receive the pattern (`faces`: `up`/`down`/`north`/`south`/`east`/`west`, axis aliases `x`/`y`/`z`, groups `horizontal`/`vertical`/`all`) and an optional inclusive band (`min`/`max`) applied **along the fragment's dominant axis** (Y for up/down, X for east/west, Z for north/south). Without the block the legacy numeric `normal_mask` behaviour is unchanged, so the built-in and every existing definition keep rendering exactly as before. The projection now follows the fragment's dominant world normal, so vertical walls get an upright, un-mirrored figure instead of a sheared XZ one. See [2.1](#surface_pattern).
+- **`surface_pattern` band edge is no longer hard** — a surface lying exactly on a band `min`/`max` bound flickered, because the depth-reconstructed axis coordinate jitters across the inclusive test from pixel to pixel. The optional `band_softness` (blocks, `0..4`, default `0`) fades the band edge over a small world-space distance, keeping the interior fully on and the outside fully off; `0` is the exact hard edge, so existing definitions are unchanged. See [2.1](#surface_pattern).
 
 ### v38
 - **New `surface_pattern` effect** — a world-anchored shape pattern (`circle`/`ellipse`/`rect`/`polygon`, tiled by a structural `repeat` modifier) projected onto the terrain behind each pixel, so it stays fixed to world blocks. Additive: it renders on 26.1.2+ (it reads scene depth), needs `"screen_layer": 0`, and no existing definition changes behaviour. The figure strings live in a top-level `pattern` block, never in `params`. See [2.1](#surface_pattern).

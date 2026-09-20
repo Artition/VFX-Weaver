@@ -678,6 +678,7 @@ public final class VFXPostProcessingManager {
 								case "face_mask" -> surface == null ? -1.0F : (float) surface.faceMask();
 								case "band_min" -> surface == null ? VFXSurfaceSelection.UNBOUNDED_MIN : surface.min();
 								case "band_max" -> surface == null ? VFXSurfaceSelection.UNBOUNDED_MAX : surface.max();
+								case "band_softness" -> surface == null ? VFXSurfaceSelection.DEFAULT_BAND_SOFTNESS : surface.bandSoftness();
 								default -> effect.getParam(param, 0.0F);
 							};
 						} else {
@@ -847,7 +848,7 @@ public final class VFXPostProcessingManager {
 				case "center_x", "center_y", "center_z", "shape", "fill", "rotation", "stroke_width",
 					"softness", "repeat_x", "repeat_y", "radius", "radius_x", "radius_y",
 					"half_width", "half_height", "corner_radius", "sides",
-					"face_mask", "band_min", "band_max" -> true;
+					"face_mask", "band_min", "band_max", "band_softness" -> true;
 				default -> false;
 			};
 		}

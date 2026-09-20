@@ -195,7 +195,8 @@ public final class VFXShaderPrograms {
 			// Appended after the existing names so no earlier std140 offset shifts (AGENTS.md).
 			// face_mask: -1 = legacy normal_mask; >= 0 = the surface block's 6-bit face set.
 			// band_min/band_max: inclusive band along the fragment's dominant normal axis.
-			"face_mask", "band_min", "band_max");
+			// band_softness: half-width (blocks) of the band edge fade (0 = hard, legacy).
+			"face_mask", "band_min", "band_max", "band_softness");
 		//?}
 
 		copyPipeline = RenderPipelines.register(

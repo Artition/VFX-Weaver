@@ -5,6 +5,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). The versions bel
 ## Unreleased / Guide v39
 ### Added
 - **`surface_pattern` surface selection** — an optional top-level structural `surface` block selects which face orientations receive the pattern and an optional world band. `faces` takes `up`/`down`/`north`/`south`/`east`/`west`, the axis aliases `x`/`y`/`z` and the groups `horizontal`/`vertical`/`all` (default `["up"]`, at most 8 tokens); `min`/`max` are an inclusive band applied **along the fragment's dominant axis** — Y for up/down, X for east/west, Z for north/south. Unknown keys/tokens and `min > max` are per-file parse errors. Additive: without the block the legacy numeric `normal_mask` behaviour is unchanged, so the built-in and every existing definition render exactly as before. See `docs/GUIDE.md` §2.1.
+- **`surface_pattern` `band_softness`** — a numeric field in the structural `surface` block: the half-width in blocks (`0..4`, default `0`) of a soft fade centred on `min`/`max`. Additive; `0` is the exact hard edge, so definitions that omit it are unchanged. See `docs/GUIDE.md` §2.1.
+
+### Fixed
+- **`surface_pattern` band no longer shimmers when a surface lies on a bound** — a floor exactly at `min` (or `max`) flickered, because the depth-reconstructed axis coordinate jumps across the hard inclusive test from pixel to pixel. The band edge now fades over `band_softness` (interior solid, outside off); the default `0` keeps the exact hard test for definitions that do not set it.
 
 ### Changed
 - **`surface_pattern` projection follows the fragment's dominant world normal.** Floors/ceilings keep world XZ; a vertical wall is projected onto its horizontal tangent with world Y up, so the figure reads upright and un-mirrored on each wall instead of being sheared across it. The axis switch is hard (a seam only on genuinely diagonal geometry). `fade_radius` and `distort` now follow the chosen plane instead of assuming XZ. The built-in `vfxweaver:surface_pattern` is unaffected (it selects floors via `normal_mask`).

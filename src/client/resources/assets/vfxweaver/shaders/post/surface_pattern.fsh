@@ -55,6 +55,7 @@ layout(std140) uniform Config {
     float face_mask;
     float band_min;
     float band_max;
+    float band_softness;
 };
 
 out vec4 fragColor;
@@ -142,8 +143,21 @@ void main() {
     } else {
         faceCov = normal_mask <= 0.0 ? 1.0 : smoothstep(normal_mask, min(normal_mask + 0.2, 1.0), abs(nRaw.y));
     }
-    // Inclusive band along the dominant axis (unbounded by default).
-    float bandCov = (bandAxis >= band_min && bandAxis <= band_max) ? 1.0 : 0.0;
+    // Band along the dominant axis, with an optional soft edge of half-width `band_softness`
+    // (world units): the reconstructed axis coordinate of a surface lying exactly on a bound
+    // jitters across the hard inclusive test from pixel to pixel, so the surface flickers. The
+    // fade is centred on each authored bound (interior stays 1, outside 0); a surface on a bound
+    // sits at half coverage. The ±1e29 guards skip the fade for an `unbounded` sentinel (±1e30),
+    // where the two smoothstep edges would collapse to one value; `band_softness` 0 keeps the
+    // exact hard test, so definitions that omit it are unchanged.
+    float bandCov;
+    if (band_softness > 0.0) {
+        float lower = band_min > -1.0e29 ? smoothstep(band_min - band_softness, band_min + band_softness, bandAxis) : 1.0;
+        float upper = band_max < 1.0e29 ? 1.0 - smoothstep(band_max - band_softness, band_max + band_softness, bandAxis) : 1.0;
+        bandCov = lower * upper;
+    } else {
+        bandCov = (bandAxis >= band_min && bandAxis <= band_max) ? 1.0 : 0.0;
+    }
 
     float coverage = clamp(shapeCoverage * fade * faceCov * bandCov * clamp(opacity, 0.0, 1.0), 0.0, 1.0);
     fragColor = vec4(mix(base.rgb, vec3(color_r, color_g, color_b), coverage), base.a);

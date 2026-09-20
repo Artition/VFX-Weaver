@@ -42,6 +42,7 @@ Two kinds of knob, split by the repo's rule that **strings/enums are structural 
 | `faces` | array of strings | single faces `"up"`, `"down"`, `"north"`, `"south"`, `"east"`, `"west"`; axis aliases `"x"` (= west+east), `"y"` (= up+down), `"z"` (= north+south); group aliases `"horizontal"` (= up+down), `"vertical"` (= north+south+east+west), `"all"` (= all six) | `["up"]` when `surface` is present and `faces` is omitted | which face orientations receive the pattern. Expanded at parse time to a 6-bit face mask |
 | `min` | number, optional | any finite value | unbounded (−∞) | inclusive lower band bound, **along the fragment's dominant normal axis** (see below) |
 | `max` | number, optional | any finite value | unbounded (+∞) | inclusive upper band bound, **along the same axis as `min`** |
+| `band_softness` | number, optional | `0..4` (blocks) | `0` | half-width of a soft fade centred on `min` and `max`. A surface lying exactly on a bound otherwise shimmers, because the depth-reconstructed axis coordinate jitters across the inclusive test from pixel to pixel; the fade keeps the band interior fully on and the outside fully off. `0` is the exact hard edge (additive, so existing definitions are unchanged) |
 
 Face-id convention (one bit each, fixed order): `0` up (+Y), `1` down (−Y), `2` north (−Z), `3` south (+Z), `4` west (−X), `5` east (+X). Minecraft's axis convention: +X = east, +Z = south, north = −Z, west = −X.
 
@@ -54,6 +55,7 @@ Rules:
 - `min`/`max` are part of the `surface` block only; a top-level `min`/`max` (or a stale `min_y`/`max_y`/`level`) key is not read at all.
 - An **unknown key inside `surface`** (including a stale `level`, `min_y` or `max_y`) is a parse error for that file, so a typo cannot half-enable the feature.
 - `min > max` is a parse error for that file.
+- `band_softness` outside `0..4` is a parse error for that file.
 - Unknown face token is a parse error for that file (per-file isolation, as for an unknown figure).
 
 ### 2.2 Required JSON examples
@@ -200,14 +202,24 @@ if (face_mask >= 0.0) {
             : smoothstep(normal_mask, min(normal_mask + 0.2, 1.0), abs(n.y));
 }
 
-// Band along this fragment's dominant axis.
-float bandCov = (bandAxis >= band_min && bandAxis <= band_max) ? 1.0 : 0.0;
+// Band along this fragment's dominant axis, with a soft edge of half-width `band_softness`.
+// Guarded for the ±1e30 "unbounded" sentinel, where the two smoothstep edges would collapse.
+float bandCov;
+if (band_softness > 0.0) {
+    float lower = band_min > -1.0e29 ? smoothstep(band_min - band_softness, band_min + band_softness, bandAxis) : 1.0;
+    float upper = band_max < 1.0e29 ? 1.0 - smoothstep(band_max - band_softness, band_max + band_softness, bandAxis) : 1.0;
+    bandCov = lower * upper;
+} else {
+    bandCov = (bandAxis >= band_min && bandAxis <= band_max) ? 1.0 : 0.0;
+}
 
 float coverage = clamp(shapeCoverage * fade * faceCov * bandCov
                      * clamp(opacity, 0.0, 1.0), 0.0, 1.0);
 ```
 
-`face_mask`, `band_min`, `band_max` are reserved `Config` floats written by the manager from the parsed `VFXSurfaceSelection`; `band_min`/`band_max` default to `−1.0e30`/`+1.0e30` (gate always open) and `face_mask` defaults to `−1` (legacy) when no `surface` block is present. The current `shapeCoverage` call (`vfx_shape_pattern_coverage` through `shape.glsl` → `shapes.glsl`) is unchanged: **the figure math is not touched.**
+`face_mask`, `band_min`, `band_max`, `band_softness` are reserved `Config` floats written by the manager from the parsed `VFXSurfaceSelection`; `band_min`/`band_max` default to `−1.0e30`/`+1.0e30` (gate always open), `band_softness` defaults to `0.0` (the exact hard test) and `face_mask` defaults to `−1` (legacy) when no `surface` block is present. The current `shapeCoverage` call (`vfx_shape_pattern_coverage` through `shape.glsl` → `shapes.glsl`) is unchanged: **the figure math is not touched.**
+
+**Why the band needs a soft edge (2026-09-20 defect).** The pass is a screen-space blend at layer 0 with no depth write, so it cannot z-fight geometrically. The flicker on a surface lying exactly on a bound comes from the band gate itself: `bandAxis` is `vfx_world_from_depth`'s `world.xyz / world.w` (`camera.glsl`), which is not bit-exact, so a fragment on that surface reconstructs a few 1e-3 either side of the bound and the hard inclusive test flips 0/1 from pixel to pixel and frame to frame. A fade of half-width `band_softness` centred on each bound makes coverage continuous across it. The dominant-axis/face selection is unaffected (the snapped normal is stable on an axis-aligned face), so this is a band-edge fix, not a normal or reconstruction change.
 
 ## 5. Topmost filter — dropped
 
@@ -225,6 +237,7 @@ The owner dropped the `level: "top"` requirement (amendment 1). No topmost filte
 - **Caps (AGENTS.md bounded-collection rule):**
   - `surface.faces` ≤ 8 tokens before expansion; expansion produces ≤ 6 face bits; unknown token = per-file parse error; duplicates collapse.
   - `min`/`max` must be finite and `min <= max`; parse error otherwise.
+  - `band_softness` is bounded to `0..4` blocks; a negative or larger value is a per-file parse error.
 - **Failure behaviour:** the facing/band filters are **fail-closed** — no match yields coverage 0 (the pattern is absent), never full coverage. `min`/`max` open the filter when absent. The only neutral path is the existing no-depth passthrough. Parse failures stay per-file isolated (existing `VFXDefinitionManager.prepare` behaviour).
 - **Guards to keep (the change touches them):**
   1. The `depthReady` / layer-0 gate in `VFXPostProcessingManager.process` (the `surface_pattern:nodepth` fallback) is unchanged: with no usable depth the pass is still replaced by a passthrough. There is no prepass to skip.
