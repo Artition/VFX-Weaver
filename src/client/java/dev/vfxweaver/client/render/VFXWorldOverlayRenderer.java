@@ -30,6 +30,7 @@ import dev.vfxweaver.client.effect.VFXEffectManager;
 import dev.vfxweaver.client.platform.VFXClientRenderHooks;
 import dev.vfxweaver.effect.VFXActiveEffect;
 import dev.vfxweaver.effect.VFXEffectType;
+import dev.vfxweaver.effect.VFXSparkSpec;
 import dev.vfxweaver.util.VFXLog;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -288,6 +289,17 @@ public final class VFXWorldOverlayRenderer {
 	private static final RenderType GLOW_OCCLUDED = RenderType.create(
 		"vfxweaver_world_glow_occluded",
 		RenderSetup.builder(glowPipeline(false, "occluded")).createRenderSetup()
+	);
+
+	/** Non-additive spark pipeline: the same POSITION_COLOR quad, but translucent (real alpha). */
+	private static final RenderType SPARK_VISIBLE = RenderType.create(
+		"vfxweaver_spark_visible",
+		RenderSetup.builder(blockPipeline(true, false, "spark_visible")).createRenderSetup()
+	);
+
+	private static final RenderType SPARK_OCCLUDED = RenderType.create(
+		"vfxweaver_spark_occluded",
+		RenderSetup.builder(blockPipeline(false, false, "spark_occluded")).createRenderSetup()
 	);
 
 	/**
@@ -1037,15 +1049,21 @@ public final class VFXWorldOverlayRenderer {
 		}
 		VFXEffectManager manager = VFXEffectManager.get();
 		List<VFXActiveEffect> effects = manager.getActiveWorldEffects();
-		// Always tick the block-particle engine, so API one-shot spawns advance even when no
-		// effect is running; its effect buckets are pruned against the active block-mode set.
+		// Always tick the particle engines, so API one-shot spawns advance even when no effect is
+		// running; their effect buckets are pruned against the active instance sets.
 		Set<Long> blockInstances = new HashSet<>();
+		Set<Long> sparkInstances = new HashSet<>();
 		for (VFXActiveEffect effect : effects) {
-			if (effect.getType() == VFXEffectType.PARTICLES && VFXBlockParticleEngine.isModelMode(effect)) {
-				blockInstances.add(effect.getInstanceId());
+			if (effect.getType() == VFXEffectType.PARTICLES) {
+				if (VFXBlockParticleEngine.isModelMode(effect)) {
+					blockInstances.add(effect.getInstanceId());
+				} else if (VFXSparkEngine.isSparkMode(effect)) {
+					sparkInstances.add(effect.getInstanceId());
+				}
 			}
 		}
 		VFXBlockParticleEngine.tick(level, manager.getClock(), blockInstances);
+		VFXSparkEngine.tick(level, manager.getClock(), sparkInstances);
 		if (effects.isEmpty()) {
 			return;
 		}
@@ -1093,7 +1111,16 @@ public final class VFXWorldOverlayRenderer {
 						drawn.add(through ? GLOW_VISIBLE : GLOW_OCCLUDED);
 					}
 				} else if (effect.getType() == VFXEffectType.PARTICLES) {
-					emitParticles(minecraft, effect, level);
+					final VFXSparkSpec sparkSpec = VFXSparkEngine.isSparkMode(effect) ? VFXSparkEngine.resolve(effect) : null;
+					if (sparkSpec != null) {
+						VFXSparkEngine.emit(effect, level, sparkSpec);
+						final RenderType sparkType = sparkRenderType(sparkSpec);
+						if (renderSparks(sink, camera, effect, level, sparkType, sparkSpec.glow())) {
+							drawn.add(sparkType);
+						}
+					} else {
+						emitParticles(minecraft, effect, level);
+					}
 				} else if (effect.getType() == VFXEffectType.BLOCK_OUTLINE) {
 					boolean through = effect.getParam("through_blocks", 0.0F) >= 0.5F;
 					boolean shell = effect.getParam("shell", 0.0F) >= 0.5F;
@@ -1398,6 +1425,174 @@ public final class VFXWorldOverlayRenderer {
 		});
 		poseStack.popPose();
 		return true;
+	}
+
+	/**
+	 * Selects the spark render type: additive {@link #GLOW_OCCLUDED} for a glowing spark, the
+	 * translucent {@link #SPARK_OCCLUDED} otherwise.
+	 *
+	 * @param spec the resolved spark spec
+	 * @return the render type for the spark quads
+	 */
+	static RenderType sparkRenderType(final VFXSparkSpec spec) {
+		return spec.glow() ? GLOW_OCCLUDED : SPARK_OCCLUDED;
+	}
+
+	/**
+	 * Draws one spark-mode {@code particles} effect as camera-facing sprites, reusing the glow quad
+	 * primitive. The engine owns simulation; this only emits the interpolated views.
+	 */
+	private static boolean renderSparks(
+		final GeometrySink sink,
+		final CameraRenderState camera,
+		final VFXActiveEffect effect,
+		final ClientLevel level,
+		final RenderType renderType,
+		final boolean glow
+	) {
+		final List<VFXSparkEngine.SparkView> views = VFXSparkEngine.views(effect.getInstanceId());
+		if (views.isEmpty()) {
+			return false;
+		}
+		final PoseStack poseStack = new PoseStack();
+		poseStack.pushPose();
+		poseStack.translate(-camera.pos.x, -camera.pos.y, -camera.pos.z);
+		sink.emit(poseStack, renderType, (pose, buffer) -> {
+			for (final VFXSparkEngine.SparkView view : views) {
+				emitSparkQuad(buffer, pose, camera, view.x(), view.y(), view.z(), view.size(), view.rgb(), view.alpha(), glow);
+				if (view.hasTrail()) {
+					emitSparkTrail(buffer, pose, camera, view, glow);
+				}
+			}
+		});
+		poseStack.popPose();
+		return true;
+	}
+
+	/**
+	 * Emits one camera-facing sprite quad centred on a world position. The pose stack is already
+	 * camera-relative, so world coordinates are passed straight through (as in
+	 * {@link #renderPulseRings}).
+	 */
+	private static void emitSparkQuad(
+		final VertexConsumer buffer,
+		final PoseStack.Pose pose,
+		final CameraRenderState camera,
+		final float x,
+		final float y,
+		final float z,
+		final float size,
+		final int rgb,
+		final float alpha,
+		final boolean glow
+	) {
+		final float[] axes = cameraAxes(camera, x, y, z);
+		final float h = size * 0.5F;
+		final float x0 = x - axes[0] * h - axes[3] * h;
+		final float y0 = y - axes[1] * h - axes[4] * h;
+		final float z0 = z - axes[2] * h - axes[5] * h;
+		final float x1 = x - axes[0] * h + axes[3] * h;
+		final float y1 = y - axes[1] * h + axes[4] * h;
+		final float z1 = z - axes[2] * h + axes[5] * h;
+		final float x2 = x + axes[0] * h + axes[3] * h;
+		final float y2 = y + axes[1] * h + axes[4] * h;
+		final float z2 = z + axes[2] * h + axes[5] * h;
+		final float x3 = x + axes[0] * h - axes[3] * h;
+		final float y3 = y + axes[1] * h - axes[4] * h;
+		final float z3 = z + axes[2] * h - axes[5] * h;
+		sparkVertex(buffer, pose, x0, y0, z0, rgb, alpha, glow);
+		sparkVertex(buffer, pose, x1, y1, z1, rgb, alpha, glow);
+		sparkVertex(buffer, pose, x2, y2, z2, rgb, alpha, glow);
+		sparkVertex(buffer, pose, x3, y3, z3, rgb, alpha, glow);
+	}
+
+	/** Emits a stretched, half-alpha quad from the spark's tail position to its current one. */
+	private static void emitSparkTrail(
+		final VertexConsumer buffer,
+		final PoseStack.Pose pose,
+		final CameraRenderState camera,
+		final VFXSparkEngine.SparkView view,
+		final boolean glow
+	) {
+		float dx = view.x() - view.trailX();
+		float dy = view.y() - view.trailY();
+		float dz = view.z() - view.trailZ();
+		final float length = (float) Math.sqrt(dx * dx + dy * dy + dz * dz);
+		if (length < 1.0e-4F) {
+			return;
+		}
+		dx /= length;
+		dy /= length;
+		dz /= length;
+		// right = normalize(cross(axis, view direction))
+		final float vx = view.x() - (float) camera.pos.x;
+		final float vy = view.y() - (float) camera.pos.y;
+		final float vz = view.z() - (float) camera.pos.z;
+		float rx = dy * vz - dz * vy;
+		float ry = dz * vx - dx * vz;
+		float rz = dx * vy - dy * vx;
+		final float rl = (float) Math.sqrt(rx * rx + ry * ry + rz * rz);
+		if (rl < 1.0e-5F) {
+			return;
+		}
+		final float h = view.size() * 0.5F / rl;
+		rx *= h;
+		ry *= h;
+		rz *= h;
+		final float alpha = view.alpha() * 0.5F;
+		sparkVertex(buffer, pose, view.trailX() - rx, view.trailY() - ry, view.trailZ() - rz, view.rgb(), alpha, glow);
+		sparkVertex(buffer, pose, view.trailX() + rx, view.trailY() + ry, view.trailZ() + rz, view.rgb(), alpha, glow);
+		sparkVertex(buffer, pose, view.x() + rx, view.y() + ry, view.z() + rz, view.rgb(), alpha, glow);
+		sparkVertex(buffer, pose, view.x() - rx, view.y() - ry, view.z() - rz, view.rgb(), alpha, glow);
+	}
+
+	/**
+	 * The camera-facing right (indices 0..2) and up (indices 3..5) axes at a world position, from
+	 * the view direction and world up. Reused by {@link #emitSparkQuad}.
+	 */
+	private static float[] cameraAxes(final CameraRenderState camera, final float x, final float y, final float z) {
+		float vx = x - (float) camera.pos.x;
+		float vy = y - (float) camera.pos.y;
+		float vz = z - (float) camera.pos.z;
+		final float vlen = (float) Math.sqrt(vx * vx + vy * vy + vz * vz);
+		if (vlen < 1.0e-5F) {
+			vx = 0.0F;
+			vy = 0.0F;
+			vz = 1.0F;
+		} else {
+			vx /= vlen;
+			vy /= vlen;
+			vz /= vlen;
+		}
+		float rx = -vz;
+		float ry = 0.0F;
+		float rz = vx;
+		final float rl = (float) Math.sqrt(rx * rx + rz * rz);
+		if (rl < 1.0e-5F) {
+			rx = 1.0F;
+			rz = 0.0F;
+		} else {
+			rx /= rl;
+			rz /= rl;
+		}
+		final float ux = ry * vz - rz * vy;
+		final float uy = rz * vx - rx * vz;
+		final float uz = rx * vy - ry * vx;
+		return new float[] { rx, ry, rz, ux, uy, uz };
+	}
+
+	/** Writes one spark vertex; additive premultiplies RGB by alpha, translucent keeps real alpha. */
+	private static void sparkVertex(final VertexConsumer buffer, final PoseStack.Pose pose, final float x, final float y, final float z, final int rgb, final float alpha, final boolean glow) {
+		final int a = alpha255(alpha);
+		int r = (rgb >> 16) & 0xFF;
+		int g = (rgb >> 8) & 0xFF;
+		int b = rgb & 0xFF;
+		if (glow) {
+			r = r * a / 255;
+			g = g * a / 255;
+			b = b * a / 255;
+		}
+		buffer.addVertex(pose, x, y, z).setColor(a << 24 | r << 16 | g << 8 | b);
 	}
 
 	/** Rotates a vector by yaw (Y), then pitch (X), then roll (Z), in degrees. */
