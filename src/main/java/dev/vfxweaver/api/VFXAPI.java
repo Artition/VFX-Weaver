@@ -7,6 +7,7 @@ import dev.vfxweaver.effect.VFXBlockParticleSpec;
 import dev.vfxweaver.effect.VFXDefinition;
 import dev.vfxweaver.effect.VFXScoreboardSync;
 import dev.vfxweaver.effect.VFXServerEffects;
+import dev.vfxweaver.effect.VFXSparkSpec;
 import dev.vfxweaver.mask.VFXCustomShape;
 import dev.vfxweaver.mask.VFXMaskShapeGlsl;
 import dev.vfxweaver.mask.VFXMaskSlots;
@@ -397,6 +398,57 @@ public final class VFXAPI {
 			return;
 		}
 		localDispatcher.spawnBlockParticle(spec, position, velocity);
+	}
+
+	/**
+	 * Registers a spark preset in code, without a datapack. It lives in a separate local layer that
+	 * survives {@code /reload} and is only ever visible to this client (spark presets are never
+	 * synchronized). A datapack preset with the same id wins. The layer is bounded.
+	 *
+	 * @param id   the preset id (e.g. {@code mymod:ember})
+	 * @param spec the preset; see {@link VFXSparkSpec#builder()}
+	 * @return {@code false} when the local layer is full and the registration was dropped
+	 */
+	public static boolean registerSpark(final Identifier id, final VFXSparkSpec spec) {
+		return VFXBlockParticleManager.get().registerLocalSpark(id, spec);
+	}
+
+	/**
+	 * Removes a spark preset registered with {@link #registerSpark(Identifier, VFXSparkSpec)}.
+	 * Datapack presets are not affected.
+	 *
+	 * @param id the preset id
+	 * @return {@code true} when a locally registered spark preset with that id existed
+	 */
+	public static boolean unregisterSpark(final Identifier id) {
+		return VFXBlockParticleManager.get().unregisterLocalSpark(id);
+	}
+
+	/**
+	 * Looks up a spark preset by id (datapack or code-registered); the datapack layer wins over a
+	 * local registration for the same id.
+	 *
+	 * @param id the preset id
+	 * @return the preset, or {@code null} when the id is not registered
+	 */
+	public static @Nullable VFXSparkSpec spark(final Identifier id) {
+		return VFXBlockParticleManager.get().getSpark(id);
+	}
+
+	/**
+	 * Spawns a one-shot spark at the given world position/velocity on this client. No packet is
+	 * sent, so this is a no-op on a dedicated server; call it from the client.
+	 *
+	 * @param spec     the spark spec
+	 * @param position world position of the spark
+	 * @param velocity initial velocity in blocks per tick
+	 */
+	public static void spawnSpark(final VFXSparkSpec spec, final Vec3 position, final Vec3 velocity) {
+		if (localDispatcher == null) {
+			VFXLog.warnOnce(LOGGER, "api:no-client", "spawnSpark() called without a client; ignored");
+			return;
+		}
+		localDispatcher.spawnSpark(spec, position, velocity);
 	}
 
 	/**

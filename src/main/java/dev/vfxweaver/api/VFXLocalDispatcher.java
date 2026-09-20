@@ -2,6 +2,7 @@ package dev.vfxweaver.api;
 
 import dev.vfxweaver.effect.EasingType;
 import dev.vfxweaver.effect.VFXBlockParticleSpec;
+import dev.vfxweaver.effect.VFXSparkSpec;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -146,6 +147,17 @@ public interface VFXLocalDispatcher {
 	 * @param velocity initial velocity in blocks per tick
 	 */
 	default void spawnBlockParticle(final VFXBlockParticleSpec spec, final Vec3 position, final Vec3 velocity) {
+	}
+
+	/**
+	 * Spawns a one-shot spark on the client. A {@code default} no-op so a dispatcher compiled
+	 * before sparks still links; the mod's client dispatcher overrides it.
+	 *
+	 * @param spec     the spark spec
+	 * @param position world position of the spark
+	 * @param velocity initial velocity in blocks per tick
+	 */
+	default void spawnSpark(final VFXSparkSpec spec, final Vec3 position, final Vec3 velocity) {
 	}
 
 	/**
