@@ -2,6 +2,22 @@
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). The versions below are guide/feature-set versions of the mod (as they progressed historically, see `docs/GUIDE.md`), plus git release tags where applicable (`v1.0.x`, `gradle.properties` → `mod_version`). Add new entries at the top, in the same PR as the behavior change.
 
+## Unreleased / Guide v41
+### Fixed
+- **Animated mask `softness` now takes effect.** The `.soft` slot was registered as a parameter, checked by the binding resolver and documented as animatable, but the coverage writer packed the parse-time default straight into `shape_op[i].z`; keyframes, graph `{ "from": node }` inputs and `setParam("mask.pN.soft", …)` did nothing. The animated value is now written, with the parse-time default as the fallback.
+- **A right-nested mask composition is now a parse error instead of silently mis-evaluating.** The parser flattens leaves depth-first and the shader folds them left-associatively, so `union(A, intersection(B, C))` became `min(max(A, B), C)`. Only left-nesting is accepted (a leaf as the right operand); nest the other way instead. See `docs/GUIDE.md` §3.8.
+- **The custom-leaf and block-leaf caps are enforced.** A third custom leaf used to alias custom row 0 (its `-1` row cast to `0`), and a second block leaf folded the shared geometry scratch against itself. Both are now per-file parse errors, and the shader guards a bad custom row to zero coverage.
+- **A block leaf's centre is animatable again.** `blockCenter` read only the bound point or the literal, so `sendMaskMove`/`maskMove`, graph-driven centre slots and live `setParam` did not move the scan region; it now resolves the centre slots with the same precedence as the coverage writer.
+- **`softness` now drives a composed custom leaf's falloff** (it was hard-fixed at `0.25`). The block family's edge stays hard by design (its coverage is rasterised full/absent), which is now documented.
+- **The coverage/geometry passes respect the depth gate.** `depthRecipeVerified()` gated `surface_pattern` but not masks, so on a node without the verified reversed-depth recipe a world/aura mask sampled depth with the wrong convention. A mask that needs depth now fails closed (zero coverage) when depth is not trusted, and its depth-tested block pass is disabled - consistent with `surface_pattern`.
+- **Block selection is cached and resolves each model once.** `select` re-scanned `(2r+1)^3` positions, re-parsed the tag/id and resolved every selected block's model twice every frame; it now caches by level/model-manager/selection/region, hoists the parsing and resolves the quads once.
+- **A masked effect that starts after layer 0 no longer samples an uninitialised coverage target** (it is cleared on creation).
+- **Variant/cache staleness.** A registered GLSL plugin's GLSL, or a resource reload changing the base coverage shader, used to leave a stale compiled variant; the variant now re-reads the live sources, and shape registration invalidates the cache.
+- **A uniform arena grown mid-frame no longer closes its retired ring in the same `endFrame`** (a potential use-after-free); retired rings survive one extra frame.
+
+### Changed
+- **Two concurrent plays of one masked definition share a single coverage** (the first play's animated centre/radius/softness wins). Documented in `docs/GUIDE.md` §3.8; play two definitions if the masks must differ.
+
 ## Unreleased / Guide v40
 ### Added
 - **Textured `surface_pattern` figures** — the structural `pattern` block now accepts an optional `texture` object, so a `surface_pattern`'s figure can be a real texture projected onto the same surface, not only a procedural `circle`/`ellipse`/`rect`/`polygon`. A block-atlas sprite, an item-atlas sprite, any other atlas sprite or a standalone resource-pack texture resolves to a texture plus the sprite UV sub-rect the shader needs. The texture **is** the figure, and an authored `figure` becomes its mask (a texture with no `figure` is not clipped). New `params`: `rotation` (overrides the structural rotation, spins figure and texture together), `frame` (sprite-sheet cell, graph-drivable) and `texture_tint` (`0..1` recolour). See `docs/GUIDE.md` §2.1.

@@ -1533,8 +1533,16 @@ composition (`"op": "union" | "intersection" | "difference"`) of leaves; every l
 - a **world volume** — `sphere` or `box` — classified against the depth-reconstructed world position;
 - a **block** leaf (the selected blocks' model geometry) or a **custom** shape (a registered composed SDF or GLSL plugin).
 
+Composition **nests on the left only**: the right operand of an `op` must be a leaf, so write
+`intersection(union(A, B), C)` (which flattens to `min(max(A, B), C)`), not
+`union(A, intersection(B, C))` — the latter would flatten to `min(max(A, B), C)` and is a parse
+error naming the offending `op`. A mask carries at most **two custom leaves** and at most **one
+block leaf** (all block leaves share one geometry scratch), both enforced at parse.
+
 `invert` flips the composed coverage; `softness` is the edge falloff width (screen units or world
-blocks); `fill: solid|stroke` with `stroke_width` draws a boundary band. Every numeric leaf
+blocks); `fill: solid|stroke` with `stroke_width` draws a boundary band. `softness` scales the
+composed-result falloff and a GLSL plugin's edge. A **block** leaf's coverage is rasterised full or
+absent per fragment, so its edge is hard by design and `softness` does not apply. Every numeric leaf
 (`radius`, `half_width`, `center`, `softness`, …) takes a number, `{ "from": "<node>" }` or a world
 binding (`{ "bind": "entity", ... }`), so a shape can follow an entity.
 
@@ -1565,6 +1573,16 @@ drive a mask from data the client does not have, set its centre from the **serve
 > late-drawn geometry, so the hand is tinted wherever a masked block lies behind it, even though the
 > hand is nearer. To avoid this, run the masked effect at `screen_layer: 0`, or depth-occlude the
 > consumer against a layer-0 depth snapshot.
+
+> **Depth note.** The same gate `surface_pattern` uses applies to masks: on a node whose
+> reversed-depth world reconstruction is not verified, a mask that needs depth (a `world` leaf, an
+> `aura` volume, or a block leaf) **fails closed** — it contributes zero coverage and its
+> depth-tested block pass is disabled — instead of sampling depth with the wrong convention. A
+> purely `screen` mask needs no depth and works on every node and every layer.
+
+> **Concurrency note.** Two simultaneous plays of one masked definition share a single coverage
+> target, so both use the first play's animated centre/radius/softness. To have two masks with
+> independent regions on screen at once, put them in two distinct definitions.
 
 The mask's numeric leaves are ordinary animatable effect parameters under reserved names:
 `mask.p<N>.center_x|center_y|center_z`, `.rotation`, `.p<J>` (the per-shape parameter `J`), `.soft`
@@ -1855,7 +1873,10 @@ Post-processing pipeline, world overlays, effect clock, load limits and fault to
 
 Versioned feature history — **[docs/CHANGELOG.md](CHANGELOG.md)**.
 
-Guide version: 40 — see changelog below.
+Guide version: 41 — see changelog below.
+
+### v41
+- **Mask correctness and performance batch.** Animated `softness`, composition nesting (left-only, a right-nested `op` is now a parse error), the custom-leaf (2) and block-leaf (1) caps, an animatable block centre, a composed custom leaf's `softness`, the depth gate (a depth-needing mask fails closed where `surface_pattern` does), cached block selection, cleared new coverage targets, live-source shader variants and one-extra-frame uniform-arena retirement. Two plays of one masked definition still share a coverage target (documented). See [3.8](#38-masks).
 
 ### v40
 - **Textured `surface_pattern` figures** — the structural `pattern` block accepts an optional `texture` object: a real texture (a block-atlas sprite, an item-atlas sprite, any atlas sprite, or a standalone resource-pack texture) projected onto the same surface the figure uses. `id` is required; `source` (`block`/`item`/`atlas`/`standalone`) is inferred from the id when omitted; `channel` (`alpha` default, `luminance`/`r`/`g`/`b`), `sheet` (`[cols, rows]`, `1..16`, `cols*rows <= 256`) and `aspect` (`preserve`/`stretch`) are optional. The texture is the figure and an authored `figure` becomes its mask (a texture with no figure is not clipped). New animatable params `rotation` (overrides the structural rotation), `frame` (sprite-sheet cell) and `texture_tint` (`0..1` recolour). Atlas sprites use their stitched sub-rect and animate with the atlas; standalone textures sample `0..1`. Additive: without a `texture` the block renders exactly as before. See [2.1](#surface_pattern).
