@@ -60,3 +60,7 @@ stonecutter.gradle
 AGENTS.md
 .superpowers/
 docs/superpowers/
+
+# mkdocs build output
+
+site/

@@ -43,7 +43,7 @@ Run a test client/server directly from the project:
 
 ## Usage
 
-The full guide on commands (`/vfx play`, `/vfx playat`, `/vfx playentity`, `/vfx stop`, `/vfx set`, `/vfx list`), built-in effect types and the datapack format (`data/<namespace>/vfx/<effect>.json`) is in **[docs/GUIDE.md](docs/GUIDE.md)**.
+The full guide on commands (`/vfx play`, `/vfx playat`, `/vfx playentity`, `/vfx stop`, `/vfx set`, `/vfx list`), built-in effect types and the datapack format (`data/<namespace>/vfx/<effect>.json`) is on the **[documentation site](https://artition.github.io/VFX-Weaver/)** (sources under **[docs/guide/](docs/guide/index.md)**).
 
 Minimal Java API example:
 
@@ -57,14 +57,28 @@ VFXAPI.playEffect(Identifier.of("vfxweaver", "camera_shake"), 20, Map.of("amplit
 
 ## Documentation
 
+Published site: **<https://artition.github.io/VFX-Weaver/>**
+
 | File | Contents |
 |---|---|
-| [docs/GUIDE.md](docs/GUIDE.md) | Commands, effect types, datapack format, world/camera/player bindings |
+| [docs/guide/](docs/guide/index.md) | Commands, effect types, datapack format, world/camera/player bindings |
 | [docs/API.md](docs/API.md) | Java API (`VFXAPI`), network protocol `vfxweaver:vfx_trigger` |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | How it works under the hood: render pipeline, data flow, load limits |
 | [docs/CHANGELOG.md](docs/CHANGELOG.md) | Versioned change history |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Branch and commit conventions |
 | [AGENTS.md](AGENTS.md) | Instructions for AI agents working in this repository |
+
+### Building the docs locally
+
+The site is generated with [MkDocs](https://www.mkdocs.org/) and the
+[Material theme](https://squidfunk.github.io/mkdocs-material/); the pinned versions live in
+`requirements-docs.txt` at the repo root.
+
+```bash
+pip install -r requirements-docs.txt
+mkdocs serve        # live preview on http://127.0.0.1:8000
+mkdocs build --strict
+```
 
 ## License
 

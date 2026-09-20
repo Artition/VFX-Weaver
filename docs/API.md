@@ -182,6 +182,56 @@ VFXAPI.maskMove(effectId, 0, new Vec3(x, y, z));
 
 `mask.` is **reserved**: a user parameter with that prefix would be shadowed by the mask, not merged.
 
+#### Custom mask shapes (client-local)
+
+A mask leaf may reference a shape registered from code instead of a built-in figure. Two kinds
+exist, both registered by id and both usable in a datapack mask as a `custom` leaf.
+
+**Composed SDF** - a figure built from primitives and operations:
+
+```java
+VFXCustomShape shape = ...;                      // composed primitives + ops
+VFXAPI.registerMaskShape(Identifier.fromNamespaceAndPath("mymod", "rune"), shape);
+VFXAPI.unregisterMaskShape(id);
+VFXCustomShape existing = VFXAPI.maskShape(id);  // null when not registered
+```
+
+The composed parts are **literal-only**: the leaf's animatable `mask.p<N>.p<J>` params are not fed
+into the parts (they are fed to a GLSL plugin, below).
+
+**GLSL plugin** - a fragment of GLSL injected into the coverage shader. The plugin defines exactly
+one function, in the leaf's space (world units for a world leaf), negative inside:
+
+```glsl
+float vfx_shape_custom(vec3 world, vec2 uv, vec4 p0, vec4 p1);
+```
+
+`world` is the depth-reconstructed world position (zero for a screen leaf), `uv` the screen UV, and
+`p0`/`p1` are the leaf's eight animatable params, so a plugin shape stays drivable from the timeline
+(keyframes, `expr`, graph inputs, `setParam`). Register it with:
+
+```java
+VFXAPI.registerMaskShapeGlsl(Identifier.fromNamespaceAndPath("mymod", "pentagram"), plugin);
+VFXAPI.unregisterMaskShapeGlsl(id);
+```
+
+Limits and failure behaviour, all of them deliberate:
+
+- A mask may hold at most **2 custom leaves**; a third is a per-file parse error (it would alias
+  row 0 in the packed coverage UBO).
+- The coverage shader is compiled per distinct set of plugin ids, capped at **4 variants**; the
+  variant re-reads the live plugin source, so re-registering a plugin (or a resource reload) does
+  not leave a stale program.
+- A plugin that fails to compile degrades **only the masks using it** to neutral coverage and is
+  reported once through `VFXLog.warnOnce`; it never takes down the mod or another effect.
+- On the `1.21.11` node there is no shader-source hook, so a GLSL-plugin shape renders nothing
+  there; the composed-SDF kind works on every node.
+- Plugin coverage obeys the same per-leaf fail-closed contract as every other leaf: an unresolved
+  leaf contributes zero and can never be inverted into "everywhere".
+
+`vfxweaver:ringed_glsl` is a built-in plugin (a screen ring with 8 petal-modulated lobes) shipped
+so the path is testable in game; see the [guide](guide/index.md) for the datapack side.
+
 #### Block/item-particle presets (client-local)
 
 Model particles — the `particles` effect with `"particle": "block"`, `"particle": "item"` or a
@@ -232,7 +282,7 @@ A `particles` effect then reaches the preset with `"particle": "mymod:ember"`; t
 `spin_friction`/`spin_roll` params override its fields. `spin_mode` and `spin_axis` are spec/preset
 fields only (effect params are numeric), so an effect selects yaw/none by naming a preset. The same
 methods register/spawn item presets — the spec carries the model, the API surface is unchanged. See
-the `particles` block and item mode in [GUIDE.md](GUIDE.md).
+the `particles` block and item mode in the [effects guide](guide/effects.md).
 
 **Spark presets** use the same client-local registry: `VFXAPI.registerSpark(id, VFXSparkSpec)`,
 `VFXAPI.unregisterSpark(id)`, `VFXAPI.spark(id)` and `VFXAPI.spawnSpark(spec, position, velocity)`
@@ -325,4 +375,4 @@ Lets a client mod ask the server to play an effect through the definition regist
 Bump `PROTOCOL_VERSION` on any breaking packet-format change — otherwise old clients silently ignore new packets without a single warning in the log.
 
 ---
-See also: [../docs/GUIDE.md](GUIDE.md) — user guide (commands, datapacks), [ARCHITECTURE.md](ARCHITECTURE.md) — how rendering works under the hood.
+See also: [guide/](guide/index.md) — user guide (commands, datapacks), [ARCHITECTURE.md](ARCHITECTURE.md) — how rendering works under the hood.

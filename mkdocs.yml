@@ -1,0 +1,87 @@
+site_name: VFX Weaver
+site_description: >-
+  A client-side VFX library/API for Minecraft on Fabric and NeoForge: screen
+  post-processing, camera shake, world overlays, entity effects, datapack-defined
+  effects, network triggers and a public Java API.
+site_url: https://artition.github.io/VFX-Weaver/
+docs_dir: docs
+
+repo_url: https://github.com/Artition/VFX-Weaver
+repo_name: Artition/VFX-Weaver
+edit_uri: edit/main/docs/
+copyright: Authored by Artition &middot; MIT licensed
+
+# docs/superpowers/ is an agent working directory (git-ignored) and must never
+# be published; MODRINTH.md is a store listing, not site documentation.
+exclude_docs: |
+  superpowers/
+  MODRINTH.md
+
+theme:
+  name: material
+  language: en
+  features:
+    - navigation.instant
+    - navigation.instant.progress
+    - navigation.sections
+    - navigation.top
+    - navigation.tracking
+    - toc.follow
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.tabs.link
+  palette:
+    - media: "(prefers-color-scheme)"
+      toggle:
+        icon: material/brightness-auto
+        name: Switch to light mode
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      toggle:
+        icon: material/brightness-4
+        name: Switch to system preference
+
+nav:
+  - Home: index.md
+  - Guide:
+      - Getting started: guide/index.md
+      - Commands: guide/commands.md
+      - Effects and the datapack format: guide/effects.md
+      - Surface pattern: guide/surface-pattern.md
+      - Value graphs: guide/graph.md
+      - Per-pixel fields: guide/fields.md
+      - Masks: guide/masks.md
+      - Spark presets: guide/sparks.md
+      - Guide changelog: guide/changelog.md
+  - Java API: API.md
+  - Architecture: ARCHITECTURE.md
+  - Changelog: CHANGELOG.md
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+      toc_depth: 4
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.critic
+  - pymdownx.caret
+  - pymdownx.keys
+  - pymdownx.mark
+  - pymdownx.tilde
+  - pymdownx.smartsymbols

@@ -110,4 +110,4 @@ Any new collection/map that grows from network or datapack input must get a simi
 - `VFXClient.handleTrigger` — a packet with a mismatched `protocolVersion` is silently ignored instead of crashing.
 
 ---
-See also: [API.md](API.md) — the public Java API and network protocol, [../docs/GUIDE.md](GUIDE.md) — the user guide.
+See also: [API.md](API.md) — the public Java API and network protocol, [guide/](guide/index.md) — the user guide.
