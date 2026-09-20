@@ -70,29 +70,29 @@ void main() {
     }
 
     // spec §5 / depth findings: reconstruct the visible world position with the shared recipe (one
-    // implementation, also used by the field library), then its outward camera-facing normal (a
-    // depth-derived normal has an ambiguous sign without state).
+    // implementation, also used by the field library). The normal comes from neighbouring depth
+    // taps (camera.glsl) rather than screen-space derivatives of the reconstruction: at an edge or
+    // a silhouette a derivative mixes two surfaces (or the sky's far-plane position) and flips.
     vec3 world = vfx_world_from_depth(texCoord, sceneDepth, inv_view_proj);
     vec3 eye = vfx_world_from_depth(texCoord, 1.0, inv_view_proj);
-    vec3 n = vfx_camera_normal(world, dFdx(world), dFdy(world), world - eye);
+    vec2 texel = vec2(1.0 / max(InSize.x, 1.0), 1.0 / max(InSize.y, 1.0));
+    vec3 nRaw = vfx_depth_normal(DepthSampler, texCoord, sceneDepth, inv_view_proj, texel, eye);
 
-    // Dominant-axis selection: pick the projection plane from the fragment's world normal so a
-    // vertical wall gets an upright figure instead of a sheared XZ one. The switch is hard (not
-    // blended) because blending projected coordinates shears the figure and blending coverage
-    // double-paints it. faceId: 0 up, 1 down, 2 north, 3 south, 4 west, 5 east.
-    vec3 a = abs(n);
-    int faceId;
-    if (a.y >= a.x && a.y >= a.z) {
-        faceId = n.y >= 0.0 ? 0 : 1;
-    } else if (a.x >= a.z) {
-        faceId = n.x >= 0.0 ? 5 : 4;
-    } else {
-        faceId = n.z >= 0.0 ? 3 : 2;
-    }
+    // A block face is axis-aligned, so snapping the normal to the nearest of the six axes is exact,
+    // not an approximation, and it removes the residual noise. The snapped axis drives the
+    // projection plane, the face set and the band; the unsnapped normal keeps the legacy numeric
+    // normal_mask meaning. The switch is hard (not blended) because blending projected coordinates
+    // shears the figure and blending coverage double-paints it.
+    vec3 n = vfx_snap_normal(nRaw);
+    int faceId = vfx_face_id(n);
 
     // Project onto the chosen plane: horizontal faces keep world XZ (today's result); a wall uses
-    // the horizontal tangent u = cross(worldUp, n) across and world Y up. The band runs along the
-    // axis the projection picked: Y for up/down, X for east/west, Z for north/south.
+    // the horizontal tangent u = cross(worldUp, n) across and world Y up. With the snapped normal u
+    // is exactly ±X/±Z, so the figure is upright, un-mirrored and stable as the camera moves:
+    //   south (+Z) u=+X  p=( x, y)   north (-Z) u=-X  p=(-x, y)
+    //   east  (+X) u=-Z  p=(-z, y)   west  (-X) u=+Z  p=( z, y)
+    // Both axes are in world units, so the figure's aspect is preserved on walls. The band runs
+    // along the axis the projection picked: Y for up/down, X for east/west, Z for north/south.
     vec3 center = vec3(center_x, center_y, center_z);
     vec2 p;
     vec2 centerP;
@@ -102,7 +102,7 @@ void main() {
         centerP = center.xz;
         bandAxis = world.y;
     } else {
-        vec3 u = normalize(cross(vec3(0.0, 1.0, 0.0), n));
+        vec3 u = cross(vec3(0.0, 1.0, 0.0), n);
         p = vec2(dot(world, u), world.y);
         centerP = vec2(dot(center, u), center.y);
         bandAxis = faceId >= 4 ? world.x : world.z;
@@ -140,7 +140,7 @@ void main() {
     if (face_mask >= 0.0) {
         faceCov = mod(floor(face_mask / exp2(float(faceId))), 2.0) >= 0.5 ? 1.0 : 0.0;
     } else {
-        faceCov = normal_mask <= 0.0 ? 1.0 : smoothstep(normal_mask, min(normal_mask + 0.2, 1.0), a.y);
+        faceCov = normal_mask <= 0.0 ? 1.0 : smoothstep(normal_mask, min(normal_mask + 0.2, 1.0), abs(nRaw.y));
     }
     // Inclusive band along the dominant axis (unbounded by default).
     float bandCov = (bandAxis >= band_min && bandAxis <= band_max) ? 1.0 : 0.0;

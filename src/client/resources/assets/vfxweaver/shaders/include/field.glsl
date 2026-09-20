@@ -311,11 +311,9 @@ vec3 vfx_field_leaf(int i, vec2 uv) {
 		return vec3(clamp(length(vec2(dx, dy)) / range, 0.0, 1.0));
 	}
 	if (fn == 8.0) {
-		vec3 world = vfx_world_pos(uv);
-		vec2 texelStep = fld_inv_size.xy;
-		vec3 dx = vfx_world_pos(uv + vec2(texelStep.x, 0.0)) - world;
-		vec3 dy = vfx_world_pos(uv + vec2(0.0, texelStep.y)) - world;
-		vec3 normal = vfx_camera_normal(world, dx, dy, world - fld_camera_pos.xyz);
+		// Same robust normal as surface_pattern: neighbouring depth taps, not screen derivatives.
+		vec3 normal = vfx_depth_normal(DepthSampler, uv, vfx_raw_depth(uv), fld_inv_view_proj,
+			fld_inv_size.xy, fld_camera_pos.xyz);
 		vec3 axis = normalize(vec3(p.x, p.y, p.z) + vec3(1.0e-6));
 		float facing = dot(normal, axis);
 		float softness = 0.05;
