@@ -297,6 +297,24 @@ payload code is loader-agnostic and must not name a loader type.
   id in the parser, `arity()` table, the eval `switch`) and documented in the class javadoc and
   `docs/GUIDE.md`. Argument counts are validated at compile time.
 
+## Test/demo effects are authored in a datapack (never baked into the mod)
+
+Test and demo effects live in a **datapack, not in the mod's built-in resources**
+(`src/main/resources/data/vfxweaver/vfx/*.json`): edit the JSON, `/reload`, play — no rebuild,
+restart or redeploy. A datapack definition **overrides a same-id built-in** (the datapack/server
+layer wins, see the definition-layer rule above), so datapack copies of the demos stay authoritative.
+Do not add (or re-add) test/demo effects to the mod's own `vfx/` or `vfx_particles/`; built-in
+resources carry only shipped, stable definitions. Removing the existing demo copies from the mod's
+resources is a separate decision, not to be taken unilaterally.
+
+The `26.2test` Prism instance's test pack is at
+`<instance>/minecraft/saves/<world>/datapacks/vfx_demos/` (currently
+`C:\Users\Light Flight PC\AppData\Roaming\PrismLauncher\instances\26.2test\minecraft\saves\New World\datapacks\vfx_demos`,
+world `New World` — check `logs/latest.log` for the loaded level), with `pack.mcmeta` using the 26.2
+`min_format`/`max_format` form (`[107, 1]`, from the client jar's `version.json`
+`pack_version.data_major`/`data_minor`), effects under `data/vfxweaver/vfx/*.json` and spark presets
+under `data/vfxweaver/vfx_particles/*.json`.
+
 ## Code style
 
 - Indentation is tabs, not spaces.
