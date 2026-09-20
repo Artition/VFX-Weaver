@@ -19,6 +19,8 @@ public final class VFXShapeRegistry {
 
 	private final Map<String, VFXCustomShape> shapes = new HashMap<>();
 	private final Map<String, VFXMaskShapeGlsl> plugins = new HashMap<>();
+	/** Notified on every registration change so the client can drop its compiled-shape shader variants. */
+	private @Nullable Runnable changeListener;
 
 	private VFXShapeRegistry() {
 		// Built-in composed shapes live in the shared registry (registry metadata is MC-free) so a
@@ -53,6 +55,23 @@ public final class VFXShapeRegistry {
 	}
 
 	/**
+	 * Sets the listener notified whenever a shape is registered or removed. The client uses it to
+	 * invalidate its compiled custom-shape shader variants (a re-registration must not keep serving
+	 * the old GLSL). Loader-agnostic: the registry itself never references the client.
+	 *
+	 * @param listener the listener, or {@code null} to clear it
+	 */
+	public void setChangeListener(final @Nullable Runnable listener) {
+		this.changeListener = listener;
+	}
+
+	private void notifyChanged() {
+		if (this.changeListener != null) {
+			this.changeListener.run();
+		}
+	}
+
+	/**
 	 * Registers a composed custom shape.
 	 *
 	 * @return {@code false} when the registry is full
@@ -62,6 +81,7 @@ public final class VFXShapeRegistry {
 			return false;
 		}
 		this.shapes.put(id, shape);
+		notifyChanged();
 		return true;
 	}
 
@@ -69,6 +89,9 @@ public final class VFXShapeRegistry {
 	public boolean unregister(final String id) {
 		final boolean existed = this.shapes.remove(id) != null;
 		this.plugins.remove(id);
+		if (existed) {
+			notifyChanged();
+		}
 		return existed;
 	}
 
@@ -89,6 +112,7 @@ public final class VFXShapeRegistry {
 		}
 		this.plugins.put(id, plugin);
 		this.shapes.put(id, new VFXCustomShape(id, VFXMaskSpace.SCREEN, VFXCustomShape.Family.GLSL_PLUGIN, java.util.List.of(), java.util.List.of()));
+		notifyChanged();
 		return true;
 	}
 

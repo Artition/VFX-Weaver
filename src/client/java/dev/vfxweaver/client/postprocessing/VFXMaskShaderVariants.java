@@ -61,7 +61,6 @@ public final class VFXMaskShaderVariants {
 	private static final Map<String, VFXShaderPrograms.@Nullable ProgramInfo> VARIANTS = new HashMap<>();
 	/** The injected fragment source per variant key, so the device cache can be re-seeded after a reload. */
 	private static final Map<String, String> SOURCES = new HashMap<>();
-	private static final Map<String, String> ERRORS = new HashMap<>();
 	/** A monotonic variant number: never reused, so a recompiled key never collides with a stale pass/cache entry. */
 	private static int nextVariantId;
 
@@ -98,39 +97,41 @@ public final class VFXMaskShaderVariants {
 		return compiled != null ? compiled : VFXShaderPrograms.coverageProgram();
 	}
 
-	/** The recorded compile/validation error for a variant key, or {@code null}. */
-	public static @Nullable String error(final String key) {
-		return ERRORS.get(key);
-	}
-
 	/** Clears all variants so the next use rebuilds the source and pipeline (a shape re-registration). */
 	public static void invalidate() {
 		VARIANTS.clear();
 		SOURCES.clear();
-		ERRORS.clear();
 	}
 
 	/**
 	 * Records a variant failure once (bounded key) and returns {@code null} so the caller falls back
-	 * to neutral coverage. The message reads like a parse/validation error naming the shape(s).
+	 * to neutral coverage. The message reads like a parse/validation error naming the shape(s) and is
+	 * surfaced through {@link VFXLog#warnOnce}; no separate error accessor is kept (it had no caller).
 	 */
 	private static VFXShaderPrograms.@Nullable ProgramInfo fail(final String key, final String reason) {
 		final String message = "mask: custom shape '" + key + "' cannot be rendered, falling back to neutral coverage: " + reason;
-		ERRORS.put(key, message);
 		VFXLog.warnOnce(LOGGER, "mask_shape_variant:" + key, message);
 		return null;
 	}
 
-	/** Recompiles/returns the cached variant pipeline through its injected source (no-op when none). */
+	/**
+	 * Rebuilds the injected source from the live base shader and the live plugin sources, then
+	 * re-seeds the device pipeline cache. A resource reload changing the base shader, or a
+	 * re-registration changing a plugin's GLSL, is picked up here instead of leaving a stale variant.
+	 */
 	private static void reseed(final String key) {
 		//? if <26.1 {
 		/*return;
 		*///?} else {
 		final VFXShaderPrograms.@Nullable ProgramInfo info = VARIANTS.get(key);
-		final String source = SOURCES.get(key);
-		if (info == null || source == null) {
+		if (info == null) {
 			return;
 		}
+		final String source = injectedSource(key);
+		if (source == null) {
+			return;
+		}
+		SOURCES.put(key, source);
 		RenderSystem.getDevice().precompilePipeline(info.pipeline(), variantSource(info.pipeline().getFragmentShader(), source));
 		//?}
 	}
@@ -144,27 +145,10 @@ public final class VFXMaskShaderVariants {
 		//? if <26.1 {
 		/*return null;
 		*///?} else {
-		final Minecraft minecraft = Minecraft.getInstance();
-		final ShaderManager shaders = minecraft.getShaderManager();
-		final Identifier coverageFragment = Identifier.fromNamespaceAndPath("vfxweaver", "post/mask_coverage");
-		final String base = shaders.getShader(coverageFragment, ShaderType.FRAGMENT);
-		if (base == null) {
-			return fail(key, "the coverage shader source is unavailable");
+		final String injected = injectedSource(key);
+		if (injected == null) {
+			return null;
 		}
-		final int begin = base.indexOf(INJECT_BEGIN);
-		final int end = begin < 0 ? -1 : base.indexOf(INJECT_END, begin + INJECT_BEGIN.length());
-		if (begin < 0 || end < 0) {
-			return fail(key, "the coverage shader is missing its custom-shape injection markers");
-		}
-		final StringBuilder plugin = new StringBuilder();
-		for (final String id : key.split(",")) {
-			final @Nullable VFXMaskShapeGlsl shape = VFXShapeRegistry.get().plugin(id);
-			if (shape == null) {
-				return fail(key, "shape '" + id + "' has no registered GLSL plugin");
-			}
-			plugin.append("\n// mask custom shape '").append(id).append("'\n").append(shape.glsl()).append('\n');
-		}
-		final String injected = base.substring(0, begin + INJECT_BEGIN.length()) + plugin + base.substring(end);
 		final Identifier variant = Identifier.fromNamespaceAndPath("vfxweaver", "post/mask_coverage_v" + nextVariantId++);
 		final RenderPipeline pipeline = VFXShaderPrograms.buildCoveragePipeline(variant, variant);
 		final CompiledRenderPipeline compiled = RenderSystem.getDevice().precompilePipeline(pipeline, variantSource(variant, injected));
@@ -173,6 +157,41 @@ public final class VFXMaskShaderVariants {
 		}
 		SOURCES.put(key, injected);
 		return new VFXShaderPrograms.ProgramInfo(pipeline, new String[0], VFXMaskUniforms.uboSize(), VFXShaderPrograms.PassRole.NORMAL, false, null, false, true);
+		//?}
+	}
+
+	/**
+	 * The live coverage source with the marked stub replaced by the live plugin source(s), or
+	 * {@code null} after recording a failure (missing base source / markers / plugin).
+	 */
+	private static @Nullable String injectedSource(final String key) {
+		//? if <26.1 {
+		/*return null;
+		*///?} else {
+		final Minecraft minecraft = Minecraft.getInstance();
+		final ShaderManager shaders = minecraft.getShaderManager();
+		final Identifier coverageFragment = Identifier.fromNamespaceAndPath("vfxweaver", "post/mask_coverage");
+		final String base = shaders.getShader(coverageFragment, ShaderType.FRAGMENT);
+		if (base == null) {
+			fail(key, "the coverage shader source is unavailable");
+			return null;
+		}
+		final int begin = base.indexOf(INJECT_BEGIN);
+		final int end = begin < 0 ? -1 : base.indexOf(INJECT_END, begin + INJECT_BEGIN.length());
+		if (begin < 0 || end < 0) {
+			fail(key, "the coverage shader is missing its custom-shape injection markers");
+			return null;
+		}
+		final StringBuilder plugin = new StringBuilder();
+		for (final String id : key.split(",")) {
+			final @Nullable VFXMaskShapeGlsl shape = VFXShapeRegistry.get().plugin(id);
+			if (shape == null) {
+				fail(key, "shape '" + id + "' has no registered GLSL plugin");
+				return null;
+			}
+			plugin.append("\n// mask custom shape '").append(id).append("'\n").append(shape.glsl()).append('\n');
+		}
+		return base.substring(0, begin + INJECT_BEGIN.length()) + plugin + base.substring(end);
 		//?}
 	}
 
