@@ -11,6 +11,11 @@ import com.mojang.blaze3d.buffers.Std140SizeCalculator;
 import com.mojang.blaze3d.pipeline.RenderPipeline;
 import com.mojang.blaze3d.pipeline.RenderTarget;
 import com.mojang.blaze3d.pipeline.TextureTarget;
+//? if >=26.1 {
+import com.mojang.blaze3d.opengl.GlProgram;
+import com.mojang.blaze3d.opengl.GlRenderPipeline;
+import com.mojang.blaze3d.pipeline.CompiledRenderPipeline;
+//?}
 import com.mojang.blaze3d.systems.CommandEncoder;
 import com.mojang.blaze3d.systems.RenderPass;
 import com.mojang.blaze3d.systems.RenderSystem;
@@ -37,6 +42,10 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+//? if >=26.1 {
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+//?}
 //? if >=26.2 {
 /*import java.util.Optional;
 *///?}
@@ -57,6 +66,9 @@ import net.minecraft.world.phys.Vec3;
 import org.joml.Matrix4fc;
 import org.joml.Vector3f;
 import org.jspecify.annotations.Nullable;
+//? if >=26.1 {
+import org.lwjgl.opengl.GL31;
+//?}
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -484,6 +496,95 @@ public final class VFXPostProcessingManager {
 		return true;
 	}
 
+	//? if >=26.1 {
+	/** Pipelines whose std140 {@code Config} layout was already verified against the driver. */
+	private static final Set<String> VERIFIED_DEPTH_CONFIGS = ConcurrentHashMap.newKeySet();
+	/** Pipelines whose std140 {@code Config} layout failed verification (never retried per frame). */
+	private static final Set<String> FAILED_DEPTH_CONFIGS = ConcurrentHashMap.newKeySet();
+
+	/**
+	 * Verifies, once per program link, that the driver's real std140 layout of the depth pass's
+	 * {@code Config} block matches the positional contract: {@code inv_view_proj} at offset 0
+	 * (64 bytes), {@code names[i]} at {@code 64 + 4*i}, and the block size
+	 * {@code 64 + align16(4 * names.length)}. This is the guard that makes a drifted tail fail
+	 * loudly instead of reading as zeros; it would have caught a short range, a stale size or a
+	 * reordered/renamed field.
+	 *
+	 * <p>An infrastructure miss (a non-GL backend, a shader that has not compiled yet, an LWJGL
+	 * failure) only warns once — the game must not die because a debug query was unavailable. An
+	 * actual layout mismatch logs at ERROR and throws; the caller's {@code process} catch reports
+	 * it once. The set keeps this to one query per pipeline per process, never per frame.
+	 *
+	 * @param pipeline the compiled depth pass pipeline
+	 * @param names    the registered {@code Config} float names, in positional order
+	 */
+	private static void verifyDepthConfigLayout(final RenderPipeline pipeline, final String[] names) {
+		final String key = pipeline.getLocation().toString();
+		if (VERIFIED_DEPTH_CONFIGS.contains(key) || FAILED_DEPTH_CONFIGS.contains(key)) {
+			return;
+		}
+		try {
+			final CompiledRenderPipeline compiled = RenderSystem.getDevice().precompilePipeline(pipeline);
+			if (!(compiled instanceof GlRenderPipeline gl) || !gl.isValid()) {
+				return;
+			}
+			final GlProgram program = gl.program();
+			if (program == null) {
+				return;
+			}
+			final int programId = program.getProgramId();
+			final int blockIndex = GL31.glGetUniformBlockIndex(programId, "Config");
+			if (blockIndex < 0) {
+				throw new IllegalStateException("the 'Config' uniform block is not active");
+			}
+			final int[] blockSize = new int[1];
+			GL31.glGetActiveUniformBlockiv(programId, blockIndex, GL31.GL_UNIFORM_BLOCK_DATA_SIZE, blockSize);
+			final CharSequence[] qualified = new CharSequence[names.length];
+			for (int i = 0; i < names.length; i++) {
+				qualified[i] = "Config." + names[i];
+			}
+			final int[] indices = new int[names.length];
+			final int[] offsets = new int[names.length];
+			try (org.lwjgl.system.MemoryStack stack = org.lwjgl.system.MemoryStack.stackPush()) {
+				final java.nio.IntBuffer buffer = stack.mallocInt(names.length);
+				GL31.glGetUniformIndices(programId, qualified, buffer);
+				buffer.get(indices);
+				GL31.glGetActiveUniformsiv(programId, indices, GL31.GL_UNIFORM_OFFSET, offsets);
+			}
+			for (int i = 0; i < names.length; i++) {
+				if (indices[i] < 0) {
+					throw new IllegalStateException("the '" + qualified[i] + "' uniform is not active");
+				}
+				final int expected = 64 + 4 * i;
+				if (offsets[i] != expected) {
+					throw new IllegalStateException("std140 offset drift: '" + names[i] + "' is at " + offsets[i] + ", expected " + expected);
+				}
+			}
+			final int expectedSize = VFXShaderPrograms.depthConfigSize(names.length);
+			final int usedBytes = 64 + 4 * names.length;
+			// The bound range (the arena slot, an over-aligned multiple of expectedSize) must cover
+			// the driver's block; the block must in turn cover every field. A driver that reports the
+			// un-rounded 244 rather than 256 is fine — the bound range is longer either way.
+			if (blockSize[0] > expectedSize) {
+				throw new IllegalStateException("std140 block size drift: driver reports " + blockSize[0] + " bytes, the bound range is " + expectedSize);
+			}
+			if (blockSize[0] < usedBytes) {
+				throw new IllegalStateException("std140 block size drift: driver reports " + blockSize[0] + " bytes, the fields need " + usedBytes);
+			}
+			VERIFIED_DEPTH_CONFIGS.add(key);
+		} catch (final IllegalStateException e) {
+			FAILED_DEPTH_CONFIGS.add(key);
+			LOGGER.error("VFX surface_pattern Config layout guard failed for {}: {}", key, e.getMessage());
+			throw e;
+		} catch (final RuntimeException e) {
+			// No GL backend / shader not compiled yet / LWJGL failure: never take the game down over
+			// an unavailable debug query; the positional contract check still runs in the build.
+			VFXLog.warnOnce(LOGGER, "depth-config-guard:" + key,
+				"Could not verify the std140 layout of {} ({}); the positional check in scripts/ still applies", key, e.getMessage());
+		}
+	}
+	//?}
+
 	private void ensureTargets(final int width, final int height) {
 		if (width != this.lastWidth || height != this.lastHeight) {
 			for (int i = 0; i < this.pingPong.length; i++) {
@@ -635,6 +736,12 @@ public final class VFXPostProcessingManager {
 				this.hasConfig ? info.configUboSize() : 0,
 				this.hasField ? VFXShaderPrograms.FIELD_CONFIG_SIZE : 0));
 			this.arena = new UniformArena(this.pipeline.getLocation() + " uniforms", payload);
+			// The bound range is the arena slot, so it must cover the whole Config block; the
+			// payload above already includes it, this asserts the two cannot drift apart.
+			if (this.hasConfig && this.arena.blockSize() < info.configUboSize()) {
+				throw new IllegalStateException("uniform arena slot " + this.arena.blockSize()
+					+ " is shorter than the Config block " + info.configUboSize() + " for " + this.pipeline.getLocation());
+			}
 			this.usesDepth = info.usesDepth();
 			this.fieldInput = info.fieldInput();
 			this.mask = info.mask();
@@ -671,6 +778,13 @@ public final class VFXPostProcessingManager {
 			final @Nullable VFXFieldProgram fieldProgram,
 			final @Nullable RenderTarget coverage
 		) {
+			//? if >=26.1 {
+			if (this.depthConfig) {
+				// Once per program link: assert the driver's real std140 offsets match the positional
+				// contract, so a drifted tail fails loudly rather than reading as zeros.
+				verifyDepthConfigLayout(this.pipeline, this.configParams);
+			}
+			//?}
 			final GpuBufferSlice samplerInfo = this.arena.write(encoder, builder ->
 				builder.putVec2(output.width, output.height).putVec2(input.width, input.height));
 
@@ -698,73 +812,27 @@ public final class VFXPostProcessingManager {
 						// spec §5 / depth findings: viewRotProj has no translation; the matrix was
 						// already built translate(-camPos) then inverted, so write it as-is.
 						builder.putMat4f(VFXFieldEnv.invViewProj());
+						// One full-range write per frame, in registered-name order, sized by the name
+						// list: resolveDepthConfig writes every name or throws, so the tail can never
+						// silently upload as zero.
+						for (final float value : this.resolveDepthConfig(effect, weight, shape, surface, patternTexture)) {
+							builder.putFloat(value);
+						}
+						return;
 					}
-					for (String param : this.configParams) {
+					for (final String param : this.configParams) {
 						// Reserved parameters never come from the timeline: "time"/"hold" are the
-						// existing reserved names; the "center_*"/figure names describe the world
-						// anchor and the structural shape block, all owned by the shared VFXShape.
-						float raw;
-						boolean reserved = "time".equals(param) || "hold".equals(param);
+						// existing reserved names; a non-depth pass has no structural block.
+						final float raw;
+						final boolean reserved = "time".equals(param) || "hold".equals(param);
 						if ("time".equals(param)) {
 							raw = effect.getAge();
 						} else if ("hold".equals(param)) {
 							raw = hold != null ? hold : 0.0F;
-						} else if (this.depthConfig && isReservedDepthParam(param)) {
-							reserved = true;
-							raw = switch (param) {
-								case "center_x" -> this.scratchAnchor.x;
-								case "center_y" -> this.scratchAnchor.y;
-								case "center_z" -> this.scratchAnchor.z;
-								case "shape" -> shape == null ? 0.0F : (float) shape.figure().ordinal();
-								case "fill" -> shape == null ? 0.0F : (float) shape.fill().ordinal();
-								// A numeric rotation param, when authored, overrides the structural
-								// rotation (same style as line_width overriding stroke_width): the
-								// value spins the figure and the texture together.
-								case "rotation" -> effect.getParam("rotation", shape == null ? 0.0F : shape.rotation());
-								// The numeric line_width param, when authored, overrides the
-								// shape's structural stroke width.
-								case "stroke_width" -> effect.getParam("line_width", shape == null ? 0.0F : shape.strokeWidth());
-								case "softness" -> shape == null ? 0.0F : shape.softness();
-								case "repeat_x" -> shape == null ? 1.0F : (float) shape.repeatX();
-								case "repeat_y" -> shape == null ? 1.0F : (float) shape.repeatY();
-								case "radius" -> shape == null ? 0.0F : shape.radius();
-								case "radius_x" -> shape == null ? 0.0F : shape.radiusX();
-								case "radius_y" -> shape == null ? 0.0F : shape.radiusY();
-								case "half_width" -> shape == null ? 0.0F : shape.halfWidth();
-								case "half_height" -> shape == null ? 0.0F : shape.halfHeight();
-								case "corner_radius" -> shape == null ? 0.0F : shape.cornerRadius();
-								case "sides" -> shape == null ? 3.0F : (float) shape.sides();
-								case "face_mask" -> surface == null ? -1.0F : (float) surface.faceMask();
-								case "band_min" -> surface == null ? VFXSurfaceSelection.UNBOUNDED_MIN : surface.min();
-								case "band_max" -> surface == null ? VFXSurfaceSelection.UNBOUNDED_MAX : surface.max();
-								case "band_softness" -> surface == null ? VFXSurfaceSelection.DEFAULT_BAND_SOFTNESS : surface.bandSoftness();
-								// Textured figure: shape_present gates the shape mask; the tex_*
-								// values come from the resolved texture descriptor (atlas rect,
-								// aspect, sheet, frame, flags, channel).
-								case "shape_present" -> shape == null ? 0.0F : (shape.figureAuthored() ? 1.0F : 0.0F);
-								case "tex_u0" -> patternTexture.u0();
-								case "tex_v0" -> patternTexture.v0();
-								case "tex_u1" -> patternTexture.u1();
-								case "tex_v1" -> patternTexture.v1();
-								case "tex_aspect" -> patternTexture.aspect();
-								case "tex_cols" -> patternTexture.cols();
-								case "tex_rows" -> patternTexture.rows();
-								// The animatable sprite-sheet frame: a normal param, so it may be a
-								// literal, a keyframe, an expr or a { "from": node } graph input.
-								case "tex_frame" -> effect.getParam("frame", 0.0F);
-								case "tex_flags" -> patternTexture.flags();
-								case "tex_channel" -> patternTexture.channel();
-								case "tex_px_w" -> patternTexture.pxW();
-								case "tex_px_h" -> patternTexture.pxH();
-								// surface.stitch: unfold a vertical wall into the floor plane. With no
-								// surface block this is 0 = today's hard floor/wall switch.
-								case "stitch" -> surface == null || !surface.stitch() ? 0.0F : 1.0F;
-								default -> effect.getParam(param, 0.0F);
-							};
 						} else {
 							raw = effect.getParam(param, 0.0F);
 						}
-						float neutral = reserved ? Float.NaN : effect.getType().neutralValue(param);
+						final float neutral = reserved ? Float.NaN : effect.getType().neutralValue(param);
 						builder.putFloat(Float.isNaN(neutral) ? raw : neutral + (raw - neutral) * weight);
 					}
 				});
@@ -1192,6 +1260,128 @@ public final class VFXPostProcessingManager {
 				|| definition.getParams().containsKey("pos_z"));
 		}
 
+		/**
+		 * Resolves the depth pass's {@code Config} floats into a fresh array in registered-name
+		 * order. The array starts {@link Float#NaN}; every name is written by
+		 * {@link #resolveDepthValue} (whose switch throws on an unhandled name) and the post-check
+		 * below fails loudly if any entry is still NaN. A name appended to
+		 * {@code VFXShaderPrograms.registerDepthPost} without a resolver case therefore cannot
+		 * silently upload as zero — the class of "head works, tail dead" bug is impossible.
+		 *
+		 * @param effect        the live effect instance
+		 * @param weight        the effect's fade weight (applied to timeline parameters only)
+		 * @param shape         the definition's structural shape, or {@code null}
+		 * @param surface       the definition's structural surface selection, or {@code null}
+		 * @param patternTexture the resolved pattern texture descriptor (never {@code null})
+		 * @return one float per registered name, in order
+		 */
+		private float[] resolveDepthConfig(
+			final VFXActiveEffect effect,
+			final float weight,
+			final @Nullable VFXShape shape,
+			final @Nullable VFXSurfaceSelection surface,
+			final PatternTexture patternTexture
+		) {
+			final float[] values = new float[this.configParams.length];
+			java.util.Arrays.fill(values, Float.NaN);
+			for (int i = 0; i < this.configParams.length; i++) {
+				values[i] = this.resolveDepthValue(this.configParams[i], effect, weight, shape, surface, patternTexture);
+			}
+			for (int i = 0; i < values.length; i++) {
+				if (Float.isNaN(values[i])) {
+					throw new IllegalStateException("surface_pattern Config resolver left '" + this.configParams[i] + "' unwritten (NaN)");
+				}
+			}
+			return values;
+		}
+
+		/**
+		 * Resolves one depth {@code Config} name to its final float. The switch is exhaustive: a
+		 * registered name without a case is a contract violation and throws instead of falling back
+		 * to a timeline value of zero. A reserved name (the world anchor, the structural
+		 * figure/surface, the resolved texture) is written as resolved; every other name is a
+		 * timeline parameter, weight-blended against its neutral.
+		 *
+		 * @param param         the registered name (one entry of {@code registerDepthPost})
+		 * @param effect        the live effect instance
+		 * @param weight        the effect's fade weight
+		 * @param shape         the structural shape, or {@code null}
+		 * @param surface       the structural surface selection, or {@code null}
+		 * @param patternTexture the resolved pattern texture descriptor
+		 * @return the value to upload for this name
+		 */
+		private float resolveDepthValue(
+			final String param,
+			final VFXActiveEffect effect,
+			final float weight,
+			final @Nullable VFXShape shape,
+			final @Nullable VFXSurfaceSelection surface,
+			final PatternTexture patternTexture
+		) {
+			final float raw = switch (param) {
+				case "time" -> effect.getAge();
+				case "tile_scale" -> effect.getParam("tile_scale", 0.0F);
+				case "color_r" -> effect.getParam("color_r", 0.0F);
+				case "color_g" -> effect.getParam("color_g", 0.0F);
+				case "color_b" -> effect.getParam("color_b", 0.0F);
+				case "opacity" -> effect.getParam("opacity", 0.0F);
+				case "fade_radius" -> effect.getParam("fade_radius", 0.0F);
+				case "normal_mask" -> effect.getParam("normal_mask", 0.0F);
+				case "distort" -> effect.getParam("distort", 0.0F);
+				case "texture_tint" -> effect.getParam("texture_tint", 0.0F);
+				case "center_x" -> this.scratchAnchor.x;
+				case "center_y" -> this.scratchAnchor.y;
+				case "center_z" -> this.scratchAnchor.z;
+				case "shape" -> shape == null ? 0.0F : (float) shape.figure().ordinal();
+				case "fill" -> shape == null ? 0.0F : (float) shape.fill().ordinal();
+				// A numeric rotation param, when authored, overrides the structural rotation (same
+				// style as line_width overriding stroke_width): the value spins the figure and the
+				// texture together.
+				case "rotation" -> effect.getParam("rotation", shape == null ? 0.0F : shape.rotation());
+				// The numeric line_width param, when authored, overrides the shape's structural
+				// stroke width.
+				case "stroke_width" -> effect.getParam("line_width", shape == null ? 0.0F : shape.strokeWidth());
+				case "softness" -> shape == null ? 0.0F : shape.softness();
+				case "repeat_x" -> shape == null ? 1.0F : (float) shape.repeatX();
+				case "repeat_y" -> shape == null ? 1.0F : (float) shape.repeatY();
+				case "radius" -> shape == null ? 0.0F : shape.radius();
+				case "radius_x" -> shape == null ? 0.0F : shape.radiusX();
+				case "radius_y" -> shape == null ? 0.0F : shape.radiusY();
+				case "half_width" -> shape == null ? 0.0F : shape.halfWidth();
+				case "half_height" -> shape == null ? 0.0F : shape.halfHeight();
+				case "corner_radius" -> shape == null ? 0.0F : shape.cornerRadius();
+				case "sides" -> shape == null ? 3.0F : (float) shape.sides();
+				case "face_mask" -> surface == null ? -1.0F : (float) surface.faceMask();
+				case "band_min" -> surface == null ? VFXSurfaceSelection.UNBOUNDED_MIN : surface.min();
+				case "band_max" -> surface == null ? VFXSurfaceSelection.UNBOUNDED_MAX : surface.max();
+				case "band_softness" -> surface == null ? VFXSurfaceSelection.DEFAULT_BAND_SOFTNESS : surface.bandSoftness();
+				// Textured figure: shape_present gates the shape mask; the tex_* values come from the
+				// resolved texture descriptor (atlas rect, aspect, sheet, frame, flags, channel).
+				case "shape_present" -> shape == null ? 0.0F : (shape.figureAuthored() ? 1.0F : 0.0F);
+				case "tex_u0" -> patternTexture.u0();
+				case "tex_v0" -> patternTexture.v0();
+				case "tex_u1" -> patternTexture.u1();
+				case "tex_v1" -> patternTexture.v1();
+				case "tex_aspect" -> patternTexture.aspect();
+				case "tex_cols" -> patternTexture.cols();
+				case "tex_rows" -> patternTexture.rows();
+				// The animatable sprite-sheet frame: a normal param, so it may be a literal, a
+				// keyframe, an expr or a { "from": node } graph input.
+				case "tex_frame" -> effect.getParam("frame", 0.0F);
+				case "tex_flags" -> patternTexture.flags();
+				case "tex_channel" -> patternTexture.channel();
+				case "tex_px_w" -> patternTexture.pxW();
+				case "tex_px_h" -> patternTexture.pxH();
+				// surface.stitch: unfold a vertical wall into the floor plane. With no surface block
+				// this is 0 = today's hard floor/wall switch.
+				case "stitch" -> surface == null || !surface.stitch() ? 0.0F : 1.0F;
+				default -> throw new IllegalStateException("surface_pattern Config resolver has no case for '" + param + "'");
+			};
+			final boolean reserved = "time".equals(param) || isReservedDepthParam(param);
+			final float neutral = reserved ? Float.NaN : effect.getType().neutralValue(param);
+			return Float.isNaN(neutral) ? raw : neutral + (raw - neutral) * weight;
+		}
+
 		/** True for the depth Config names the manager resolves from the shape/anchor, not the timeline. */
 		private static boolean isReservedDepthParam(final String param) {
 			return switch (param) {
@@ -1236,6 +1426,11 @@ public final class VFXPostProcessingManager {
 				((payloadSize + ARENA_BLOCK_ALIGNMENT - 1) / ARENA_BLOCK_ALIGNMENT) * ARENA_BLOCK_ALIGNMENT);
 			this.capacity = ARENA_INITIAL_CAPACITY;
 			this.ring = new MappableRingBuffer(() -> this.label, UBO_USAGE, this.blockSize * this.capacity);
+		}
+
+		/** The byte length of one slot, and so of the range bound for every uniform block in it. */
+		private int blockSize() {
+			return this.blockSize;
 		}
 
 		/** Writes one std140 payload into the next aligned slot and returns its slice. */

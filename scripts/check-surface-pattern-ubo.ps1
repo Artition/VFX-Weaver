@@ -65,36 +65,72 @@ for ($i = 0; $i -lt $count; $i++) {
 	}
 }
 
-# --- the manager resolves every new (texture) reserved name, and does not reserve texture_tint --
+# --- the manager resolves every registered name with an exhaustive switch ------------------------
+# The resolver is a switch over the registered Config names with a case for every one; a name
+# appended to registerDepthPost without a case must throw (default -> throw), never fall back to a
+# timeline zero. This is the guard that makes "the tail silently uploads as 0" impossible.
 $reserved = [regex]::Match($manager, 'isReservedDepthParam[\s\S]*?return switch \(param\) \{(?<body>.*?)\};', 'Singleline')
 if (-not $reserved.Success) { throw "no isReservedDepthParam body in $managerPath" }
 $reservedBody = $reserved.Groups['body'].Value
-$resolved = [regex]::Match($manager, 'isReservedDepthParam\(param\)\) \{(?<body>.*?)default ->', 'Singleline')
-$switchBody = if ($resolved.Success) { $resolved.Groups['body'].Value } else { $manager }
-foreach ($name in @('shape_present', 'tex_u0', 'tex_v0', 'tex_u1', 'tex_v1', 'tex_aspect', 'tex_cols', 'tex_rows', 'tex_frame', 'tex_flags', 'tex_channel', 'tex_px_w', 'tex_px_h')) {
+$resolver = [regex]::Match($manager, 'resolveDepthValue\([\s\S]*?final float raw = switch \(param\) \{(?<body>.*?)\};', 'Singleline')
+if (-not $resolver.Success) {
+	$problems.Add("VFXPostProcessingManager has no resolveDepthValue switch to enumerate")
+}
+$switchBody = if ($resolver.Success) { $resolver.Groups['body'].Value } else { $manager }
+$caseNames = New-Object System.Collections.Generic.HashSet[string]
+foreach ($m in [regex]::Matches($switchBody, 'case\s+"([^"]+)"')) { [void]$caseNames.Add($m.Groups[1].Value) }
+foreach ($name in $javaNames) {
+	if (-not $caseNames.Contains($name)) {
+		$problems.Add("resolveDepthValue has no case for the registered name '$name'")
+	}
+}
+# The appended tail (texture + stitch) must be in the shader block, the reserved set and the switch.
+foreach ($name in @('shape_present', 'tex_u0', 'tex_v0', 'tex_u1', 'tex_v1', 'tex_aspect', 'tex_cols', 'tex_rows', 'tex_frame', 'tex_flags', 'tex_channel', 'tex_px_w', 'tex_px_h', 'stitch')) {
 	if ($shaderNames -notcontains $name) { $problems.Add("surface_pattern.fsh Config block is missing '$name'") }
 	if ($reservedBody -notmatch ('"' + [regex]::Escape($name) + '"')) {
 		$problems.Add("isReservedDepthParam does not list '$name'")
 	}
-	if ($switchBody -notmatch ('case\s+"' + [regex]::Escape($name) + '"')) {
+	if (-not $caseNames.Contains($name)) {
 		$problems.Add("VFXPostProcessingManager does not resolve the '$name' Config name")
 	}
 }
-if ($reservedBody -match '"texture_tint"') {
-	$problems.Add("isReservedDepthParam must not reserve 'texture_tint' (it is a fade-weighted param)")
+if ($switchBody -notmatch 'default\s*->\s*throw new IllegalStateException') {
+	$problems.Add("resolveDepthValue does not throw on an unhandled name (expected 'default -> throw new IllegalStateException')")
 }
-# stitch is appended after tex_px_h and resolved from the surface block, not the timeline.
-if ($shaderNames -notcontains 'stitch') {
-	$problems.Add("surface_pattern.fsh Config block is missing 'stitch'")
+if ($manager -notmatch 'Arrays\.fill\(values, Float\.NaN\)') {
+	$problems.Add("resolveDepthConfig does not seed the value array with NaN")
 }
-if ($reservedBody -notmatch '"stitch"') {
-	$problems.Add("isReservedDepthParam does not list 'stitch'")
+if ($manager -notmatch 'Float\.isNaN\(values\[i\]\)') {
+	$problems.Add("resolveDepthConfig does not fail on an unwritten (NaN) entry")
 }
-if ($switchBody -notmatch 'case\s+"stitch"') {
-	$problems.Add("VFXPostProcessingManager does not resolve the 'stitch' Config name")
+# The block size must be derived from the registered name list, never a hand-written constant.
+if ($programs -notmatch 'depthConfigSize\(params\.length\)') {
+	$problems.Add("registerDepthPost does not size the Config from the name list (expected depthConfigSize(params.length))")
 }
+if ($programs -notmatch 'static int depthConfigSize\(') {
+	$problems.Add("VFXShaderPrograms has no depthConfigSize(nameCount) helper")
+}
+# The bound range is the arena slot; it must be asserted to cover the whole Config block.
+if ($manager -notmatch 'arena\.blockSize\(\) < info\.configUboSize\(\)') {
+	$problems.Add("the pass does not assert the bound arena slot covers the whole Config block")
+}
+# The registration-time driver guard: the real std140 offsets and block size must be checked.
+if ($manager -notmatch 'GL_UNIFORM_BLOCK_DATA_SIZE' -or $manager -notmatch 'GL_UNIFORM_OFFSET') {
+	$problems.Add("the registration-time std140 offset/size guard (glGetActiveUniformBlockiv / glGetActiveUniformsiv) is missing")
+}
+if ($manager -notmatch 'verifyDepthConfigLayout\(') {
+	$problems.Add("the registration-time layout guard verifyDepthConfigLayout is missing")
+}
+# The guard's expected block size must use the same name-list-derived helper as the registration.
+if ($manager -notmatch 'VFXShaderPrograms\.depthConfigSize\(names\.length\)') {
+	$problems.Add("the layout guard does not size the expected block from the name list")
+}
+# The manager must still resolve the animatable 'frame' param into tex_frame.
 if ($switchBody -notmatch 'case\s+"tex_frame"\s*->\s*effect\.getParam\("frame"') {
 	$problems.Add("the manager does not read the animatable 'frame' param into tex_frame")
+}
+if ($reservedBody -match '"texture_tint"') {
+	$problems.Add("isReservedDepthParam must not reserve 'texture_tint' (it is a fade-weighted param)")
 }
 
 # --- the shared include is imported by both consumers and ships --------------------------------

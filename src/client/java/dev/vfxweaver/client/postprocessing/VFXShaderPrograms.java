@@ -437,7 +437,21 @@ public final class VFXShaderPrograms {
 			*///?}
 			.build();
 		RenderPipelines.register(pipeline);
-		PROGRAMS.put(type, List.of(new ProgramInfo(pipeline, params, 64 + align16(params.length * 4), PassRole.NORMAL, true, null, false, true)));
+		PROGRAMS.put(type, List.of(new ProgramInfo(pipeline, params, depthConfigSize(params.length), PassRole.NORMAL, true, null, false, true)));
+	}
+
+	/**
+	 * The std140 byte size of a depth pass's {@code Config} block: a leading {@code mat4}
+	 * {@code inv_view_proj} (64 bytes) followed by one {@code float} per registered name. The
+	 * size is derived from the name list, never a hand-written constant, so appending a name to
+	 * {@link #registerDepthPost} sizes the block and the arena slice with it. The trailing
+	 * {@code align16} is the std140 rule that rounds the block up to the 16-byte struct alignment.
+	 *
+	 * @param nameCount the number of registered {@code Config} float names
+	 * @return the std140 size in bytes
+	 */
+	static int depthConfigSize(final int nameCount) {
+		return 64 + align16(nameCount * 4);
 	}
 
 	/**
