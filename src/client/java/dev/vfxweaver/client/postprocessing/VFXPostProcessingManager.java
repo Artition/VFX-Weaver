@@ -855,9 +855,18 @@ public final class VFXPostProcessingManager {
 		 * caching the view itself left a dangling handle (the {@code /reload} bug). A datapack that
 		 * swaps the texture id at runtime resolves a new key.
 		 */
-		private com.mojang.blaze3d.textures.GpuTextureView resolveTexture(final String id) {
-			return this.textureViews.get(id, () ->
-				Minecraft.getInstance().getTextureManager().getTexture(Identifier.parse(id)).getTextureView());
+		private com.mojang.blaze3d.textures.@Nullable GpuTextureView resolveTexture(final String id) {
+			return this.textureViews.get(id, () -> {
+				final Identifier textureId = Identifier.tryParse(id);
+				if (textureId == null) {
+					// A malformed datapack id must degrade only this effect's field pass (a null view
+					// makes the shader read its neutral value), never throw into the layer-wide catch
+					// and disable every post effect for the frame.
+					VFXLog.warnOnce(LOGGER, "field:texture:" + id, "Ignoring VFX field texture '{}': not a valid resource id", id);
+					return null;
+				}
+				return Minecraft.getInstance().getTextureManager().getTexture(textureId).getTextureView();
+			});
 		}
 
 		/**
