@@ -15,6 +15,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import org.joml.Matrix4fc;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Writes and sizes the coverage prepass's {@code Config} UBO. The field order here and in
@@ -34,7 +35,7 @@ public final class VFXMaskUniforms {
 	/**
 	 * The value of one numeric mask slot: a world-coordinate binding wins over the definition's
 	 * literal/graph value. A binding that cannot be resolved yields the literal default here, but
-	 * {@link #bindingsResolved} fails the whole mask closed before any packed value is used.
+	 * {@link #primitiveResolved} drops the owning leaf before any packed value is used.
 	 */
 	private static float slotValue(final VFXMask mask, final VFXActiveEffect effect, final String slotName, final float fallback) {
 		final VFXMask.MaskSlot slot = mask.slots().get(slotName);
@@ -45,36 +46,60 @@ public final class VFXMaskUniforms {
 	}
 
 	/**
-	 * True when every world-coordinate binding this mask uses resolves this frame. A mask with an
-	 * unresolved source (an entity that is absent or off-screen, no camera or player state) must
-	 * contribute zero coverage rather than fall through to its literal slot defaults: the literal
-	 * default of an unbound screen {@code rect} is a full-screen rectangle, which is why an absent
-	 * entity used to tint everything. A binding with no world source (literal {@code pos}) is
-	 * always resolved.
+	 * True when every world-coordinate binding one leaf uses resolves this frame. A leaf with an
+	 * unresolved source (an entity that is absent, off-screen or outside the client's tracking
+	 * range, no camera or player state) must contribute zero coverage rather than fall through to
+	 * its literal slot defaults: the literal default of an unbound screen {@code rect} is a
+	 * full-screen rectangle, which is why an absent entity used to tint everything. Fail-closed is
+	 * per leaf, so an unresolved screen leaf no longer takes a still-resolved world leaf down with
+	 * it. A binding with no world source (literal {@code pos}) is always resolved.
 	 */
-	private static boolean bindingsResolved(final VFXMask mask) {
-		for (final VFXMaskPrimitive primitive : mask.primitives()) {
-			final BoundParam centerBinding = primitive.centerBinding();
-			if (centerBinding != null) {
-				if (centerBinding.kind() == BoundParam.Kind.SCREEN_RECT) {
-					final float[] rect = VFXWorldBindings.evaluateScreenRect(centerBinding);
-					if (rect[2] < 0.0F || rect[3] < 0.0F) {
-						return false;
-					}
-				} else if (!VFXWorldBindings.isSourceResolved(centerBinding)) {
-					return false;
-				}
-			}
-			if (!VFXWorldBindings.isSourceResolved(primitive.sizeBinding())) {
+	private static boolean primitiveResolved(final VFXMask mask, final VFXMaskPrimitive primitive) {
+		if (!bindingResolved(primitive.centerBinding())) {
+			return false;
+		}
+		if (!VFXWorldBindings.isSourceResolved(primitive.sizeBinding())) {
+			return false;
+		}
+		for (final String slot : primitive.centerSlots()) {
+			if (!slotResolved(mask, slot)) {
 				return false;
 			}
 		}
-		for (final VFXMask.MaskSlot slot : mask.slots().values()) {
-			if (!VFXWorldBindings.isSourceResolved(slot.binding())) {
+		if (!slotResolved(mask, primitive.rotationSlot())) {
+			return false;
+		}
+		for (final String slot : primitive.parameterSlots()) {
+			if (!slotResolved(mask, slot)) {
 				return false;
 			}
 		}
-		return true;
+		return slotResolved(mask, primitive.strokeSlot())
+			&& slotResolved(mask, primitive.softnessSlot())
+			&& slotResolved(mask, primitive.fieldAmountSlot())
+			&& slotResolved(mask, primitive.fieldScaleSlot());
+	}
+
+	/**
+	 * True when one binding resolves. A derived {@code SCREEN_RECT} is unresolved when its entity
+	 * box is absent, behind the camera or fully off-screen (the empty {@code {0,0,-1,-1}}
+	 * sentinel); every other binding delegates to its world source.
+	 */
+	private static boolean bindingResolved(final @Nullable BoundParam binding) {
+		if (binding == null) {
+			return true;
+		}
+		if (binding.kind() == BoundParam.Kind.SCREEN_RECT) {
+			final float[] rect = VFXWorldBindings.evaluateScreenRect(binding);
+			return rect[2] >= 0.0F && rect[3] >= 0.0F;
+		}
+		return VFXWorldBindings.isSourceResolved(binding);
+	}
+
+	/** True when a reserved slot's binding (if any) resolves; a missing or unbound slot is resolved. */
+	private static boolean slotResolved(final VFXMask mask, final String slotName) {
+		final VFXMask.MaskSlot slot = mask.slots().get(slotName);
+		return slot == null || bindingResolved(slot.binding());
 	}
 
 	/**
@@ -146,8 +171,10 @@ public final class VFXMaskUniforms {
 	 * Unused primitives are written neutral and ignored because {@code mask_count} gates the loop.
 	 * A world leaf needs the matrix and camera; a purely screen mask ignores them. A composed custom
 	 * leaf's fixed parts are packed into the {@code custom_*} rows and its leaf slot stores the row.
-	 * An unresolved binding fails the mask closed: {@code mask_count} is written as zero (and
-	 * {@code invert} off, so the shader cannot flip the empty result to full coverage).
+	 * An unresolved binding fails closed per leaf: {@code shape_volume[i].y} marks that leaf
+	 * unresolved and {@code post/mask_coverage.fsh} zeroes only its coverage, never the whole mask;
+	 * the shader also refuses to invert an empty result that an unresolved leaf could have caused,
+	 * so a dropped binding can never expand coverage to full screen.
 	 */
 	public static void writeCoverage(
 		final Std140Builder builder,
@@ -159,18 +186,18 @@ public final class VFXMaskUniforms {
 		final float camZ,
 		final float time
 	) {
-		// Fail closed: an unresolved world binding makes the whole mask contribute zero coverage
-		// (no effect applies) instead of letting a bound screen rect fall back to its full-screen
-		// literal default.
-		final boolean resolved = bindingsResolved(mask);
+		// Fail closed per leaf: a leaf whose binding cannot be resolved is flagged unresolved
+		// (shape_volume[i].y) and the shader drops only that leaf's coverage, so a bound screen rect
+		// falling outside the view no longer zeroes a still-resolved world leaf beside it. The flag
+		// is set below, per primitive.
 		// mat4 as four column vec4s (std140-identical to Std140Builder.putMat4f).
 		builder.putVec4(invViewProj.m00(), invViewProj.m01(), invViewProj.m02(), invViewProj.m03());
 		builder.putVec4(invViewProj.m10(), invViewProj.m11(), invViewProj.m12(), invViewProj.m13());
 		builder.putVec4(invViewProj.m20(), invViewProj.m21(), invViewProj.m22(), invViewProj.m23());
 		builder.putVec4(invViewProj.m30(), invViewProj.m31(), invViewProj.m32(), invViewProj.m33());
 		builder.putVec4(camX, camY, camZ, 0.0F);
-		builder.putFloat(resolved && mask.invert() ? 1.0F : 0.0F);
-		builder.putFloat(resolved ? mask.primitives().size() : 0);
+		builder.putFloat(mask.invert() ? 1.0F : 0.0F);
+		builder.putFloat(mask.primitives().size());
 		builder.putFloat(mask.needsDepth() ? 1.0F : 0.0F);
 		builder.putFloat(time);
 
@@ -193,6 +220,7 @@ public final class VFXMaskUniforms {
 			if (primitive == null) {
 				continue;
 			}
+			final boolean leafResolved = primitiveResolved(mask, primitive);
 			final float operation = i == 0 ? 0.0F : mask.ops().get(i - 1).ordinal();
 			final Integer customRow = primitive.family() == VFXMaskPrimitive.Family.CUSTOM ? customRows.get(primitive.customShape()) : null;
 			rows[i][0] = new float[]{primitive.kindCode(), operation, primitive.softnessDefault(), primitive.field().ordinal()};
@@ -236,7 +264,8 @@ public final class VFXMaskUniforms {
 			rows[i][4] = new float[]{parameters[4], parameters[5], parameters[6], parameters[7]};
 			rows[i][5] = new float[]{primitive.fill().ordinal(), slotValue(mask, effect, primitive.strokeSlot(), primitive.strokeDefault()), i, customRow == null ? -1.0F : customRow};
 			// x = world-volume mode (0 surface, 1 aura); only a world sphere/box ever sets 1.
-			rows[i][6] = new float[]{primitive.volumeMode().code(), 0.0F, 0.0F, 0.0F};
+			// y = 1 when this leaf's world binding could not be resolved (the shader drops its coverage).
+			rows[i][6] = new float[]{primitive.volumeMode().code(), leafResolved ? 0.0F : 1.0F, 0.0F, 0.0F};
 		}
 		for (int row = 0; row < 7; row++) {
 			for (int i = 0; i < VFXMask.MAX_PRIMITIVES; i++) {

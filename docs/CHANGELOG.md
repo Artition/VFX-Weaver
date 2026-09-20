@@ -2,6 +2,13 @@
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). The versions below are guide/feature-set versions of the mod (as they progressed historically, see `docs/GUIDE.md`), plus git release tags where applicable (`v1.0.x`, `gradle.properties` → `mod_version`). Add new entries at the top, in the same PR as the behavior change.
 
+## Unreleased / Guide v37
+### Added
+- **`VFXAPI.sendMaskMove` / `VFXAPI.maskMove`** — move one mask leaf to a world position by setting its three reserved `mask.p<N>.center_x|center_y|center_z` params (ordinary animatable effect params). Call it every tick to follow a point, and use it to drive a mask from the server when a client-side entity binding is not enough (an entity outside the client's tracking range is genuinely unresolvable on the client). See `docs/API.md`.
+
+### Fixed
+- **Mask bindings now fail closed per leaf, not per mask.** An unresolved binding (entity absent/off-screen/outside the client's tracking range, no camera/player state) used to zero the whole mask, so an entity leaving the view made the entire effect vanish even though a still-resolved world leaf knew where it was. Only the unresolved leaf's coverage is dropped now, an unresolved leaf can never expand coverage, and an `invert` mask does not turn an all-unresolved (empty) result into full-screen coverage.
+
 ## Unreleased / Guide v36
 ### Fixed
 - **A mask with an unresolvable binding no longer tints the whole screen.** When a bound source could not be resolved (entity absent or off-screen, no camera/player state), the leaf fell through to its literal defaults — and a bound screen `rect`'s defaults are a full-screen rectangle — so the effect applied everywhere. A mask with any unresolved binding now contributes zero coverage (the effect applies nowhere), and the source still reports once through `VFXLog.warnOnce`; `evaluateScreenRect` now also warns when an entity is off-screen, not only when it is missing.

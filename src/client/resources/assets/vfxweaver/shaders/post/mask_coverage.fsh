@@ -11,6 +11,11 @@
 // coverage was rasterised into GeometryCoverageSampler by the block-geometry draw that runs before
 // this pass.
 //
+// Fail-closed is per leaf: VFXMaskUniforms writes shape_volume[i].y = 1 for a leaf whose world
+// binding could not be resolved this frame, and the loop drops only that leaf's coverage (never the
+// whole mask). The invert at the end refuses to turn an empty result into full-screen coverage when
+// an unresolved leaf could have caused the emptiness.
+//
 // The Config block order MUST match VFXMaskUniforms.writeCoverage(...) exactly. vec3 is written as
 // vec4 because Std140Builder pads vec3 to 16 bytes; never use a bare vec3 or a scalar array here.
 // The 2D AND 3D shape distance math is NOT defined here: vfx_shape_sdf_dispatch (over the shared
@@ -155,6 +160,10 @@ void main() {
     }
 
     float accumulator = 0.0;
+    // Set when any leaf in range was flagged unresolved (shape_volume[i].y, written per leaf by
+    // VFXMaskUniforms): only that leaf's coverage is dropped, never the whole mask. Tracked so the
+    // invert below cannot turn an all-unresolved (empty) result into full-screen coverage.
+    bool anyUnresolved = false;
     for (int i = 0; i < MASK_MAX_PRIMITIVES; i++) {
         if (float(i) >= mask_count) {
             break;
@@ -243,6 +252,16 @@ void main() {
             float softness = max(so.z, 1.0e-4);
             cov = clamp(0.5 - d / softness, 0.0, 1.0);
         }
+        // Per-leaf fail closed: a leaf whose world binding could not be resolved contributes zero
+        // coverage and never falls back to its literal default (an unbound screen rect's default is
+        // the whole screen). Only this leaf is dropped; the other leaves keep their coverage, so an
+        // off-screen entity bound to one screen leaf no longer kills a resolved world leaf beside
+        // it. An unresolved leaf can never expand coverage (zero is neutral for union/difference
+        // and contracts intersection), and the invert guard below keeps it from filling the screen.
+        if (shape_volume[i].y > 0.5) {
+            cov = 0.0;
+            anyUnresolved = true;
+        }
         if (i == 0) {
             accumulator = cov;
         } else {
@@ -257,7 +276,12 @@ void main() {
         }
     }
     if (mask_invert > 0.5) {
-        accumulator = 1.0 - accumulator;
+        // An empty composed result would invert to full-screen coverage. When that emptiness may
+        // come from an unresolved leaf, keep it empty instead of flipping it into "everywhere";
+        // inverting a result that some resolved leaf genuinely produced is still allowed.
+        if (!(anyUnresolved && accumulator <= 0.0)) {
+            accumulator = 1.0 - accumulator;
+        }
     }
     fragColor = vec4(clamp(accumulator, 0.0, 1.0), 0.0, 0.0, 1.0);
 }

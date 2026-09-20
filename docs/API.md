@@ -53,6 +53,13 @@ void sendSetParamExpr(ServerPlayer player, Identifier effectId, String param, St
 // Ignored with a warning when no instance with that id (of that effect) is running.
 void sendMove(ServerPlayer player, Identifier effectId, long instanceId, Vec3 worldPos);
 
+// Moves one mask leaf of a running effect to a world position, by setting the three reserved
+// mask.p<N>.center_x/y/z params (see "Mask leaf params" below). Applies to every running
+// instance of the effect; ignored with a client-side warning when it is not running. This is
+// also the server-driven workaround when a client cannot resolve an entity binding (the entity
+// is outside the client's tracking range).
+void sendMaskMove(ServerPlayer player, Identifier effectId, int primitive, Vec3 position);
+
 // Adds/replaces a keyframe of a parameter of a running effect.
 // A negative timeTicks means "from here": the value the parameter has right now is pinned at the
 // current time and the animation runs to `value` over |timeTicks| ticks - so animation segments
@@ -130,10 +137,43 @@ boolean setParamExpr(Identifier effectId, String name, String exprSource);
 // and run the segment to `value` over |time| ticks, so animation variations chain seamlessly.
 boolean setKeyframe(Identifier effectId, String name, int time, float value, @Nullable EasingType easing);
 boolean setKeyframe(Identifier effectId, String name, int time, float value, String easing); // named curve
+
+// Move one mask leaf locally (no packet) - the local counterpart of sendMaskMove; expands into
+// the three mask.p<N>.center_* params (see "Mask leaf params" below).
+boolean maskMove(Identifier effectId, int primitive, Vec3 position);
 ```
 
 Like `moveEffect`, these return `true` when applied on the render thread or queued for it. A `null`
 (or blank) easing means linear - a keyframe segment has no "definition default".
+
+#### Mask leaf params (reserved names)
+
+A mask's numeric leaves are registered as **ordinary animatable effect parameters**, so the whole
+live-control and animation surface above works on them unchanged:
+
+| Name | Meaning |
+|---|---|
+| `mask.p<N>.center_x` / `.center_y` / `.center_z` | leaf `<N>` centre (screen leaves use x/y) |
+| `mask.p<N>.rotation` | leaf rotation (degrees) |
+| `mask.p<N>.p<J>` | the leaf's per-shape parameter `J` (radius, half_width, … in `VFXMaskShapeKind` order) |
+| `mask.p<N>.soft` | edge falloff width |
+| `mask.p<N>.stroke` | stroke width (`fill: "stroke"`) |
+| `mask.p<N>.field_amount` / `.field_scale` | edge-field amount / scale |
+
+`<N>` is the leaf index in mask **declaration order** (0-based; a composition flattens depth-first).
+Every live path works on them: `sendSetParam`/`setParam` (also constant, `expr`/`sendSetParamExpr`,
+`sendKeyframe`/`setKeyframe`), graph `{ "from": node }` driven inputs, and datapack bindings.
+`sendMaskMove`/`maskMove` are a convenience that sets a leaf's three centre components at once:
+
+```java
+// Server: follow a moving point (or drive an entity binding the client cannot resolve).
+VFXAPI.sendMaskMove(player, effectId, 0, entity.position());
+
+// Client-local, same expansion, no packet:
+VFXAPI.maskMove(effectId, 0, new Vec3(x, y, z));
+```
+
+`mask.` is **reserved**: a user parameter with that prefix would be shadowed by the mask, not merged.
 
 #### Block/item-particle presets (client-local)
 

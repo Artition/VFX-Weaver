@@ -1401,10 +1401,28 @@ camera distance to the source in blocks, so
 makes the sphere grow as the viewer backs away from the villager (see `vfxweaver:mask_pulse_demo`);
 `"derive": "point"` yields the world position (valid on `center` only) and `"derive": "screen_rect"`
 projects the entity's bounding box into a UV rectangle (valid as `screen_rect` on a screen `rect`).
-A **binding that cannot be resolved** — the source entity is absent/off-screen, or there is no
-camera/player state — fails the whole mask closed: it contributes zero coverage (the effect applies
-nowhere) and reports once through `VFXLog.warnOnce`. It never falls back to the literal default,
-which for an unbound `rect` would be the whole screen.
+A **binding that cannot be resolved** — the source entity is absent or off-screen (or outside the
+client's tracking range), or there is no camera/player state — fails that **leaf** closed: the leaf
+contributes zero coverage and never falls back to its literal default, which for an unbound `rect`
+would be the whole screen. Only that leaf is dropped, so an entity leaving the view no longer takes a
+still-resolved world leaf down with it. An unresolved leaf can never *expand* coverage (a zero leaf is
+neutral for `union`/`difference` and contracts `intersection`), and an `invert` mask does not flip an
+all-unresolved (empty) result into full-screen coverage. The unresolved source still reports once
+through `VFXLog.warnOnce`.
+
+Two caveats. An entity outside the client's tracking range is **genuinely unresolvable on the client**
+— that is a client-search limitation, not a bug, and the bound leaf contributes nothing there. To
+drive a mask from data the client does not have, set its centre from the **server** every tick with
+`VFXAPI.sendMaskMove(player, effect, leaf, pos)` (or `sendSetParam` on the reserved
+`mask.p<N>.center_*` params) instead of binding the leaf to the entity.
+
+The mask's numeric leaves are ordinary animatable effect parameters under reserved names:
+`mask.p<N>.center_x|center_y|center_z`, `.rotation`, `.p<J>` (the per-shape parameter `J`), `.soft`
+(falloff), `.stroke` (stroke width) and `.field_amount`/`.field_scale`; `<N>` is the leaf index in
+declaration order (0-based). Because they are ordinary params, keyframes, `expr`, graph
+`{ "from": node }` driven inputs, datapack bindings and every live-edit API (`sendSetParam`,
+`sendKeyframe`, `setParam`, …) work on them unchanged. The `mask.` prefix is reserved (see
+[docs/API.md](API.md)).
 
 #### World-volume evaluation: `volume`
 
@@ -1609,7 +1627,11 @@ Post-processing pipeline, world overlays, effect clock, load limits and fault to
 
 Versioned feature history — **[docs/CHANGELOG.md](CHANGELOG.md)**.
 
-Guide version: 36 — see changelog below.
+Guide version: 37 — see changelog below.
+
+### v37
+- **Mask bindings now fail closed per leaf** (was per mask) — an unresolved binding (the source entity is absent or off-screen, or outside the client's tracking range, or there is no camera/player state) zeroes **only that leaf's** coverage, so an entity leaving the view no longer makes the whole effect vanish while a still-resolved world leaf knows where it is. An unresolved leaf still never expands coverage, and an `invert` mask does not turn an all-unresolved (empty) result into full screen. See [3.8](#38-masks).
+- **New `VFXAPI.sendMaskMove` / `VFXAPI.maskMove`** — move one mask leaf to a world position by setting its three reserved `mask.p<N>.center_x|center_y|center_z` params (ordinary animatable effects params). Call it every tick to follow a point, and use it to drive a mask from the **server** when a client-side entity binding is not enough (an entity outside the client's tracking range). See [docs/API.md](API.md) and [3.8](#38-masks).
 
 ### v36
 - **Mask bindings now fail closed** — a mask that uses a world binding which cannot be resolved (the source entity is absent or off-screen, or there is no camera/player state) contributes **zero** coverage, so the effect applies nowhere, instead of falling back to the leaf's literal default — which for a bound screen `rect` is the whole screen (the reported "whole screen tint when the villager is not resolvable"). The unresolved source still reports once through `VFXLog.warnOnce`. See [3.8](#38-masks).

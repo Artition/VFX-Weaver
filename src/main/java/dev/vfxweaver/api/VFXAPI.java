@@ -9,6 +9,7 @@ import dev.vfxweaver.effect.VFXScoreboardSync;
 import dev.vfxweaver.effect.VFXServerEffects;
 import dev.vfxweaver.mask.VFXCustomShape;
 import dev.vfxweaver.mask.VFXMaskShapeGlsl;
+import dev.vfxweaver.mask.VFXMaskSlots;
 import dev.vfxweaver.mask.VFXShapeRegistry;
 import dev.vfxweaver.network.VFXTriggerPayload;
 import dev.vfxweaver.platform.VFXNetwork;
@@ -194,6 +195,26 @@ public final class VFXAPI {
 	 */
 	public static boolean setParam(final Identifier effectId, final String name, final float value) {
 		return localDispatcher != null && localDispatcher.setParam(effectId, name, value);
+	}
+
+	/**
+	 * Moves one mask leaf of every running instance of the effect on this client to a new world
+	 * position - the local (no packet) counterpart of
+	 * {@link #sendMaskMove(ServerPlayer, Identifier, int, Vec3)}. It expands into the three reserved
+	 * {@code mask.p<N>.center_x|center_y|center_z} parameters (ordinary animatable effect params;
+	 * see {@code docs/GUIDE.md}), so it applies through exactly the same path as
+	 * {@link #setParam(Identifier, String, float)} on each of them.
+	 *
+	 * @param effectId  effect id
+	 * @param primitive mask leaf index (0-based, in mask declaration order)
+	 * @param position  the new world position of the leaf centre
+	 * @return {@code true} when the request was applied or queued (see {@link #moveEffect})
+	 */
+	public static boolean maskMove(final Identifier effectId, final int primitive, final Vec3 position) {
+		boolean applied = setParam(effectId, VFXMaskSlots.center(primitive, "x"), (float) position.x());
+		applied &= setParam(effectId, VFXMaskSlots.center(primitive, "y"), (float) position.y());
+		applied &= setParam(effectId, VFXMaskSlots.center(primitive, "z"), (float) position.z());
+		return applied;
 	}
 
 	/**
@@ -577,6 +598,31 @@ public final class VFXAPI {
 	 */
 	public static void sendMove(final ServerPlayer player, final Identifier effectId, final long instanceId, final Vec3 worldPos) {
 		VFXNetwork.sendToPlayer(player, VFXTriggerPayload.move(effectId, instanceId, worldPos));
+	}
+
+	/**
+	 * Moves one mask leaf of a running effect on the player's client to a new world position, by
+	 * expanding it into the three reserved {@code mask.p<N>.center_x|center_y|center_z} parameters
+	 * (ordinary animatable effect params, so keyframes, expressions, graph nodes and bindings all
+	 * work on them; see {@code docs/GUIDE.md}). Call it every tick to make a mask centre follow a
+	 * moving point. Applies to every running instance of the effect and is ignored (with a
+	 * client-side log warning) when the effect is not currently running.
+	 *
+	 * <p>This is also the server-driven workaround for a binding the client cannot resolve on its
+	 * own: a client only tracks entities inside its view range, so a mask leaf bound to an entity
+	 * outside that range contributes nothing (a client-search limitation, not a bug). Sending the
+	 * centre with this method - or a whole {@link #sendSetParam} - every tick lets the server drive
+	 * the mask from a position it does know.</p>
+	 *
+	 * @param player    the receiving player
+	 * @param effectId  effect id
+	 * @param primitive mask leaf index (0-based, in mask declaration order)
+	 * @param position  the new world position of the leaf centre
+	 */
+	public static void sendMaskMove(final ServerPlayer player, final Identifier effectId, final int primitive, final Vec3 position) {
+		sendSetParam(player, effectId, VFXMaskSlots.center(primitive, "x"), (float) position.x());
+		sendSetParam(player, effectId, VFXMaskSlots.center(primitive, "y"), (float) position.y());
+		sendSetParam(player, effectId, VFXMaskSlots.center(primitive, "z"), (float) position.z());
 	}
 
 	/**
