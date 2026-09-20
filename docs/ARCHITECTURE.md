@@ -2,7 +2,9 @@
 
 ## Context and goals
 
-vfxweaver is a client-side VFX library for a Fabric mod: the server triggers effects over the network (or another mod — directly via `VFXAPI` on the client), the client plays and renders them. Goals: (1) declarative effects via datapack JSON without recompiling, (2) bounded render load even with many concurrent effects, (3) fault tolerance — one broken effect/datapack file must not break the rest.
+vfxweaver is a client-side VFX library mod for Minecraft on **Fabric and NeoForge** (six jars, one per Minecraft line and loader): the server triggers effects over the network (or another mod — directly via `VFXAPI` on the client), the client plays and renders them. Goals: (1) declarative effects via datapack JSON without recompiling, (2) bounded render load even with many concurrent effects, (3) fault tolerance — one broken effect/datapack file must not break the rest.
+
+The systems below are **loader-agnostic**: they touch only Minecraft/Mojang APIs, never `net.fabricmc.*` or `net.neoforged.*`. The loader is reached solely through the [platform layer](#loader-platform-layer), so the same source builds every Fabric and NeoForge jar.
 
 ## Core systems
 
@@ -87,7 +89,7 @@ Targets are set by UUID: `/vfx playentity <effect> <selector>` collects up to 16
 
 ## Flashback integration
 
-Flashback (https://modrinth.com/mod/flashback) is a **soft dependency**: the mod works without it, and nothing in the code compiles against it — all access is reflective (`Class.forName`, `Proxy`), guarded by `FabricLoader.isModLoaded("flashback")`.
+Flashback (https://modrinth.com/mod/flashback) is a **soft dependency**: the mod works without it, and nothing in the code compiles against it — all access is reflective (`Class.forName`, `Proxy`), guarded by `VFXPlatform.isModLoaded("flashback")`. It is **Fabric-only** (Flashback has no NeoForge build), so on NeoForge the guard is false and the recording layer is skipped.
 
 - **`FlashbackCompat`** (client) — registered as an `Action` (`vfxweaver:effect_trigger`) in Flashback's `ActionRegistry`. Client-local plays (`VFXAPI.playEffect` through `VFXClientAPI`) are written into the active replay via `Recorder.submitCustomTask` (`effectId + durationTicks + easing + params`); on playback Flashback calls the action's `handle`, which decodes the payload and re-triggers the effect on the render thread. A per-tick `END_CLIENT_TICK` hook detects a recording start (`Flashback.RECORDER` becoming non-null and ready) and snapshots the already-running effects so they appear from the first replay tick. Persistent/looping effects are skipped (no recorded stop event → they would loop forever). Server-triggered effects are *not* recorded here — they travel as `vfxweaver:vfx_trigger` packets which Flashback captures and replays itself.
 
@@ -101,11 +103,11 @@ Flashback (https://modrinth.com/mod/flashback) is a **soft dependency**: the mod
 | `MAX_SCHEDULED_EFFECTS` | 128 | `VFXEffectManager` — extra collection children are dropped |
 | `MAX_COLLECTION_DEPTH` | 4 | `VFXEffectManager` — deeper nested collections are ignored |
 
-Any new collection/map that grows from network or datapack input must get a similar limit (see `AGENTS.md`).
+Any new collection/map that grows from network or datapack input must get a similar limit.
 
 ## Fault tolerance
 
-- `VFXDefinitionManager.prepare()` — one broken datapack entry is logged and skipped, the rest load normally (see `docs/CHANGELOG.md`, the `IllegalArgumentException` fix).
+- `VFXDefinitionManager.prepare()` — one broken datapack entry is logged and skipped, the rest load normally (see the [Changelog](CHANGELOG.md)).
 - `VFXWorldOverlayRenderer.render()` — each effect's render is wrapped in try/catch with a log; an error in one effect does not block the rest or drop the frame.
 - `VFXClient.handleTrigger` — a packet with a mismatched `protocolVersion` is silently ignored instead of crashing.
 

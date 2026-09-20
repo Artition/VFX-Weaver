@@ -1,6 +1,6 @@
 # Java API
 
-The public API for other mods interacting with vfxweaver. Backward compatibility matters — don't break signatures without good reason (see `AGENTS.md`).
+The public API for other mods interacting with vfxweaver. Backward compatibility matters, so signatures are only broken for a good reason and with a version bump.
 
 ## `dev.vfxweaver.api.VFXAPI`
 

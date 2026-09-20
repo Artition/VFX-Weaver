@@ -140,7 +140,7 @@ VFXAPI.sendSetParam(player, effectId, "intensity", 0.3F);
 VFXAPI.sendKeyframe(player, effectId, "intensity", 10, 1.0F, EasingType.EASE_OUT_CUBIC);
 ```
 
-The network layer (`vfxweaver:vfx_trigger`) is protocol-versioned; the client silently ignores packets with an incompatible version. Full API, packet layout and definition-registry access are documented in the repo's `docs/API.md`.
+The network layer (`vfxweaver:vfx_trigger`) is protocol-versioned; the client silently ignores packets with an incompatible version. Full API, packet layout and definition-registry access are documented on the [documentation site](https://artition.github.io/VFX-Weaver/API/).
 
 ---
 
