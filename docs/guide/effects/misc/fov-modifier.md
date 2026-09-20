@@ -6,6 +6,8 @@ Changes the player's field of view.
 
 ## Fields
 
+> Camera effects also accept the [shared definition fields](../index.md#shared-fields) (`duration`, `easing`, `loop`, `persistent`, `fade_ticks`, `sound`).
+
 | Field | Type | Default | Meaning |
 |---|---|---|---|
 | `fov_delta` | float | 10 (fades to 0) | FOV change in degrees (positive = zoom out) |

@@ -6,6 +6,8 @@ A vertical glowing shaft of soft light descending onto each position. `top_scale
 
 ## Fields
 
+> Every world overlay also accepts **`positions`** (static or entity-anchored), **`region`** or the **`pos_x`/`pos_y`/`pos_z`** params, plus the [shared definition fields](../index.md#shared-fields) (`duration`, `easing`, `loop`, `persistent`, `fade_ticks`, `sound`).
+
 | Field | Type | Default | Meaning |
 |---|---|---|---|
 | `radius` | float | 1.5 | Beam radius in blocks (0.1..16) |

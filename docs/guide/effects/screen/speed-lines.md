@@ -6,6 +6,8 @@
 
 ## Fields
 
+> Every screen effect also accepts **`screen_layer`** and the [shared definition fields](../index.md#shared-fields) (`duration`, `easing`, `loop`, `persistent`, `fade_ticks`, `sound`).
+
 | Field | Type | Default | Meaning |
 |---|---|---|---|
 | `center_x/y` | float | 0.5, 0.5 | Point the lines converge to (UV) |

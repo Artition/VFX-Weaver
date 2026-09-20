@@ -6,6 +6,8 @@ Silhouette outline of the "inverted hull" type: the model is expanded by `width`
 
 ## Fields
 
+> Entity effects are targeted with `/vfx playentity` or the **`entity_selector`** field and also accept the [shared definition fields](../index.md#shared-fields) (`duration`, `easing`, `loop`, `persistent`, `fade_ticks`, `sound`).
+
 | Field | Type | Default | Meaning |
 |---|---|---|---|
 | `color_r/g/b` | float | 1 / 0.85 / 0.2 | Outline colour |

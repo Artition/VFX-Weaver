@@ -6,6 +6,8 @@ Block outline, two modes.
 
 ## Fields
 
+> Every world overlay also accepts **`positions`** (static or entity-anchored), **`region`** or the **`pos_x`/`pos_y`/`pos_z`** params, plus the [shared definition fields](../index.md#shared-fields) (`duration`, `easing`, `loop`, `persistent`, `fade_ticks`, `sound`).
+
 | Field | Type | Default | Meaning |
 |---|---|---|---|
 | `color_r/g/b` | float | 1 / 0.85 / 0.2 | Outline colour |
@@ -15,7 +17,7 @@ Block outline, two modes.
 | `through_blocks` | float | 0 | 1 = visible through other blocks, 0 = occluded (the outline never covers its own target block) |
 
 
-Both support a list of coordinates via `positions` (see [3.1](../../datapack/format.md#definition-fields)) or `region: [x0,y0,z0,x1,y1,z1]`. Without them a single position from `params.pos_x/y/z` is used - it can be a constant, an animation or a world binding. Positions may also be anchored to a live entity (see [3.1](../../datapack/format.md#definition-fields)) — the effect follows it every frame; `/vfx playat` or a network position override wins over anchors, same as over static positions.
+Both support a list of coordinates via `positions` (see [Datapack format](../../datapack/format.md#definition-fields)) or `region: [x0,y0,z0,x1,y1,z1]`. Without them a single position from `params.pos_x/y/z` is used - it can be a constant, an animation or a world binding. Positions may also be anchored to a live entity (see [Datapack format](../../datapack/format.md#definition-fields)) — the effect follows it every frame; `/vfx playat` or a network position override wins over anchors, same as over static positions.
 
 ## Example
 

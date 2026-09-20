@@ -68,8 +68,8 @@ The mask's numeric leaves are ordinary animatable effect parameters under reserv
 (falloff), `.stroke` (stroke width) and `.field_amount`/`.field_scale`; `<N>` is the leaf index in
 declaration order (0-based). Because they are ordinary params, keyframes, `expr`, graph
 `{ "from": node }` driven inputs, datapack bindings and every live-edit API (`sendSetParam`,
-`sendKeyframe`, `setParam`, …) work on them unchanged. The `mask.` prefix is reserved (see
-[docs/API.md](../../API.md)).
+`sendKeyframe`, `setParam`, …) work on them unchanged. The `mask.` prefix is reserved (see the
+[Java API](../../API.md)).
 
 #### World-volume evaluation: `volume`
 

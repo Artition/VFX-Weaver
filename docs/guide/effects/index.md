@@ -17,6 +17,38 @@ complete field list and a copy-pasteable example.
 - `screen_layer` (screen effects only): `0` = under the first-person hand and GUI, `1` = above the
   hand below the GUI (default), `2` = above everything.
 
+## Shared fields
+
+Every effect accepts fields that are **not** repeated in its own `Fields` table. A reader must check
+these too:
+
+**Definition fields (any effect).** `type` (required), `duration`, `easing`, `loop`, `persistent`,
+`fade_ticks`, `params`, `sound`, `sound_pos`, `volume`, `pitch` — the complete list, types and
+defaults is on [Datapack format](../datapack/format.md#definition-fields). These control how long the
+effect runs, whether it loops or persists until stopped, how it fades, and its optional sound.
+
+**Screen effects** additionally accept `screen_layer` (`0`/`1`/`2`, above). See
+[Datapack format](../datapack/format.md).
+
+**World overlays** (`block_tint`, `block_outline`, `light_beam`, `pulse_ring`, `guide_line`,
+`particles`, `block_chain`) additionally accept:
+
+- `positions` — an array of `[x, y, z]` entries or entity anchors
+  (`{"entity": ..., "point": ..., "offset": ..., "dir": ..., "distance": ...}`), documented on
+  [Datapack format](../datapack/format.md#positions-and-entity-anchors).
+- `region` — a box `[x0,y0,z0,x1,y1,z1]` that expands to every block in it, an alternative to
+  listing `positions`.
+- `pos_x` / `pos_y` / `pos_z` — params used as a single world position when neither `positions` nor
+  `region` is present; they can be constant, animated or bound.
+
+**Entity effects** (`entity_tint`, `entity_outline`, `entity_displace`) are targeted by
+`/vfx playentity <effect> <selector>` (up to 16 UUIDs) or by the `entity_selector` definition field,
+which lets a plain `/vfx play` find its own targets. See
+[Datapack format](../datapack/format.md#definition-fields).
+
+**Collections** additionally accept `effects` (the child list) — see
+[collection](collection.md).
+
 ## Effect groups
 
 ### Screen post-processing

@@ -6,6 +6,8 @@ Camera shake with simplex noise and a smooth fade-out envelope.
 
 ## Fields
 
+> Camera effects also accept the [shared definition fields](../index.md#shared-fields) (`duration`, `easing`, `loop`, `persistent`, `fade_ticks`, `sound`).
+
 | Field | Type | Default | Meaning |
 |---|---|---|---|
 | `amplitude_x/y/z` | float | 0.12 / 0.12 / 0.04 | Position shake amplitude per axis (blocks) |
@@ -21,7 +23,7 @@ Camera shake with simplex noise and a smooth fade-out envelope.
 {
 	"type": "camera_shake",
 	"duration": 60,
-	"params": { "amplitude_x": 0.12, "amplitude_y": 0.12, "amplitude_z": 0.04, "yaw": 0.8, "pitch": 0.6, "roll": 0.4 }
+	"params": { "amplitude_x": 0.12, "amplitude_y": 0.12, "amplitude_z": 0.04, "yaw": 0.8, "pitch": 0.6, "roll": 0.4, "frequency": 7, "hand": 0.5 }
 }
 ```
 

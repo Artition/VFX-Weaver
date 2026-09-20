@@ -6,6 +6,8 @@ Maps pixel luminance into a two-colour gradient `from -> to`. See the detailed s
 
 ## Fields
 
+> Every screen effect also accepts **`screen_layer`** and the [shared definition fields](../index.md#shared-fields) (`duration`, `easing`, `loop`, `persistent`, `fade_ticks`, `sound`).
+
 | Field | Type | Default | Meaning |
 |---|---|---|---|
 | `from_r/g/b` | float | 0.1 / 0 / 0.2 | Gradient colour for the dark end |

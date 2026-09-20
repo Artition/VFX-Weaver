@@ -6,6 +6,8 @@ Two soft curved dark lids slide in from the top and bottom. Animate `openness` 1
 
 ## Fields
 
+> Every screen effect also accepts **`screen_layer`** and the [shared definition fields](../index.md#shared-fields) (`duration`, `easing`, `loop`, `persistent`, `fade_ticks`, `sound`).
+
 | Field | Type | Default | Meaning |
 |---|---|---|---|
 | `openness` | float | 0.5 | 1 = wide open (lids off screen), 0 = fully closed |

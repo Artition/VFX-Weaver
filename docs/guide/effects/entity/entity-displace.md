@@ -6,6 +6,8 @@ Displaces the target entity's model vertices themselves (rendered with the vanil
 
 ## Fields
 
+> Entity effects are targeted with `/vfx playentity` or the **`entity_selector`** field and also accept the [shared definition fields](../index.md#shared-fields) (`duration`, `easing`, `loop`, `persistent`, `fade_ticks`, `sound`).
+
 | Field | Type | Default | Meaning |
 |---|---|---|---|
 | `amplitude` | float | 0.1 (fades to 0) | Max displacement in blocks (0..2) |

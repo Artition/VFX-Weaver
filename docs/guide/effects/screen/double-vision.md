@@ -6,6 +6,8 @@ Two ghost copies of the frame offset left/right with a slow drift.
 
 ## Fields
 
+> Every screen effect also accepts **`screen_layer`** and the [shared definition fields](../index.md#shared-fields) (`duration`, `easing`, `loop`, `persistent`, `fade_ticks`, `sound`).
+
 | Field | Type | Default | Meaning |
 |---|---|---|---|
 | `offset` | float | 0.04 | Ghost distance from the centre, screen-width fractions (0..0.5) |

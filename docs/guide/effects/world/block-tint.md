@@ -6,6 +6,8 @@ Translucent fill of the block model's visible faces.
 
 ## Fields
 
+> Every world overlay also accepts **`positions`** (static or entity-anchored), **`region`** or the **`pos_x`/`pos_y`/`pos_z`** params, plus the [shared definition fields](../index.md#shared-fields) (`duration`, `easing`, `loop`, `persistent`, `fade_ticks`, `sound`).
+
 | Field | Type | Default | Meaning |
 |---|---|---|---|
 | `color_r/g/b` | float | 0.2 / 0.6 / 1.0 | Fill colour |

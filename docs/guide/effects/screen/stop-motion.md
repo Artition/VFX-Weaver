@@ -6,6 +6,8 @@ Stop-motion / papercraft: the picture updates only a few times per second while 
 
 ## Fields
 
+> Every screen effect also accepts **`screen_layer`** and the [shared definition fields](../index.md#shared-fields) (`duration`, `easing`, `loop`, `persistent`, `fade_ticks`, `sound`).
+
 | Field | Type | Default | Meaning |
 |---|---|---|---|
 | `fps` | float | 12 (fades to 0) | Target update rate of the held picture, updates per second (1..30; <=1 = back to full speed) |

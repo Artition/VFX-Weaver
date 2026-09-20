@@ -243,7 +243,7 @@ VFXAPI.spawnBlockParticle(preset, new Vec3(x, y, z), new Vec3(0.0, 0.3, 0.0));
 preset, and `VFXAPI.blockParticle(id)` looks one up (datapack or local). `VFXBlockParticleSpec`
 builders: `builder(BlockState)`, `builder(Item)`, `builder(ItemStack)`, `item(Item)` and
 `item(ItemStack)`. `VFXAPI.spawnBlockParticle(spec, position, velocity)` spawns one particle
-immediately (no effect instance, no packet). See [docs/API.md](../../API.md) for the full reference.
+immediately (no effect instance, no packet). See the [Java API](../../API.md) for the full reference.
 
 The spark equivalents — `VFXAPI.registerSpark` / `unregisterSpark` / `spark` / `spawnSpark` — are on
 the [Spark presets](sparks.md) page.

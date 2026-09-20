@@ -6,6 +6,8 @@ Colour grading: saturation, contrast, brightness and a colour tint.
 
 ## Fields
 
+> Every screen effect also accepts **`screen_layer`** and the [shared definition fields](../index.md#shared-fields) (`duration`, `easing`, `loop`, `persistent`, `fade_ticks`, `sound`).
+
 | Field | Type | Default | Meaning |
 |---|---|---|---|
 | `saturation` | float | 0.7 (fades to 1) | 0 = grayscale, 1 = neutral, >1 = oversaturated |

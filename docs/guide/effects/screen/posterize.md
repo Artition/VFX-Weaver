@@ -6,6 +6,8 @@ Posterization: reduces the number of colours on screen, clean quantization witho
 
 ## Fields
 
+> Every screen effect also accepts **`screen_layer`** and the [shared definition fields](../index.md#shared-fields) (`duration`, `easing`, `loop`, `persistent`, `fade_ticks`, `sound`).
+
 | Field | Type | Default | Meaning |
 |---|---|---|---|
 | `strength` | float | 0.25 (fades to 0) | 0 = off, 1 = only 2 levels per channel |

@@ -6,6 +6,8 @@ The frame tears into horizontal bands with RGB-split spikes, in bursts (slot-gat
 
 ## Fields
 
+> Every screen effect also accepts **`screen_layer`** and the [shared definition fields](../index.md#shared-fields) (`duration`, `easing`, `loop`, `persistent`, `fade_ticks`, `sound`).
+
 | Field | Type | Default | Meaning |
 |---|---|---|---|
 | `block` | float | 0.06 | Band height, screen-height fractions (0.01..0.5) |

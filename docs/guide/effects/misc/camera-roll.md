@@ -6,6 +6,8 @@ Tilts the camera around its viewing axis by a fixed angle (dutch angle) with an 
 
 ## Fields
 
+> Camera effects also accept the [shared definition fields](../index.md#shared-fields) (`duration`, `easing`, `loop`, `persistent`, `fade_ticks`, `sound`).
+
 | Field | Type | Default | Meaning |
 |---|---|---|---|
 | `angle` | float | 15 (fades to 0) | Roll in degrees; positive = clockwise lean |

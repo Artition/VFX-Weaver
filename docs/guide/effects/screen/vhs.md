@@ -6,6 +6,8 @@ Worn VHS playback: wobble, a crawling noise tracking band, colour bleed and wash
 
 ## Fields
 
+> Every screen effect also accepts **`screen_layer`** and the [shared definition fields](../index.md#shared-fields) (`duration`, `easing`, `loop`, `persistent`, `fade_ticks`, `sound`).
+
 | Field | Type | Default | Meaning |
 |---|---|---|---|
 | `tracking` | float | 0.35 | Tracking band horizontal jumps (0..1) |

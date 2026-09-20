@@ -6,6 +6,8 @@ A single refraction ring ripples outward from a point.
 
 ## Fields
 
+> Every screen effect also accepts **`screen_layer`** and the [shared definition fields](../index.md#shared-fields) (`duration`, `easing`, `loop`, `persistent`, `fade_ticks`, `sound`).
+
 | Field | Type | Default | Meaning |
 |---|---|---|---|
 | `center_x/y` | float | 0.5 / 0.5 | Wave origin in UV |

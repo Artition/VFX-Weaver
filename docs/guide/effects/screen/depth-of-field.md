@@ -6,6 +6,8 @@ Screen tilt-shift: a sharp band, blur away from it.
 
 ## Fields
 
+> Every screen effect also accepts **`screen_layer`** and the [shared definition fields](../index.md#shared-fields) (`duration`, `easing`, `loop`, `persistent`, `fade_ticks`, `sound`).
+
 | Field | Type | Default | Meaning |
 |---|---|---|---|
 | `intensity` | float | 0.5 (fades to 0) | Blur strength outside the sharp band |

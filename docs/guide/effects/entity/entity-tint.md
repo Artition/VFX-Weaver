@@ -6,6 +6,8 @@ Fills the entity with the effect colour **accounting for its texture** (the text
 
 ## Fields
 
+> Entity effects are targeted with `/vfx playentity` or the **`entity_selector`** field and also accept the [shared definition fields](../index.md#shared-fields) (`duration`, `easing`, `loop`, `persistent`, `fade_ticks`, `sound`).
+
 | Field | Type | Default | Meaning |
 |---|---|---|---|
 | `color_r/g/b` | float | 0.2 / 0.6 / 1.0 | Tint colour |

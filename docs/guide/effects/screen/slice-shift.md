@@ -6,6 +6,8 @@ The frame is cut by a straight line and the halves slide past each other along i
 
 ## Fields
 
+> Every screen effect also accepts **`screen_layer`** and the [shared definition fields](../index.md#shared-fields) (`duration`, `easing`, `loop`, `persistent`, `fade_ticks`, `sound`).
+
 | Field | Type | Default | Meaning |
 |---|---|---|---|
 | `angle` | float | 0 | Cut-line tilt in degrees from horizontal (0 = horizontal line, 90 = vertical) |

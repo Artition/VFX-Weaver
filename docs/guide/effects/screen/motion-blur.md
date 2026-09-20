@@ -6,6 +6,8 @@ Directional blur from camera rotation speed. The built-in tracks the camera itse
 
 ## Fields
 
+> Every screen effect also accepts **`screen_layer`** and the [shared definition fields](../index.md#shared-fields) (`duration`, `easing`, `loop`, `persistent`, `fade_ticks`, `sound`).
+
 | Field | Type | Default | Meaning |
 |---|---|---|---|
 | `intensity` | float | 0.35 (fades to 0) | Blur strength |

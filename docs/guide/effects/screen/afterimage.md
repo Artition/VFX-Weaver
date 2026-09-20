@@ -6,6 +6,8 @@ Feedback echo: movement leaves smearing trails that linger and dissolve on a fix
 
 ## Fields
 
+> Every screen effect also accepts **`screen_layer`** and the [shared definition fields](../index.md#shared-fields) (`duration`, `easing`, `loop`, `persistent`, `fade_ticks`, `sound`).
+
 | Field | Type | Default | Meaning |
 |---|---|---|---|
 | `decay` | float | 0.92 | Fraction of the previous frame surviving each tick (0..0.98) |

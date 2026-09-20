@@ -66,7 +66,7 @@ VFXAPI.spawnSpark(preset, new Vec3(x, y, z), new Vec3(0.0, 0.4, 0.0));
 ```
 
 `VFXSparkSpec.builder()` sets `count`, `speed`, `spread`, `life`, `gravity`, `bounce`, `size`,
-`trail`, `glow` and the `sizeCurve`/`colorCurve` arrays; see [docs/API.md](../../API.md).
+`trail`, `glow` and the `sizeCurve`/`colorCurve` arrays; see [Java API](../../API.md).
 
 The built-in `vfxweaver:ember` spark preset ships with two playable reference effects that
 emit it: `vfxweaver:ember` (a tight burst, the preset's own `count`) and `vfxweaver:sparks`

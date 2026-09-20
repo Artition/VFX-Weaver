@@ -6,6 +6,8 @@ An animated value-noise field warps the picture in soft fluid patches; bright no
 
 ## Fields
 
+> Every screen effect also accepts **`screen_layer`** and the [shared definition fields](../index.md#shared-fields) (`duration`, `easing`, `loop`, `persistent`, `fade_ticks`, `sound`).
+
 | Field | Type | Default | Meaning |
 |---|---|---|---|
 | `scale` | float | 8 | Noise cell detail across the screen (1..64) |

@@ -6,6 +6,8 @@ Barrel (`amount > 0`) / pincushion (`amount < 0`) distortion of the whole screen
 
 ## Fields
 
+> Every screen effect also accepts **`screen_layer`** and the [shared definition fields](../index.md#shared-fields) (`duration`, `easing`, `loop`, `persistent`, `fade_ticks`, `sound`).
+
 | Field | Type | Default | Meaning |
 |---|---|---|---|
 | `amount` | float | 0.2 (fades to 0) | Distortion strength; sign picks the direction |

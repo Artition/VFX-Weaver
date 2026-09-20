@@ -6,6 +6,8 @@ A local "dent" (lens warp) around a point, or along a segment in line mode.
 
 ## Fields
 
+> Every screen effect also accepts **`screen_layer`** and the [shared definition fields](../index.md#shared-fields) (`duration`, `easing`, `loop`, `persistent`, `fade_ticks`, `sound`).
+
 | Field | Type | Default | Meaning |
 |---|---|---|---|
 | `strength` | float | 0.6 (fades to 0) | Warp strength; positive pulls in, negative pushes out |

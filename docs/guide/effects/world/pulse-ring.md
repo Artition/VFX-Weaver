@@ -6,6 +6,8 @@ A glowing ring around each position. With `billboard:1` (default) the ring alway
 
 ## Fields
 
+> Every world overlay also accepts **`positions`** (static or entity-anchored), **`region`** or the **`pos_x`/`pos_y`/`pos_z`** params, plus the [shared definition fields](../index.md#shared-fields) (`duration`, `easing`, `loop`, `persistent`, `fade_ticks`, `sound`).
+
 | Field | Type | Default | Meaning |
 |---|---|---|---|
 | `radius` | float | 0 -> 6 | Current ring radius, blocks (animate 0 -> max) |

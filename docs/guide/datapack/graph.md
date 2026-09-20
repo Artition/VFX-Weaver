@@ -50,10 +50,10 @@ Every node has `id` (string, unique in the graph), `kind` (one of the kinds belo
 | `mix` | `a`, `b` (both required), `factor` (0.5) | `a + (b − a) × factor`. |
 | `clamp` | `value` (required), `min` (0), `max` (1) | `value` clamped into `min..max`. |
 | `remap` | `value` (required), `in_min` (0), `in_max` (1), `out_min` (0), `out_max` (1) | Linear remap from the input range to the output range. |
-| `bind` | a world/camera binding (§3.3) as the node's inputs, plus optional `fallback` | The same value a bound param would produce. |
-| `expr` | `expr` (required string, ≤1024 chars) | The math expression from §3.2 (same `t`/`x`/`y`/`z` variables and functions), compiled per instance and evaluated every frame. |
+| `bind` | a [world/camera binding](params.md#world-and-camera-bindings) as the node's inputs, plus optional `fallback` | The same value a bound param would produce. |
+| `expr` | `expr` (required string, ≤1024 chars) | The math expression from [Expressions (`expr`)](expr.md) (same `t`/`x`/`y`/`z` variables and functions), compiled per instance and evaluated every frame. |
 
-A `curve` node's `points` are `{ "time": <ticks>, "value": <number>, "easing": "<name>" }` (up to 64, times strictly ascending; `easing` is optional and defaults to `linear`). A point's `easing` eases the segment from that point to the next — the last point's `easing` is unused — exactly like keyframes (§3.2).
+A `curve` node's `points` are `{ "time": <ticks>, "value": <number>, "easing": "<name>" }` (up to 64, times strictly ascending; `easing` is optional and defaults to `linear`). A point's `easing` eases the segment from that point to the next — the last point's `easing` is unused — exactly like [keyframes](params.md#ways-to-set-a-param).
 
 Node-to-node edges: `{ "from": "<node>", "to": "<node>", "input": "<socket>" }`.
 

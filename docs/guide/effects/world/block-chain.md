@@ -6,6 +6,8 @@ A line of **real block-model links** between two anchors (like `guide_line`, but
 
 ## Fields
 
+> Every world overlay also accepts **`positions`** (static or entity-anchored), **`region`** or the **`pos_x`/`pos_y`/`pos_z`** params, plus the [shared definition fields](../index.md#shared-fields) (`duration`, `easing`, `loop`, `persistent`, `fade_ticks`, `sound`).
+
 | Field | Type | Default | Meaning |
 |---|---|---|---|
 | `spacing` | float | 1 | Distance between links, blocks (0.25..8); links tile the path end-to-end and stretch to span it exactly |
