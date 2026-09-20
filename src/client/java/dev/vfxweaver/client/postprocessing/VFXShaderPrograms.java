@@ -188,23 +188,8 @@ public final class VFXShaderPrograms {
 				.build()
 		);
 
-		coveragePipeline = RenderPipelines.register(
-			RenderPipeline.builder(RenderPipelines.POST_PROCESSING_SNIPPET)
-				.withLocation(Identifier.fromNamespaceAndPath("vfxweaver", "post/mask_coverage"))
-				.withVertexShader("core/screenquad")
-				.withFragmentShader(Identifier.fromNamespaceAndPath("vfxweaver", "post/mask_coverage"))
-				//? if <26.2 {
-				.withSampler("DepthSampler")
-				.withSampler("GeometryCoverageSampler")
-				.withUniform("SamplerInfo", UniformType.UNIFORM_BUFFER)
-				.withUniform("Config", UniformType.UNIFORM_BUFFER)
-				//?} else {
-				/*.withBindGroupLayout(DEPTH_SAMPLER_LAYOUT)
-				.withBindGroupLayout(GEOMETRY_COVERAGE_SAMPLER_LAYOUT)
-				.withBindGroupLayout(SAMPLER_INFO_CONFIG_LAYOUT)
-				*///?}
-				.build()
-		);
+		final Identifier coverageShader = Identifier.fromNamespaceAndPath("vfxweaver", "post/mask_coverage");
+		coveragePipeline = RenderPipelines.register(buildCoveragePipeline(coverageShader, coverageShader));
 		// The coverage Config block is written by VFXMaskUniforms, not the generic per-param loop,
 		// so its configParams list stays empty and only its size is carried here.
 		coverageProgram = new ProgramInfo(coveragePipeline, new String[0], VFXMaskUniforms.uboSize(), PassRole.NORMAL, false, null, false, true);
@@ -299,6 +284,33 @@ public final class VFXShaderPrograms {
 	 */
 	public static @Nullable ProgramInfo blockGeometryProgram() {
 		return blockGeometryProgram;
+	}
+
+	/**
+	 * Builds a coverage prepass pipeline with the exact sampler/uniform declaration the coverage
+	 * shader needs, under the given pipeline location and fragment shader id. The base coverage pass
+	 * uses {@code vfxweaver:post/mask_coverage} for both; a custom-shape variant uses a distinct
+	 * {@code .../mask_coverage_v<k>} id so the device shader cache does not collide. A variant is
+	 * deliberately <b>not</b> registered through {@link RenderPipelines#register} — the shader
+	 * reload precompiles every registered pipeline with the default shader source, which has no
+	 * variant shader, and an invalid one would drop every resource pack.
+	 */
+	static RenderPipeline buildCoveragePipeline(final Identifier location, final Identifier fragmentShader) {
+		return RenderPipeline.builder(RenderPipelines.POST_PROCESSING_SNIPPET)
+			.withLocation(location)
+			.withVertexShader("core/screenquad")
+			.withFragmentShader(fragmentShader)
+			//? if <26.2 {
+			.withSampler("DepthSampler")
+			.withSampler("GeometryCoverageSampler")
+			.withUniform("SamplerInfo", UniformType.UNIFORM_BUFFER)
+			.withUniform("Config", UniformType.UNIFORM_BUFFER)
+			//?} else {
+			/*.withBindGroupLayout(DEPTH_SAMPLER_LAYOUT)
+			.withBindGroupLayout(GEOMETRY_COVERAGE_SAMPLER_LAYOUT)
+			.withBindGroupLayout(SAMPLER_INFO_CONFIG_LAYOUT)
+			*///?}
+			.build();
 	}
 
 	private static void registerPost(final VFXEffectType type, final String... params) {

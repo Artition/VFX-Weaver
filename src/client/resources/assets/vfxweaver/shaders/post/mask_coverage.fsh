@@ -98,12 +98,15 @@ float fieldValue(int field, vec3 samplePos, float scale, float seed) {
     return 0.0;
 }
 
-// A neutral GLSL-plugin stub. VFXMaskShaderVariants replaces this function with the registered
-// `float vfx_shape_custom(vec3 world, vec2 uv, vec4 p0, vec4 p1)` in the variant compiled for a
-// mask that references plugin shapes; the base shader (no plugin leaf) never calls it with meaning.
+// A neutral GLSL-plugin stub. VFXMaskShaderVariants replaces the marked region below with the
+// registered `float vfx_shape_custom(vec3 world, vec2 uv, vec4 p0, vec4 p1)` in the variant
+// compiled for a mask that references plugin shapes; the base shader (no plugin leaf) never calls
+// it with meaning. The markers are comments, so the GLSL preprocessor preserves them verbatim.
+// >>> vfx_mask_custom_inject:begin
 float vfx_shape_custom(vec3 world, vec2 uv, vec4 p0, vec4 p1) {
     return 1.0e6;
 }
+// <<< vfx_mask_custom_inject:end
 
 // A composed custom shape (registered through VFXAPI): its fixed parts are packed per custom leaf
 // row. Parts use the shared 2D/3D SDF; ops 0/1/2 are union/intersection/difference.

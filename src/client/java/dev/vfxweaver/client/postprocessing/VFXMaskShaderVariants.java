@@ -1,10 +1,33 @@
 package dev.vfxweaver.client.postprocessing;
 
+import dev.vfxweaver.mask.VFXMaskShapeGlsl;
+import dev.vfxweaver.mask.VFXShapeRegistry;
+import dev.vfxweaver.util.VFXLog;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeSet;
+import net.minecraft.resources.Identifier;
 import org.jspecify.annotations.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+//? if <26.1 {
+/*import com.mojang.blaze3d.pipeline.CompiledRenderPipeline;
+import com.mojang.blaze3d.pipeline.RenderPipeline;
+import com.mojang.blaze3d.shaders.ShaderSource;
+import com.mojang.blaze3d.shaders.ShaderType;
+import com.mojang.blaze3d.systems.RenderSystem;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.renderer.ShaderManager;
+*///?} else {
+import com.mojang.blaze3d.pipeline.CompiledRenderPipeline;
+import com.mojang.blaze3d.pipeline.RenderPipeline;
+import com.mojang.blaze3d.shaders.ShaderSource;
+import com.mojang.blaze3d.shaders.ShaderType;
+import com.mojang.blaze3d.systems.RenderSystem;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.renderer.ShaderManager;
+//?}
 
 /**
  * Compiles and caches the bounded custom-shape GLSL variants (expanded design). A mask that
@@ -15,18 +38,32 @@ import org.jspecify.annotations.Nullable;
  * neutral stub (plugin leaves evaluate to no coverage) and the error is recorded, naming the shape,
  * so it surfaces through the parser/validator instead of breaking unrelated effects.
  *
- * <p>Deferred: the shader-source injection hook (generating a variant shader resource and
- * registering it for the next {@code ShaderManager} reload) does not exist in this codebase yet;
- * {@link #compileVariant} therefore returns {@code null} and every plugin leaf falls back to the
- * base shader's neutral stub. {@code ponytail:} plugin variant compilation deferred, neutral stub;
- * add the resource-pack hook when a plugin shape must render.
+ * <p>How a variant is compiled (26.1+): the coverage fragment source is taken from the live
+ * {@code ShaderManager} (already preprocessed, so {@code #moj_import} is resolved), the marked
+ * {@code vfx_mask_custom_inject} region is replaced by the concatenated plugin sources, and a
+ * coverage pipeline under a distinct {@code post/mask_coverage_v<k>} fragment id is compiled with
+ * that source through a per-variant {@code ShaderSource}. The variant is not registered as a static
+ * pipeline (a shader reload would precompile it from the default source and fail); the device
+ * pipeline cache is re-seeded on every use instead, which also survives a resource reload's
+ * {@code clearPipelineCache}. On {@code <26.1} the shader-source hook does not exist, so a plugin
+ * leaf keeps the neutral stub (additive: only plugin custom shapes are affected).
  */
 public final class VFXMaskShaderVariants {
 	/** The most compiled plugin variants that may exist at once. */
 	public static final int MAX_VARIANTS = 4;
 
+	private static final Logger LOGGER = LoggerFactory.getLogger("vfxweaver/mask");
+	// The markers include the leading `// ` so the trailing marker stays a complete comment after
+	// the marked region is replaced (only the stub between them is swapped for the plugin source).
+	private static final String INJECT_BEGIN = "// >>> vfx_mask_custom_inject:begin";
+	private static final String INJECT_END = "// <<< vfx_mask_custom_inject:end";
+
 	private static final Map<String, VFXShaderPrograms.@Nullable ProgramInfo> VARIANTS = new HashMap<>();
+	/** The injected fragment source per variant key, so the device cache can be re-seeded after a reload. */
+	private static final Map<String, String> SOURCES = new HashMap<>();
 	private static final Map<String, String> ERRORS = new HashMap<>();
+	/** A monotonic variant number: never reused, so a recompiled key never collides with a stale pass/cache entry. */
+	private static int nextVariantId;
 
 	private VFXMaskShaderVariants() {
 	}
@@ -44,14 +81,19 @@ public final class VFXMaskShaderVariants {
 		}
 		final String key = String.join(",", new TreeSet<>(pluginIds));
 		if (VARIANTS.containsKey(key)) {
-			return VARIANTS.get(key);
+			// Re-seed the device pipeline cache: a resource reload clears it, after which the
+			// consumer's setPipeline would otherwise recompile this pipeline from the default
+			// shader source, which has no such fragment shader.
+			reseed(key);
+			final VFXShaderPrograms.@Nullable ProgramInfo cached = VARIANTS.get(key);
+			return cached != null ? cached : VFXShaderPrograms.coverageProgram();
 		}
 		if (VARIANTS.size() >= MAX_VARIANTS) {
-			ERRORS.put(key, "mask custom-shape shader variants exceed the limit of " + MAX_VARIANTS + " (shapes: " + key + ")");
+			fail(key, "the compiled custom-shape shader variant limit of " + MAX_VARIANTS + " is reached");
 			VARIANTS.put(key, null);
 			return VFXShaderPrograms.coverageProgram();
 		}
-		final VFXShaderPrograms.ProgramInfo compiled = compileVariant(key);
+		final VFXShaderPrograms.@Nullable ProgramInfo compiled = compileVariant(key);
 		VARIANTS.put(key, compiled);
 		return compiled != null ? compiled : VFXShaderPrograms.coverageProgram();
 	}
@@ -61,13 +103,90 @@ public final class VFXMaskShaderVariants {
 		return ERRORS.get(key);
 	}
 
-	/** Clears all variants (called on resource reload). */
+	/** Clears all variants so the next use rebuilds the source and pipeline (a shape re-registration). */
 	public static void invalidate() {
 		VARIANTS.clear();
+		SOURCES.clear();
 		ERRORS.clear();
 	}
 
-	private static VFXShaderPrograms.@Nullable ProgramInfo compileVariant(final String key) {
+	/**
+	 * Records a variant failure once (bounded key) and returns {@code null} so the caller falls back
+	 * to neutral coverage. The message reads like a parse/validation error naming the shape(s).
+	 */
+	private static VFXShaderPrograms.@Nullable ProgramInfo fail(final String key, final String reason) {
+		final String message = "mask: custom shape '" + key + "' cannot be rendered, falling back to neutral coverage: " + reason;
+		ERRORS.put(key, message);
+		VFXLog.warnOnce(LOGGER, "mask_shape_variant:" + key, message);
 		return null;
 	}
+
+	/** Recompiles/returns the cached variant pipeline through its injected source (no-op when none). */
+	private static void reseed(final String key) {
+		//? if <26.1 {
+		/*return;
+		*///?} else {
+		final VFXShaderPrograms.@Nullable ProgramInfo info = VARIANTS.get(key);
+		final String source = SOURCES.get(key);
+		if (info == null || source == null) {
+			return;
+		}
+		RenderSystem.getDevice().precompilePipeline(info.pipeline(), variantSource(info.pipeline().getFragmentShader(), source));
+		//?}
+	}
+
+	/**
+	 * Compiles a coverage variant: the live coverage source with the marked stub replaced by the
+	 * registered plugin source(s), under a distinct fragment id so identical plugin sets share a
+	 * variant and distinct sets do not collide in the device shader cache.
+	 */
+	private static VFXShaderPrograms.@Nullable ProgramInfo compileVariant(final String key) {
+		//? if <26.1 {
+		/*return null;
+		*///?} else {
+		final Minecraft minecraft = Minecraft.getInstance();
+		final ShaderManager shaders = minecraft.getShaderManager();
+		final Identifier coverageFragment = Identifier.fromNamespaceAndPath("vfxweaver", "post/mask_coverage");
+		final String base = shaders.getShader(coverageFragment, ShaderType.FRAGMENT);
+		if (base == null) {
+			return fail(key, "the coverage shader source is unavailable");
+		}
+		final int begin = base.indexOf(INJECT_BEGIN);
+		final int end = begin < 0 ? -1 : base.indexOf(INJECT_END, begin + INJECT_BEGIN.length());
+		if (begin < 0 || end < 0) {
+			return fail(key, "the coverage shader is missing its custom-shape injection markers");
+		}
+		final StringBuilder plugin = new StringBuilder();
+		for (final String id : key.split(",")) {
+			final @Nullable VFXMaskShapeGlsl shape = VFXShapeRegistry.get().plugin(id);
+			if (shape == null) {
+				return fail(key, "shape '" + id + "' has no registered GLSL plugin");
+			}
+			plugin.append("\n// mask custom shape '").append(id).append("'\n").append(shape.glsl()).append('\n');
+		}
+		final String injected = base.substring(0, begin + INJECT_BEGIN.length()) + plugin + base.substring(end);
+		final Identifier variant = Identifier.fromNamespaceAndPath("vfxweaver", "post/mask_coverage_v" + nextVariantId++);
+		final RenderPipeline pipeline = VFXShaderPrograms.buildCoveragePipeline(variant, variant);
+		final CompiledRenderPipeline compiled = RenderSystem.getDevice().precompilePipeline(pipeline, variantSource(variant, injected));
+		if (!compiled.isValid()) {
+			return fail(key, "the GLSL plugin failed to compile");
+		}
+		SOURCES.put(key, injected);
+		return new VFXShaderPrograms.ProgramInfo(pipeline, new String[0], VFXMaskUniforms.uboSize(), VFXShaderPrograms.PassRole.NORMAL, false, null, false, true);
+		//?}
+	}
+
+	//? if <26.1 {
+	/*private static ShaderSource variantSource(final Identifier variantFragment, final String fragmentSource) {
+		throw new UnsupportedOperationException("no custom-shape shader variants before 26.1");
+	}
+	*///?} else {
+	/** A shader source that serves {@code fragmentSource} for the variant fragment id and the live shader manager for everything else. */
+	private static ShaderSource variantSource(final Identifier variantFragment, final String fragmentSource) {
+		final ShaderManager shaders = Minecraft.getInstance().getShaderManager();
+		return (location, type) -> type == ShaderType.FRAGMENT && location.equals(variantFragment)
+			? fragmentSource
+			: shaders.getShader(location, type);
+	}
+	//?}
 }
