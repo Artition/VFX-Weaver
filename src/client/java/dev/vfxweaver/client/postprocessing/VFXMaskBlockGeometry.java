@@ -7,6 +7,7 @@ import com.mojang.blaze3d.pipeline.RenderTarget;
 import com.mojang.blaze3d.systems.CommandEncoder;
 import com.mojang.blaze3d.systems.RenderPass;
 import com.mojang.blaze3d.systems.RenderSystem;
+import com.mojang.blaze3d.textures.FilterMode;
 import com.mojang.blaze3d.vertex.BufferBuilder;
 import com.mojang.blaze3d.vertex.ByteBufferBuilder;
 import com.mojang.blaze3d.vertex.DefaultVertexFormat;
@@ -154,14 +155,16 @@ public final class VFXMaskBlockGeometry {
 	 * coverage pipeline, camera-relative, before the coverage prepass samples it. Called once per
 	 * distinct block mask per frame at screen layer 0.
 	 *
-	 * @param encoder  the frame encoder the coverage prepass shares (so the draw is submitted first)
-	 * @param geometry the mask's geometry scratch colour target
-	 * @param mask     the parsed mask whose block leaves drive the selection
-	 * @param effect   the effect owning the mask, for the animated/faded radius parameter
+	 * @param encoder    the frame encoder the coverage prepass shares (so the draw is submitted first)
+	 * @param geometry   the mask's geometry scratch colour target
+	 * @param mainTarget the frame's main target, whose depth view occluding leaves are tested against
+	 * @param mask       the parsed mask whose block leaves drive the selection
+	 * @param effect     the effect owning the mask, for the animated/faded radius parameter
 	 */
 	public static void render(
 		final CommandEncoder encoder,
 		final RenderTarget geometry,
+		final RenderTarget mainTarget,
 		final VFXMask mask,
 		final VFXActiveEffect effect
 	) {
@@ -174,7 +177,7 @@ public final class VFXMaskBlockGeometry {
 			return;
 		}
 		final Level level = minecraft.level;
-		final List<BlockPos> blocks = new ArrayList<>();
+		final List<SelectedBlock> blocks = new ArrayList<>();
 		for (final VFXMaskPrimitive primitive : mask.primitives()) {
 			if (primitive.family() != VFXMaskPrimitive.Family.BLOCK || primitive.blockSelection() == null) {
 				continue;
@@ -182,12 +185,18 @@ public final class VFXMaskBlockGeometry {
 			final VFXMaskBlockSelection selection = primitive.blockSelection();
 			final float radius = blockRadius(mask, primitive, effect, selection);
 			final float[] center = blockCenter(primitive, selection);
-			blocks.addAll(select(level, selection, center, radius));
+			for (final BlockPos pos : select(level, selection, center, radius)) {
+				blocks.add(new SelectedBlock(pos, primitive.occlude()));
+			}
 		}
 		if (blocks.isEmpty()) {
 			return;
 		}
-		drawBlocks(encoder, geometry, program, minecraft, blocks);
+		drawBlocks(encoder, geometry, mainTarget, program, minecraft, blocks);
+	}
+
+	/** One selected block plus whether its leaf opts into scene-depth occlusion (`"occlude"`). */
+	private record SelectedBlock(BlockPos pos, boolean occlude) {
 	}
 
 	/** The selection radius: the leaf's bound/animated slot value, clamped to the cap. */
@@ -228,27 +237,32 @@ public final class VFXMaskBlockGeometry {
 	private static void drawBlocks(
 		final CommandEncoder encoder,
 		final RenderTarget geometry,
+		final RenderTarget mainTarget,
 		final VFXShaderPrograms.ProgramInfo program,
 		final Minecraft minecraft,
-		final List<BlockPos> blocks
+		final List<SelectedBlock> blocks
 	) {
 		final float camX = VFXFieldEnv.cameraX();
 		final float camY = VFXFieldEnv.cameraY();
 		final float camZ = VFXFieldEnv.cameraZ();
-		final int color = 0xFFFFFFFF;
+		// The vertex colour's alpha is the per-leaf occlusion flag the fragment shader reads:
+		// opaque white occludes, alpha 0 is the x-ray look.
+		final int occludedColor = 0xFFFFFFFF;
+		final int xrayColor = 0x00FFFFFF;
 		//? if <26.2 {
 		final BufferBuilder builder = new BufferBuilder(staging(), VertexFormat.Mode.TRIANGLES, DefaultVertexFormat.POSITION_COLOR);
 		//?} else {
 		/*final BufferBuilder builder = new BufferBuilder(staging(), PrimitiveTopology.TRIANGLES, DefaultVertexFormat.POSITION_COLOR);
 		*///?}
 		POSE.pushPose();
-		for (final BlockPos pos : blocks) {
-			final List<BakedQuad> quads = VFXWorldOverlayRenderer.getModelQuads(minecraft, minecraft.level.getBlockState(pos));
+		for (final SelectedBlock block : blocks) {
+			final List<BakedQuad> quads = VFXWorldOverlayRenderer.getModelQuads(minecraft, minecraft.level.getBlockState(block.pos()));
 			if (quads.isEmpty()) {
 				continue;
 			}
+			final int color = block.occlude() ? occludedColor : xrayColor;
 			POSE.pushPose();
-			POSE.translate(pos.getX() - camX, pos.getY() - camY, pos.getZ() - camZ);
+			POSE.translate(block.pos().getX() - camX, block.pos().getY() - camY, block.pos().getZ() - camZ);
 			for (final BakedQuad quad : quads) {
 				emitTriangle(builder, quad, 0, 1, 2, color);
 				emitTriangle(builder, quad, 0, 2, 3, color);
@@ -283,6 +297,11 @@ public final class VFXMaskBlockGeometry {
 				renderPass.setPipeline(program.pipeline());
 				renderPass.setUniform("Projection", ensureIdentityProjection());
 				renderPass.setUniform("DynamicTransforms", transform);
+				// The scene depth an occluding leaf's fragments are tested against. NEAREST: a depth
+				// texture is not filterable (depth findings); the pass runs at layer 0, so the view
+				// still holds the world surface.
+				renderPass.bindTexture("DepthSampler", mainTarget.getDepthTextureView(),
+					RenderSystem.getSamplerCache().getClampToEdge(FilterMode.NEAREST));
 				//? if <26.2 {
 				renderPass.setVertexBuffer(0, buffer);
 				renderPass.draw(0, vertexCount);

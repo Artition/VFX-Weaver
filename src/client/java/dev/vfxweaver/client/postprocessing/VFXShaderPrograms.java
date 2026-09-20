@@ -224,11 +224,15 @@ public final class VFXShaderPrograms {
 				.withVertexShader("core/position_color")
 				.withFragmentShader(Identifier.fromNamespaceAndPath("vfxweaver", "post/mask_block_geometry"))
 				//? if <26.2 {
+				// The fragment shader depth-tests each occluding block leaf's fragment against the
+				// main target's depth view (bound at draw time).
+				.withSampler("DepthSampler")
 				.withUniform("DynamicTransforms", UniformType.UNIFORM_BUFFER)
 				.withUniform("Projection", UniformType.UNIFORM_BUFFER)
 				.withVertexFormat(DefaultVertexFormat.POSITION_COLOR, VertexFormat.Mode.TRIANGLES)
 				//?} else {
 				/*.withBindGroupLayout(BindGroupLayouts.MATRICES_PROJECTION)
+				.withBindGroupLayout(DEPTH_SAMPLER_LAYOUT)
 				.withVertexBinding(0, DefaultVertexFormat.POSITION_COLOR)
 				.withPrimitiveTopology(PrimitiveTopology.TRIANGLES)
 				*///?}

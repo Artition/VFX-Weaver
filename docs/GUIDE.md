@@ -1460,14 +1460,52 @@ aura still fills the volume's silhouette instead of vanishing against the sky.
 }
 ```
 
-**Reference examples.** `vfxweaver:mask_entity_demo` is an entity-following sphere with a fixed
+#### Block masks: `occlude`
+
+A `block` leaf carries an optional `"occlude"` boolean controlling whether its rasterised model
+geometry is occluded by the scene. Both looks are first-class; the default is `true`.
+
+| `occlude` | What it looks like | When to use |
+|---|---|---|
+| `true` (default) | A fragment of a selected block is drawn only where it is nearer than the scene surface at that pixel; a wall in front hides the mask. | The mask reads as a tint on the blocks themselves — what the player can actually see. |
+| `false` | Today's see-through ("x-ray") look: the selected blocks are marked regardless of what is in front of them. | Highlighting blocks through walls, e.g. locating a vein behind terrain. |
+
+`occlude` is only valid on a `block` leaf; setting it on any other family is a parse error. It is
+evaluated per fragment in the geometry pass at screen layer 0, against the main target's depth
+buffer (reversed depth, near = 1); it never runs a per-pixel block lookup.
+
+```json
+{
+	"type": "color_grade",
+	"duration": 600,
+	"loop": true,
+	"persistent": true,
+	"params": { "screen_layer": 1, "saturation": 0.2, "tint_r": 0.6, "tint_g": 0.8, "tint_b": 1.0 },
+	"mask": {
+		"a": {
+			"shape": "block",
+			"blocks": ["minecraft:stone", "minecraft:cobblestone"],
+			"center": [0.0, 64.0, 0.0],
+			"radius": 16.0,
+			"softness": 1.0,
+			"occlude": true
+		}
+	}
+}
+```
+
+**Reference examples.** `vfxweaver:mask_block_demo` tints the stone-family blocks around
+`[0, 64, 0]` with `"occlude": true` (a wall in front hides the tint); `vfxweaver:mask_block_xray_demo`
+is the same selection with `"occlude": false` — play one, then the other, to compare the occluded
+and see-through looks. `vfxweaver:mask_entity_demo` is an entity-following sphere with a fixed
 `radius` of 4 blocks in `aura` mode plus a screen rectangle; `vfxweaver:mask_world_demo` is the same
 fixed-radius sphere in the default `surface` mode — play one, then the other, to compare the two
 looks. `vfxweaver:mask_pulse_demo` keeps the entity-following sphere but binds its `radius` with
 `"derive": "distance"`, so the sphere grows with the viewer's distance from the villager (a
-proximity pulse). `vfxweaver:mask_screen_demo` is a screen-only mask and works at any layer. The
-block-geometry (`mask_block_demo`) and custom-shape (`mask_custom_demo`) demos parse, but their
-coverage paths are deferred stubs and do not render yet.
+proximity pulse). `vfxweaver:mask_screen_demo` is a screen-only mask and works at any layer.
+`vfxweaver:mask_custom_demo` is a registered composed SDF (a ringed volume); the built-in GLSL
+plugin demo `vfxweaver:mask_custom_glsl_demo` uses `vfxweaver:ringed_glsl` — a screen ring with 8
+petal-modulated lobes — to prove the injected plugin source runs.
 
 ---
 

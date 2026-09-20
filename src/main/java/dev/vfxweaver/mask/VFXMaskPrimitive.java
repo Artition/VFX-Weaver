@@ -31,6 +31,11 @@ import org.jspecify.annotations.Nullable;
  * @param fieldScaleDefault  field scale when the slot is absent
  * @param fieldSeed          field seed, fixed at parse time
  * @param blockSelection     the block-geometry selection for a block leaf, or {@code null}
+ * @param occlude            for a block leaf, whether its rasterised model geometry is occluded by
+ *                           the scene depth (a wall in front hides the mask). Ignored for every
+ *                           other family; defaults to {@code true}, so a block mask is depth-tested
+ *                           unless it opts into the see-through ("x-ray") look with
+ *                           {@code "occlude": false}
  * @param customShape        the registered custom-shape id for a composed/plugin leaf, or {@code null}
  * @param centerBinding      a world-point binding that overrides the centre (a {@code POINT} binding), or a
  *                           derived {@code SCREEN_RECT} binding on a screen {@code rect} that also sets the
@@ -59,6 +64,7 @@ public record VFXMaskPrimitive(
 	float fieldScaleDefault,
 	float fieldSeed,
 	@Nullable VFXMaskBlockSelection blockSelection,
+	boolean occlude,
 	@Nullable String customShape,
 	@Nullable BoundParam centerBinding,
 	@Nullable BoundParam sizeBinding

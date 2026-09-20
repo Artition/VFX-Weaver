@@ -247,7 +247,7 @@ public final class VFXPostProcessingManager {
 					if (entryMask != null && entryMask.hasBlockLeaf()) {
 						final TextureTarget geometry = this.geometryTargets.get(entry.getKey());
 						if (geometry != null) {
-							VFXMaskBlockGeometry.render(encoder, geometry, entryMask, entry.getValue());
+							VFXMaskBlockGeometry.render(encoder, geometry, mainTarget, entryMask, entry.getValue());
 						}
 					}
 				}

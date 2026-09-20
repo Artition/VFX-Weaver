@@ -30,16 +30,19 @@ public final class VFXShapeRegistry {
 			.box(new float[]{0.0F, 64.0F, 0.0F}, 4.0F, 4.0F, 4.0F)
 			.build());
 		// A built-in GLSL-plugin shape (the "literally any shape" path): a screen-space ring whose
-		// edge is modulated by a petal wave. Its source is data, so it lives in the shared registry
-		// (a datapack demo referencing it validates server-side); only the client compiles it.
-		// `p0.xy` = centre (UV), `p0.z` = radius, `p1.x` = petal count.
+		// centreline radius is modulated by a petal wave, so with the demo's params it reads as an
+		// 8-petal flower outline (unmistakably not a circle). Its source is data, so it lives in the
+		// shared registry (a datapack demo referencing it validates server-side); only the client
+		// compiles it. `p0.xy` = centre (UV), `p0.z` = ring radius, `p0.w` = ring half-width,
+		// `p1.x` = petal count, `p1.y` = petal depth as a fraction of the radius.
 		this.plugins.put("vfxweaver:ringed_glsl", () ->
 			"float vfx_shape_custom(vec3 world, vec2 uv, vec4 p0, vec4 p1) {\n"
 				+ "    vec2 rel = uv - p0.xy;\n"
 				+ "    float radius = max(p0.z, 1.0e-3);\n"
+				+ "    float halfWidth = max(p0.w, 1.0e-3);\n"
 				+ "    float petals = max(p1.x, 1.0);\n"
-				+ "    float wave = 0.12 * sin(petals * atan(rel.y, rel.x));\n"
-				+ "    return length(rel) - radius * (1.0 + wave);\n"
+				+ "    float wave = p1.y * sin(petals * atan(rel.y, rel.x));\n"
+				+ "    return abs(length(rel) - radius * (1.0 + wave)) - halfWidth;\n"
 				+ "}\n");
 		this.shapes.put("vfxweaver:ringed_glsl", new VFXCustomShape("vfxweaver:ringed_glsl", VFXMaskSpace.SCREEN, VFXCustomShape.Family.GLSL_PLUGIN, java.util.List.of(), java.util.List.of()));
 	}

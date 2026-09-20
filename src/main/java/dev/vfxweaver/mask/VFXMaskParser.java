@@ -292,10 +292,16 @@ public final class VFXMaskParser {
 		final VFXMaskBlockSelection blockSelection = blockLeaf
 			? parseBlockSelection(json, centerDefaults, parameterDefaults[0])
 			: null;
+		// A block leaf's geometry is occluded by scene depth unless it explicitly opts into the
+		// see-through ("x-ray") look; the flag is meaningless on any other family.
+		if (json.has("occlude") && !json.get("occlude").isJsonNull() && !blockLeaf) {
+			throw new IllegalArgumentException("mask: 'occlude' is only valid on a block leaf");
+		}
+		final boolean occlude = blockLeaf && bool(json, "occlude", true);
 		final VFXMaskPrimitive primitive = new VFXMaskPrimitive(shape, space, centerSlots, centerDefaults, rotationSlot, rotationDefault,
 			parameterSlots, parameterDefaults, fill, strokeSlot, strokeDefault, softnessSlot, softnessDefault, volumeMode,
 			field, fieldAmountSlot, fieldAmountDefault, fieldScaleSlot, fieldScaleDefault, i * 17.0F + 1.0F,
-			blockSelection, customShape, resolvedCenterBinding, null);
+			blockSelection, occlude, customShape, resolvedCenterBinding, null);
 		return new Partial(List.of(primitive), List.of());
 	}
 

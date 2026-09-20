@@ -7,6 +7,6 @@
   "params": { "screen_layer": 1, "saturation": 0.15, "contrast": 1.0, "brightness": 1.0, "tint_r": 0.3, "tint_g": 0.85, "tint_b": 1.0 },
   "mask": {
     "invert": false,
-    "a": { "shape": "vfxweaver:ringed_glsl", "space": "screen", "center": [0.5, 0.5], "params": [0.5, 0.5, 0.28, 8.0], "softness": 0.03 }
+    "a": { "shape": "vfxweaver:ringed_glsl", "space": "screen", "center": [0.5, 0.5], "params": [0.5, 0.5, 0.28, 0.02, 8.0, 0.25], "softness": 0.03 }
   }
 }
