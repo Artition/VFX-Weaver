@@ -27,7 +27,8 @@ public final class VFXFieldEnv {
 	 * Captures the current camera state. Call once per frame before the field passes.
 	 *
 	 * @param mainTarget the main render target whose depth drives the field
-	 * @param valid      true when the depth buffer is valid for this pass (layer 0 on 26.2)
+	 * @param valid      true when the depth buffer is valid for this pass (screen layer 0, the only
+	 *                   layer where the scene depth is intact — it is cleared before the hand)
 	 */
 	public static void capture(final RenderTarget mainTarget, final boolean valid) {
 		depthValid = valid;

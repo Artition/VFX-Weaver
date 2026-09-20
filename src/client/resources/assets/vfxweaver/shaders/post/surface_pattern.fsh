@@ -2,16 +2,16 @@
 
 // surface_pattern (spec §6.2, §9 step 5): a world-anchored shape pattern projected onto whatever
 // surface is behind the pixel. The scene depth is reconstructed into a world position with the
-// verified reversed-depth recipe, mapped into the shape's cell-local coordinate and painted with
-// the shared shape library's coverage. The primitives (circle/ellipse/rect/polygon), their fill,
-// rotation, stroke/softness and the repeat/tile modifier are NOT implemented here: this shader
-// imports <vfxweaver:shape.glsl> and calls vfx_shape_pattern_coverage, so there is no figure maths
-// and no grid/ring branch on this side.
+// shared recipe (include/camera.glsl), mapped into the shape's cell-local coordinate and painted
+// with the shared shape library's coverage. The primitives (circle/ellipse/rect/polygon), their
+// fill, rotation, stroke/softness and the repeat/tile modifier are NOT implemented here: this
+// shader imports <vfxweaver:shape.glsl> and calls vfx_shape_pattern_coverage, so there is no figure
+// maths and no grid/ring branch on this side.
 //
+// Registered on every node. The raw depth is converted to NDC z per node by <vfxweaver:camera.glsl>
+// (VFX_DEPTH_REVERSED: 26.2 reversed, 26.1.2/1.21.11 standard), so the same recipe works everywhere.
 // Defaults to screen layer 0 — the layer where the single scene depth buffer is intact; a definition
 // may still override screen_layer, in which case the depth read is the hand's, not the scene's.
-// Registered on 26.2 only: the reversed-depth recipe is verified there (26.1.2/1.21.11 use the other
-// depth convention, so the pass is not registered and the effect draws nothing).
 // The Config block declares mat4 inv_view_proj first, then the floats in the order registered by
 // VFXShaderPrograms.registerDepthPost — std140 offsets are positional.
 #moj_import <vfxweaver:shape.glsl>
@@ -103,9 +103,10 @@ float vfx_pattern_tile_coverage(vec2 uv, float softness) {
 void main() {
     vec4 base = texture(InSampler, texCoord);
 
-    // Reversed depth: near = 1, far/sky = 0. Nothing behind the pixel -> passthrough.
+    // Nothing behind the pixel (sky/far) -> passthrough. VFX_DEPTH_IS_SKY follows the per-node
+    // convention (reversed: raw 0 is sky; standard: raw 1 is sky).
     float sceneDepth = texture(DepthSampler, texCoord).r;
-    if (sceneDepth <= 1.0e-6) {
+    if (VFX_DEPTH_IS_SKY(sceneDepth)) {
         fragColor = base;
         return;
     }
@@ -114,8 +115,10 @@ void main() {
     // implementation, also used by the field library). The normal comes from neighbouring depth
     // taps (camera.glsl) rather than screen-space derivatives of the reconstruction: at an edge or
     // a silhouette a derivative mixes two surfaces (or the sky's far-plane position) and flips.
+    // `eye` is the near-plane point along this pixel's view ray, so `world - eye` faces away from
+    // the camera; VFX_DEPTH_NEAR_RAW picks the near end for the node's convention.
     vec3 world = vfx_world_from_depth(texCoord, sceneDepth, inv_view_proj);
-    vec3 eye = vfx_world_from_depth(texCoord, 1.0, inv_view_proj);
+    vec3 eye = vfx_world_from_depth(texCoord, VFX_DEPTH_NEAR_RAW, inv_view_proj);
     vec2 texel = vec2(1.0 / max(InSize.x, 1.0), 1.0 / max(InSize.y, 1.0));
     vec3 nRaw = vfx_depth_normal(DepthSampler, texCoord, sceneDepth, inv_view_proj, texel, eye);
 

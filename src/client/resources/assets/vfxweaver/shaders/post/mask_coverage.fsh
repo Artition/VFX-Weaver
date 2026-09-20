@@ -3,11 +3,12 @@
 // The coverage prepass (spec §4, expanded design). Run at screen layer 0, once per distinct mask
 // per frame, into a small single-channel target. It is the ONLY masked thing that reads scene
 // depth; the consumer (post/mask_apply) just samples the result. World leaves (including the
-// sphere/box volumes and custom world shapes) reconstruct the world position with the verified
-// recipe (reversed depth, inverse view-rotation-projection). Screen leaves use UV and need no
-// depth. A world sphere/box leaf with `volume: "aura"` (shape_volume[i].x) instead casts the
-// pixel's view ray at the volume (vfx_volume_ray) and fills it wherever the scene does not occlude
-// it, so air and sky inside the volume tint too. Block leaves are NOT evaluated here: their
+// sphere/box volumes and custom world shapes) reconstruct the world position with the shared
+// recipe (include/camera.glsl: raw depth converted to NDC z per node, VFX_DEPTH_REVERSED), so one
+// shader source serves 26.2 (reversed) and 26.1.2/1.21.11 (standard). Screen leaves use UV and
+// need no depth. A world sphere/box leaf with `volume: "aura"` (shape_volume[i].x) instead casts
+// the pixel's view ray at the volume (vfx_volume_ray) and fills it wherever the scene does not
+// occlude it, so air and sky inside the volume tint too. Block leaves are NOT evaluated here: their
 // coverage was rasterised into GeometryCoverageSampler by the block-geometry draw that runs before
 // this pass.
 //
@@ -24,6 +25,7 @@
 // has no plugin leaf).
 
 #moj_import <vfxweaver:shapes.glsl>
+#moj_import <vfxweaver:camera.glsl>
 
 uniform sampler2D DepthSampler;
 uniform sampler2D GeometryCoverageSampler;
@@ -150,17 +152,15 @@ float vfx_composed_leaf(int row, vec3 world, vec2 uv, float softness) {
 
 void main() {
     vec3 world = vec3(0.0);
-    // Distance to the visible surface, used by the aura mode's occlusion test. Reversed depth:
-    // near=1, far=0, so a sky/far pixel (depth 0) reconstructs at the far plane but must not occlude
-    // anything - it is treated as "nothing nearer" and the aura still fills the volume.
+    // Distance to the visible surface, used by the aura mode's occlusion test. Sky/far reconstructs
+    // at the far plane but must not occlude anything - it is treated as "nothing nearer" and the
+    // aura still fills the volume. VFX_DEPTH_IS_SKY follows the per-node convention.
     float sceneDist = 1.0e9;
     if (mask_needs_depth > 0.5) {
-        // Verified reversed-depth recipe (findings note): depth is already NDC z (near=1, far=0).
+        // Shared recipe (include/camera.glsl): the raw depth is converted to NDC z per node.
         float depthRaw = texture(DepthSampler, texCoord).r;
-        vec4 clip = vec4(texCoord * 2.0 - 1.0, depthRaw, 1.0);
-        vec4 surfacePoint = invViewProj * clip;
-        world = surfacePoint.xyz / surfacePoint.w;
-        if (depthRaw > 0.0) {
+        world = vfx_world_from_depth(texCoord, depthRaw, invViewProj);
+        if (!VFX_DEPTH_IS_SKY(depthRaw)) {
             sceneDist = length(world - camPos.xyz);
         }
     }

@@ -7,9 +7,11 @@
 #   * VFXPostProcessingManager runs the prepass at layer 0 for every masked effect;
 #   * the depth gate is scoped to `mask.needsDepth()`, so a screen mask is never cleared;
 #   * the coverage pass never binds its own output target as DepthSampler (a feedback loop that
-#     is undefined on some drivers and broke screen masks where depthRecipeVerified() is false);
-#   * depthRecipeVerified() is written in the active-node form (>=26.2 commented, else active),
-#     so the active 26.1.2 node returns false like every other node.
+#     is undefined on some drivers);
+#   * depthRecipeVerified() is a plain `return true` now that every node converts raw depth with its
+#     own convention (VFX_DEPTH_REVERSED, see scripts/check-depth-convention.ps1); the depth gate is
+#     runtime-only (camera readiness / a depth attachment), so the fail-closed contract is kept by
+#     `depthReady` and the per-node convention lives in the shader.
 #
 # Usage: powershell -ExecutionPolicy Bypass -File scripts/check-mask-prepass.ps1
 # Exits 1 (after listing the problem) on a regression; 0 when the contract holds.
@@ -60,9 +62,12 @@ if ($manager -notmatch 'mainTarget\.getDepthTextureView\(\) != null') {
 	$problems.Add("executeCoverage does not prefer the main target's depth view for DepthSampler")
 }
 
-# 5) depthRecipeVerified() must be in the active-node form so 26.1.2 returns false.
-if ($manager -notmatch '(?s)depthRecipeVerified\(\)[\s\S]{0,400}?//\? if >=26\.2 \{\s*/\*return true;\s*\*///\?\} else \{\s*return false;') {
-	$problems.Add("depthRecipeVerified() is not in the active-node form (>=26.2 commented, else active)")
+# 5) depthRecipeVerified() must be a plain return true (every node supports depth per-node).
+if ($manager -notmatch 'private static boolean depthRecipeVerified\(\) \{\s*return true;\s*\}') {
+	$problems.Add("depthRecipeVerified() is not a plain return true (every node converts depth per node)")
+}
+if ($manager -match '//\? if >=26\.2 \{\s*/\*return true;') {
+	$problems.Add("depthRecipeVerified() still carries the old >=26.2 Stonecutter guard")
 }
 
 Write-Host "Mask coverage prepass check (static)"

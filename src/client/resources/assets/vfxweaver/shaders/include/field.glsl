@@ -181,8 +181,9 @@ float vfx_raw_depth(vec2 uv) {
 }
 
 vec3 vfx_world_pos(vec2 uv) {
-	// 26.x reversed depth: the sampled value is already NDC z (near = 1, far = 0). Shared with
-	// surface_pattern via <vfxweaver:camera.glsl> (one recipe, two consumers).
+	// Raw depth is converted to NDC z per node inside the shared recipe (include/camera.glsl,
+	// VFX_DEPTH_REVERSED: 26.2 reversed, 26.1.2/1.21.11 standard). Shared with surface_pattern
+	// and mask_coverage via <vfxweaver:camera.glsl> (one recipe, three consumers).
 	return vfx_world_from_depth(uv, vfx_raw_depth(uv), fld_inv_view_proj);
 }
 

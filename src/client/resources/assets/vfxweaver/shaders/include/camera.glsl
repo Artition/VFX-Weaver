@@ -1,16 +1,38 @@
 // Shared depth/world reconstruction and robust surface normal (design 2026-09-20: normal fix).
 //
-// The reversed-depth world recipe was duplicated inline in field.glsl and surface_pattern.fsh; it
-// lives here once. No uniforms are declared here: the caller passes its own inverse view-projection
+// The world recipe was duplicated inline in field.glsl, surface_pattern.fsh and mask_coverage.fsh;
+// it lives here once. No uniforms are declared here: the caller passes its own inverse view-projection
 // matrix and its own depth sampler, so this include can be imported by a pass whose Config block
 // names the matrix `inv_view_proj` (surface_pattern) and by the field library's `fld_inv_view_proj`.
 //
-// Verified recipe (depth findings): with 26.x reversed depth the sampled value is already NDC z
-// (near = 1, far = 0) and is fed to the inverse as-is.
+// Per-node depth convention (depth findings, proven with javap against the real client jars). The
+// raw value in the depth buffer is window depth in [0,1] on every node, but the NDC z it maps to
+// differs:
+//   * 26.2 calls glClipControl(GL_LOWER_LEFT, GL_ZERO_TO_ONE) and builds a near/far-swapped
+//     projection, so the raw value IS NDC z with near = 1, far = 0 (reversed);
+//   * 26.1.2 and 1.21.11 build a standard projection (no clip control), so raw 0 = near, raw 1 =
+//     far and NDC z = raw * 2 - 1 (standard).
+// VFXShaderPrograms injects the VFX_DEPTH_REVERSED define (1 on 26.2, 0 otherwise) into every
+// pipeline that imports this include, so one shader source serves all nodes. A pipeline that reads
+// depth but forgets the define gets the standard convention by default.
+#ifndef VFX_DEPTH_REVERSED
+#define VFX_DEPTH_REVERSED 0
+#endif
 
-// Reconstructs the world position of the visible surface at screen uv for the given NDC depth.
-vec3 vfx_world_from_depth(vec2 uv, float depthNdc, mat4 invViewProj) {
-	vec4 clip = vec4(uv * 2.0 - 1.0, depthNdc, 1.0);
+#if VFX_DEPTH_REVERSED
+#define VFX_DEPTH_TO_NDC(rawDepth) (rawDepth)
+#define VFX_DEPTH_IS_SKY(rawDepth) ((rawDepth) <= 1.0e-6)
+#define VFX_DEPTH_NEAR_RAW 1.0
+#else
+#define VFX_DEPTH_TO_NDC(rawDepth) ((rawDepth) * 2.0 - 1.0)
+#define VFX_DEPTH_IS_SKY(rawDepth) ((rawDepth) >= 1.0 - 1.0e-6)
+#define VFX_DEPTH_NEAR_RAW 0.0
+#endif
+
+// Reconstructs the world position of the visible surface at screen uv for the given *raw* sampled
+// depth (the value in the depth buffer; the per-node convention is applied inside).
+vec3 vfx_world_from_depth(vec2 uv, float rawDepth, mat4 invViewProj) {
+	vec4 clip = vec4(uv * 2.0 - 1.0, VFX_DEPTH_TO_NDC(rawDepth), 1.0);
 	vec4 world = invViewProj * clip;
 	return world.xyz / world.w;
 }
@@ -38,23 +60,23 @@ vec3 vfx_surface_step(vec3 forward, vec3 backward, bool hasForward, bool hasBack
 // Robust outward (camera-facing) normal of the visible surface at `uv`.
 //
 // Screen-space derivatives (dFdx/dFdy) of the reconstructed world position are unstable: they are
-// noisy, blow up at grazing angles and, at a face edge or silhouette, mix two surfaces (or the sky
-// at depth 0, whose reconstruction is the far plane), so the normal flips between orientations.
+// noisy, blow up at grazing angles and, at a face edge or silhouette, mix two surfaces (or the sky,
+// whose reconstruction is the far plane), so the normal flips between orientations.
 // This reconstructs the tangents from one-texel neighbour depth taps instead and rejects the
-// across-edge side per axis (the aura code's relative-slack idea: `depthSlack` = 0.5, `1.0e-6` =
-// the reversed-depth sky floor), so an edge pixel falls back to the valid one-sided tangent instead
-// of a corrupted cross product. The result is forced to face the eye (a depth-derived normal has an
-// ambiguous sign).
-vec3 vfx_depth_normal(sampler2D depthTex, vec2 uv, float depthNdc, mat4 invViewProj, vec2 texel, vec3 eye) {
-	vec3 world = vfx_world_from_depth(uv, depthNdc, invViewProj);
+// across-edge side per axis (the aura code's relative-slack idea: `depthSlack` = 0.5), so an edge
+// pixel falls back to the valid one-sided tangent instead of a corrupted cross product. The result
+// is forced to face the eye (a depth-derived normal has an ambiguous sign). A tap that is sky is
+// skipped via VFX_DEPTH_IS_SKY, so the per-node convention is handled in one place.
+vec3 vfx_depth_normal(sampler2D depthTex, vec2 uv, float rawDepth, mat4 invViewProj, vec2 texel, vec3 eye) {
+	vec3 world = vfx_world_from_depth(uv, rawDepth, invViewProj);
 	float dR = texture(depthTex, uv + vec2(texel.x, 0.0)).r;
 	float dL = texture(depthTex, uv - vec2(texel.x, 0.0)).r;
 	float dU = texture(depthTex, uv + vec2(0.0, texel.y)).r;
 	float dD = texture(depthTex, uv - vec2(0.0, texel.y)).r;
-	bool okR = dR > 1.0e-6;
-	bool okL = dL > 1.0e-6;
-	bool okU = dU > 1.0e-6;
-	bool okD = dD > 1.0e-6;
+	bool okR = !VFX_DEPTH_IS_SKY(dR);
+	bool okL = !VFX_DEPTH_IS_SKY(dL);
+	bool okU = !VFX_DEPTH_IS_SKY(dU);
+	bool okD = !VFX_DEPTH_IS_SKY(dD);
 
 	vec3 stepR = okR ? vfx_world_from_depth(uv + vec2(texel.x, 0.0), dR, invViewProj) - world : vec3(0.0);
 	vec3 stepL = okL ? world - vfx_world_from_depth(uv - vec2(texel.x, 0.0), dL, invViewProj) : vec3(0.0);

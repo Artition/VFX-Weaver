@@ -142,6 +142,26 @@ public final class VFXShaderPrograms {
 	}
 
 	/**
+	 * True when this node's scene depth buffer is reversed (near = 1, far = 0). Proven statically
+	 * against the real client jars: 26.2 calls {@code glClipControl(GL_LOWER_LEFT, GL_ZERO_TO_ONE)}
+	 * and builds a near/far-swapped projection (reversed); 26.1.2 and 1.21.11 build a standard
+	 * projection (near = 0, far = 1). Injected into every depth-reading pipeline as the
+	 * {@code VFX_DEPTH_REVERSED} shader define so one shader source serves all nodes (see
+	 * {@code include/camera.glsl}). A compile-time constant, so the per-node value is visible in the
+	 * built class and the standalone depth-convention check reads it with {@code javap -constants}.
+	 */
+	//? if >=26.2 {
+	/*static final boolean DEPTH_REVERSED = true;
+	*///?} else {
+	static final boolean DEPTH_REVERSED = false;
+	//?}
+
+	/** The {@code withShaderDefine} value for {@link #DEPTH_REVERSED} (the shader tests {@code #if}). */
+	private static int depthReversedDefine() {
+		return DEPTH_REVERSED ? 1 : 0;
+	}
+
+	/**
 	 * Builds and registers all effect pipelines. Safe to call multiple times (idempotent).
 	 */
 	public static void register() {
@@ -179,15 +199,12 @@ public final class VFXShaderPrograms {
 		registerFeedbackEffects();
 		registerPost(VFXEffectType.NOISE_WARP, "scale", "amplitude", "contrast", "coherence", "speed", "drift_x", "drift_y", "seed", "time");
 
-		// surface_pattern reads scene depth and reconstructs a world position: it is the only pass
-		// that needs the depth mechanism (spec §5, §9 step 5). Registered on >=26.2 only — the
-		// reversed-depth recipe was verified on 26.2 (depth findings note); 26.1.2 and 1.21.11 use
-		// the other depth convention, so the pass is not registered there and the effect draws
-		// nothing (the type/shader/JSON still exist). This matches depthRecipeVerified(), which
-		// gates the field and mask coverage paths to 26.2 as well. Every shape number is uploaded;
-		// the shared shape library dispatches on it, so there is no grid/ring branch on this side.
-		//? if >=26.2 {
-		/*registerDepthPost(VFXEffectType.SURFACE_PATTERN,
+		// surface_pattern reads scene depth and reconstructs a world position: it is the pass that
+		// needs the depth mechanism (spec §5, §9 step 5). Registered on every node — the shader
+		// converts the raw depth to NDC z per node (VFX_DEPTH_REVERSED: 26.2 reversed, 26.1.2/1.21.11
+		// standard), so the same recipe works everywhere. Every shape number is uploaded; the shared
+		// shape library dispatches on it, so there is no grid/ring branch on this side.
+		registerDepthPost(VFXEffectType.SURFACE_PATTERN,
 			"tile_scale", "color_r", "color_g", "color_b", "opacity",
 			"fade_radius", "normal_mask", "distort",
 			"center_x", "center_y", "center_z", "shape", "fill",
@@ -210,7 +227,6 @@ public final class VFXShaderPrograms {
 			// stitch: 1 = unfold a vertical wall into the floor plane (surface.stitch flag), appended
 			// last so no earlier std140 offset shifts, 0 = today's hard floor/wall switch.
 			"stitch");
-		*///?}
 
 		copyPipeline = RenderPipelines.register(
 			RenderPipeline.builder(RenderPipelines.POST_PROCESSING_SNIPPET)
@@ -262,6 +278,7 @@ public final class VFXShaderPrograms {
 				.withLocation(Identifier.fromNamespaceAndPath("vfxweaver", "world/mask_block_geometry"))
 				.withVertexShader("core/position_color")
 				.withFragmentShader(Identifier.fromNamespaceAndPath("vfxweaver", "post/mask_block_geometry"))
+				.withShaderDefine("VFX_DEPTH_REVERSED", depthReversedDefine())
 				//? if <26.2 {
 				// The fragment shader depth-tests each occluding block leaf's fragment against the
 				// main target's depth view (bound at draw time).
@@ -343,6 +360,7 @@ public final class VFXShaderPrograms {
 			.withLocation(location)
 			.withVertexShader("core/screenquad")
 			.withFragmentShader(fragmentShader)
+			.withShaderDefine("VFX_DEPTH_REVERSED", depthReversedDefine())
 			//? if <26.2 {
 			.withSampler("DepthSampler")
 			.withSampler("GeometryCoverageSampler")
@@ -372,6 +390,7 @@ public final class VFXShaderPrograms {
 			.withLocation(location)
 			.withVertexShader("core/screenquad")
 			.withFragmentShader(location)
+			.withShaderDefine("VFX_DEPTH_REVERSED", depthReversedDefine())
 			//? if <26.2 {
 			.withSampler("InSampler")
 			.withSampler("DepthSampler")
@@ -403,6 +422,7 @@ public final class VFXShaderPrograms {
 			.withLocation(location)
 			.withVertexShader("core/screenquad")
 			.withFragmentShader(location)
+			.withShaderDefine("VFX_DEPTH_REVERSED", depthReversedDefine())
 			//? if <26.2 {
 			.withSampler("InSampler")
 			.withSampler("DepthSampler")

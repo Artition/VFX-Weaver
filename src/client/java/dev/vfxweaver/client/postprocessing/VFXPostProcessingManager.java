@@ -196,7 +196,7 @@ public final class VFXPostProcessingManager {
 				for (final VFXActiveEffect effect : active) {
 					if (effect.getTimeline().fieldNeedsDepth()) {
 						VFXLog.warnOnce(LOGGER, "field:layer:" + effect.getId(),
-							"Effect '{}' uses a depth/world field but runs at screen_layer {} — depth fields need layer 0 on 26.2; falling back to the neutral value",
+							"Effect '{}' uses a depth/world field but runs at screen_layer {} — depth fields need layer 0 (the scene depth is intact only below the hand); falling back to the neutral value",
 							effect.getId(), layer);
 					}
 				}
@@ -377,13 +377,13 @@ public final class VFXPostProcessingManager {
 
 	/**
 	 * Runs the coverage prepass for one distinct mask into its target. The caller guarantees layer 0,
-	 * so the camera and depth are read live from {@link VFXFieldEnv} (the verified reversed-depth
-	 * reconstruction). The block-geometry scratch (when the mask has a block leaf) was cleared and is
-	 * bound as the block leaf's coverage.
+	 * so the camera and depth are read live from {@link VFXFieldEnv} (the per-node depth
+	 * reconstruction, see {@code include/camera.glsl}). The block-geometry scratch (when the mask has
+	 * a block leaf) was cleared and is bound as the block leaf's coverage.
 	 *
 	 * <p>{@code depthReady} mirrors the {@code surface_pattern} depth gate: when it is false (depth
-	 * unavailable, or the reversed-depth recipe unverified on this node), a mask that needs depth
-	 * fails closed - its coverage is cleared to zero and nothing is sampled.
+	 * unavailable, or no depth attachment), a mask that needs depth fails closed - its coverage is
+	 * cleared to zero and nothing is sampled.
 	 */
 	private void runCoveragePrepass(final CommandEncoder encoder, final SamplerCache samplerCache, final RenderTarget mainTarget, final VFXActiveEffect effect, final Identifier definitionId, final boolean depthReady) {
 		final VFXMask mask = effect.getMask();
@@ -472,16 +472,16 @@ public final class VFXPostProcessingManager {
 	}
 
 	/**
-	 * True when the reversed-depth world reconstruction is verified for this node. Depth findings
-	 * confirm it on 26.2; older nodes bind depth but report it invalid so depth/world fields fall
-	 * back to their neutral value.
+	 * True when the scene-depth world reconstruction is trusted for this node. Every supported node
+	 * now converts the raw depth with its own convention (see
+	 * {@link VFXShaderPrograms#DEPTH_REVERSED} and {@code include/camera.glsl}): 26.2 is reversed,
+	 * 26.1.2 and 1.21.11 are standard, so the recipe is verified on all of them. Only camera
+	 * readiness and the presence of a depth attachment gate a pass at runtime
+	 * ({@code VFXFieldEnv.depthValid()} / {@code mainTarget.getDepthTextureView()}); a node that
+	 * could not support depth would return false here and fail the depth-needing paths closed.
 	 */
 	private static boolean depthRecipeVerified() {
-		//? if >=26.2 {
-		/*return true;
-		*///?} else {
-		return false;
-		//?}
+		return true;
 	}
 
 	private void ensureTargets(final int width, final int height) {
@@ -885,8 +885,7 @@ public final class VFXPostProcessingManager {
 				// trusted depth; a screen-only mask never samples DepthSampler, so the placeholder
 				// is inert there and only keeps the sampler binding valid. The placeholder must not
 				// be the coverage target this pass writes to - binding the render target's own
-				// colour texture as a sampler is a feedback loop (undefined on some drivers), which
-				// is what broke a screen mask on a node where depthRecipeVerified() is false. Bind
+				// colour texture as a sampler is a feedback loop (undefined on some drivers). Bind
 				// the main target's depth view when present (the shader does not read it for a
 				// screen mask), else its colour view.
 				final GpuTextureView depthBind = mainTarget.getDepthTextureView() != null

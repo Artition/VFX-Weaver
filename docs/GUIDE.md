@@ -496,7 +496,7 @@ Stop-motion / papercraft: the picture updates only a few times per second while 
 ```
 
 #### `surface_pattern`
-A shape pattern projected onto the terrain behind each pixel: a world-anchored figure (circle, ellipse, rect or polygon) drawn on whatever surface the scene depth reconstructs, so it stays fixed to world blocks as you turn and walk. It reads scene depth through the reversed-depth reconstruction, which is only verified on **Minecraft 26.2** — on 1.21.11 and 26.1.2 the effect type and its JSON still exist but the pass is not registered, so it **draws nothing**. It must run at `"screen_layer": 0` — the single scene depth buffer is only intact below the first-person hand.
+A shape pattern projected onto the terrain behind each pixel: a world-anchored figure (circle, ellipse, rect or polygon) drawn on whatever surface the scene depth reconstructs, so it stays fixed to world blocks as you turn and walk. It reads scene depth through the shared world reconstruction, which converts the raw depth per node: **Minecraft 26.2** uses reversed depth (near = 1, far = 0) and **26.1.2 / 1.21.11** use standard depth (near = 0, far = 1). The effect renders on **all supported lines** (Fabric and NeoForge). It must run at `"screen_layer": 0` — the single scene depth buffer is only intact below the first-person hand.
 
 | Param | Default | Description |
 |---|---|---|
@@ -1584,12 +1584,13 @@ drive a mask from data the client does not have, set its centre from the **serve
 > hand is nearer. To avoid this, run the masked effect at `screen_layer: 0`, or depth-occlude the
 > consumer against a layer-0 depth snapshot.
 
-> **Depth note.** The same gate `surface_pattern` uses applies to masks: on a node whose
-> reversed-depth world reconstruction is not verified (anything but 26.2 — 26.1.2 and 1.21.11 use the
-> other depth convention), a mask that needs depth (a `world` leaf, an `aura` volume, or a block leaf)
-> **fails closed** — it contributes zero coverage and its depth-tested block pass is disabled —
-> instead of sampling depth with the wrong convention. A purely `screen` mask needs no depth and
-> works on every node and every layer.
+> **Depth note.** The scene depth is read on every supported node. Each node's convention is proven
+> from the client jars and injected into the shader as a per-node flag: 26.2 is reversed (near = 1),
+> 26.1.2 and 1.21.11 are standard (near = 0). A mask that needs depth (a `world` leaf, an `aura`
+> volume, or a block leaf) still **fails closed** — it contributes zero coverage and its depth-tested
+> block pass is disabled — when no trustworthy depth is available (no depth attachment, or the camera
+> snapshot is not ready on the first frame), never a wrong sample. A purely `screen` mask needs no
+> depth and works on every node and every layer.
 
 > **Concurrency note.** Two simultaneous plays of one masked definition share a single coverage
 > target, so both use the first play's animated centre/radius/softness. To have two masks with
@@ -1651,7 +1652,8 @@ geometry is occluded by the scene. Both looks are first-class; the default is `t
 
 `occlude` is only valid on a `block` leaf; setting it on any other family is a parse error. It is
 evaluated per fragment in the geometry pass at screen layer 0, against the main target's depth
-buffer (reversed depth, near = 1); it never runs a per-pixel block lookup.
+buffer (per-node convention: 26.2 reversed near = 1, 26.1.2/1.21.11 standard near = 0); it never runs
+a per-pixel block lookup.
 
 ```json
 {
@@ -1884,7 +1886,10 @@ Post-processing pipeline, world overlays, effect clock, load limits and fault to
 
 Versioned feature history — **[docs/CHANGELOG.md](CHANGELOG.md)**.
 
-Guide version: 44 — see changelog below.
+Guide version: 45 — see changelog below.
+
+### v45
+- **Scene depth works on every supported line, not just 26.2.** `surface_pattern`, the depth/world field functions and the depth-needing mask families (a `world` leaf, an `aura` volume, a block leaf's `occlude`) used to be gated to 26.2 because the world reconstruction assumed 26.2's reversed depth. The per-node depth convention is now proven from the client jars and injected into one shared shader source: **26.2 is reversed** (`glClipControl(GL_LOWER_LEFT, GL_ZERO_TO_ONE)` — near = 1, far = 0) and **26.1.2 / 1.21.11 are standard** (near = 0, far = 1). The shader converts the raw sampled depth, picks the correct sky test and the correct block-occlusion comparison per node, so a depth-needing effect now renders on 26.1.2 and 1.21.11 as well. Fail-closed is unchanged where no trustworthy depth exists. See [2.1](#surface_pattern) and [3.8](#38-masks).
 
 ### v44
 - **`surface.stitch` — opt-in planar (top-down) projection.** A new boolean in the structural `surface` block (default `false`). With `"stitch": true` every face samples the same top-down coordinate `p = world.xz`, so a wall pixel `(x, y, z)` shows exactly what the floor pixel at the wall base `(x, floor_y, z)` shows — the image's row at the wall line extruded vertically (a ring reaching a wall becomes two vertical stripes from its crossing points). The seam is continuous for **any anchor height** (the anchor's Y no longer matters), and `min`/`max` become a height slab that bounds how far up the wall the image stretches. A ceiling is excluded (a top-down projection cannot light a down-facing surface). Deliberate trade-off: a wall shows a 1D slice (vertically constant colour columns), not a 2D unwrapped image. Additive and off by default — without it the hard floor/wall plane switch is unchanged, so every existing definition and the built-in render exactly as before. See [2.1](#surface_pattern).

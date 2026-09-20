@@ -1,9 +1,10 @@
 # Dev-only guard for the 2026-09-20 surface_pattern fixes batch.
 #
 # Covers:
-#   * the depth gate is consistent: the pass is registered on >=26.2 only (the reversed-depth recipe
-#     is verified on 26.2), matching depthRecipeVerified() and the mask gate; the stale "verified on
-#     26.1.2" comment and the guide claim are gone;
+#   * the depth gate is consistent: the pass is registered on every node (the raw depth is converted
+#     per node by VFX_DEPTH_REVERSED, see scripts/check-depth-convention.ps1), matching the field and
+#     mask depth gates; the stale "verified on 26.1.2" comment and the old 26.2-only guide claim are
+#     gone;
 #   * layer 0 refreshes the effect clock and the camera/player snapshots (the layer-0 hook calls
 #     vfxweaver$updateFrame; the FogRenderer hook does not advance/update, so the clock cannot
 #     double-advance);
@@ -40,21 +41,30 @@ $guide = [System.IO.File]::ReadAllText($guidePath)
 
 $problems = New-Object System.Collections.Generic.List[string]
 
-# --- 1. depth gate: >=26.2 registration, no 26.1.2 "verified" claim -------------------------------
-if ($programs -notmatch '//\? if >=26\.2 \{\r?\n\t\t/\*registerDepthPost\(VFXEffectType\.SURFACE_PATTERN') {
-	$problems.Add("registerDepthPost(SURFACE_PATTERN) is not guarded by '//? if >=26.2' (the depth recipe is 26.2-only)")
+# --- 1. depth gate: registered on every node, per-node convention, no stale "verified" claim -------
+if ($programs -match '//\? if >=26\.2 \{\r?\n\t\t/\*registerDepthPost\(VFXEffectType\.SURFACE_PATTERN') {
+	$problems.Add("registerDepthPost(SURFACE_PATTERN) is still guarded to >=26.2 (depth is per-node now)")
+}
+if ($programs -notmatch 'registerDepthPost\(VFXEffectType\.SURFACE_PATTERN') {
+	$problems.Add("VFXShaderPrograms does not register surface_pattern")
+}
+if ($programs -notmatch 'withShaderDefine\("VFX_DEPTH_REVERSED"') {
+	$problems.Add("VFXShaderPrograms does not inject the per-node VFX_DEPTH_REVERSED define")
 }
 if ($programs -match 'verified on 26\.1\.2') {
 	$problems.Add("VFXShaderPrograms still claims the depth recipe was verified on 26.1.2")
 }
-if ($manager -notmatch '(?s)depthRecipeVerified\(\)[\s\S]{0,400}?//\? if >=26\.2 \{\s*/\*return true;\s*\*///\?\} else \{\s*return false;') {
-	$problems.Add("depthRecipeVerified() is not in the active-node form (the >=26.2 branch must be commented so 26.1.2 returns false; the uncommented on-disk form is what the active node compiles)")
+if ($manager -notmatch 'private static boolean depthRecipeVerified\(\) \{\s*return true;\s*\}') {
+	$problems.Add("depthRecipeVerified() no longer reflects that every node supports depth (expected a plain return true)")
+}
+if ($manager -match '//\? if >=26\.2 \{\s*/\*return true;') {
+	$problems.Add("depthRecipeVerified() still carries the old >=26.2 Stonecutter guard")
 }
 if ($guide -match 'renders on Minecraft 26\.1\.2\+ only') {
-	$problems.Add("docs/GUIDE.md still promises surface_pattern renders on 26.1.2+")
+	$problems.Add("docs/GUIDE.md still promises surface_pattern renders on 26.1.2+ only")
 }
-if ($guide -notmatch 'draws nothing') {
-	$problems.Add("docs/GUIDE.md does not state that surface_pattern draws nothing off 26.2")
+if ($guide -match 'it \*\*draws nothing\*\*') {
+	$problems.Add("docs/GUIDE.md still states that surface_pattern draws nothing off 26.2")
 }
 
 # --- 2. clock/order: layer 0 updates the frame; the FogRenderer hook does not ---------------------
@@ -211,5 +221,5 @@ try {
 	Pop-Location
 }
 
-Write-Host "Surface_pattern fixes OK: depth gate 26.2-only, layer-0 clock, normal_mask guard, in-plane distort, parse traps closed, band softness clamped."
+Write-Host "Surface_pattern fixes OK: depth per-node (all nodes), layer-0 clock, normal_mask guard, in-plane distort, parse traps closed, band softness clamped."
 exit 0
