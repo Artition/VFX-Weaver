@@ -205,9 +205,11 @@ public final class VFXShaderPrograms {
 			// Textured figure (pattern.texture), appended after band_softness in this exact order
 			// (std140 offsets are positional; the shader's Config block mirrors it).
 			// shape_present, tex_u0/v0/u1/v1, tex_aspect, tex_cols, tex_rows, tex_frame,
-			// tex_flags, tex_channel, texture_tint.
+			// tex_flags, tex_channel, texture_tint, tex_px_w/tex_px_h (the sprite pixel size for
+			// the half-texel sheet inset).
 			"shape_present", "tex_u0", "tex_v0", "tex_u1", "tex_v1", "tex_aspect",
-			"tex_cols", "tex_rows", "tex_frame", "tex_flags", "tex_channel", "texture_tint");
+			"tex_cols", "tex_rows", "tex_frame", "tex_flags", "tex_channel", "texture_tint",
+			"tex_px_w", "tex_px_h");
 		//?}
 
 		copyPipeline = RenderPipelines.register(

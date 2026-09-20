@@ -12,22 +12,30 @@ vec2 vfx_texture_rect_uv(vec2 uv, vec4 rect) {
 	return mix(rect.xy, rect.zw, clamp(uv, 0.0, 1.0));
 }
 
-// Selects one cell of a cols x rows sprite sheet. The coordinate is clamped into [0,1], wrapped
-// `frame` is shifted into its cell and only then mapped, so a frame never samples the next sheet
-// cell. `frame` is wrapped into [0, cols*rows) so a runaway graph value cannot index out of range.
-vec2 vfx_texture_sheet_uv(vec2 uv, vec2 sheet, float frame) {
-	float cells = max(sheet.x * sheet.y, 1.0);
+// Selects one cell of a cols x rows sprite sheet. Frames are row-major: frame 0 is the top-left
+// cell, frame 1 the cell to its right, ..., frame cols*rows-1 the bottom-right one. `frame` is
+// rounded and wrapped into [0, cols*rows) so a runaway graph value wraps instead of indexing out
+// of range. The 0..1 cell coordinate is inset by `halfTexel` — half a texel in sprite-normalized
+// UV (0.5 / pixel size) — so a filtered sample of a cell edge never reaches the neighbouring cell
+// or the atlas padding; pass vec2(0.0) for the legacy no-inset behaviour.
+vec2 vfx_texture_sheet_uv(vec2 uv, vec2 sheet, float frame, vec2 halfTexel) {
+	vec2 c = max(sheet, vec2(1.0));
+	float cells = c.x * c.y;
+	// A cell spans 1/c of the sprite, so half a sprite texel is `halfTexel * c` of the cell.
+	// Clamp below half the cell so a degenerate (1-pixel) sheet cannot invert the cell.
+	vec2 inset = min(halfTexel * c, vec2(0.49));
+	vec2 f = clamp(uv, 0.0, 1.0) * (vec2(1.0) - 2.0 * inset) + inset;
 	if (cells <= 1.0) {
-		return clamp(uv, 0.0, 1.0);
+		return f;
 	}
-	float f = mod(floor(frame + 0.5), cells);
-	vec2 cell = vec2(mod(f, sheet.x), floor(f / sheet.x));
-	return (clamp(uv, 0.0, 1.0) + cell) / sheet;
+	float idx = mod(floor(frame + 0.5), cells);
+	vec2 cell = vec2(mod(idx, c.x), floor(idx / c.x));
+	return (f + cell) / c;
 }
 
 // Samples the texture at a 0..1 cell coordinate within the given rect and sheet cell.
-vec4 vfx_texture_sample(sampler2D tex, vec2 uv, vec4 rect, vec2 sheet, float frame) {
-	return texture(tex, vfx_texture_rect_uv(vfx_texture_sheet_uv(uv, sheet, frame), rect));
+vec4 vfx_texture_sample(sampler2D tex, vec2 uv, vec4 rect, vec2 sheet, float frame, vec2 halfTexel) {
+	return texture(tex, vfx_texture_rect_uv(vfx_texture_sheet_uv(uv, sheet, frame, halfTexel), rect));
 }
 
 // Extracts the coverage component. Codes 0..4 are r/g/b/alpha/luminance; anything else (the field

@@ -294,7 +294,7 @@ vec3 vfx_field_leaf(int i, vec2 uv) {
 		// Shared texture include: rect = the whole texture, no sheet, frame 0. The channel codes
 		// (r=0,g=1,b=2,a=3,luminance=4,none=5) are the include's and VFXFieldProgram.channelCode's.
 		vec4 tex = vfx_texture_sample(fld_tex0, coord * vec2(p.x, p.y) + vec2(p.z, p.w),
-			vec4(0.0, 0.0, 1.0, 1.0), vec2(1.0, 1.0), 0.0);
+			vec4(0.0, 0.0, 1.0, 1.0), vec2(1.0, 1.0), 0.0, vec2(0.0));
 		int channel = vfx_leaf_channel(i);
 		if (channel == 5) return tex.rgb;
 		return vec3(vfx_texture_channel(tex, channel));

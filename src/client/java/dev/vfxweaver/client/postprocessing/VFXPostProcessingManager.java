@@ -709,6 +709,8 @@ public final class VFXPostProcessingManager {
 								case "tex_frame" -> effect.getParam("frame", 0.0F);
 								case "tex_flags" -> patternTexture.flags();
 								case "tex_channel" -> patternTexture.channel();
+								case "tex_px_w" -> patternTexture.pxW();
+								case "tex_px_h" -> patternTexture.pxH();
 								default -> effect.getParam(param, 0.0F);
 							};
 						} else {
@@ -767,11 +769,15 @@ public final class VFXPostProcessingManager {
 				}
 				if (this.usesDepth) {
 					// The pattern texture; a placeholder bind when the effect has no texture, so the
-					// pipeline's PatternSampler layout is always satisfied.
+					// pipeline's PatternSampler layout is always satisfied. NEAREST + no mipmaps
+					// (SamplerCache.getClampToEdge(filter) clamps maxLod to 0), the same filtering
+					// vanilla uses for the block atlas: a pixel texture projected over `tile_scale`
+					// blocks must stay crisp, not bilinear-blur. The field texture (fld_tex0) keeps
+					// LINEAR — it is a screen-space field, not a pixel figure.
 					final com.mojang.blaze3d.textures.GpuTextureView patternView = patternTexture.view();
 					renderPass.bindTexture("PatternSampler",
 						patternView == null ? input.getColorTextureView() : patternView,
-						samplerCache.getClampToEdge(FilterMode.LINEAR));
+						samplerCache.getClampToEdge(FilterMode.NEAREST));
 				}
 				if (field != null) {
 					final String texture = fieldProgram == null ? null : fieldProgram.texture();
@@ -869,10 +875,12 @@ public final class VFXPostProcessingManager {
 			float flags,
 			float cols,
 			float rows,
-			float channel
+			float channel,
+			float pxW,
+			float pxH
 		) {
 			/** No texture authored: the shader takes the legacy procedural-figure path. */
-			static final PatternTexture ABSENT = new PatternTexture(null, 0.0F, 0.0F, 1.0F, 1.0F, 1.0F, 0.0F, 1.0F, 1.0F, 3.0F);
+			static final PatternTexture ABSENT = new PatternTexture(null, 0.0F, 0.0F, 1.0F, 1.0F, 1.0F, 0.0F, 1.0F, 1.0F, 3.0F, 1.0F, 1.0F);
 			static final int AUTHORED = 1;
 			static final int RESOLVED = 2;
 			static final int PRESERVE = 4;
@@ -915,10 +923,13 @@ public final class VFXPostProcessingManager {
 					if (view == null) {
 						VFXLog.warnOnce(LOGGER, "surface_pattern:texture:" + effectId,
 							"surface_pattern '{}': texture '{}' did not upload a GPU view; drawing nothing", effectId, spec.id());
-						return new PatternTexture(null, 0.0F, 0.0F, 1.0F, 1.0F, 1.0F, (float) flagBits, spec.sheetCols(), spec.sheetRows(), spec.channel().code());
+						return new PatternTexture(null, 0.0F, 0.0F, 1.0F, 1.0F, 1.0F, (float) flagBits, spec.sheetCols(), spec.sheetRows(), spec.channel().code(), 1.0F, 1.0F);
 					}
+					final com.mojang.blaze3d.textures.GpuTexture gpu = texture.getTexture();
+					final float pxW = Math.max(1, gpu == null ? 1 : gpu.getWidth(0));
+					final float pxH = Math.max(1, gpu == null ? 1 : gpu.getHeight(0));
 					return new PatternTexture(view, 0.0F, 0.0F, 1.0F, 1.0F, 1.0F,
-						(float) (flagBits | PatternTexture.RESOLVED), spec.sheetCols(), spec.sheetRows(), spec.channel().code());
+						(float) (flagBits | PatternTexture.RESOLVED), spec.sheetCols(), spec.sheetRows(), spec.channel().code(), pxW, pxH);
 				}
 				// The 26.2 AtlasManager keeps two maps: `atlasById`, keyed by the atlas
 				// *definition* id (AtlasIds.BLOCKS = minecraft:blocks, AtlasIds.ITEMS = minecraft:items)
@@ -948,23 +959,25 @@ public final class VFXPostProcessingManager {
 				if (sprite == null) {
 					VFXLog.warnOnce(LOGGER, "surface_pattern:texture:" + effectId,
 						"surface_pattern '{}': sprite '{}' is missing from atlas '{}'; drawing nothing", effectId, spec.id(), atlasDefinition);
-					return new PatternTexture(null, 0.0F, 0.0F, 1.0F, 1.0F, 1.0F, (float) flagBits, spec.sheetCols(), spec.sheetRows(), spec.channel().code());
+					return new PatternTexture(null, 0.0F, 0.0F, 1.0F, 1.0F, 1.0F, (float) flagBits, spec.sheetCols(), spec.sheetRows(), spec.channel().code(), 1.0F, 1.0F);
 				}
 				if (isMissingSprite(sprite)) {
 					VFXLog.warnOnce(LOGGER, "surface_pattern:texture:" + effectId,
 						"surface_pattern '{}': sprite '{}' is missing from atlas '{}'; drawing the missing texture", effectId, spec.id(), atlasDefinition);
 				}
+				final int spriteWidth = sprite.contents().width();
 				final int spriteHeight = sprite.contents().height();
-				final float aspect = spriteHeight > 0 ? sprite.contents().width() / (float) spriteHeight : 1.0F;
+				final float aspect = spriteHeight > 0 ? spriteWidth / (float) spriteHeight : 1.0F;
 				return new PatternTexture(atlas.getTextureView(), sprite.getU0(), sprite.getV0(), sprite.getU1(), sprite.getV1(),
-					aspect, (float) (flagBits | PatternTexture.RESOLVED), spec.sheetCols(), spec.sheetRows(), spec.channel().code());
+					aspect, (float) (flagBits | PatternTexture.RESOLVED), spec.sheetCols(), spec.sheetRows(), spec.channel().code(),
+					Math.max(1, spriteWidth), Math.max(1, spriteHeight));
 			} catch (RuntimeException e) {
 				VFXLog.warnOnce(LOGGER, "surface_pattern:texture:" + effectId,
 					"surface_pattern '{}': texture '{}' could not be resolved ({}); drawing nothing", effectId, spec.id(), e.getMessage());
-				return new PatternTexture(null, 0.0F, 0.0F, 1.0F, 1.0F, 1.0F, (float) flagBits, spec.sheetCols(), spec.sheetRows(), spec.channel().code());
+				return new PatternTexture(null, 0.0F, 0.0F, 1.0F, 1.0F, 1.0F, (float) flagBits, spec.sheetCols(), spec.sheetRows(), spec.channel().code(), 1.0F, 1.0F);
 			}
 			//?} else {
-			/*return new PatternTexture(null, 0.0F, 0.0F, 1.0F, 1.0F, 1.0F, (float) flagBits, spec.sheetCols(), spec.sheetRows(), spec.channel().code());*/
+			/*return new PatternTexture(null, 0.0F, 0.0F, 1.0F, 1.0F, 1.0F, (float) flagBits, spec.sheetCols(), spec.sheetRows(), spec.channel().code(), 1.0F, 1.0F);*/
 			//?}
 		}
 
@@ -973,14 +986,17 @@ public final class VFXPostProcessingManager {
 		 * Finds a block/item sprite by its texture id. The vanilla id is a texture path
 		 * ({@code minecraft:block/stone}), while a block's sprite in the sprite lookup is keyed by
 		 * the blockstate id ({@code minecraft:stone}); both spellings are probed (a miss in the
-		 * sprite lookup is a map lookup and returns the atlas's missing sprite, which is skipped).
-		 * Returns {@code null} when nothing in the atlas matches, so the caller fails closed.
+		 * sprite lookup is a map lookup and returns the atlas's missing sprite, which is not a
+		 * real match). When no spelling matches, the atlas's missing sprite is returned so the
+		 * caller fails <b>visible</b> (spec §8: an unknown sprite inside a valid atlas draws the
+		 * vanilla missing texture and warns once), never fails closed.
 		 *
 		 * @param atlasManager the client atlas manager
 		 * @param atlasTextureId the atlas *texture* id the sprite lookup is keyed by
 		 *        ({@code minecraft:textures/atlas/blocks.png}, from {@code TextureAtlas.location()})
 		 * @param textureId the texture id from the definition ({@code minecraft:block/x})
-		 * @return the matching sprite, or {@code null}
+		 * @return the matching sprite, else the atlas's missing sprite, else {@code null} when the
+		 *         atlas lookup itself returns nothing
 		 */
 		private static net.minecraft.client.renderer.texture.TextureAtlasSprite findSprite(
 			final net.minecraft.client.resources.model.sprite.AtlasManager atlasManager,
@@ -991,15 +1007,20 @@ public final class VFXPostProcessingManager {
 			final java.util.List<net.minecraft.resources.Identifier> candidates = stripped == null
 				? java.util.List.of(textureId)
 				: java.util.List.of(textureId, stripped);
+			net.minecraft.client.renderer.texture.TextureAtlasSprite missing = null;
 			for (final net.minecraft.resources.Identifier candidate : candidates) {
 				final net.minecraft.client.resources.model.sprite.SpriteId key =
 					new net.minecraft.client.resources.model.sprite.SpriteId(atlasTextureId, candidate);
 				final net.minecraft.client.renderer.texture.TextureAtlasSprite sprite = atlasManager.get(key);
-				if (sprite != null && !isMissingSprite(sprite)) {
+				if (sprite == null) {
+					continue;
+				}
+				if (!isMissingSprite(sprite)) {
 					return sprite;
 				}
+				missing = sprite;
 			}
-			return null;
+			return missing;
 		}
 
 		/** Strips a leading {@code block/} or {@code item/} path prefix from an id, or {@code null} if absent. */
@@ -1077,7 +1098,8 @@ public final class VFXPostProcessingManager {
 					"half_width", "half_height", "corner_radius", "sides",
 					"face_mask", "band_min", "band_max", "band_softness" -> true;
 				case "shape_present", "tex_u0", "tex_v0", "tex_u1", "tex_v1", "tex_aspect",
-					"tex_cols", "tex_rows", "tex_frame", "tex_flags", "tex_channel" -> true;
+					"tex_cols", "tex_rows", "tex_frame", "tex_flags", "tex_channel",
+					"tex_px_w", "tex_px_h" -> true;
 				default -> false;
 			};
 		}

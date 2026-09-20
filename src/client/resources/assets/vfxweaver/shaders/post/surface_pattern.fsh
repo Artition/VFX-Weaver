@@ -76,6 +76,10 @@ layout(std140) uniform Config {
     float tex_flags;
     float tex_channel;
     float texture_tint;
+    // Appended after texture_tint: the sprite/texture pixel size, used for the half-texel sheet
+    // inset (0.5 / pixels) so a filtered sample of a cell edge cannot bleed into the next cell.
+    float tex_px_w;
+    float tex_px_h;
 };
 
 out vec4 fragColor;
@@ -162,10 +166,16 @@ void main() {
         if (mod(floor(tex_flags / 2.0), 2.0) >= 0.5) {
             vec2 uv = vfx_shape_cell(cell, vec2(repeat_x, repeat_y), rotation) + 0.5;
             if (mod(floor(tex_flags / 4.0), 2.0) >= 0.5) {
-                uv = vfx_texture_aspect(uv, tex_aspect);
+                // preserve: keep the *cell's* pixel aspect, not the whole sheet's — a non-square
+                // sheet cell (cols != rows) must not stretch the figure. cell aspect =
+                // (W/cols)/(H/rows) = (W/H) * rows / cols.
+                uv = vfx_texture_aspect(uv, tex_aspect * (tex_rows / max(tex_cols, 1.0)));
             }
+            // Half a texel in sprite-normalized UV: the inset that keeps a sheet cell's edge
+            // from sampling its neighbour (texture.glsl vfx_texture_sheet_uv).
+            vec2 halfTexel = vec2(0.5) / max(vec2(tex_px_w, tex_px_h), vec2(1.0));
             vec4 texel = vfx_texture_sample(PatternSampler, uv,
-                vec4(tex_u0, tex_v0, tex_u1, tex_v1), vec2(tex_cols, tex_rows), tex_frame);
+                vec4(tex_u0, tex_v0, tex_u1, tex_v1), vec2(tex_cols, tex_rows), tex_frame, halfTexel);
             texCoverage = clamp(vfx_texture_channel(texel, int(tex_channel + 0.5)), 0.0, 1.0);
             patternRGB = mix(texel.rgb, texel.rgb * vec3(color_r, color_g, color_b), clamp(texture_tint, 0.0, 1.0));
         }

@@ -64,7 +64,7 @@ if (-not $reserved.Success) { throw "no isReservedDepthParam body in $managerPat
 $reservedBody = $reserved.Groups['body'].Value
 $resolved = [regex]::Match($manager, 'isReservedDepthParam\(param\)\) \{(?<body>.*?)default ->', 'Singleline')
 $switchBody = if ($resolved.Success) { $resolved.Groups['body'].Value } else { $manager }
-foreach ($name in @('shape_present', 'tex_u0', 'tex_v0', 'tex_u1', 'tex_v1', 'tex_aspect', 'tex_cols', 'tex_rows', 'tex_frame', 'tex_flags', 'tex_channel')) {
+foreach ($name in @('shape_present', 'tex_u0', 'tex_v0', 'tex_u1', 'tex_v1', 'tex_aspect', 'tex_cols', 'tex_rows', 'tex_frame', 'tex_flags', 'tex_channel', 'tex_px_w', 'tex_px_h')) {
 	if ($shaderNames -notcontains $name) { $problems.Add("surface_pattern.fsh Config block is missing '$name'") }
 	if ($reservedBody -notmatch ('"' + [regex]::Escape($name) + '"')) {
 		$problems.Add("isReservedDepthParam does not list '$name'")
