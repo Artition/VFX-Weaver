@@ -401,7 +401,7 @@ public final class VFXPostProcessingManager {
 		}
 		final float time = Minecraft.getInstance().level == null ? 0.0F : Minecraft.getInstance().level.getGameTime() / 20.0F;
 		this.pass(coverageInfo).executeCoverage(encoder, samplerCache, mainTarget, coverage, this.geometryTargets.get(definitionId),
-			effect, mask, VFXFieldEnv.invViewProj(), VFXFieldEnv.cameraX(), VFXFieldEnv.cameraY(), VFXFieldEnv.cameraZ(), time, depthReady);
+			effect, mask, VFXFieldEnv.invViewProj(), VFXFieldEnv.cameraX(), VFXFieldEnv.cameraY(), VFXFieldEnv.cameraZ(), time);
 	}
 
 	/** Clears a colour target to zero through a one-off encoder (used to fail a coverage prepass closed). */
@@ -478,10 +478,10 @@ public final class VFXPostProcessingManager {
 	 */
 	private static boolean depthRecipeVerified() {
 		//? if >=26.2 {
-		return true;
-		//?} else {
-		/*return false;
-		*///?}
+		/*return true;
+		*///?} else {
+		return false;
+		//?}
 	}
 
 	private void ensureTargets(final int width, final int height) {
@@ -854,8 +854,7 @@ public final class VFXPostProcessingManager {
 			final float camX,
 			final float camY,
 			final float camZ,
-			final float time,
-			final boolean depthReady
+			final float time
 		) {
 			final GpuBufferSlice samplerInfo = this.arena.write(encoder, builder ->
 				builder.putVec2(coverageTarget.width, coverageTarget.height).putVec2(mainTarget.width, mainTarget.height));
@@ -881,9 +880,16 @@ public final class VFXPostProcessingManager {
 				}
 				// A depth-reconstructed (world/aura or block-occluded) mask is never run without a
 				// trusted depth; a screen-only mask never samples DepthSampler, so the placeholder
-				// is inert there and only keeps the sampler binding valid.
-				renderPass.bindTexture("DepthSampler",
-					depthReady ? mainTarget.getDepthTextureView() : coverageTarget.getColorTextureView(),
+				// is inert there and only keeps the sampler binding valid. The placeholder must not
+				// be the coverage target this pass writes to - binding the render target's own
+				// colour texture as a sampler is a feedback loop (undefined on some drivers), which
+				// is what broke a screen mask on a node where depthRecipeVerified() is false. Bind
+				// the main target's depth view when present (the shader does not read it for a
+				// screen mask), else its colour view.
+				final GpuTextureView depthBind = mainTarget.getDepthTextureView() != null
+					? mainTarget.getDepthTextureView()
+					: mainTarget.getColorTextureView();
+				renderPass.bindTexture("DepthSampler", depthBind,
 					samplerCache.getClampToEdge(FilterMode.NEAREST));
 				// A block leaf samples the geometry scratch; a harmless placeholder bind when the mask
 				// has no block leaf (the shader never reads it then).

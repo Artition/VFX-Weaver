@@ -47,8 +47,8 @@ if ($programs -notmatch '//\? if >=26\.2 \{\r?\n\t\t/\*registerDepthPost\(VFXEff
 if ($programs -match 'verified on 26\.1\.2') {
 	$problems.Add("VFXShaderPrograms still claims the depth recipe was verified on 26.1.2")
 }
-if ($manager -notmatch '(?s)depthRecipeVerified\(\)[\s\S]{0,400}?//\? if >=26\.2 \{\s*return true;') {
-	$problems.Add("depthRecipeVerified() no longer returns true on >=26.2 / false below")
+if ($manager -notmatch '(?s)depthRecipeVerified\(\)[\s\S]{0,400}?//\? if >=26\.2 \{\s*/\*return true;\s*\*///\?\} else \{\s*return false;') {
+	$problems.Add("depthRecipeVerified() is not in the active-node form (the >=26.2 branch must be commented so 26.1.2 returns false; the uncommented on-disk form is what the active node compiles)")
 }
 if ($guide -match 'renders on Minecraft 26\.1\.2\+ only') {
 	$problems.Add("docs/GUIDE.md still promises surface_pattern renders on 26.1.2+")
