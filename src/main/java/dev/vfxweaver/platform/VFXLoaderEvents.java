@@ -126,12 +126,14 @@ public final class VFXLoaderEvents {
 	}
 
 	/**
-	 * Releases a disconnecting player's scoreboard subscriptions.
+	 * Releases a disconnecting player's per-player state: scoreboard subscriptions and the
+	 * recorded-effect registry.
 	 *
 	 * @param player the player that left
 	 */
 	public static void onPlayerDisconnect(final ServerPlayer player) {
 		VFXScoreboardSync.onPlayerLeft(player);
+		VFXServerEffects.get().remove(player);
 	}
 
 	/**

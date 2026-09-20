@@ -194,6 +194,16 @@ public final class VFXServerEffects {
 	}
 
 	/**
+	 * Drops every recorded effect for a player that left the server. Without this the static
+	 * registry keeps a disconnected player's entries (and their world positions/targets) forever.
+	 *
+	 * @param player the player that left
+	 */
+	public void remove(final ServerPlayer player) {
+		this.byPlayer.remove(player.getUUID());
+	}
+
+	/**
 	 * Re-sends the still-active effects to a (re)joining player. Each play carries the elapsed
 	 * offset so the client resumes mid-animation, followed by the recorded keyframes so runtime
 	 * edits survive the reconnect. Called after the datapack definitions have been synced so the
