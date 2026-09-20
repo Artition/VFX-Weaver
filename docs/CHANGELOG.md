@@ -6,6 +6,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). The versions bel
 ### Added
 - **`VFXAPI.sendMaskMove` / `VFXAPI.maskMove`** — move one mask leaf to a world position by setting its three reserved `mask.p<N>.center_x|center_y|center_z` params (ordinary animatable effect params). Call it every tick to follow a point, and use it to drive a mask from the server when a client-side entity binding is not enough (an entity outside the client's tracking range is genuinely unresolvable on the client). See `docs/API.md`.
 
+### Changed
+- **Mask layer interaction documented.** Mask coverage is screen-space (computed from world depth in the layer-0 prepass), so an effect consuming a mask at a later layer tints the first-person hand wherever a masked block lies behind it; `docs/GUIDE.md` §3.8 now records this and the two ways to avoid it (run the masked effect at `screen_layer: 0`, or depth-occlude the consumer against a layer-0 depth snapshot).
+
 ### Fixed
 - **Mask bindings now fail closed per leaf, not per mask.** An unresolved binding (entity absent/off-screen/outside the client's tracking range, no camera/player state) used to zero the whole mask, so an entity leaving the view made the entire effect vanish even though a still-resolved world leaf knew where it was. Only the unresolved leaf's coverage is dropped now, an unresolved leaf can never expand coverage, and an `invert` mask does not turn an all-unresolved (empty) result into full-screen coverage.
 

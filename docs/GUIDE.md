@@ -1416,6 +1416,13 @@ drive a mask from data the client does not have, set its centre from the **serve
 `VFXAPI.sendMaskMove(player, effect, leaf, pos)` (or `sendSetParam` on the reserved
 `mask.p<N>.center_*` params) instead of binding the leaf to the entity.
 
+> **Layer note.** The coverage prepass reads the intact scene depth once at screen layer 0, and the
+> coverage it produces is screen-space (derived from world depth). An effect that consumes the mask
+> at a later layer — e.g. `"screen_layer": 1` — runs after the first-person hand and other
+> late-drawn geometry, so the hand is tinted wherever a masked block lies behind it, even though the
+> hand is nearer. To avoid this, run the masked effect at `screen_layer: 0`, or depth-occlude the
+> consumer against a layer-0 depth snapshot.
+
 The mask's numeric leaves are ordinary animatable effect parameters under reserved names:
 `mask.p<N>.center_x|center_y|center_z`, `.rotation`, `.p<J>` (the per-shape parameter `J`), `.soft`
 (falloff), `.stroke` (stroke width) and `.field_amount`/`.field_scale`; `<N>` is the leaf index in
@@ -1670,6 +1677,7 @@ Guide version: 37 — see changelog below.
 ### v37
 - **Mask bindings now fail closed per leaf** (was per mask) — an unresolved binding (the source entity is absent or off-screen, or outside the client's tracking range, or there is no camera/player state) zeroes **only that leaf's** coverage, so an entity leaving the view no longer makes the whole effect vanish while a still-resolved world leaf knows where it is. An unresolved leaf still never expands coverage, and an `invert` mask does not turn an all-unresolved (empty) result into full screen. See [3.8](#38-masks).
 - **New `VFXAPI.sendMaskMove` / `VFXAPI.maskMove`** — move one mask leaf to a world position by setting its three reserved `mask.p<N>.center_x|center_y|center_z` params (ordinary animatable effects params). Call it every tick to follow a point, and use it to drive a mask from the **server** when a client-side entity binding is not enough (an entity outside the client's tracking range). See [docs/API.md](API.md) and [3.8](#38-masks).
+- **Mask coverage at later layers is documented** — the coverage prepass runs at screen layer 0 against the intact scene depth and yields a screen-space coverage, so an effect consuming the mask at a later layer (e.g. `screen_layer: 1`) tints the first-person hand wherever a masked block lies behind it. Run the masked effect at `screen_layer: 0` or depth-occlude the consumer to avoid it. See [3.8](#38-masks).
 
 ### v36
 - **Mask bindings now fail closed** — a mask that uses a world binding which cannot be resolved (the source entity is absent or off-screen, or there is no camera/player state) contributes **zero** coverage, so the effect applies nowhere, instead of falling back to the leaf's literal default — which for a bound screen `rect` is the whole screen (the reported "whole screen tint when the villager is not resolvable"). The unresolved source still reports once through `VFXLog.warnOnce`. See [3.8](#38-masks).
