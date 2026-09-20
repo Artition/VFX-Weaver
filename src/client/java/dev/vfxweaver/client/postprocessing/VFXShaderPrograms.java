@@ -191,7 +191,11 @@ public final class VFXShaderPrograms {
 			"center_x", "center_y", "center_z", "shape", "fill",
 			"rotation", "stroke_width", "softness", "repeat_x", "repeat_y",
 			"radius", "radius_x", "radius_y", "half_width", "half_height",
-			"corner_radius", "sides", "time");
+			"corner_radius", "sides", "time",
+			// Appended after the existing names so no earlier std140 offset shifts (AGENTS.md).
+			// face_mask: -1 = legacy normal_mask; >= 0 = the surface block's 6-bit face set.
+			// band_min/band_max: inclusive band along the fragment's dominant normal axis.
+			"face_mask", "band_min", "band_max");
 		//?}
 
 		copyPipeline = RenderPipelines.register(

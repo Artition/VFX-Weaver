@@ -22,6 +22,7 @@ import dev.vfxweaver.effect.VFXDefinition;
 import dev.vfxweaver.effect.VFXEffectType;
 import dev.vfxweaver.field.VFXFieldProgram;
 import dev.vfxweaver.field.VFXShape;
+import dev.vfxweaver.field.VFXSurfaceSelection;
 import dev.vfxweaver.mask.VFXCustomShape;
 import dev.vfxweaver.mask.VFXMask;
 import dev.vfxweaver.mask.VFXShapeRegistry;
@@ -632,6 +633,7 @@ public final class VFXPostProcessingManager {
 				// numbers; the shared VFXShape owns them and the reserved Config names carry them to
 				// the shader. They never come from the timeline.
 				final VFXShape shape = this.depthConfig ? shapeSpec(effect) : null;
+				final VFXSurfaceSelection surface = this.depthConfig ? surfaceSpec(effect) : null;
 				if (this.depthConfig) {
 					this.resolveAnchor(effect, shape);
 				}
@@ -673,6 +675,9 @@ public final class VFXPostProcessingManager {
 								case "half_height" -> shape == null ? 0.0F : shape.halfHeight();
 								case "corner_radius" -> shape == null ? 0.0F : shape.cornerRadius();
 								case "sides" -> shape == null ? 3.0F : (float) shape.sides();
+								case "face_mask" -> surface == null ? -1.0F : (float) surface.faceMask();
+								case "band_min" -> surface == null ? VFXSurfaceSelection.UNBOUNDED_MIN : surface.min();
+								case "band_max" -> surface == null ? VFXSurfaceSelection.UNBOUNDED_MAX : surface.max();
 								default -> effect.getParam(param, 0.0F);
 							};
 						} else {
@@ -812,6 +817,12 @@ public final class VFXPostProcessingManager {
 			return definition == null ? null : definition.getPattern();
 		}
 
+		/** The structural surface selection of a {@code surface_pattern} effect, or {@code null} for legacy. */
+		private static @Nullable VFXSurfaceSelection surfaceSpec(final VFXActiveEffect effect) {
+			final VFXDefinition definition = VFXDefinitionManager.get().get(effect.getId());
+			return definition == null ? null : definition.getSurface();
+		}
+
 		/**
 		 * Fills {@link #scratchAnchor}: the shape's structural centre, else the effect's first world
 		 * position (block centre), else the camera snapshot, else {@code (0, 0, 0)}.
@@ -835,7 +846,8 @@ public final class VFXPostProcessingManager {
 			return switch (param) {
 				case "center_x", "center_y", "center_z", "shape", "fill", "rotation", "stroke_width",
 					"softness", "repeat_x", "repeat_y", "radius", "radius_x", "radius_y",
-					"half_width", "half_height", "corner_radius", "sides" -> true;
+					"half_width", "half_height", "corner_radius", "sides",
+					"face_mask", "band_min", "band_max" -> true;
 				default -> false;
 			};
 		}

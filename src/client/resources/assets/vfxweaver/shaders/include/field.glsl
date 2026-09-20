@@ -14,6 +14,8 @@
 // `fill: stroke`. Do not duplicate them in another shader.
 //
 // `fld_leaf_count == 0` means "no field": vfx_field_eval returns vec3(1.0).
+#moj_import <vfxweaver:camera.glsl>
+
 layout(std140) uniform FieldConfig {
 	float fld_uniform;        // uniform-domain value of the input (fade-weighted)
 	float fld_depth_valid;    // 1 when the bound depth is usable, else 0
@@ -178,11 +180,9 @@ float vfx_raw_depth(vec2 uv) {
 }
 
 vec3 vfx_world_pos(vec2 uv) {
-	// 26.x reversed depth: the sampled value is already NDC z (near = 1, far = 0).
-	float d = vfx_raw_depth(uv);
-	vec4 clip = vec4(uv * 2.0 - 1.0, d, 1.0);
-	vec4 world = fld_inv_view_proj * clip;
-	return world.xyz / world.w;
+	// 26.x reversed depth: the sampled value is already NDC z (near = 1, far = 0). Shared with
+	// surface_pattern via <vfxweaver:camera.glsl> (one recipe, two consumers).
+	return vfx_world_from_depth(uv, vfx_raw_depth(uv), fld_inv_view_proj);
 }
 
 float vfx_linear_depth(float d, float near, float far) {
@@ -311,10 +311,11 @@ vec3 vfx_field_leaf(int i, vec2 uv) {
 		return vec3(clamp(length(vec2(dx, dy)) / range, 0.0, 1.0));
 	}
 	if (fn == 8.0) {
+		vec3 world = vfx_world_pos(uv);
 		vec2 texelStep = fld_inv_size.xy;
-		vec3 dx = vfx_world_pos(uv + vec2(texelStep.x, 0.0)) - vfx_world_pos(uv);
-		vec3 dy = vfx_world_pos(uv + vec2(0.0, texelStep.y)) - vfx_world_pos(uv);
-		vec3 normal = normalize(cross(dx, dy) + vec3(0.0, 0.0, 1.0e-6));
+		vec3 dx = vfx_world_pos(uv + vec2(texelStep.x, 0.0)) - world;
+		vec3 dy = vfx_world_pos(uv + vec2(0.0, texelStep.y)) - world;
+		vec3 normal = vfx_camera_normal(world, dx, dy, world - fld_camera_pos.xyz);
 		vec3 axis = normalize(vec3(p.x, p.y, p.z) + vec3(1.0e-6));
 		float facing = dot(normal, axis);
 		float softness = 0.05;
