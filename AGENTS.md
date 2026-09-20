@@ -301,19 +301,24 @@ payload code is loader-agnostic and must not name a loader type.
 
 Test and demo effects live in a **datapack, not in the mod's built-in resources**
 (`src/main/resources/data/vfxweaver/vfx/*.json`): edit the JSON, `/reload`, play — no rebuild,
-restart or redeploy. A datapack definition **overrides a same-id built-in** (the datapack/server
-layer wins, see the definition-layer rule above), so datapack copies of the demos stay authoritative.
-Do not add (or re-add) test/demo effects to the mod's own `vfx/` or `vfx_particles/`; built-in
-resources carry only shipped, stable definitions. Removing the existing demo copies from the mod's
-resources is a separate decision, not to be taken unilaterally.
+restart or redeploy. Do not add (or re-add) test/demo effects to the mod's own `vfx/` or
+`vfx_particles/`; built-in resources carry only shipped, stable definitions. Removing the existing
+demo copies from the mod's resources is a separate decision, not to be taken unilaterally.
+
+**Author the pack under its own namespace, never `vfxweaver:`.** A datapack definition overrides a
+same-id built-in (the datapack/server layer wins), so a demo written as `vfxweaver:<name>` silently
+*replaces* a shipped effect instead of adding one — you cannot tell from `/vfx list` whether the pack
+loaded at all, and you break the built-in. Use the pack's namespace (`vfx_demos:<name>`) for its
+effects and spark presets; keep `vfxweaver:` only when the intent really is to shadow a built-in.
 
 The `26.2test` Prism instance's test pack is at
 `<instance>/minecraft/saves/<world>/datapacks/vfx_demos/` (currently
 `C:\Users\Light Flight PC\AppData\Roaming\PrismLauncher\instances\26.2test\minecraft\saves\New World\datapacks\vfx_demos`,
 world `New World` — check `logs/latest.log` for the loaded level), with `pack.mcmeta` using the 26.2
-`min_format`/`max_format` form (`[107, 1]`, from the client jar's `version.json`
-`pack_version.data_major`/`data_minor`), effects under `data/vfxweaver/vfx/*.json` and spark presets
-under `data/vfxweaver/vfx_particles/*.json`.
+`min_format`/`max_format` form (`"min_format": [107, 1]` with a plain-int `"max_format": 107`, copied
+from the vanilla datapacks inside the client jar — an array `max_format` fails to parse, the pack
+then loads as an unreadable "available" pack and its data is silently ignored), effects under
+`data/vfx_demos/vfx/*.json` and spark presets under `data/vfx_demos/vfx_particles/*.json`.
 
 ## Code style
 
