@@ -2,6 +2,14 @@
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). The versions below are guide/feature-set versions of the mod (as they progressed historically, see `docs/GUIDE.md`), plus git release tags where applicable (`v1.0.x`, `gradle.properties` → `mod_version`). Add new entries at the top, in the same PR as the behavior change.
 
+## Unreleased / Guide v43
+### Added
+- **`/vfx stop [<player>]`** stops every active effect of a player (default: the executing player). It reuses the existing per-effect stop payload on the server and, for the executor's own client, also clears effects played locally (single player / a client-only mod). The old `/vfx stop <effect> [players]` form is unchanged; a bare token is parsed as an `<effect>` first, so target a player with a selector (`@p`/`@a`). New `VFXAPI.sendStopAll(ServerPlayer)` (documented in `docs/API.md`). See `docs/GUIDE.md` §1.
+
+### Fixed
+- **A screen-only mask renders on every node again.** When the reversed-depth recipe is not trusted (`depthRecipeVerified()` is false below 26.2), the coverage prepass bound the coverage target's own colour texture as the `DepthSampler` placeholder while drawing into it — a feedback loop that is undefined on some drivers. It now binds the main target's depth view (else its colour view), so a mask that needs no depth renders exactly as on 26.2.
+- **The mask depth gate is consistent across nodes.** `depthRecipeVerified()` was left in the 26.2 Stonecutter form on disk, so the active `26.1.2` Fabric node compiled `return true` while every other node (including `26.1.2-neoforge` and `1.21.11`) compiled `false`. The active-node form is now the `false` branch, so a depth-needing mask fails closed (zero coverage, not the unverified recipe) on every non-26.2 node.
+
 ## Unreleased / Guide v42
 ### Changed
 - **`surface_pattern` renders on 26.2 only.** The pass is now registered on `>=26.2`, matching the mask coverage gate, because the reversed-depth reconstruction it reads was only verified on 26.2 (26.1.2/1.21.11 use the other depth convention). Previously it was registered on `>=26.1` but `depthRecipeVerified()` made it a per-frame passthrough with a `surface_pattern:nodepth` warning on 26.1.2; now the built-in type/JSON still parse on every node, no pass is registered off 26.2, and the effect draws nothing there. The stale "verified on 26.1.2/26.2" comment, the shader header and the guide are corrected. See `docs/GUIDE.md` §2.1.

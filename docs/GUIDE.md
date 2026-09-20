@@ -34,6 +34,7 @@ The mutating commands `/vfx play`, `/vfx playat`, `/vfx playentity`, `/vfx stop`
 | `/vfx playat <effect> <x> <y> <z> [{[...]}] [players]` | Play an effect anchored to world coordinates: the client re-anchors spatial bindings (`screen_x/y`, `proximity`) to that point and uses it for the effect's positions (for `block_tint`/`block_outline`). The optional param-map — overrides, like `play`. |
 | `/vfx playentity <effect> [{[...]}] <targets> [players]` | Play an effect on selected entities (selector, e.g. `@e[type=!player,distance=..10]`). Targets are passed by UUID (up to 16) and apply to `entity_tint`/`entity_outline`. The optional param-map — overrides. The optional `[players]` — who sees the effect; default — the executing player. |
 | `/vfx stop <effect> [players]` | Stop the effect (all its instances). Effects with `fade_ticks > 0` fade out smoothly. |
+| `/vfx stop [<player>]` | Stop **every** active effect of a player (default — the executing player). Reuses the per-effect stop path on the server and also clears effects the executor's own client played locally. A bare token is parsed as an `<effect>` first, so target a player with a selector (`@p`/`@a`) or a name that is not a valid effect id. |
 | `/vfx set <effect> {[param:value],...} [players]` | Live override of params of a **running** effect, without restarting the timeline. If the effect is not running — a new instance is started with those values and the definition's own `duration` (it ends on schedule like a normal play). Tab walks the syntax: `{` → `[` → param name → `:` value → `]` → `,` (new pair) or `}`. |
 | `/vfx list` | List all loaded definitions (built-ins + datapack). |
 | `/vfx validate [namespace]` | Dry-run health check of VFX definitions: prints how many are loaded and lists every broken datapack file with its parse error (optionally filtered by namespace, tab-completed). Operator-only. Useful for datapack development and server admin checks without digging through logs. |
@@ -1874,7 +1875,12 @@ Post-processing pipeline, world overlays, effect clock, load limits and fault to
 
 Versioned feature history — **[docs/CHANGELOG.md](CHANGELOG.md)**.
 
-Guide version: 42 — see changelog below.
+Guide version: 43 — see changelog below.
+
+### v43
+- **`/vfx stop [<player>]` stops every active effect of a player.** With no argument it stops all of the executing player's effects; with a player (selector) it stops that player's effects. It reuses the existing per-effect stop payload on the server and, for the executor's own client, also clears effects played locally (single player / a client-only mod). The old `/vfx stop <effect> [players]` form is unchanged: a bare token is parsed as an `<effect>` first, so use a selector (`@p`/`@a`) to target a player. New `VFXAPI.sendStopAll(ServerPlayer)`.
+- **Mask depth gate is consistent across nodes.** `depthRecipeVerified()` was left in the 26.2 Stonecutter form on disk, so the active `26.1.2` Fabric node compiled `return true` while every other node (including `26.1.2-neoforge` and `1.21.11`) compiled `false`. The active-node form is now the `false` branch, so a depth-needing mask fails closed (zero coverage) on every non-26.2 node, as documented, instead of silently using the unverified reversed-depth recipe on Fabric.
+- **A screen-only mask renders on nodes without the verified depth recipe.** The coverage prepass bound the coverage target's own colour texture as the `DepthSampler` placeholder when depth was untrusted (a feedback loop, undefined on some drivers); it now binds the main target's depth view (else its colour view), so a mask that needs no depth renders identically on `26.2`, `26.1.2` and `1.21.11`.
 
 ### v42
 - **`surface_pattern` now requires 26.2 (it no longer silently passes through on 26.1.2).** The pass is registered on `>=26.2` only, matching the mask coverage gate: the reversed-depth reconstruction it reads was verified on 26.2, while 26.1.2/1.21.11 use the other depth convention. On a non-26.2 node the effect type and JSON still parse, but no pass is registered and the effect **draws nothing** (previously 26.1.2 rendered a passthrough with a one-time warning). See [2.1](#surface_pattern).
