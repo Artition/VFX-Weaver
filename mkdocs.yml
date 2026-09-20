@@ -49,18 +49,72 @@ theme:
 
 nav:
   - Home: index.md
-  - Guide:
-      - Getting started: guide/index.md
-      - Commands: guide/commands.md
-      - Effects and the datapack format: guide/effects.md
-      - Surface pattern: guide/surface-pattern.md
-      - Value graphs: guide/graph.md
-      - Per-pixel fields: guide/fields.md
-      - Masks: guide/masks.md
+  - Getting started: guide/index.md
+  - Effects:
+      - Overview: guide/effects/index.md
+      - Screen post-processing:
+          - chromatic_aberration: guide/effects/screen/chromatic-aberration.md
+          - color_grade: guide/effects/screen/color-grade.md
+          - distortion: guide/effects/screen/distortion.md
+          - dent: guide/effects/screen/dent.md
+          - gradient_map: guide/effects/screen/gradient-map.md
+          - posterize: guide/effects/screen/posterize.md
+          - blur: guide/effects/screen/blur.md
+          - pixelate: guide/effects/screen/pixelate.md
+          - hue_isolation: guide/effects/screen/hue-isolation.md
+          - vignette: guide/effects/screen/vignette.md
+          - screen_flash: guide/effects/screen/screen-flash.md
+          - motion_blur: guide/effects/screen/motion-blur.md
+          - bloom: guide/effects/screen/bloom.md
+          - film_grain: guide/effects/screen/film-grain.md
+          - scanlines: guide/effects/screen/scanlines.md
+          - depth_of_field: guide/effects/screen/depth-of-field.md
+          - letterbox: guide/effects/screen/letterbox.md
+          - invert: guide/effects/screen/invert.md
+          - vortex: guide/effects/screen/vortex.md
+          - speed_lines: guide/effects/screen/speed-lines.md
+          - slice_shift: guide/effects/screen/slice-shift.md
+          - noise_warp: guide/effects/screen/noise-warp.md
+          - solarize: guide/effects/screen/solarize.md
+          - double_vision: guide/effects/screen/double-vision.md
+          - eyelids: guide/effects/screen/eyelids.md
+          - iris_wipe: guide/effects/screen/iris-wipe.md
+          - digital_glitch: guide/effects/screen/digital-glitch.md
+          - vhs: guide/effects/screen/vhs.md
+          - shockwave: guide/effects/screen/shockwave.md
+          - afterimage: guide/effects/screen/afterimage.md
+          - stop_motion: guide/effects/screen/stop-motion.md
+          - surface_pattern: guide/effects/screen/surface-pattern.md
+      - World overlays:
+          - block_tint: guide/effects/world/block-tint.md
+          - block_outline: guide/effects/world/block-outline.md
+          - light_beam: guide/effects/world/light-beam.md
+          - pulse_ring: guide/effects/world/pulse-ring.md
+          - guide_line: guide/effects/world/guide-line.md
+          - particles: guide/effects/world/particles.md
+          - block_chain: guide/effects/world/block-chain.md
+      - Entity effects:
+          - entity_tint: guide/effects/entity/entity-tint.md
+          - entity_outline: guide/effects/entity/entity-outline.md
+          - entity_displace: guide/effects/entity/entity-displace.md
+      - Camera and misc:
+          - camera_shake: guide/effects/misc/camera-shake.md
+          - camera_roll: guide/effects/misc/camera-roll.md
+          - fov_modifier: guide/effects/misc/fov-modifier.md
+      - Collections:
+          - collection: guide/effects/collection.md
+  - Commands: guide/commands.md
+  - Datapack:
+      - Format: guide/datapack/format.md
+      - Animating a param: guide/datapack/params.md
+      - Expressions (expr): guide/datapack/expr.md
+      - Value graphs: guide/datapack/graph.md
+      - Per-pixel fields: guide/datapack/fields.md
+      - Masks: guide/datapack/masks.md
       - Custom particles:
-          - Block and item particles: guide/particles.md
-          - Spark presets: guide/particles/sparks.md
-      - Guide changelog: guide/changelog.md
+          - Block and item particles: guide/datapack/particles.md
+          - Spark presets: guide/datapack/sparks.md
+  - Guide changelog: guide/changelog.md
   - Java API: API.md
   - Architecture: ARCHITECTURE.md
   - Changelog: CHANGELOG.md

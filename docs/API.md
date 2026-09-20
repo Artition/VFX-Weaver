@@ -282,13 +282,13 @@ A `particles` effect then reaches the preset with `"particle": "mymod:ember"`; t
 `spin_friction`/`spin_roll` params override its fields. `spin_mode` and `spin_axis` are spec/preset
 fields only (effect params are numeric), so an effect selects yaw/none by naming a preset. The same
 methods register/spawn item presets — the spec carries the model, the API surface is unchanged. See
-the `particles` block and item mode in the [effects guide](guide/effects.md).
+the `particles` block and item mode in the [effects guide](guide/effects/world/particles.md).
 
 **Spark presets** use the same client-local registry: `VFXAPI.registerSpark(id, VFXSparkSpec)`,
 `VFXAPI.unregisterSpark(id)`, `VFXAPI.spark(id)` and `VFXAPI.spawnSpark(spec, position, velocity)`
 (the client-only `spawnSpark` is a `default` no-op on `VFXLocalDispatcher`, overridden by the mod's
 client dispatcher). A spark preset is a `vfx_particles` file with `"kind": "spark"`; see the
-[Spark presets](guide/particles/sparks.md) page.
+[Spark presets](guide/datapack/sparks.md) page.
 
 ### `VFXAPI.EffectRequest` (fluent builder)
 

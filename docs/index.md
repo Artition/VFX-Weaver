@@ -58,11 +58,14 @@ fades back.
 ## Documentation
 
 - **[Getting started](guide/index.md)** — requirements, install and your first effect.
-- **[Commands](guide/commands.md)** — every `/vfx` subcommand, persistent effects and collections.
-- **[Effects and the datapack format](guide/effects.md)** — effect types, params, positions, children.
-- **[Surface pattern](guide/surface-pattern.md)**, **[Value graphs](guide/graph.md)**,
-  **[Per-pixel fields](guide/fields.md)**, **[Masks](guide/masks.md)**,
-  **[Custom particles](guide/particles.md)** — the advanced definition blocks.
+- **[Effects](guide/effects/index.md)** — every effect type, one page each, in a browsable tree.
+- **[Commands](guide/commands.md)** — every `/vfx` subcommand.
+- **[Datapack format](guide/datapack/format.md)** — files, definition fields, positions, validation.
+- **[Animating a param](guide/datapack/params.md)** and
+  **[Expressions (`expr`)](guide/datapack/expr.md)** — keyframes, bindings, easings and formulas.
+- **[Value graphs](guide/datapack/graph.md)**, **[Per-pixel fields](guide/datapack/fields.md)**,
+  **[Masks](guide/datapack/masks.md)**, **[Custom particles](guide/datapack/particles.md)** — the
+  advanced definition blocks.
 - **[Java API](API.md)** — `VFXAPI` for other mods.
 - **[Architecture](ARCHITECTURE.md)** — how rendering works under the hood.
 - **[Changelog](CHANGELOG.md)** — versioned change history.
