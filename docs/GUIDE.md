@@ -495,7 +495,7 @@ Stop-motion / papercraft: the picture updates only a few times per second while 
 ```
 
 #### `surface_pattern`
-A shape pattern projected onto the terrain behind each pixel: a world-anchored figure (circle, ellipse, rect or polygon) drawn on whatever surface the scene depth reconstructs, so it stays fixed to world blocks as you turn and walk. It reads scene depth, so it **renders on Minecraft 26.1.2+ only** (on 1.21.11 the type exists but draws nothing) and must run at `"screen_layer": 0` — the single scene depth buffer is only intact below the first-person hand.
+A shape pattern projected onto the terrain behind each pixel: a world-anchored figure (circle, ellipse, rect or polygon) drawn on whatever surface the scene depth reconstructs, so it stays fixed to world blocks as you turn and walk. It reads scene depth through the reversed-depth reconstruction, which is only verified on **Minecraft 26.2** — on 1.21.11 and 26.1.2 the effect type and its JSON still exist but the pass is not registered, so it **draws nothing**. It must run at `"screen_layer": 0` — the single scene depth buffer is only intact below the first-person hand.
 
 | Param | Default | Description |
 |---|---|---|
@@ -506,7 +506,7 @@ A shape pattern projected onto the terrain behind each pixel: a world-anchored f
 | `opacity` | 1 (fades to 0) | Overall strength |
 | `fade_radius` | 0 | Distance from the anchor at which the pattern fades out, blocks (0 = no fade) |
 | `normal_mask` | 0 | Legacy orientation filter: minimum absolute Y of the surface normal — `0.6` keeps floors/ceilings and excludes walls (0 = off). Ignored when a `surface` block is present |
-| `distort` | 0 | World-space sine warp of the pattern coordinate (0 = off) |
+| `distort` | 0 | World-space sine warp of the pattern coordinate (0 = off). The phase follows the in-plane coordinate, so it actually warps a flat floor/wall (it used to be constant there and merely translated the pattern) |
 | `rotation` | — | Numeric override of the structural `pattern.rotation` in degrees (keyframes/`expr`/graph-driven like any param). Spins the figure and a texture together |
 | `frame` | 0 | Sprite-sheet frame index when a `pattern.texture` `sheet` is set (rounded, wrapped into `0..cols*rows-1`); literal, keyframe, `expr` or `{ "from": "<node>" }` graph-driven |
 | `texture_tint` | 0 | `0` = draw the texture's own RGB; `1` = multiply it by `color_r/g/b`. `opacity` always scales the coverage |
@@ -516,8 +516,8 @@ The figure is a top-level structural `pattern` block — the strings and figure 
 | Field | Default | Meaning |
 |---|---|---|
 | `figure` | `circle` | `circle` (`radius`); `ellipse` (`radius_x`/`radius_y`); `rect` (`half_width`/`half_height`, optional `corner_radius`); `polygon` (`sides` ≥ 3, `radius`) |
-| `center` | — | Optional literal `[x, y, z]` world anchor. When absent the anchor is the effect's own world position: a Java-API move, else its first world `position` (e.g. via `/vfx playat` or `positions`), else the `pos_x/pos_y/pos_z` binds, else the local player for a player-anchored play. The camera is never the anchor, so a camera-only change (third-person/F5) does not move the pattern |
-| `rotation` | 0 | Figure rotation in degrees in the world XZ plane (`center.y` is accepted but unused by the projection) |
+| `center` | — | Optional literal `[x, y, z]` world anchor. When absent the anchor is the effect's own world position: a Java-API move, else its first world `position` (e.g. via `/vfx playat` or `positions`), else the `pos_x/pos_y/pos_z` binds, else the local player for a player-anchored play. The camera is never the anchor, so a camera-only change (third-person/F5) does not move the pattern. `center_x`/`center_y`/`center_z` are **not** pattern fields (the shader's centre comes from this array) and are a parse error |
+| `rotation` | 0 | Figure rotation in degrees in the surface plane. `center.y` anchors the 3-D `fade_radius` distance and the wall projection; on a floor (world-XZ projection) only `center.x`/`center.z` set the cell origin |
 | `fill` | `solid` | `solid` or `stroke` |
 | `stroke_width` | 0.05 | Stroke thickness when `fill: stroke` (overridable by `params.line_width`) |
 | `softness` | 0.01 | Edge softness |
@@ -534,9 +534,9 @@ An optional top-level structural `surface` block (strings/enums, never in `param
 | `faces` | `["up"]` | Which face orientations get the pattern. Tokens: `up`, `down`, `north`, `south`, `east`, `west`; axis aliases `x` (= west+east), `y` (= up+down), `z` (= north+south); groups `horizontal` (= up+down), `vertical` (= north+south+east+west), `all`. At most 8 tokens; duplicates collapse |
 | `min` | −∞ | Inclusive lower bound of the band, **along the fragment's dominant axis**: Y for `up`/`down`, X for `east`/`west`, Z for `north`/`south` |
 | `max` | +∞ | Inclusive upper bound of the band, same axis as `min` |
-| `band_softness` | 0 | Half-width in blocks of a soft fade centred on `min` and `max` (`0..4`). A surface lying exactly on a bound otherwise shimmers, because the depth-reconstructed axis coordinate jitters across the hard test from pixel to pixel; a small value (e.g. `0.05`) removes it while keeping the band interior solid. `0` = the exact hard edge, so definitions that omit it are unchanged |
+| `band_softness` | 0 | Half-width in blocks of a soft fade centred on `min` and `max` (`0..4`). A surface lying exactly on a bound otherwise shimmers, because the depth-reconstructed axis coordinate jitters across the hard test from pixel to pixel; a small value (e.g. `0.05`) removes it while keeping the band interior solid. A requested value wider than half the band (`max - min`) is clamped to half the band, so a narrow band never loses full coverage at its centre. `0` = the exact hard edge, so definitions that omit it are unchanged |
 
-An unknown key or face token, more than 8 tokens, a non-finite bound, `band_softness` outside `0..4`, or `min > max` is a per-file parse error.
+An unknown key or face token, an empty `faces` array, more than 8 tokens, a non-finite bound, `band_softness` outside `0..4`, or `min > max` is a per-file parse error. A `surface_pattern` whose `positions` contains an entity anchor is also a parse error — the pattern anchor is a world point (the shader would otherwise silently fall back to the player).
 
 ```json
 "surface": { "faces": ["up"], "min": 60, "max": 72 }
@@ -564,7 +564,7 @@ The first is a floor band on world Y; the second is a band along world X on the 
 | `sheet` | `[1, 1]` | Sprite-sheet grid `[cols, rows]` inside the sprite/texture; each `1..16` and `cols*rows <= 256`. The displayed cell is the numeric `frame` param |
 | `aspect` | `preserve` | `preserve` keeps the texture's pixel aspect (one repeat covers `tile_scale` blocks along the longer pixel axis; the shorter axis is scaled by the aspect); `stretch` maps the whole square cell to the sprite |
 
-An atlas source (`block`/`item`/`atlas`) samples the stitched atlas at the sprite's own sub-rect and follows the atlas animation automatically (an animated block/item sprite needs no `frame`); `standalone` samples a resource-pack texture over `0..1`. Tiling is the figure's structural `repeat`, never sampler wrap, and the sampler clamps to the sprite rect so a repeat cannot bleed into a neighbouring sprite. Unknown keys, a bad `source`/`channel`/`aspect`, a blank `id`, `atlas` on a non-atlas source, a bad `sheet`, or an `id` whose source cannot be inferred are per-file parse errors. A sprite missing from a valid atlas is drawn as the vanilla missing texture and warned once (fail-visible); an unknown atlas draws nothing (fail-closed) and warns once, and a missing standalone PNG is uploaded as the missing texture and drawn, with one warning — never a full-screen fill. The sampler is **NEAREST with no mipmaps** (like vanilla's block atlas), so a pixel texture projected over `tile_scale` blocks stays crisp rather than bilinear-blurred. One repeat spans `tile_scale` world blocks, so one texel spans `tile_scale / pixels` blocks (a 16×16 sprite at `tile_scale: 3` is one texel per 0.1875 blocks). Sheet frames are row-major and wrapped into `0..cols*rows-1`; each cell is inset by half a texel so a frame border cannot bleed into the next cell. The texture is re-resolved every frame, so `/reload` and resource-pack changes pick up the re-stitched atlas and recreate the sampler view.
+An atlas source (`block`/`item`/`atlas`) samples the stitched atlas at the sprite's own sub-rect and follows the atlas animation automatically (an animated block/item sprite needs no `frame`); `standalone` samples a resource-pack texture over `0..1`. Tiling is the figure's structural `repeat`, never sampler wrap, and the sampler clamps to the sprite rect so a repeat cannot bleed into a neighbouring sprite. Unknown keys, a bad `source`/`channel`/`aspect`, a blank or syntactically invalid `id`/`atlas`, `atlas` on a non-atlas source, a bad `sheet`, or an `id` whose source cannot be inferred are per-file parse errors. A sprite missing from a valid atlas is drawn as the vanilla missing texture and warned once (fail-visible); an unknown atlas draws nothing (fail-closed) and warns once, and a missing standalone PNG is uploaded as the missing texture and drawn, with one warning — never a full-screen fill. The sampler is **NEAREST with no mipmaps** (like vanilla's block atlas), so a pixel texture projected over `tile_scale` blocks stays crisp rather than bilinear-blurred. One repeat spans `tile_scale` world blocks, so one texel spans `tile_scale / pixels` blocks (a 16×16 sprite at `tile_scale: 3` is one texel per 0.1875 blocks). Sheet frames are row-major and wrapped into `0..cols*rows-1`; each cell is inset by half a texel so a frame border cannot bleed into the next cell. The texture is re-resolved every frame, so `/reload` and resource-pack changes pick up the re-stitched atlas and recreate the sampler view.
 
 ```json
 {
@@ -1575,10 +1575,11 @@ drive a mask from data the client does not have, set its centre from the **serve
 > consumer against a layer-0 depth snapshot.
 
 > **Depth note.** The same gate `surface_pattern` uses applies to masks: on a node whose
-> reversed-depth world reconstruction is not verified, a mask that needs depth (a `world` leaf, an
-> `aura` volume, or a block leaf) **fails closed** — it contributes zero coverage and its
-> depth-tested block pass is disabled — instead of sampling depth with the wrong convention. A
-> purely `screen` mask needs no depth and works on every node and every layer.
+> reversed-depth world reconstruction is not verified (anything but 26.2 — 26.1.2 and 1.21.11 use the
+> other depth convention), a mask that needs depth (a `world` leaf, an `aura` volume, or a block leaf)
+> **fails closed** — it contributes zero coverage and its depth-tested block pass is disabled —
+> instead of sampling depth with the wrong convention. A purely `screen` mask needs no depth and
+> works on every node and every layer.
 
 > **Concurrency note.** Two simultaneous plays of one masked definition share a single coverage
 > target, so both use the first play's animated centre/radius/softness. To have two masks with
@@ -1873,7 +1874,16 @@ Post-processing pipeline, world overlays, effect clock, load limits and fault to
 
 Versioned feature history — **[docs/CHANGELOG.md](CHANGELOG.md)**.
 
-Guide version: 41 — see changelog below.
+Guide version: 42 — see changelog below.
+
+### v42
+- **`surface_pattern` now requires 26.2 (it no longer silently passes through on 26.1.2).** The pass is registered on `>=26.2` only, matching the mask coverage gate: the reversed-depth reconstruction it reads was verified on 26.2, while 26.1.2/1.21.11 use the other depth convention. On a non-26.2 node the effect type and JSON still parse, but no pass is registered and the effect **draws nothing** (previously 26.1.2 rendered a passthrough with a one-time warning). See [2.1](#surface_pattern).
+- **The effect clock and camera/player snapshots are refreshed before layer 0.** They used to advance in the `FogRenderer.endFrame` hook, which runs after `renderLevel`, so a `surface_pattern` (default `screen_layer: 0`) trailed the player by a frame and time-driven animation was a frame late. Layer 0 now advances the clock and republishes the snapshots; layers 1/2 reuse them, and nothing advances twice. See [2.1](#surface_pattern).
+- **`normal_mask: 1.0` is no longer undefined.** The degenerate `smoothstep(normal_mask, min(normal_mask + 0.2, 1.0), …)` edge collapse (undefined in GLSL) is guarded by clamping `normal_mask` to `0..1` and falling back to the exact hard test at `1.0`.
+- **A `band_softness` wider than the band is clamped** to half the band width, so a narrow band (`min:10, max:10.5`) is solid at its centre instead of evaluating to ~0.28.
+- **`distort` warps a flat surface instead of translating it.** Its phase was `dot(world, normal)`, constant on any flat axis-aligned surface; it now follows the in-plane coordinate. Definitions with a non-zero `distort` on a floor see a different (intended) result.
+- **Parse fixes that stop a definition from silently doing nothing.** An empty `faces: []` is now a parse error; `pattern.center_x`/`center_y`/`center_z` are rejected (use `pattern.center`); an entity-anchored `positions` entry on a `surface_pattern` is rejected; a `pattern.texture.id`/`atlas` with invalid id syntax is a per-file parse error.
+- **Per-frame work in the post chain is reduced** — one definition lookup per `surface_pattern` pass instead of three, and the texture id is parsed once at definition-parse time instead of every frame.
 
 ### v41
 - **Mask correctness and performance batch.** Animated `softness`, composition nesting (left-only, a right-nested `op` is now a parse error), the custom-leaf (2) and block-leaf (1) caps, an animatable block centre, a composed custom leaf's `softness`, the depth gate (a depth-needing mask fails closed where `surface_pattern` does), cached block selection, cleared new coverage targets, live-source shader variants and one-extra-frame uniform-arena retirement. Two plays of one masked definition still share a coverage target (documented). See [3.8](#38-masks).

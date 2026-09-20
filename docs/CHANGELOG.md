@@ -2,6 +2,21 @@
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). The versions below are guide/feature-set versions of the mod (as they progressed historically, see `docs/GUIDE.md`), plus git release tags where applicable (`v1.0.x`, `gradle.properties` → `mod_version`). Add new entries at the top, in the same PR as the behavior change.
 
+## Unreleased / Guide v42
+### Changed
+- **`surface_pattern` renders on 26.2 only.** The pass is now registered on `>=26.2`, matching the mask coverage gate, because the reversed-depth reconstruction it reads was only verified on 26.2 (26.1.2/1.21.11 use the other depth convention). Previously it was registered on `>=26.1` but `depthRecipeVerified()` made it a per-frame passthrough with a `surface_pattern:nodepth` warning on 26.1.2; now the built-in type/JSON still parse on every node, no pass is registered off 26.2, and the effect draws nothing there. The stale "verified on 26.1.2/26.2" comment, the shader header and the guide are corrected. See `docs/GUIDE.md` §2.1.
+- **The effect clock and camera/player snapshots advance before screen layer 0.** They advanced in the `FogRenderer.endFrame` hook, which runs after `renderLevel`, so layer 0 (where `surface_pattern` runs by default) used the previous frame's time and player position. The layer-0 hook now advances and republishes them; layers 1/2 reuse the same snapshot and nothing advances twice.
+
+### Fixed
+- **`normal_mask: 1.0` no longer produces an undefined `smoothstep`.** The upper edge `min(normal_mask + 0.2, 1.0)` collapsed onto the lower one at `1.0` (undefined in GLSL); `normal_mask` is now clamped to `0..1` and `1.0` falls back to the exact hard test.
+- **A band narrower than `2 * band_softness` now reaches full coverage at its centre.** `band_softness` is clamped to half the band width (`max - min`), so `min:10, max:10.5, band_softness:4` is solid in the interior instead of ~0.28.
+- **`distort` warps a flat floor/wall instead of merely translating the pattern.** The phase was `dot(world, normal)`, constant on any flat axis-aligned surface; it is now the in-plane coordinate. Definitions with a non-zero `distort` on a floor render differently (the documented sine warp instead of a constant offset).
+- **Parse traps that used to accept a definition which then did nothing.** `surface.faces: []` is now a parse error (was a zero face mask); `pattern.center_x`/`center_y`/`center_z` are rejected with a pointer at `pattern.center` (they were accepted from the shared shape parameter list and ignored); an entity-anchored `positions` entry on a `surface_pattern` is rejected (its anchor silently fell back to the player); and a `pattern.texture.id`/`atlas` with invalid resource-id syntax is a per-file parse error instead of failing closed per effect at render.
+- **Less per-frame work in the depth pass** — one definition lookup per `surface_pattern` pass instead of three, the texture id parsed once at definition-parse time (not per frame), and the sprite probe no longer allocates a candidate list.
+
+### Removed
+- **Dead `ProgramInfo.coverage` / `VFXPass.coverage`** — the flag was written and never read (the coverage prepass is identified by its pipeline/`PassRole`, not the flag).
+
 ## Unreleased / Guide v41
 ### Fixed
 - **Animated mask `softness` now takes effect.** The `.soft` slot was registered as a parameter, checked by the binding resolver and documented as animatable, but the coverage writer packed the parse-time default straight into `shape_op[i].z`; keyframes, graph `{ "from": node }` inputs and `setParam("mask.pN.soft", …)` did nothing. The animated value is now written, with the parse-time default as the fallback.
