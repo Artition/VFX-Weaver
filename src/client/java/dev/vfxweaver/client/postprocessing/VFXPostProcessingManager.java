@@ -276,12 +276,12 @@ public final class VFXPostProcessingManager {
 					if (entryMask != null && entryMask.hasBlockLeaf()) {
 						final TextureTarget geometry = this.geometryTargets.get(entry.getKey());
 						if (geometry != null) {
-							VFXMaskBlockGeometry.render(encoder, geometry, mainTarget, entryMask, entry.getValue());
+							VFXMaskBlockGeometry.render(encoder, geometry, mainTarget, entryMask, entry.getValue(), depthReady);
 						}
 					}
 				}
 				for (final Map.Entry<Identifier, VFXActiveEffect> entry : maskEffects.entrySet()) {
-					runCoveragePrepass(encoder, samplerCache, mainTarget, entry.getValue(), entry.getKey());
+					runCoveragePrepass(encoder, samplerCache, mainTarget, entry.getValue(), entry.getKey(), depthReady);
 				}
 			}
 			if (chain.isEmpty()) {
@@ -344,7 +344,15 @@ public final class VFXPostProcessingManager {
 		}
 	}
 
-	/** One representative effect per distinct masked definition (they share the mask and its slots). */
+	/**
+	 * One representative effect per distinct masked definition (they share the mask and its slots).
+	 *
+	 * <p>Known limitation: two concurrent plays of one masked definition share a single coverage
+	 * target, so both are evaluated with the first play's animated centre/radius/softness. Per-instance
+	 * coverage would require one prepass and one target per instance and a per-instance consumer
+	 * lookup, which the pipeline does not do; a definition whose mask must differ per play should be
+	 * played as two distinct definitions.
+	 */
 	private static Map<Identifier, VFXActiveEffect> activeMaskEffects(final List<VFXActiveEffect> active) {
 		final Map<Identifier, VFXActiveEffect> effects = new LinkedHashMap<>();
 		for (final VFXActiveEffect effect : active) {
@@ -372,11 +380,19 @@ public final class VFXPostProcessingManager {
 	 * so the camera and depth are read live from {@link VFXFieldEnv} (the verified reversed-depth
 	 * reconstruction). The block-geometry scratch (when the mask has a block leaf) was cleared and is
 	 * bound as the block leaf's coverage.
+	 *
+	 * <p>{@code depthReady} mirrors the {@code surface_pattern} depth gate: when it is false (depth
+	 * unavailable, or the reversed-depth recipe unverified on this node), a mask that needs depth
+	 * fails closed - its coverage is cleared to zero and nothing is sampled.
 	 */
-	private void runCoveragePrepass(final CommandEncoder encoder, final SamplerCache samplerCache, final RenderTarget mainTarget, final VFXActiveEffect effect, final Identifier definitionId) {
+	private void runCoveragePrepass(final CommandEncoder encoder, final SamplerCache samplerCache, final RenderTarget mainTarget, final VFXActiveEffect effect, final Identifier definitionId, final boolean depthReady) {
 		final VFXMask mask = effect.getMask();
 		final TextureTarget coverage = this.coverageTargets.get(definitionId);
 		if (mask == null || coverage == null) {
+			return;
+		}
+		if (mask.needsDepth() && !depthReady) {
+			clearTarget(coverage);
 			return;
 		}
 		final VFXShaderPrograms.ProgramInfo coverageInfo = VFXMaskShaderVariants.variantFor(pluginShapeIds(mask));
@@ -385,7 +401,17 @@ public final class VFXPostProcessingManager {
 		}
 		final float time = Minecraft.getInstance().level == null ? 0.0F : Minecraft.getInstance().level.getGameTime() / 20.0F;
 		this.pass(coverageInfo).executeCoverage(encoder, samplerCache, mainTarget, coverage, this.geometryTargets.get(definitionId),
-			effect, mask, VFXFieldEnv.invViewProj(), VFXFieldEnv.cameraX(), VFXFieldEnv.cameraY(), VFXFieldEnv.cameraZ(), time);
+			effect, mask, VFXFieldEnv.invViewProj(), VFXFieldEnv.cameraX(), VFXFieldEnv.cameraY(), VFXFieldEnv.cameraZ(), time, depthReady);
+	}
+
+	/** Clears a colour target to zero through a one-off encoder (used to fail a coverage prepass closed). */
+	private static void clearTarget(final TextureTarget target) {
+		final CommandEncoder encoder = RenderSystem.getDevice().createCommandEncoder();
+		//? if <26.2 {
+		encoder.clearColorTexture(target.getColorTexture(), 0);
+		//?} else {
+		/*encoder.clearColorTexture(target.getColorTexture(), new org.joml.Vector4f(0.0F, 0.0F, 0.0F, 0.0F));
+		*///?}
 	}
 
 	private void swapHistory() {
@@ -524,7 +550,12 @@ public final class VFXPostProcessingManager {
 				if (existing != null) {
 					existing.destroyBuffers();
 				}
-				this.coverageTargets.put(entry.getKey(), createTarget("vfxweaver mask coverage", width, height, false));
+				// A freshly created (or resized) target holds undefined GPU memory; a masked effect
+				// that starts after its layer-0 prepass would sample garbage for one frame, so clear
+				// it. Fail-closed: a coverage that never gets a prepass contributes nothing.
+				final TextureTarget created = createTarget("vfxweaver mask coverage", width, height, false);
+				clearTarget(created);
+				this.coverageTargets.put(entry.getKey(), created);
 			}
 			final VFXMask mask = entry.getValue().getMask();
 			if (mask != null && mask.hasBlockLeaf()) {
@@ -533,13 +564,21 @@ public final class VFXPostProcessingManager {
 					if (geometry != null) {
 						geometry.destroyBuffers();
 					}
-					this.geometryTargets.put(entry.getKey(), createTarget("vfxweaver mask geometry", width, height, false));
+					final TextureTarget created = createTarget("vfxweaver mask geometry", width, height, false);
+					clearTarget(created);
+					this.geometryTargets.put(entry.getKey(), created);
 				}
 			}
 		}
 	}
 
-	/** Creates a colour render target; 26.2 requires an explicit GPU format. */
+	/**
+	 * Creates a colour render target; 26.2 requires an explicit GPU format.
+	 *
+	 * <p>The coverage/geometry data is single-channel, but {@link TextureTarget} exposes no
+	 * single-channel format on the 26.1 line and the shared shader writes a {@code vec4} attachment,
+	 * so these stay RGBA8; the unused channels are simply not sampled.
+	 */
 	private static TextureTarget createTarget(final String label, final int width, final int height, final boolean useDepth) {
 		//? if <26.2 {
 		return new TextureTarget(label, width, height, useDepth);
@@ -811,7 +850,8 @@ public final class VFXPostProcessingManager {
 			final float camX,
 			final float camY,
 			final float camZ,
-			final float time
+			final float time,
+			final boolean depthReady
 		) {
 			final GpuBufferSlice samplerInfo = this.arena.write(encoder, builder ->
 				builder.putVec2(coverageTarget.width, coverageTarget.height).putVec2(mainTarget.width, mainTarget.height));
@@ -835,7 +875,12 @@ public final class VFXPostProcessingManager {
 				if (config != null) {
 					renderPass.setUniform("Config", config);
 				}
-				renderPass.bindTexture("DepthSampler", mainTarget.getDepthTextureView(), samplerCache.getClampToEdge(FilterMode.NEAREST));
+				// A depth-reconstructed (world/aura or block-occluded) mask is never run without a
+				// trusted depth; a screen-only mask never samples DepthSampler, so the placeholder
+				// is inert there and only keeps the sampler binding valid.
+				renderPass.bindTexture("DepthSampler",
+					depthReady ? mainTarget.getDepthTextureView() : coverageTarget.getColorTextureView(),
+					samplerCache.getClampToEdge(FilterMode.NEAREST));
 				// A block leaf samples the geometry scratch; a harmless placeholder bind when the mask
 				// has no block leaf (the shader never reads it then).
 				renderPass.bindTexture("GeometryCoverageSampler",
@@ -1162,7 +1207,10 @@ public final class VFXPostProcessingManager {
 	private static final class UniformArena {
 		private final String label;
 		private final int blockSize;
+		/** Rings retired by a growth during the current frame; closed only at the NEXT endFrame. */
 		private final List<MappableRingBuffer> retired = new ArrayList<>();
+		/** Rings retired in the previous frame; closing them here keeps a used ring alive one extra frame. */
+		private final List<MappableRingBuffer> retiring = new ArrayList<>();
 		private MappableRingBuffer ring;
 		private int capacity;
 		private int nextBlock;
@@ -1204,14 +1252,24 @@ public final class VFXPostProcessingManager {
 			this.used = false;
 			this.nextBlock = 0;
 			this.ring.rotate();
-			for (final MappableRingBuffer old : this.retired) {
+			// Close the rings retired one frame AGO, not those retired during this frame: this
+			// endFrame rotates into a slot the submit just built, so the ring grown away from may
+			// still be referenced by that submit. Keeping it one extra frame avoids a use-after-free
+			// if MappableRingBuffer.close() frees immediately.
+			for (final MappableRingBuffer old : this.retiring) {
 				old.close();
 			}
+			this.retiring.clear();
+			this.retiring.addAll(this.retired);
 			this.retired.clear();
 		}
 
 		private void close() {
 			this.ring.close();
+			for (final MappableRingBuffer old : this.retiring) {
+				old.close();
+			}
+			this.retiring.clear();
 			for (final MappableRingBuffer old : this.retired) {
 				old.close();
 			}
