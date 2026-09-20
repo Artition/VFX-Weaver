@@ -55,4 +55,8 @@ CLAUDE.md
 # stonecutter
 
 stonecutter.gradle
+
+# ai agent working files (kept local, never published)
+AGENTS.md
 .superpowers/
+docs/superpowers/
