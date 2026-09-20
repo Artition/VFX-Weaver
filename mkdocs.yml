@@ -52,6 +52,7 @@ theme:
 nav:
   - Home: index.md
   - Getting started: guide/index.md
+  - Your first datapack: guide/first-datapack.md
   - Effects:
       - Overview: guide/effects/index.md
       - Screen post-processing:
@@ -106,6 +107,7 @@ nav:
       - Collections:
           - collection: guide/effects/collection.md
   - Commands: guide/commands.md
+  - Triggering effects: guide/recipes.md
   - Datapack:
       - Format: guide/datapack/format.md
       - Animating a param: guide/datapack/params.md
