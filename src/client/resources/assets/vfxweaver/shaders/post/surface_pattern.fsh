@@ -8,7 +8,10 @@
 // imports <vfxweaver:shape.glsl> and calls vfx_shape_pattern_coverage, so there is no figure maths
 // and no grid/ring branch on this side.
 //
-// Run at screen layer 0 only (the manager forces it): the single scene depth buffer is intact there.
+// Defaults to screen layer 0 — the layer where the single scene depth buffer is intact; a definition
+// may still override screen_layer, in which case the depth read is the hand's, not the scene's.
+// Registered on 26.2 only: the reversed-depth recipe is verified there (26.1.2/1.21.11 use the other
+// depth convention, so the pass is not registered and the effect draws nothing).
 // The Config block declares mat4 inv_view_proj first, then the floats in the order registered by
 // VFXShaderPrograms.registerDepthPost — std140 offsets are positional.
 #moj_import <vfxweaver:shape.glsl>
@@ -141,13 +144,16 @@ void main() {
         bandAxis = faceId >= 4 ? world.x : world.z;
     }
 
-    // Distort warps the chosen plane; the phase is the remaining world component along the normal
-    // (world Y on a floor, the wall's out-of-plane component on a wall) — a flat floor keeps the
-    // exact original warp because there n is +Y.
+    // Distort warps the chosen plane. The phase must vary across the plane, so it is the in-plane
+    // coordinate p (world XZ on a floor, the wall's horizontal tangent + world Y on a wall). Driving
+    // it from dot(world, n) was constant on a flat axis-aligned surface — the snapped normal is
+    // constant there — so it translated the pattern instead of warping it. A definition that authored
+    // a non-zero distort on a flat floor now sees the intended sine warp where it previously saw a
+    // constant offset.
     vec2 q = p;
     if (distort != 0.0) {
         // ponytail: cheap sine warp; the field-library's real noise distortion arrives with step 4.
-        float phase = dot(world, n);
+        float phase = p.x + p.y;
         q += distort * vec2(sin(phase * 0.7 + time * 0.05), cos(phase * 0.7 - time * 0.05));
     }
 
@@ -216,7 +222,13 @@ void main() {
     if (face_mask >= 0.0) {
         faceCov = mod(floor(face_mask / exp2(float(faceId))), 2.0) >= 0.5 ? 1.0 : 0.0;
     } else {
-        faceCov = normal_mask <= 0.0 ? 1.0 : smoothstep(normal_mask, min(normal_mask + 0.2, 1.0), abs(nRaw.y));
+        // Clamp into the meaningful range and only take the smoothstep branch when the upper edge is
+        // strictly above the lower one. At normal_mask == 1.0 the old min(normal_mask + 0.2, 1.0)
+        // collapsed the two edges to the same value, and smoothstep(edge0 == edge1, ...) is
+        // undefined in GLSL; the fallback is the exact hard test (only a vertical normal passes).
+        float nm = clamp(normal_mask, 0.0, 1.0);
+        float nmUpper = min(nm + 0.2, 1.0);
+        faceCov = nm <= 0.0 ? 1.0 : (nmUpper > nm ? smoothstep(nm, nmUpper, abs(nRaw.y)) : (abs(nRaw.y) >= nm ? 1.0 : 0.0));
     }
     // Band along the dominant axis, with an optional soft edge of half-width `band_softness`
     // (world units): the reconstructed axis coordinate of a surface lying exactly on a bound

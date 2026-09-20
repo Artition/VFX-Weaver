@@ -16,8 +16,11 @@ import java.util.Locale;
  * <p>The optional {@code band_softness} is the half-width (in blocks) of the band's soft edge,
  * centred on {@code min}/{@code max}. Without it a surface that lies exactly on a bound shimmers,
  * because the depth-reconstructed axis coordinate jitters across the hard inclusive test from pixel
- * to pixel; the fade keeps the interior fully on and the outside fully off. {@code 0} (the default)
- * keeps the exact hard test, so an authored definition that omits it is unchanged.
+ * to pixel; the fade keeps the interior fully on and the outside fully off. A requested half-width
+ * wider than half the band is clamped to half the band width, so the centre of a non-degenerate band
+ * always reaches full coverage (otherwise the two fades overlap and the interior never goes solid).
+ * {@code 0} (the default) keeps the exact hard test, so an authored definition that omits it is
+ * unchanged.
  *
  * <p>Face ids (one bit each, fixed order): {@code 0} up (+Y), {@code 1} down (−Y), {@code 2}
  * north (−Z), {@code 3} south (+Z), {@code 4} west (−X), {@code 5} east (+X). Minecraft's axis
@@ -75,9 +78,9 @@ public final class VFXSurfaceSelection {
 	 *
 	 * @param json the {@code surface} object (e.g. {@code {"faces": ["up"], "min": 64, "max": 96}})
 	 * @return the parsed selection, never {@code null}
-	 * @throws IllegalArgumentException on an unknown key/face token, more than {@link #MAX_TOKENS}
-	 *         tokens, a non-finite bound, {@code min > max}, or {@code band_softness} outside
-	 *         {@code [0, MAX_BAND_SOFTNESS]}
+	 * @throws IllegalArgumentException on an unknown key/face token, an empty {@code faces} array,
+	 *         more than {@link #MAX_TOKENS} tokens, a non-finite bound, {@code min > max}, or
+	 *         {@code band_softness} outside {@code [0, MAX_BAND_SOFTNESS]}
 	 */
 	public static VFXSurfaceSelection parse(final JsonObject json) {
 		for (final String key : json.keySet()) {
@@ -92,6 +95,11 @@ public final class VFXSurfaceSelection {
 			final JsonArray array = asArray(json.get("faces"));
 			if (array.size() > MAX_TOKENS) {
 				throw new IllegalArgumentException("surface: 'faces' may declare at most " + MAX_TOKENS + " tokens, got " + array.size());
+			}
+			if (array.isEmpty()) {
+				// An empty list is a definition that can never paint anything (a zero face mask);
+				// fail loudly instead of silently rendering nothing.
+				throw new IllegalArgumentException("surface: 'faces' must not be empty; omit it for the floor or list face tokens (up/down/north/south/east/west, x/y/z, horizontal/vertical/all)");
 			}
 			faceMask = 0;
 			for (final JsonElement entry : array) {
@@ -119,6 +127,15 @@ public final class VFXSurfaceSelection {
 			if (bandSoftness > MAX_BAND_SOFTNESS) {
 				throw new IllegalArgumentException("surface: 'band_softness' must be <= " + MAX_BAND_SOFTNESS + ", got " + bandSoftness);
 			}
+		}
+
+		// A soft edge wider than the band itself never reaches full coverage even at the centre
+		// (min:10, max:10.5, band_softness:4 evaluates to ~0.28 in the middle). Clamp the effective
+		// half-width to half the band width so a non-degenerate band is solid in its interior; the
+		// shader's per-side fade then meets exactly at the centre. Only both-bounded bands collapse
+		// this way — a band with an unbounded side has no interior pinch.
+		if (bandSoftness > 0.0F && min != UNBOUNDED_MIN && max != UNBOUNDED_MAX) {
+			bandSoftness = Math.min(bandSoftness, (max - min) * 0.5F);
 		}
 
 		return new VFXSurfaceSelection(faceMask, min, max, bandSoftness);

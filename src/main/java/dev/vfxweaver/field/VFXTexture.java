@@ -4,6 +4,7 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import java.util.Locale;
+import net.minecraft.resources.Identifier;
 import org.jspecify.annotations.Nullable;
 
 /**
@@ -115,8 +116,12 @@ public final class VFXTexture {
 	private final int sheetCols;
 	private final int sheetRows;
 	private final Aspect aspect;
+	/** The id parsed once at parse time; the per-frame resolver reuses it instead of re-parsing. */
+	private final Identifier parsedId;
+	/** The atlas id parsed once at parse time, or {@code null} when no atlas is authored. */
+	private final @Nullable Identifier parsedAtlasId;
 
-	private VFXTexture(final String id, final Source source, final @Nullable String atlas, final Channel channel, final int sheetCols, final int sheetRows, final Aspect aspect) {
+	private VFXTexture(final String id, final Source source, final @Nullable String atlas, final Channel channel, final int sheetCols, final int sheetRows, final Aspect aspect, final Identifier parsedId, final @Nullable Identifier parsedAtlasId) {
 		this.id = id;
 		this.source = source;
 		this.atlas = atlas;
@@ -124,6 +129,8 @@ public final class VFXTexture {
 		this.sheetCols = sheetCols;
 		this.sheetRows = sheetRows;
 		this.aspect = aspect;
+		this.parsedId = parsedId;
+		this.parsedAtlasId = parsedAtlasId;
 	}
 
 	/**
@@ -149,6 +156,12 @@ public final class VFXTexture {
 		if (id == null || id.isBlank()) {
 			throw new IllegalArgumentException("pattern.texture: 'id' is required and must be a non-blank resource id");
 		}
+		// Validate the id syntax at parse time: an unparseable id otherwise failed closed per effect
+		// at render and logged every frame (a per-file parse error is the definition-level contract).
+		final Identifier parsedId = Identifier.tryParse(id);
+		if (parsedId == null) {
+			throw new IllegalArgumentException("pattern.texture: 'id' is not a valid resource id: '" + id + "'");
+		}
 
 		Source source = null;
 		if (json.has("source") && !json.get("source").isJsonNull()) {
@@ -166,6 +179,7 @@ public final class VFXTexture {
 		}
 
 		String atlas = null;
+		Identifier parsedAtlasId = null;
 		if (json.has("atlas") && !json.get("atlas").isJsonNull()) {
 			atlas = string(json, "atlas", "");
 			if (source != Source.ATLAS) {
@@ -173,6 +187,10 @@ public final class VFXTexture {
 			}
 			if (atlas.isBlank()) {
 				throw new IllegalArgumentException("pattern.texture: 'atlas' must be a non-blank resource id");
+			}
+			parsedAtlasId = Identifier.tryParse(atlas);
+			if (parsedAtlasId == null) {
+				throw new IllegalArgumentException("pattern.texture: 'atlas' is not a valid resource id: '" + atlas + "'");
 			}
 		}
 		if (source == Source.ATLAS && atlas == null) {
@@ -215,12 +233,22 @@ public final class VFXTexture {
 			}
 		}
 
-		return new VFXTexture(id, source, atlas, channel, cols, rows, aspect);
+		return new VFXTexture(id, source, atlas, channel, cols, rows, aspect, parsedId, parsedAtlasId);
 	}
 
 	/** The sprite id (atlas sources) or texture id (standalone). */
 	public String id() {
 		return this.id;
+	}
+
+	/** The parsed {@code id} (never {@code null}); reused by the per-frame resolver. */
+	public Identifier parsedId() {
+		return this.parsedId;
+	}
+
+	/** The parsed {@code atlas} id, or {@code null} when no atlas is authored. */
+	public @Nullable Identifier parsedAtlasId() {
+		return this.parsedAtlasId;
 	}
 
 	/** Which manager resolves the id. */

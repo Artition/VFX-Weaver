@@ -95,6 +95,12 @@ public final class VFXShape {
 				repeat[1] = number(key, array.get(1));
 				continue;
 			}
+			if ("center_x".equals(key) || "center_y".equals(key) || "center_z".equals(key)) {
+				// These names exist in the shared field `shape` function, so they used to parse here,
+				// but the pattern's centre is the structural 'center' array (the shader's anchor) and
+				// their values were silently ignored. Point the author at 'center' instead.
+				throw new IllegalArgumentException("pattern: '" + key + "' is ignored here; use the structural 'center': [x, y, z] for the pattern anchor");
+			}
 			final int index = VFXFieldFn.SHAPE.paramIndex(key);
 			if (index < 0) {
 				throw new IllegalArgumentException("pattern: unknown field '" + key + "'");

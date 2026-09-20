@@ -348,6 +348,13 @@ public class VFXDefinition {
 			? VFXSurfaceSelection.parse(GsonHelper.getAsJsonObject(json, "surface"))
 			: null;
 
+		// A surface_pattern is anchored at a world point, never at a live entity: resolveAnchor
+		// deliberately skips entity-anchored position slots, which would silently fall back to the
+		// player. Reject the combination instead of rendering at the wrong place.
+		if (type == VFXEffectType.SURFACE_PATTERN && !entityAnchors.isEmpty()) {
+			throw new IllegalArgumentException("surface_pattern: entity-anchored 'positions' entries are not supported; the anchor is a world point (use a literal [x,y,z] position, pattern.center, or the pos_x/pos_y/pos_z params)");
+		}
+
 		return new VFXDefinition(id, type, duration, easing, params, persistent, loop, fadeTicks, children, positions, entityAnchors, sound, entitySelector, particleId, shape, blockId, itemId, graph, graphInputs, fields, mask, pattern, surface);
 	}
 
