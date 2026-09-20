@@ -5,9 +5,12 @@ post-processing (ping-pong FBO), camera shake, world overlays (block tint/outlin
 (tint/outline by UUID), keyframe animation, world/camera/player bindings, datapacks, network triggers
 and a public Java API.
 
-- Guide version: 47 (see [docs/CHANGELOG.md](../CHANGELOG.md) for history)
-- Mod: `vfxweaver-2.0.0.jar` (one jar per Minecraft line and loader; Fabric needs Fabric API,
-  NeoForge builds use the `-neoforge` suffix)
+- **Mod version: 2.0.0** — what you download (`vfxweaver-2.0.0+<mc>[-neoforge].jar`).
+- **Guide revision: v47** — the revision of *this documentation*, independent of the mod version.
+  The mod number lives in the release; the guide number lives in the
+  [Guide changelog](changelog.md). One jar exists per Minecraft line and loader; Fabric jars need
+  Fabric API, NeoForge builds use the `-neoforge` suffix. See the
+  [download table](../index.md#download) for exactly which jar to take.
 
 Effects are files: `data/<namespace>/vfx/<name>.json` and `data/<namespace>/vfx_curves/<name>.json`.
 After edits run `/reload`. The effect id = `<namespace>:<name>`. On a dedicated server, definitions
@@ -18,8 +21,10 @@ require operator rights (gamemaster level); `/vfx list` is open to everyone.
 
 ## Guide sections
 
+- [Your first datapack, from zero](first-datapack.md) - what a datapack is and a minimal working pack
 - [Effects](effects/index.md) - every effect type, one page each, in a browsable tree
 - [Commands](commands.md) - every `/vfx` subcommand
+- [Triggering effects](recipes.md) - fire an effect from a function, advancement or game event
 - [Datapack format](datapack/format.md) - files, definition fields, positions, validation
 - [Animating a param](datapack/params.md) - keyframes, bindings, easings
 - [Expressions (`expr`)](datapack/expr.md) - drive a param from a formula
@@ -32,6 +37,10 @@ require operator rights (gamemaster level); `/vfx list` is open to everyone.
 - [Architecture](../ARCHITECTURE.md) - how rendering works under the hood
 
 ## Quickstart: first effect in 2 minutes
+
+If you have never made a datapack, start with
+**[Your first datapack, from zero](first-datapack.md)** — it shows the folder layout, `pack.mcmeta`
+and how to load it. The short version, if you already have a datapack:
 
 1. Create `data/mymap/vfx/first_blur.json` inside your datapack:
    ```json
@@ -57,7 +66,7 @@ VFXAPI.playEffect(effectId, 0, Map.of("radius", 8.0F), EasingType.EASE_OUT_CUBIC
 ```
 
 Full reference (all `VFXAPI` methods, `VFXLocalDispatcher`, the `vfxweaver:vfx_trigger` network packet
-format) - **[docs/API.md](../API.md)**.
+format) - **[Java API](../API.md)**.
 
 Live-editing methods worth knowing:
 
@@ -102,4 +111,4 @@ Things to know:
 ## How it renders (for debugging)
 
 Post-processing pipeline, world overlays, effect clock, load limits and fault tolerance -
-**[docs/ARCHITECTURE.md](../ARCHITECTURE.md)**.
+**[Architecture](../ARCHITECTURE.md)**.
