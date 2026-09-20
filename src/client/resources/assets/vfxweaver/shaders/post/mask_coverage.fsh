@@ -109,9 +109,12 @@ float vfx_shape_custom(vec3 world, vec2 uv, vec4 p0, vec4 p1) {
 // <<< vfx_mask_custom_inject:end
 
 // A composed custom shape (registered through VFXAPI): its fixed parts are packed per custom leaf
-// row. Parts use the shared 2D/3D SDF; ops 0/1/2 are union/intersection/difference.
-float vfx_composed_leaf(int row, vec3 world, vec2 uv) {
+// row. Parts use the shared 2D/3D SDF; ops 0/1/2 are union/intersection/difference. The parts are
+// literal-only (the leaf's animatable p0..p7 are not threaded into a composed shape); the leaf's
+// softness (so.z) is the composed result's edge falloff.
+float vfx_composed_leaf(int row, vec3 world, vec2 uv, float softness) {
     int parts = int(custom_op[row].y + 0.5);
+    float falloff = max(softness, 1.0e-4);
     float acc = 0.0;
     for (int p = 0; p < MASK_MAX_CUSTOM_PARTS; p++) {
         if (p >= parts) {
@@ -128,7 +131,7 @@ float vfx_composed_leaf(int row, vec3 world, vec2 uv) {
             partUv = custom_center[partIndex].xy + (fract(rel * repeat) - 0.5) / repeat;
         }
         float d = vfx_shape_sdf_dispatch(kind, partSpace, partUv, world, custom_center[partIndex].xyz, custom_center[partIndex].w, custom_params[partIndex], vec4(0.0)) - rounding;
-        float cov = clamp(0.5 - d / 0.25, 0.0, 1.0);
+        float cov = clamp(0.5 - d / falloff, 0.0, 1.0);
         if (p == 0) {
             acc = cov;
         } else {
@@ -177,18 +180,24 @@ void main() {
         float cov;
         if (kind == 6) {
             // Block-geometry leaf: coverage was rasterised by the block-geometry draw before this
-            // pass (its actual model geometry, not the voxel cell); no field/softness here.
+            // pass (its actual model geometry, not the voxel cell). That coverage is full or absent
+            // per fragment, so softness has no meaningful distance to ramp here and the edge is
+            // hard; softness/field are ignored for the block family by design.
             cov = texture(GeometryCoverageSampler, texCoord).r;
         } else if (kind == 7) {
             int row = int(shape_misc[i].w + 0.5);
-            if (int(custom_op[row].x + 0.5) == 1) {
+            if (row < 0 || row >= MASK_MAX_CUSTOM_LEAVES) {
+                // A malformed/over-cap custom row must contribute nothing, never alias row 0
+                // (int(-0.5) == 0 would silently render the first custom shape).
+                cov = 0.0;
+            } else if (int(custom_op[row].x + 0.5) == 1) {
                 // GLSL plugin: a distance like any built-in, so field/softness apply.
                 float d = vfx_shape_custom(world, texCoord, shape_params0[i], shape_params1[i]);
                 d += fieldValue(int(so.w + 0.5), (leafSpace == 1) ? world : vec3(texCoord, mask_time), field_params[i].y, field_params[i].z) * field_params[i].x;
                 cov = clamp(0.5 - d / max(so.z, 1.0e-4), 0.0, 1.0);
             } else {
-                // Composed SDF: its parts already apply their own falloff.
-                cov = vfx_composed_leaf(row, world, texCoord);
+                // Composed SDF: its parts already apply their own falloff, scaled by the leaf's softness.
+                cov = vfx_composed_leaf(row, world, texCoord, so.z);
             }
         } else if ((kind == 4 || kind == 5) && shape_volume[i].x > 0.5) {
             // Aura: cast the pixel's view ray at the volume. Coverage is the volume's own silhouette,

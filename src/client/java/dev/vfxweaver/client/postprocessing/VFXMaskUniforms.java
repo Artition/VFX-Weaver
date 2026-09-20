@@ -36,8 +36,11 @@ public final class VFXMaskUniforms {
 	 * The value of one numeric mask slot: a world-coordinate binding wins over the definition's
 	 * literal/graph value. A binding that cannot be resolved yields the literal default here, but
 	 * {@link #primitiveResolved} drops the owning leaf before any packed value is used.
+	 *
+	 * <p>Package-private so the block-geometry pass resolves a block leaf's slots with the same
+	 * precedence.
 	 */
-	private static float slotValue(final VFXMask mask, final VFXActiveEffect effect, final String slotName, final float fallback) {
+	static float slotValue(final VFXMask mask, final VFXActiveEffect effect, final String slotName, final float fallback) {
 		final VFXMask.MaskSlot slot = mask.slots().get(slotName);
 		if (slot != null && slot.binding() != null) {
 			return VFXWorldBindings.evaluate(slot.binding(), fallback);
@@ -223,7 +226,9 @@ public final class VFXMaskUniforms {
 			final boolean leafResolved = primitiveResolved(mask, primitive);
 			final float operation = i == 0 ? 0.0F : mask.ops().get(i - 1).ordinal();
 			final Integer customRow = primitive.family() == VFXMaskPrimitive.Family.CUSTOM ? customRows.get(primitive.customShape()) : null;
-			rows[i][0] = new float[]{primitive.kindCode(), operation, primitive.softnessDefault(), primitive.field().ordinal()};
+			// z = the animated falloff: the leaf's softness slot wins over the parse-time default
+			// (the .soft slot is registered as a parameter, so keyframes/graph/setParam reach it).
+			rows[i][0] = new float[]{primitive.kindCode(), operation, slotValue(mask, effect, primitive.softnessSlot(), primitive.softnessDefault()), primitive.field().ordinal()};
 			rows[i][1] = new float[]{
 				slotValue(mask, effect, primitive.fieldAmountSlot(), primitive.fieldAmountDefault()),
 				slotValue(mask, effect, primitive.fieldScaleSlot(), primitive.fieldScaleDefault()),
