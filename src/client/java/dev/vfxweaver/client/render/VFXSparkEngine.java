@@ -232,7 +232,13 @@ public final class VFXSparkEngine {
 	 */
 	public static void tick(final ClientLevel level, final float clock, final Set<Long> activeInstances) {
 		handleLevelChange(level);
-		EFFECT_BUCKETS.keySet().removeIf(key -> !activeInstances.contains(key));
+		EFFECT_BUCKETS.entrySet().removeIf(entry -> {
+			if (activeInstances.contains(entry.getKey())) {
+				return false;
+			}
+			releaseBucket(entry.getValue());
+			return true;
+		});
 		if (Float.isNaN(lastClock)) {
 			lastClock = clock;
 			return;
@@ -263,7 +269,16 @@ public final class VFXSparkEngine {
 	 * @param instanceKey the effect instance id
 	 */
 	public static void clear(final long instanceKey) {
-		EFFECT_BUCKETS.remove(instanceKey);
+		final Bucket removed = EFFECT_BUCKETS.remove(instanceKey);
+		if (removed != null) {
+			releaseBucket(removed);
+		}
+	}
+
+	/** Frees a dropped bucket's sparks from the global budget, so capacity tracks live sparks only. */
+	private static void releaseBucket(final Bucket bucket) {
+		liveCount -= bucket.sparks.size();
+		bucket.sparks.clear();
 	}
 
 	/**
