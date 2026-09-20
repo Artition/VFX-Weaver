@@ -84,8 +84,9 @@ layout(std140) uniform Config {
     float tex_px_w;
     float tex_px_h;
     // Appended after tex_px_h (VFXShaderPrograms.registerDepthPost, positional std140). 1 when the
-    // definition's surface block set "stitch": true, so a vertical wall is unfolded into the floor
-    // plane (see the projection branch in main); 0 keeps today's hard floor/wall plane switch.
+    // definition's surface block set "stitch": true, so every face samples a top-down planar
+    // projection and the image continues up a wall from its base (see the projection branch in
+    // main); 0 keeps today's hard floor/wall plane switch.
     float stitch;
 };
 
@@ -126,52 +127,35 @@ void main() {
     vec3 n = vfx_snap_normal(nRaw);
     int faceId = vfx_face_id(n);
 
-    // Project onto the chosen plane: horizontal faces keep world XZ (today's result); a wall uses
-    // the horizontal tangent u = cross(worldUp, n) across and world Y up. With the snapped normal u
-    // is exactly ±X/±Z, so the figure is upright, un-mirrored and stable as the camera moves:
+    // Project onto the chosen plane, in one of two modes.
+    //
+    // Legacy (stitch off, the default): the per-face hard switch, unchanged. Horizontal faces
+    // keep world XZ (today's result); a wall uses the horizontal tangent u = cross(worldUp, n)
+    // across and world Y up. With the snapped normal u is exactly ±X/±Z, so the figure is
+    // upright, un-mirrored and stable as the camera moves:
     //   south (+Z) u=+X  p=( x, y)   north (-Z) u=-X  p=(-x, y)
     //   east  (+X) u=-Z  p=(-z, y)   west  (-X) u=+Z  p=( z, y)
     // Both axes are in world units, so the figure's aspect is preserved on walls. The band runs
     // along the axis the projection picked: Y for up/down, X for east/west, Z for north/south.
     //
-    // With `stitch` on (opt-in, default off) a wall is instead unfolded into the floor plane, so the
-    // floor coordinate continues past the wall base and the pattern is continuous across the edge.
-    // unfold = world.y - center.y is the height above the anchor; the wall's own horizontal axis is
-    // kept and the other floor axis is offset by ±unfold, chosen so the unfold goes *away* from the
-    // viewer, into the wall, beyond the visible floor (+Z unfolds to -Z, -Z to +Z, +X to -X, -X to
-    // +X) - that is what stops the figure being painted twice on the visible floor:
-    //   north (-Z): p = (x, z + unfold)   south (+Z): p = (x, z - unfold)
-    //   west  (-X): p = (x + unfold, z)   east  (+X): p = (x - unfold, z)
-    // centerP = center.xz in every case. At a wall base world.y == floor_y, so unfold equals
-    // floor_y - center.y; when the anchor sits at floor level (center.y == floor_y) the unfolded
-    // coordinate *equals* the floor coordinate there, i.e. the pattern is continuous across the
-    // edge. Documented limitation: if the anchor is not at floor level (e.g. the player eye is
-    // feet + ~1.6) the wall pattern is shifted by floor_y - center.y and the seam has a
-    // discontinuity of that size - place the anchor at floor level (an explicit pattern.center or a
-    // positions entry, or the pos_x/pos_y/pos_z binds at the player's feet). With stitch off this
-    // branch is byte-for-byte the previous hard switch, so existing definitions and the shipped
-    // built-in are unchanged.
+    // Planar (stitch on, opt-in, default off): *every* face samples the same top-down p = world.xz,
+    // so a wall pixel (x, y, z_w) shows exactly what the floor pixel at the wall base
+    // (x, floor_y, z_w) shows - the image's row at the wall line extruded vertically. A ring
+    // reaching a wall becomes two vertical stripes from its crossing points; a texture stretches its
+    // edge row up the wall. Because p never depends on world.y the seam is continuous for any anchor
+    // height, and neither edge-pixel normal flicker nor a vertical corner (two walls sharing one XZ)
+    // can tear the pattern. bandAxis = world.y on every face, so min/max become a height slab that
+    // bounds how far up the wall the image stretches. Deliberate trade-off: planar mode shows a 1D
+    // slice (vertically constant colour columns on a wall), not a 2D unwrapped image - that is the
+    // intended "continuation" semantics, not a defect.
     vec3 center = vec3(center_x, center_y, center_z);
     vec2 p;
     vec2 centerP;
     float bandAxis;
-    if (faceId <= 1) {
+    if (stitch != 0.0 || faceId <= 1) {
         p = world.xz;
         centerP = center.xz;
         bandAxis = world.y;
-    } else if (stitch != 0.0) {
-        float unfold = world.y - center.y;
-        centerP = center.xz;
-        if (faceId == 2) {
-            p = vec2(world.x, world.z + unfold);
-        } else if (faceId == 3) {
-            p = vec2(world.x, world.z - unfold);
-        } else if (faceId == 4) {
-            p = vec2(world.x + unfold, world.z);
-        } else {
-            p = vec2(world.x - unfold, world.z);
-        }
-        bandAxis = faceId >= 4 ? world.x : world.z;
     } else {
         vec3 u = cross(vec3(0.0, 1.0, 0.0), n);
         p = vec2(dot(world, u), world.y);
@@ -244,10 +228,13 @@ void main() {
         bodyCoverage = texCoverage;
     }
 
-    // 3-D distance fade from the anchor (fade_radius <= 0 disables it); works on walls too.
+    // Fade from the anchor (fade_radius <= 0 disables it). Planar mode fades by the horizontal
+    // distance, so the wall stripe carries the fade of its source row (the floor pixel at the wall
+    // base) instead of being cut short by its own height, and the anchor's Y stops mattering;
+    // legacy keeps the 3-D distance.
     float fade = 1.0;
     if (fade_radius > 0.0) {
-        float dist = length(world - center);
+        float dist = stitch != 0.0 ? length(world.xz - center.xz) : length(world - center);
         fade = 1.0 - smoothstep(fade_radius * 0.5, fade_radius, dist);
     }
 
@@ -268,6 +255,11 @@ void main() {
         float nm = clamp(normal_mask, 0.0, 1.0);
         float nmUpper = min(nm + 0.2, 1.0);
         faceCov = nm <= 0.0 ? 1.0 : (nmUpper > nm ? smoothstep(nm, nmUpper, abs(nRaw.y)) : (abs(n.y) >= 0.5 ? 1.0 : 0.0));
+    }
+    // A top-down projection cannot light a down-facing surface: a ceiling is in the projector's
+    // shadow, so planar mode never draws it, whatever the face filter says.
+    if (stitch != 0.0 && faceId == 1) {
+        faceCov = 0.0;
     }
     // Band along the dominant axis, with an optional soft edge of half-width `band_softness`
     // (world units): the reconstructed axis coordinate of a surface lying exactly on a bound

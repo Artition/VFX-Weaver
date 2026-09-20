@@ -1,15 +1,14 @@
-# Dev-only guard for the surface_pattern "floor-anchored unfolding" mode (surface.stitch, 2026-09-20).
+# Dev-only guard for the surface_pattern "planar" mode (surface.stitch, 2026-09-20).
 #
 # A wall projected onto its own plane (u, world.y) can never be continuous with the floor's world-XZ
 # plane at a floor/wall edge: the two planes use different physical axes. The opt-in `stitch` mode
-# unfolds the wall into the floor plane instead: unfold = world.y - center.y and
-#   north (-Z): p = (x, z + unfold)   south (+Z): p = (x, z - unfold)
-#   west  (-X): p = (x + unfold, z)   east  (+X): p = (x - unfold, z)
-# with centerP = center.xz in every case. At a wall base with the anchor at floor level the unfolded
-# coordinate equals the floor coordinate at the same world XZ (continuity); the unfold always points
-# away from the viewer, into the wall, beyond the visible floor (so the figure is not double-painted
-# on the visible floor). This script fails if the shader formula regresses or the numeric model no
-# longer holds.
+# makes the pattern coordinate a top-down planar projection instead: EVERY face samples the same
+# p = world.xz, so a wall pixel (x, y, z_w) shows exactly what the floor pixel at the wall base
+# (x, floor_y, z_w) shows - the image's row at the wall line extruded vertically. p never depends on
+# world.y, so the seam is continuous for ANY anchor height (the anchor's Y no longer matters), a
+# ceiling is in the projector's shadow (never drawn), and the fade uses the horizontal distance.
+# This script fails if the shader regresses to the removed unfold reflection or the planar contract
+# is broken.
 #
 # Usage: powershell -ExecutionPolicy Bypass -File scripts/check-surface-stitch.ps1
 # Exits 1 (after listing the problem) on a regression; 0 when the contract holds.
@@ -28,28 +27,38 @@ $selection = [System.IO.File]::ReadAllText($selectionPath)
 
 $problems = New-Object System.Collections.Generic.List[string]
 
-# --- 1. the shader declares the uniform and the unfold branch, with the four formulas ------------
+# --- 1. the shader declares the uniform and the planar branch -----------------------------------
 if ($pattern -notmatch 'float\s+stitch\s*;') {
 	$problems.Add("post/surface_pattern.fsh does not declare 'float stitch;' in the Config block")
 }
-if ($pattern -notmatch 'float\s+unfold\s*=\s*world\.y\s*-\s*center\.y\s*;') {
-	$problems.Add("post/surface_pattern.fsh does not compute 'float unfold = world.y - center.y'")
+# Planar reaches a single p = world.xz branch whenever stitch != 0, regardless of face.
+if ($pattern -notmatch 'if\s*\(\s*stitch\s*!=\s*0\.0\s*\|\|\s*faceId\s*<=\s*1\s*\)\s*\{[\s\S]{0,200}?p\s*=\s*world\.xz\s*;') {
+	$problems.Add("post/surface_pattern.fsh has no single 'if (stitch != 0.0 || faceId <= 1) { p = world.xz; ... }' planar branch")
 }
-if ($pattern -notmatch 'stitch\s*!=\s*0\.0') {
-	$problems.Add("post/surface_pattern.fsh does not branch on 'stitch != 0.0'")
+if ($pattern -notmatch 'centerP\s*=\s*center\.xz\s*;') {
+	$problems.Add("post/surface_pattern.fsh planar branch does not set centerP = center.xz")
 }
-foreach ($formula in @(
-		'vec2\(\s*world\.x\s*,\s*world\.z\s*\+\s*unfold\s*\)',
-		'vec2\(\s*world\.x\s*,\s*world\.z\s*-\s*unfold\s*\)',
-		'vec2\(\s*world\.x\s*\+\s*unfold\s*,\s*world\.z\s*\)',
-		'vec2\(\s*world\.x\s*-\s*unfold\s*,\s*world\.z\s*\)')) {
-	if ($pattern -notmatch $formula) {
-		$problems.Add("post/surface_pattern.fsh is missing the unfold formula $formula")
-	}
+if ($pattern -notmatch 'bandAxis\s*=\s*world\.y\s*;') {
+	$problems.Add("post/surface_pattern.fsh planar branch does not set bandAxis = world.y (height slab)")
+}
+# The removed reflection must not come back.
+if ($pattern -match 'float\s+unfold\s*=') {
+	$problems.Add("post/surface_pattern.fsh still computes 'float unfold = ...' (reflection removed in favour of the planar projection)")
+}
+if ($pattern -match 'world\.y\s*-\s*center\.y') {
+	$problems.Add("post/surface_pattern.fsh still depends on world.y - center.y (the anchor Y must not enter the coordinate)")
 }
 # With stitch off the previous hard switch must survive exactly (u = cross(worldUp, n)).
 if ($pattern -notmatch 'vec3\s+u\s*=\s*cross\(vec3\(0\.0,\s*1\.0,\s*0\.0\),\s*n\)') {
 	$problems.Add("post/surface_pattern.fsh lost the legacy wall projection (u = cross(worldUp, n)) in the stitch-off branch")
+}
+# Planar fades by the horizontal distance; legacy keeps the 3-D distance.
+if ($pattern -notmatch 'stitch\s*!=\s*0\.0\s*\?\s*length\(world\.xz\s*-\s*center\.xz\)\s*:\s*length\(world\s*-\s*center\)') {
+	$problems.Add("post/surface_pattern.fsh fade does not use the horizontal distance in planar mode and the 3-D distance otherwise")
+}
+# A ceiling is in the top-down projector's shadow and must be excluded.
+if ($pattern -notmatch 'if\s*\(\s*stitch\s*!=\s*0\.0\s*&&\s*faceId\s*==\s*1\s*\)\s*\{[\s\S]{0,120}?faceCov\s*=\s*0\.0\s*;') {
+	$problems.Add("post/surface_pattern.fsh does not zero faceCov for a ceiling (faceId == 1) in planar mode")
 }
 
 # --- 2. the three-place UBO contract ------------------------------------------------------------
@@ -75,66 +84,59 @@ if ($selection -notmatch 'this\.stitch\s*=\s*stitch\s*;') {
 }
 
 # --- 4. numeric model ---------------------------------------------------------------------------
-# Mirrors the shader branch: returns the unfolded in-plane coordinate for a wall fragment.
-function Get-UnfoldP([int]$FaceId, [double]$X, [double]$Y, [double]$Z, [double]$Cx, [double]$Cy) {
-	$u = $Y - $Cy
-	switch ($FaceId) {
-		2 { return @($X, ($Z + $u)) }   # north (-Z)
-		3 { return @($X, ($Z - $u)) }   # south (+Z)
-		4 { return @(($X + $u), $Z) }   # west (-X)
-		5 { return @(($X - $u), $Z) }   # east (+X)
-		default { throw "Get-UnfoldP: not a wall face id: $FaceId" }
-	}
+# Mirrors the shader: planar p = world.xz, independent of world.y and of the anchor's Y.
+function Get-PlanarP([double]$X, [double]$Z) {
+	return @($X, $Z)
+}
+
+# Mirrors the ceiling guard: faceId == 1 (down) gets zero coverage, every other face is untouched.
+function Get-PlanarFaceCov([int]$FaceId) {
+	if ($FaceId -eq 1) { return 0.0 }
+	return 1.0
 }
 
 $tol = 1.0e-9
 $floorY = 64.0
 $worldX = 7.25
 $worldZ = -3.5
-# Anchor at floor level: center.y == floor_y.
-$centerY = $floorY
 
-# 4a. continuity at the wall base: unfolded coordinate == floor coordinate (x, z) at the same XZ.
-foreach ($face in @(2, 3, 4, 5)) {
-	$p = Get-UnfoldP $face $worldX $floorY $worldZ 0.0 $centerY
+# 4a. the wall pixel (x, y, z) and the floor pixel at its base (x, floor_y, z) share one coordinate,
+# for any wall height.
+foreach ($height in @(0.0, 1.62, 100.0)) {
+	$wall = Get-PlanarP $worldX $worldZ
+	$floor = Get-PlanarP $worldX $worldZ
+	if ([Math]::Abs($wall[0] - $floor[0]) -gt $tol -or [Math]::Abs($wall[1] - $floor[1]) -gt $tol) {
+		$problems.Add("planar coordinate is not shared by the wall at height $height and its base floor pixel")
+	}
+}
+
+# 4b. the coordinate does not depend on the anchor height at all: every anchor gives the same p.
+foreach ($centerY in @($floorY, $floorY + 1.62, -123.0)) {
+	$p = Get-PlanarP $worldX $worldZ
 	if ([Math]::Abs($p[0] - $worldX) -gt $tol -or [Math]::Abs($p[1] - $worldZ) -gt $tol) {
-		$problems.Add("stitch continuity broken on face $face at the base: p=($($p[0]), $($p[1])) != floor ($worldX, $worldZ)")
+		$problems.Add("planar coordinate moved with anchor Y ${centerY}: p=($($p[0]), $($p[1]))")
 	}
 }
 
-# 4b. the unfold direction points away from the viewer for all four wall signs (h above the base).
-$h = 2.0
-# Each entry: face, viewer side, the axis the unfold moves, and the sign of that movement.
-foreach ($case in @(
-		@{ Face = 2; Name = "north (-Z)"; Axis = 1; Sign = +1 },  # away = +Z
-		@{ Face = 3; Name = "south (+Z)"; Axis = 1; Sign = -1 },  # away = -Z
-		@{ Face = 4; Name = "west (-X)";  Axis = 0; Sign = +1 },  # away = +X
-		@{ Face = 5; Name = "east (+X)";  Axis = 0; Sign = -1 })) { # away = -X
-	$p = Get-UnfoldP $case.Face $worldX ($floorY + $h) $worldZ 0.0 $centerY
-	$delta = $p[$case.Axis] - $worldZ
-	if ($case.Axis -eq 0) { $delta = $p[0] - $worldX }
-	if ([Math]::Abs($delta - $case.Sign * $h) -gt $tol) {
-		$problems.Add("stitch unfold on $($case.Name) does not move $($case.Sign*$h) along axis $($case.Axis): delta=$delta")
+# 4c. planar excludes the ceiling (faceId == 1) and keeps every other orientation.
+if ((Get-PlanarFaceCov 1) -ne 0.0) {
+	$problems.Add("planar ceiling faceId 1 must get zero coverage")
+}
+foreach ($face in @(0, 2, 3, 4, 5)) {
+	if ((Get-PlanarFaceCov $face) -ne 1.0) {
+		$problems.Add("planar mode must keep non-ceiling face $face")
 	}
 }
 
-# 4c. documented limitation: an anchor above the floor shifts the wall by floor_y - center.y.
-$eyeY = $floorY + 1.62
-$shifted = Get-UnfoldP 2 $worldX $floorY $worldZ 0.0 $eyeY
-$shift = ($worldZ + ($floorY - $eyeY)) - $worldZ
-if ([Math]::Abs($shift - ($floorY - $eyeY)) -gt $tol -or [Math]::Abs($shift) -lt 1.0) {
-	$problems.Add("stitch limitation model wrong: an eye-level anchor must shift the wall by floor_y - center.y = $($floorY - $eyeY), got $shift")
-}
-
-Write-Host "surface_pattern stitch check"
-Write-Host "  shader: unfold = world.y - center.y; north/south keep X and offset Z, west/east keep Z and offset X"
-Write-Host "  base continuity (anchor at floor $floorY): all four walls == floor coordinate at the same XZ"
-Write-Host "  unfold direction: north +Z, south -Z, west +X, east -X (away from the viewer)"
-Write-Host "  eye-anchor ($eyeY) seam shift: $($floorY - $eyeY) blocks (documented limitation)"
+Write-Host "surface_pattern stitch check (planar)"
+Write-Host "  shader: planar p = world.xz on EVERY face when stitch != 0; legacy u = cross(worldUp, n) otherwise"
+Write-Host "  wall pixel (x, y, z) shows the floor base pixel (x, $floorY, z): same coordinate for any y"
+Write-Host "  anchor Y does not enter the coordinate: continuity holds for any anchor height"
+Write-Host "  ceiling (faceId == 1) excluded in planar mode; fade uses the horizontal distance"
 if ($problems.Count -gt 0) {
 	$problems | ForEach-Object { Write-Host "  - $_" }
 	Write-Error "surface_pattern stitch check failed ($($problems.Count) problem(s))."
 	exit 1
 }
-Write-Host "Stitch OK: the wall unfolds into the floor plane, continuous at the base with a floor-level anchor."
+Write-Host "Stitch OK: planar top-down projection; continuous at the base for any anchor height, no ceiling."
 exit 0
