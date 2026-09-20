@@ -209,9 +209,16 @@ void main() {
                 }
                 vec3 auraFieldPos = (leafSpace == 1) ? volumePoint : vec3(texCoord, mask_time);
                 d += fieldValue(int(so.w + 0.5), auraFieldPos, field_params[i].y, field_params[i].z) * field_params[i].x;
-                float softness = max(so.z, 1.0e-4);
-                float silhouette = clamp(0.5 - d / softness, 0.0, 1.0);
-                // Occlusion: a visible surface nearer than the volume entry hides the aura. The entry
+				float softness = max(so.z, 1.0e-4);
+				float silhouette = clamp(0.5 - d / softness, 0.0, 1.0);
+				// Grazing fade: when the camera sits on (or near) the volume surface the visible edge
+				// is the horizon, where the chord collapses (tExit -> 0) while the midpoint SDF still
+				// reads ~0 - the binary reject above would step from a half tint straight to nothing.
+				// Ramp coverage in over a world-space width set by softness instead, so a small
+				// softness keeps a tight (but still smooth) edge and a large one gives a wide ramp.
+				// At tExit == chordEps the fade is 0, matching the reject, so the border is continuous.
+				float horizonFade = clamp((tExit - chordEps) / softness, 0.0, 1.0);
+				// Occlusion: a visible surface nearer than the volume entry hides the aura. The entry
                 // is compared against a distance reconstructed from the depth buffer, so the
                 // threshold carries a slack proportional to that distance (a fixed world bias cannot
                 // survive large distances); the relative slack keeps depth error from banding the
@@ -222,8 +229,8 @@ void main() {
                     float depthSlack = sceneDist * 2.0e-3;
                     occluded = clamp(0.5 - (tEnter - sceneDist - depthSlack) / softness, 0.0, 1.0);
                 }
-                cov = silhouette * occluded;
-            }
+				cov = silhouette * occluded * horizonFade;
+			}
         } else {
             // The shared library's 2D/3D dispatcher: (kind, space, uv, world, centre, rotation, p0, p1).
             float d = vfx_shape_sdf_dispatch(kind, leafSpace, texCoord, world, shape_center[i].xyz, shape_center[i].w, shape_params0[i], shape_params1[i]);
