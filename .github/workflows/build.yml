@@ -35,8 +35,26 @@ jobs:
           distribution: 'microsoft'
       - name: make gradle wrapper executable
         run: chmod +x ./gradlew
+      # stonecutter.gradle is git-ignored (it is a per-developer choice of which node's comment
+      # form is on disk). Without it Stonecutter cannot transform the committed 26.1.2 source for
+      # the other nodes. Declare the on-disk base so every node's guarded source is materialised
+      # correctly; this is the same content a developer has locally (see AGENTS.md, Multi-version).
+      - name: activate stonecutter version
+        run: |
+          printf 'plugins {\n\tid "dev.kikugie.stonecutter"\n}\nstonecutter.active "26.1.2"\n' > stonecutter.gradle
+          cat stonecutter.gradle
+      # Retry the whole build so a transient Maven Central 429 / network flake does not fail the
+      # job. No extra Gradle plugins; the retry only re-runs the already-configured build.
       - name: build ${{ matrix.node }}
-        run: ./gradlew :${{ matrix.node }}:build
+        run: |
+          for attempt in 1 2 3; do
+            if ./gradlew :${{ matrix.node }}:build --console=plain; then
+              exit 0
+            fi
+            echo "::warning::build ${{ matrix.node }} attempt $attempt failed; retrying in 20s"
+            sleep 20
+          done
+          exit 1
       - name: capture build artifacts
         uses: actions/upload-artifact@v7
         with:
