@@ -18,10 +18,14 @@ import com.mojang.blaze3d.systems.SamplerCache;
 import com.mojang.blaze3d.textures.FilterMode;
 import dev.vfxweaver.client.effect.VFXEffectManager;
 import dev.vfxweaver.effect.VFXActiveEffect;
+import dev.vfxweaver.effect.VFXDefinition;
+import dev.vfxweaver.effect.VFXEffectType;
 import dev.vfxweaver.field.VFXFieldProgram;
+import dev.vfxweaver.field.VFXShape;
 import dev.vfxweaver.mask.VFXCustomShape;
 import dev.vfxweaver.mask.VFXMask;
 import dev.vfxweaver.mask.VFXShapeRegistry;
+import dev.vfxweaver.resource.VFXDefinitionManager;
 import dev.vfxweaver.util.VFXLog;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -35,6 +39,7 @@ import java.util.OptionalInt;
 import java.util.function.Consumer;
 import net.minecraft.client.renderer.MappableRingBuffer;
 import net.minecraft.client.Minecraft;
+import net.minecraft.core.BlockPos;
 //? if <26.1 {
 /*import net.minecraft.client.renderer.CachedOrthoProjectionMatrixBuffer;
 *///?} else {
@@ -44,6 +49,7 @@ import net.minecraft.client.renderer.ProjectionMatrixBuffer;
 import net.minecraft.resources.Identifier;
 import net.minecraft.util.Mth;
 import org.joml.Matrix4fc;
+import org.joml.Vector3f;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -144,9 +150,14 @@ public final class VFXPostProcessingManager {
 	 *              2 = above everything including the GUI
 	 */
 	public void process(final VFXEffectManager effects, final RenderTarget mainTarget, final int layer) {
+		// The scene depth buffer is only intact at screen layer 0 (depth findings), so
+		// surface_pattern defaults there. Depth is also unusable when the main target has no depth
+		// attachment or the camera snapshot is missing (e.g. the first frame after load): the pass
+		// is then replaced by a passthrough below instead of reading garbage.
 		List<VFXActiveEffect> active = new ArrayList<>();
 		for (VFXActiveEffect effect : effects.getActivePostEffects()) {
-			if (Math.round(Mth.clamp(effect.getParam("screen_layer", 1.0F), 0.0F, 2.0F)) == layer) {
+			float defaultLayer = effect.getType() == VFXEffectType.SURFACE_PATTERN ? 0.0F : 1.0F;
+			if (Math.round(Mth.clamp(effect.getParam("screen_layer", defaultLayer), 0.0F, 2.0F)) == layer) {
 				active.add(effect);
 			}
 		}
@@ -164,11 +175,15 @@ public final class VFXPostProcessingManager {
 
 		boolean anyField = false;
 		boolean anyDepthField = false;
+		boolean anyDepthPass = false;
 		for (final VFXActiveEffect effect : active) {
 			anyField |= !effect.getTimeline().getFields().isEmpty();
 			anyDepthField |= effect.getTimeline().fieldNeedsDepth();
+			for (final VFXShaderPrograms.ProgramInfo info : VFXShaderPrograms.getPrograms(effect.getType())) {
+				anyDepthPass |= info.depthConfig();
+			}
 		}
-		if (anyField) {
+		if (anyField || anyDepthPass) {
 			final boolean valid = layer == 0 && depthRecipeVerified();
 			VFXFieldEnv.capture(mainTarget, valid);
 			if (!valid && anyDepthField) {
@@ -191,6 +206,7 @@ public final class VFXPostProcessingManager {
 		// one shared coverage-read consumer after any effect that declares a mask (spec §4). A
 		// definition without a mask gets exactly the same chain as before — the additive contract.
 		final VFXShaderPrograms.ProgramInfo maskInfo = VFXShaderPrograms.maskProgram();
+		final boolean depthReady = VFXFieldEnv.depthValid() && mainTarget.getDepthTextureView() != null;
 		List<PassRun> chain = new ArrayList<>();
 		for (VFXActiveEffect effect : active) {
 			List<VFXShaderPrograms.ProgramInfo> infos = VFXShaderPrograms.getPrograms(effect.getType());
@@ -199,7 +215,14 @@ public final class VFXPostProcessingManager {
 			}
 			final boolean masked = effect.getMask() != null && maskInfo != null;
 			for (int i = 0; i < infos.size(); i++) {
-				chain.add(new PassRun(this.pass(infos.get(i)), effect, false, masked && i == 0));
+				final VFXShaderPrograms.ProgramInfo info = infos.get(i);
+				if (info.depthConfig() && !depthReady) {
+					VFXLog.warnOnce(LOGGER, "surface_pattern:nodepth:" + effect.getId(),
+						"Effect '{}' needs scene depth but it is unavailable (main target depth missing or camera not ready); rendering a passthrough", effect.getId());
+					chain.add(new PassRun(this.copyPass(), effect, false, masked && i == 0));
+					continue;
+				}
+				chain.add(new PassRun(this.pass(info), effect, false, masked && i == 0));
 			}
 			if (masked) {
 				chain.add(new PassRun(this.pass(maskInfo), effect, true, false));
@@ -546,6 +569,10 @@ public final class VFXPostProcessingManager {
 		private final boolean hasField;
 		private final boolean mask;
 		private final boolean coverage;
+		/** True when this pass's {@code Config} starts with {@code mat4 inv_view_proj} and it binds {@code DepthSampler}. */
+		private final boolean depthConfig;
+		/** The depth pass's resolved anchor (the shape centre / first position / camera), reused every frame. */
+		private final Vector3f scratchAnchor = new Vector3f();
 		private final Map<String, com.mojang.blaze3d.textures.GpuTextureView> textureCache = new HashMap<>();
 
 		private VFXPass(final VFXShaderPrograms.ProgramInfo info) {
@@ -562,6 +589,7 @@ public final class VFXPostProcessingManager {
 			this.fieldInput = info.fieldInput();
 			this.mask = info.mask();
 			this.coverage = info.coverage();
+			this.depthConfig = info.depthConfig();
 		}
 
 		VFXShaderPrograms.PassRole role() {
@@ -600,16 +628,53 @@ public final class VFXPostProcessingManager {
 			GpuBufferSlice config = null;
 			if (this.hasConfig && effect != null) {
 				final float weight = effect.getWeight();
+				// The structural shape (surface_pattern) describes the world anchor and the figure
+				// numbers; the shared VFXShape owns them and the reserved Config names carry them to
+				// the shader. They never come from the timeline.
+				final VFXShape shape = this.depthConfig ? shapeSpec(effect) : null;
+				if (this.depthConfig) {
+					this.resolveAnchor(effect, shape);
+				}
 				config = this.arena.write(encoder, builder -> {
+					if (this.depthConfig) {
+						// spec §5 / depth findings: viewRotProj has no translation; the matrix was
+						// already built translate(-camPos) then inverted, so write it as-is.
+						builder.putMat4f(VFXFieldEnv.invViewProj());
+					}
 					for (String param : this.configParams) {
-						// Reserved "time" and "hold" parameters: never faded, filled from the
-						// effect age / the CPU hold-gate instead of a user parameter.
+						// Reserved parameters never come from the timeline: "time"/"hold" are the
+						// existing reserved names; the "center_*"/figure names describe the world
+						// anchor and the structural shape block, all owned by the shared VFXShape.
 						float raw;
 						boolean reserved = "time".equals(param) || "hold".equals(param);
 						if ("time".equals(param)) {
 							raw = effect.getAge();
 						} else if ("hold".equals(param)) {
 							raw = hold != null ? hold : 0.0F;
+						} else if (this.depthConfig && isReservedDepthParam(param)) {
+							reserved = true;
+							raw = switch (param) {
+								case "center_x" -> this.scratchAnchor.x;
+								case "center_y" -> this.scratchAnchor.y;
+								case "center_z" -> this.scratchAnchor.z;
+								case "shape" -> shape == null ? 0.0F : (float) shape.figure().ordinal();
+								case "fill" -> shape == null ? 0.0F : (float) shape.fill().ordinal();
+								case "rotation" -> shape == null ? 0.0F : shape.rotation();
+								// The numeric line_width param, when authored, overrides the
+								// shape's structural stroke width.
+								case "stroke_width" -> effect.getParam("line_width", shape == null ? 0.0F : shape.strokeWidth());
+								case "softness" -> shape == null ? 0.0F : shape.softness();
+								case "repeat_x" -> shape == null ? 1.0F : (float) shape.repeatX();
+								case "repeat_y" -> shape == null ? 1.0F : (float) shape.repeatY();
+								case "radius" -> shape == null ? 0.0F : shape.radius();
+								case "radius_x" -> shape == null ? 0.0F : shape.radiusX();
+								case "radius_y" -> shape == null ? 0.0F : shape.radiusY();
+								case "half_width" -> shape == null ? 0.0F : shape.halfWidth();
+								case "half_height" -> shape == null ? 0.0F : shape.halfHeight();
+								case "corner_radius" -> shape == null ? 0.0F : shape.cornerRadius();
+								case "sides" -> shape == null ? 3.0F : (float) shape.sides();
+								default -> effect.getParam(param, 0.0F);
+							};
 						} else {
 							raw = effect.getParam(param, 0.0F);
 						}
@@ -739,6 +804,40 @@ public final class VFXPostProcessingManager {
 		private com.mojang.blaze3d.textures.GpuTextureView resolveTexture(final String id) {
 			return this.textureCache.computeIfAbsent(id, key ->
 				Minecraft.getInstance().getTextureManager().getTexture(Identifier.parse(key)).getTextureView());
+		}
+
+		/** The structural shape of a {@code surface_pattern} effect, or {@code null}. */
+		private static @Nullable VFXShape shapeSpec(final VFXActiveEffect effect) {
+			final VFXDefinition definition = VFXDefinitionManager.get().get(effect.getId());
+			return definition == null ? null : definition.getPattern();
+		}
+
+		/**
+		 * Fills {@link #scratchAnchor}: the shape's structural centre, else the effect's first world
+		 * position (block centre), else the camera snapshot, else {@code (0, 0, 0)}.
+		 */
+		private void resolveAnchor(final VFXActiveEffect effect, final @Nullable VFXShape shape) {
+			if (shape != null && shape.center() != null) {
+				final float[] center = shape.center();
+				this.scratchAnchor.set(center[0], center[1], center[2]);
+				return;
+			}
+			if (!effect.getPositions().isEmpty()) {
+				final BlockPos pos = effect.getPositions().get(0);
+				this.scratchAnchor.set(pos.getX() + 0.5F, pos.getY() + 0.5F, pos.getZ() + 0.5F);
+				return;
+			}
+			this.scratchAnchor.set(VFXFieldEnv.cameraX(), VFXFieldEnv.cameraY(), VFXFieldEnv.cameraZ());
+		}
+
+		/** True for the depth Config names the manager resolves from the shape/anchor, not the timeline. */
+		private static boolean isReservedDepthParam(final String param) {
+			return switch (param) {
+				case "center_x", "center_y", "center_z", "shape", "fill", "rotation", "stroke_width",
+					"softness", "repeat_x", "repeat_y", "radius", "radius_x", "radius_y",
+					"half_width", "half_height", "corner_radius", "sides" -> true;
+				default -> false;
+			};
 		}
 	}
 
