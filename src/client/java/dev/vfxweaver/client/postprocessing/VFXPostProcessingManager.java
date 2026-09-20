@@ -28,6 +28,7 @@ import dev.vfxweaver.mask.VFXMask;
 import dev.vfxweaver.mask.VFXShapeRegistry;
 import dev.vfxweaver.resource.VFXDefinitionManager;
 import dev.vfxweaver.util.VFXLog;
+import dev.vfxweaver.util.VFXReloadSafeCache;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -574,7 +575,12 @@ public final class VFXPostProcessingManager {
 		private final boolean depthConfig;
 		/** The depth pass's resolved anchor (the shape centre / first position / camera), reused every frame. */
 		private final Vector3f scratchAnchor = new Vector3f();
-		private final Map<String, com.mojang.blaze3d.textures.GpuTextureView> textureCache = new HashMap<>();
+		/**
+		 * The field/pattern texture views, keyed by resource id. The loader is cached, never the
+		 * view: a resource reload closes and recreates the texture's view, so a cached view would
+		 * dangle after {@code /reload} (see {@link VFXReloadSafeCache}).
+		 */
+		private final VFXReloadSafeCache<com.mojang.blaze3d.textures.GpuTextureView> textureViews = new VFXReloadSafeCache<>();
 
 		private VFXPass(final VFXShaderPrograms.ProgramInfo info) {
 			this.pipeline = info.pipeline();
@@ -737,7 +743,8 @@ public final class VFXPostProcessingManager {
 				}
 				if (field != null) {
 					final String texture = fieldProgram == null ? null : fieldProgram.texture();
-					renderPass.bindTexture("fld_tex0", texture == null ? input.getColorTextureView() : resolveTexture(texture), samplerCache.getClampToEdge(FilterMode.LINEAR));
+					final com.mojang.blaze3d.textures.GpuTextureView textureView = texture == null ? null : resolveTexture(texture);
+					renderPass.bindTexture("fld_tex0", textureView == null ? input.getColorTextureView() : textureView, samplerCache.getClampToEdge(FilterMode.LINEAR));
 				}
 				//? if <26.2 {
 				renderPass.draw(0, 3);
@@ -803,13 +810,14 @@ public final class VFXPostProcessingManager {
 		}
 
 		/**
-		 * Resolves a field texture to its view. Cached per pipeline; a datapack that swaps the
-		 * texture id at runtime re-resolves once. ponytail: unbounded cache, capped in practice by
-		 * the definition count (bounded by the datapack caps).
+		 * Resolves a standalone field texture to its current view. The descriptor lookup is cached,
+		 * the view is re-derived on every call: a resource reload closes and nulls the old view, so
+		 * caching the view itself left a dangling handle (the {@code /reload} bug). A datapack that
+		 * swaps the texture id at runtime resolves a new key.
 		 */
 		private com.mojang.blaze3d.textures.GpuTextureView resolveTexture(final String id) {
-			return this.textureCache.computeIfAbsent(id, key ->
-				Minecraft.getInstance().getTextureManager().getTexture(Identifier.parse(key)).getTextureView());
+			return this.textureViews.get(id, () ->
+				Minecraft.getInstance().getTextureManager().getTexture(Identifier.parse(id)).getTextureView());
 		}
 
 		/** The structural shape of a {@code surface_pattern} effect, or {@code null}. */
