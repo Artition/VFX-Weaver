@@ -3,7 +3,10 @@
 
 Versioned feature history — **[docs/CHANGELOG.md](../CHANGELOG.md)**.
 
-Guide version: 46 — see changelog below.
+Guide version: 47 — see changelog below.
+
+### v47 — released as 2.0.0
+- **Mod version 2.0.0.** Everything accumulated since v32 — guides v33–v46: value graphs and macros, per-pixel fields, masks with block geometry and GLSL-plugin shapes, `surface_pattern` with textures/faces/bands/stitch, spark particles and `/vfx stop [<player>]`, plus per-line scene depth — ships together as **2.0.0**. No guide behaviour changed in this entry; only `mod_version` and the version wording moved, so the actual changes are the v33–v46 entries below.
 
 ### v46
 - **Textured `surface_pattern` now resolves on 1.21.11 (and on 26.1.2/26.2 without the first-frame abort).** The texture resolver was written inside a `>=26.1` guard with a neutral fallback for the `1.21.11` node, so once the depth pass started running there the texture never resolved, `tex_flags` never reached the `RESOLVED` bit and every textured projection drew nothing (the built-in procedural figure still worked). The resolver now has a real per-node implementation — 26.2/26.1.2 through the `sprite` AtlasManager (`SpriteId` keyed by `TextureAtlas.location()`), 1.21.11 through the remapped model AtlasManager and `TextureAtlas.getSprite` — funnelling every source form (`block`/`item`/`atlas`/`standalone`) through one `resolved(...)` factory that sets the flag bit. A standalone texture is shared by both nodes. See [2.1](surface-pattern.md#surface_pattern).
