@@ -113,6 +113,11 @@ public final class VFXShaderPrograms {
 	private static final BindGroupLayout GEOMETRY_COVERAGE_SAMPLER_LAYOUT = BindGroupLayout.builder()
 		.withSampler("GeometryCoverageSampler")
 		.build();
+	// The depth pass's pattern texture (textured surface_pattern). The sampler name must match
+	// surface_pattern.fsh's declaration (`PatternSampler`).
+	private static final BindGroupLayout PATTERN_SAMPLER_LAYOUT = BindGroupLayout.builder()
+		.withSampler("PatternSampler")
+		.build();
 	*///?}
 
 	/**
@@ -196,7 +201,13 @@ public final class VFXShaderPrograms {
 			// face_mask: -1 = legacy normal_mask; >= 0 = the surface block's 6-bit face set.
 			// band_min/band_max: inclusive band along the fragment's dominant normal axis.
 			// band_softness: half-width (blocks) of the band edge fade (0 = hard, legacy).
-			"face_mask", "band_min", "band_max", "band_softness");
+			"face_mask", "band_min", "band_max", "band_softness",
+			// Textured figure (pattern.texture), appended after band_softness in this exact order
+			// (std140 offsets are positional; the shader's Config block mirrors it).
+			// shape_present, tex_u0/v0/u1/v1, tex_aspect, tex_cols, tex_rows, tex_frame,
+			// tex_flags, tex_channel, texture_tint.
+			"shape_present", "tex_u0", "tex_v0", "tex_u1", "tex_v1", "tex_aspect",
+			"tex_cols", "tex_rows", "tex_frame", "tex_flags", "tex_channel", "texture_tint");
 		//?}
 
 		copyPipeline = RenderPipelines.register(
@@ -393,11 +404,13 @@ public final class VFXShaderPrograms {
 			//? if <26.2 {
 			.withSampler("InSampler")
 			.withSampler("DepthSampler")
+			.withSampler("PatternSampler")
 			.withUniform("SamplerInfo", UniformType.UNIFORM_BUFFER)
 			.withUniform("Config", UniformType.UNIFORM_BUFFER)
 			//?} else {
 			/*.withBindGroupLayout(BindGroupLayouts.IN_SAMPLER)
 			.withBindGroupLayout(DEPTH_SAMPLER_LAYOUT)
+			.withBindGroupLayout(PATTERN_SAMPLER_LAYOUT)
 			.withBindGroupLayout(SAMPLER_INFO_CONFIG_LAYOUT)
 			*///?}
 			.build();

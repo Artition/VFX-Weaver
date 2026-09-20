@@ -13,9 +13,13 @@
 // VFXShaderPrograms.registerDepthPost — std140 offsets are positional.
 #moj_import <vfxweaver:shape.glsl>
 #moj_import <vfxweaver:camera.glsl>
+#moj_import <vfxweaver:texture.glsl>
 
 uniform sampler2D InSampler;
 uniform sampler2D DepthSampler;
+// The pattern texture (block/item/atlas sprite or standalone). Bound to the input target when the
+// effect has no texture, so the pipeline layout is always satisfied.
+uniform sampler2D PatternSampler;
 
 in vec2 texCoord;
 
@@ -56,6 +60,22 @@ layout(std140) uniform Config {
     float band_min;
     float band_max;
     float band_softness;
+    // Appended after band_softness (VFXShaderPrograms.registerDepthPost, positional std140).
+    // shape_present: 1 when the definition authored a figure, so a texture-only pattern is not
+    // clipped to the defaulted circle. tex_*: the resolved texture rect (atlas sub-rect or 0..1),
+    // pixel aspect, sheet grid, frame, channel code and a present/preserve flag bitmask.
+    float shape_present;
+    float tex_u0;
+    float tex_v0;
+    float tex_u1;
+    float tex_v1;
+    float tex_aspect;
+    float tex_cols;
+    float tex_rows;
+    float tex_frame;
+    float tex_flags;
+    float tex_channel;
+    float texture_tint;
 };
 
 out vec4 fragColor;
@@ -128,6 +148,33 @@ void main() {
     float shapeCoverage = vfx_shape_pattern_coverage(int(shape + 0.5), int(fill + 0.5), cell,
         vec2(repeat_x, repeat_y), shape0, shape1, stroke_width, softness);
 
+    // Textured figure (pattern.texture): the texture is the figure, and an authored figure becomes
+    // its mask — coverage = texture channel * shape coverage, so a texture with no figure is not
+    // clipped. The texture reuses the exact figure cell (vfx_shape_cell: rotate -> repeat -> cell),
+    // so it rotates and tiles with the figure. tex_flags bits: 1 = texture authored, 2 = resolved,
+    // 4 = preserve aspect. An authored-but-unresolved texture is fail-closed (coverage 0, never the
+    // procedural figure). The atlas/sheet rect comes from the CPU (a fragment has no atlas
+    // knowledge) in 0..1.
+    vec3 patternRGB = vec3(color_r, color_g, color_b);
+    float bodyCoverage = shapeCoverage;
+    if (mod(floor(tex_flags), 2.0) >= 0.5) {
+        float texCoverage = 0.0;
+        if (mod(floor(tex_flags / 2.0), 2.0) >= 0.5) {
+            vec2 uv = vfx_shape_cell(cell, vec2(repeat_x, repeat_y), rotation) + 0.5;
+            if (mod(floor(tex_flags / 4.0), 2.0) >= 0.5) {
+                uv = vfx_texture_aspect(uv, tex_aspect);
+            }
+            vec4 texel = vfx_texture_sample(PatternSampler, uv,
+                vec4(tex_u0, tex_v0, tex_u1, tex_v1), vec2(tex_cols, tex_rows), tex_frame);
+            texCoverage = clamp(vfx_texture_channel(texel, int(tex_channel + 0.5)), 0.0, 1.0);
+            patternRGB = mix(texel.rgb, texel.rgb * vec3(color_r, color_g, color_b), clamp(texture_tint, 0.0, 1.0));
+        }
+        if (shape_present >= 0.5) {
+            texCoverage *= shapeCoverage;
+        }
+        bodyCoverage = texCoverage;
+    }
+
     // 3-D distance fade from the anchor (fade_radius <= 0 disables it); works on walls too.
     float fade = 1.0;
     if (fade_radius > 0.0) {
@@ -159,6 +206,6 @@ void main() {
         bandCov = (bandAxis >= band_min && bandAxis <= band_max) ? 1.0 : 0.0;
     }
 
-    float coverage = clamp(shapeCoverage * fade * faceCov * bandCov * clamp(opacity, 0.0, 1.0), 0.0, 1.0);
-    fragColor = vec4(mix(base.rgb, vec3(color_r, color_g, color_b), coverage), base.a);
+    float coverage = clamp(bodyCoverage * fade * faceCov * bandCov * clamp(opacity, 0.0, 1.0), 0.0, 1.0);
+    fragColor = vec4(mix(base.rgb, patternRGB, coverage), base.a);
 }

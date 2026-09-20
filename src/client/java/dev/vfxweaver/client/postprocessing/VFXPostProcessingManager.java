@@ -16,6 +16,7 @@ import com.mojang.blaze3d.systems.RenderPass;
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.systems.SamplerCache;
 import com.mojang.blaze3d.textures.FilterMode;
+import com.mojang.blaze3d.textures.GpuTextureView;
 import dev.vfxweaver.client.effect.VFXEffectManager;
 import dev.vfxweaver.effect.VFXActiveEffect;
 import dev.vfxweaver.effect.VFXDefinition;
@@ -23,6 +24,7 @@ import dev.vfxweaver.effect.VFXEffectType;
 import dev.vfxweaver.field.VFXFieldProgram;
 import dev.vfxweaver.field.VFXShape;
 import dev.vfxweaver.field.VFXSurfaceSelection;
+import dev.vfxweaver.field.VFXTexture;
 import dev.vfxweaver.mask.VFXCustomShape;
 import dev.vfxweaver.mask.VFXMask;
 import dev.vfxweaver.mask.VFXShapeRegistry;
@@ -632,14 +634,17 @@ public final class VFXPostProcessingManager {
 			final GpuBufferSlice samplerInfo = this.arena.write(encoder, builder ->
 				builder.putVec2(output.width, output.height).putVec2(input.width, input.height));
 
+			// The structural shape/surface/texture describe the world anchor and the figure; the
+			// shared VFXShape owns them and the reserved Config names carry them to the shader.
+			// Resolved before the uniform lambda so the lambda can capture them as final locals.
+			final VFXShape shape = this.depthConfig && effect != null ? shapeSpec(effect) : null;
+			final VFXSurfaceSelection surface = this.depthConfig && effect != null ? surfaceSpec(effect) : null;
+			final PatternTexture patternTexture = this.depthConfig && effect != null
+				? resolvePatternTexture(shape == null ? null : shape.texture(), effect.getId())
+				: PatternTexture.ABSENT;
 			GpuBufferSlice config = null;
 			if (this.hasConfig && effect != null) {
 				final float weight = effect.getWeight();
-				// The structural shape (surface_pattern) describes the world anchor and the figure
-				// numbers; the shared VFXShape owns them and the reserved Config names carry them to
-				// the shader. They never come from the timeline.
-				final VFXShape shape = this.depthConfig ? shapeSpec(effect) : null;
-				final VFXSurfaceSelection surface = this.depthConfig ? surfaceSpec(effect) : null;
 				if (this.depthConfig) {
 					this.resolveAnchor(effect, shape);
 				}
@@ -667,7 +672,10 @@ public final class VFXPostProcessingManager {
 								case "center_z" -> this.scratchAnchor.z;
 								case "shape" -> shape == null ? 0.0F : (float) shape.figure().ordinal();
 								case "fill" -> shape == null ? 0.0F : (float) shape.fill().ordinal();
-								case "rotation" -> shape == null ? 0.0F : shape.rotation();
+								// A numeric rotation param, when authored, overrides the structural
+								// rotation (same style as line_width overriding stroke_width): the
+								// value spins the figure and the texture together.
+								case "rotation" -> effect.getParam("rotation", shape == null ? 0.0F : shape.rotation());
 								// The numeric line_width param, when authored, overrides the
 								// shape's structural stroke width.
 								case "stroke_width" -> effect.getParam("line_width", shape == null ? 0.0F : shape.strokeWidth());
@@ -685,6 +693,22 @@ public final class VFXPostProcessingManager {
 								case "band_min" -> surface == null ? VFXSurfaceSelection.UNBOUNDED_MIN : surface.min();
 								case "band_max" -> surface == null ? VFXSurfaceSelection.UNBOUNDED_MAX : surface.max();
 								case "band_softness" -> surface == null ? VFXSurfaceSelection.DEFAULT_BAND_SOFTNESS : surface.bandSoftness();
+								// Textured figure: shape_present gates the shape mask; the tex_*
+								// values come from the resolved texture descriptor (atlas rect,
+								// aspect, sheet, frame, flags, channel).
+								case "shape_present" -> shape == null ? 0.0F : (shape.figureAuthored() ? 1.0F : 0.0F);
+								case "tex_u0" -> patternTexture.u0();
+								case "tex_v0" -> patternTexture.v0();
+								case "tex_u1" -> patternTexture.u1();
+								case "tex_v1" -> patternTexture.v1();
+								case "tex_aspect" -> patternTexture.aspect();
+								case "tex_cols" -> patternTexture.cols();
+								case "tex_rows" -> patternTexture.rows();
+								// The animatable sprite-sheet frame: a normal param, so it may be a
+								// literal, a keyframe, an expr or a { "from": node } graph input.
+								case "tex_frame" -> effect.getParam("frame", 0.0F);
+								case "tex_flags" -> patternTexture.flags();
+								case "tex_channel" -> patternTexture.channel();
 								default -> effect.getParam(param, 0.0F);
 							};
 						} else {
@@ -740,6 +764,14 @@ public final class VFXPostProcessingManager {
 				if (this.usesDepth && depthSource != null) {
 					// Depth is non-filterable: NEAREST only (depth findings).
 					renderPass.bindTexture("DepthSampler", depthSource.getDepthTextureView(), samplerCache.getClampToEdge(FilterMode.NEAREST));
+				}
+				if (this.usesDepth) {
+					// The pattern texture; a placeholder bind when the effect has no texture, so the
+					// pipeline's PatternSampler layout is always satisfied.
+					final com.mojang.blaze3d.textures.GpuTextureView patternView = patternTexture.view();
+					renderPass.bindTexture("PatternSampler",
+						patternView == null ? input.getColorTextureView() : patternView,
+						samplerCache.getClampToEdge(FilterMode.LINEAR));
 				}
 				if (field != null) {
 					final String texture = fieldProgram == null ? null : fieldProgram.texture();
@@ -820,6 +852,83 @@ public final class VFXPostProcessingManager {
 				Minecraft.getInstance().getTextureManager().getTexture(Identifier.parse(id)).getTextureView());
 		}
 
+		/**
+		 * A resolved pattern texture: the sampler's view plus the values the shader needs. Flags:
+		 * {@code 1} = texture authored, {@code 2} = resolved, {@code 4} = preserve aspect.
+		 * {@link #ABSENT} is the no-texture (legacy) case; an authored texture that failed to
+		 * resolve is authored but not resolved, so the shader draws nothing (fail-closed) instead
+		 * of falling through to the procedural figure.
+		 */
+		private record PatternTexture(
+			@Nullable GpuTextureView view,
+			float u0,
+			float v0,
+			float u1,
+			float v1,
+			float aspect,
+			float flags,
+			float cols,
+			float rows,
+			float channel
+		) {
+			/** No texture authored: the shader takes the legacy procedural-figure path. */
+			static final PatternTexture ABSENT = new PatternTexture(null, 0.0F, 0.0F, 1.0F, 1.0F, 1.0F, 0.0F, 1.0F, 1.0F, 3.0F);
+			static final int AUTHORED = 1;
+			static final int RESOLVED = 2;
+			static final int PRESERVE = 4;
+		}
+
+		/**
+		 * Resolves a {@code pattern.texture} spec to the values the shader needs: the sampler's
+		 * texture view, the sprite UV rect (an atlas sub-rect, or {@code 0..1} for standalone), the
+		 * pixel aspect, the sheet grid and the channel. The atlas API exists only on {@code >=26.1}
+		 * (the pass itself is only registered there), so the whole body is guarded.
+		 *
+		 * <p>A missing sprite inside a valid atlas is fail-visible (draws the missing texture) and
+		 * warned once per effect; an unknown atlas or an unreadable standalone texture is
+		 * fail-closed (nothing) and warned once. Re-resolved every frame, so a resource reload's
+		 * re-stitch — which can move a sprite and recreate the view — is picked up.
+		 */
+		private static PatternTexture resolvePatternTexture(final @Nullable VFXTexture spec, final Identifier effectId) {
+			if (spec == null) {
+				return PatternTexture.ABSENT;
+			}
+			final int flagBits = PatternTexture.AUTHORED | (spec.preserveAspect() ? PatternTexture.PRESERVE : 0);
+			//? if >=26.1 {
+			try {
+				final net.minecraft.resources.Identifier textureId = net.minecraft.resources.Identifier.parse(spec.id());
+				if (spec.source() == VFXTexture.Source.STANDALONE) {
+					final GpuTextureView view = Minecraft.getInstance().getTextureManager()
+						.getTexture(textureId).getTextureView();
+					return new PatternTexture(view, 0.0F, 0.0F, 1.0F, 1.0F, 1.0F,
+						(float) (flagBits | PatternTexture.RESOLVED), spec.sheetCols(), spec.sheetRows(), spec.channel().code());
+				}
+				final net.minecraft.resources.Identifier atlasLocation = switch (spec.source()) {
+					case BLOCK -> net.minecraft.client.renderer.texture.TextureAtlas.LOCATION_BLOCKS;
+					case ITEM -> net.minecraft.client.renderer.texture.TextureAtlas.LOCATION_ITEMS;
+					default -> net.minecraft.resources.Identifier.parse(spec.atlas());
+				};
+				final net.minecraft.client.renderer.texture.TextureAtlas atlas =
+					Minecraft.getInstance().getAtlasManager().getAtlasOrThrow(atlasLocation);
+				final net.minecraft.client.renderer.texture.TextureAtlasSprite sprite = atlas.getSprite(textureId);
+				if (sprite == atlas.missingSprite()) {
+					VFXLog.warnOnce(LOGGER, "surface_pattern:texture:" + effectId,
+						"surface_pattern '{}': sprite '{}' is missing from atlas '{}'; drawing the missing texture", effectId, spec.id(), atlasLocation);
+				}
+				final int spriteHeight = sprite.contents().height();
+				final float aspect = spriteHeight > 0 ? sprite.contents().width() / (float) spriteHeight : 1.0F;
+				return new PatternTexture(atlas.getTextureView(), sprite.getU0(), sprite.getV0(), sprite.getU1(), sprite.getV1(),
+					aspect, (float) (flagBits | PatternTexture.RESOLVED), spec.sheetCols(), spec.sheetRows(), spec.channel().code());
+			} catch (RuntimeException e) {
+				VFXLog.warnOnce(LOGGER, "surface_pattern:texture:" + effectId,
+					"surface_pattern '{}': texture '{}' could not be resolved ({}); drawing nothing", effectId, spec.id(), e.getMessage());
+				return new PatternTexture(null, 0.0F, 0.0F, 1.0F, 1.0F, 1.0F, (float) flagBits, spec.sheetCols(), spec.sheetRows(), spec.channel().code());
+			}
+			//?} else {
+			/*return new PatternTexture(null, 0.0F, 0.0F, 1.0F, 1.0F, 1.0F, (float) flagBits, spec.sheetCols(), spec.sheetRows(), spec.channel().code());*/
+			//?}
+		}
+
 		/** The structural shape of a {@code surface_pattern} effect, or {@code null}. */
 		private static @Nullable VFXShape shapeSpec(final VFXActiveEffect effect) {
 			final VFXDefinition definition = VFXDefinitionManager.get().get(effect.getId());
@@ -857,6 +966,8 @@ public final class VFXPostProcessingManager {
 					"softness", "repeat_x", "repeat_y", "radius", "radius_x", "radius_y",
 					"half_width", "half_height", "corner_radius", "sides",
 					"face_mask", "band_min", "band_max", "band_softness" -> true;
+				case "shape_present", "tex_u0", "tex_v0", "tex_u1", "tex_v1", "tex_aspect",
+					"tex_cols", "tex_rows", "tex_frame", "tex_flags", "tex_channel" -> true;
 				default -> false;
 			};
 		}

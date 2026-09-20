@@ -11,15 +11,22 @@
 //   shape1   (half_height, corner_radius, sides, rotation_degrees)
 #moj_import <vfxweaver:shapes.glsl>
 
-float vfx_shape_pattern_coverage(int figure, int fill, vec2 p, vec2 repeat,
-                                 vec4 shape0, vec4 shape1, float strokeWidth, float softness) {
-	float rot = radians(shape1.w);
+// The pattern's cell coordinate: rotate about the anchor, then apply the repeat/tile modifier. The
+// result is in [-0.5, 0.5] (or tiled copies of it). Both the procedural figure and a texture figure
+// call this, so a texture is projected and tiled exactly like the figure it replaces.
+vec2 vfx_shape_cell(vec2 p, vec2 repeat, float rotationDeg) {
+	float rot = radians(rotationDeg);
 	float c = cos(rot);
 	float s = sin(rot);
 	vec2 local = mat2(c, -s, s, c) * p;
 	if (repeat.x > 1.0 || repeat.y > 1.0) {
 		local = fract(local * repeat) - 0.5;
 	}
-	float sdf = vfx_shape_sdf(figure, local, shape0.x, shape0.y, shape0.z, shape0.w, shape1.x, shape1.y, shape1.z);
+	return local;
+}
+
+float vfx_shape_pattern_coverage(int figure, int fill, vec2 p, vec2 repeat,
+                                 vec4 shape0, vec4 shape1, float strokeWidth, float softness) {
+	float sdf = vfx_shape_sdf(figure, vfx_shape_cell(p, repeat, shape1.w), shape0.x, shape0.y, shape0.z, shape0.w, shape1.x, shape1.y, shape1.z);
 	return vfx_shape_coverage(sdf, fill, strokeWidth, softness);
 }
