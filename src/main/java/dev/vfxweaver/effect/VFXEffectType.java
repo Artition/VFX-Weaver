@@ -186,7 +186,7 @@ public enum VFXEffectType {
 		}
 		case AFTERIMAGE -> "intensity".equals(parameter) ? 0.0F : Float.NaN;
 		case STOP_MOTION -> "fps".equals(parameter) ? 0.0F : Float.NaN;
-		case SURFACE_PATTERN -> "opacity".equals(parameter) ? 0.0F : Float.NaN;
+		case SURFACE_PATTERN -> "opacity".equals(parameter) || "frame".equals(parameter) || "texture_tint".equals(parameter) ? 0.0F : Float.NaN;
 		default -> Float.NaN;
 		};
 	}

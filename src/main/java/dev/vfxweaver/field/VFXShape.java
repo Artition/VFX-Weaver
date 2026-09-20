@@ -29,12 +29,18 @@ public final class VFXShape {
 	/** Parameter slots in {@link VFXFieldFn#SHAPE} order. */
 	private final float[] values;
 	private final @Nullable float[] center;
+	/** True when the definition authored {@code figure}; a texture with no figure must not be clipped. */
+	private final boolean figureAuthored;
+	/** The optional texture figure ({@code pattern.texture}), or {@code null} for a procedural figure. */
+	private final @Nullable VFXTexture texture;
 
-	private VFXShape(final VFXShapeFigure figure, final VFXShapeFill fill, final float[] values, final @Nullable float[] center) {
+	private VFXShape(final VFXShapeFigure figure, final VFXShapeFill fill, final float[] values, final @Nullable float[] center, final boolean figureAuthored, final @Nullable VFXTexture texture) {
 		this.figure = figure;
 		this.fill = fill;
 		this.values = values;
 		this.center = center;
+		this.figureAuthored = figureAuthored;
+		this.texture = texture;
 	}
 
 	/**
@@ -45,6 +51,7 @@ public final class VFXShape {
 	 * @throws IllegalArgumentException on an unknown figure/fill/field or an out-of-range repeat
 	 */
 	public static VFXShape parse(final JsonObject json) {
+		final boolean figureAuthored = json.has("figure") && !json.get("figure").isJsonNull();
 		final String figureName = str(json, "figure", VFXShapeFigure.CIRCLE.name().toLowerCase(java.util.Locale.ROOT));
 		final VFXShapeFigure figure = VFXShapeFigure.fromString(figureName);
 		if (figure == null) {
@@ -62,6 +69,7 @@ public final class VFXShape {
 		}
 		float[] center = null;
 		final float[] repeat = {1.0F, 1.0F};
+		VFXTexture texture = null;
 
 		for (final Map.Entry<String, JsonElement> entry : json.entrySet()) {
 			final String key = entry.getKey();
@@ -69,6 +77,13 @@ public final class VFXShape {
 				continue;
 			}
 			final JsonElement value = entry.getValue();
+			if ("texture".equals(key)) {
+				if (!value.isJsonObject()) {
+					throw new IllegalArgumentException("pattern: 'texture' must be an object");
+				}
+				texture = VFXTexture.parse(value.getAsJsonObject());
+				continue;
+			}
 			if ("center".equals(key)) {
 				final JsonArray array = array(key, value, 3);
 				center = new float[]{number(key, array.get(0)), number(key, array.get(1)), number(key, array.get(2))};
@@ -97,7 +112,7 @@ public final class VFXShape {
 			throw new IllegalArgumentException("pattern: polygon needs at least 3 sides, got " + (int) values[VFXFieldFn.SHAPE.paramIndex("sides")]);
 		}
 
-		return new VFXShape(figure, fill, values, center);
+		return new VFXShape(figure, fill, values, center, figureAuthored, texture);
 	}
 
 	/** The figure (the shader's {@code shape} ordinal source). */
@@ -113,6 +128,19 @@ public final class VFXShape {
 	/** The literal structural centre {@code [x, y, z]}, or {@code null} when unset (anchor rule). */
 	public @Nullable float[] center() {
 		return this.center;
+	}
+
+	/**
+	 * True when the definition authored {@code figure}. A texture-only pattern has no figure, so the
+	 * shader must not clip the texture to the defaulted circle; {@code shape_present} carries this.
+	 */
+	public boolean figureAuthored() {
+		return this.figureAuthored;
+	}
+
+	/** The optional texture figure ({@code pattern.texture}), or {@code null} for a procedural figure. */
+	public @Nullable VFXTexture texture() {
+		return this.texture;
 	}
 
 	/** Rotation in degrees. */
