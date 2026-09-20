@@ -227,6 +227,11 @@ fields only (effect params are numeric), so an effect selects yaw/none by naming
 methods register/spawn item presets — the spec carries the model, the API surface is unchanged. See
 the `particles` block and item mode in [GUIDE.md](GUIDE.md).
 
+**Spark presets** use the same client-local registry: `VFXAPI.registerSpark(id, VFXSparkSpec)`,
+`VFXAPI.unregisterSpark(id)`, `VFXAPI.spark(id)` and `VFXAPI.spawnSpark(spec, position, velocity)`
+(the client-only `spawnSpark` is a `default` no-op on `VFXLocalDispatcher`, overridden by the mod's
+client dispatcher). A spark preset is a `vfx_particles` file with `"kind": "spark"`; see GUIDE §3.9.
+
 ### `VFXAPI.EffectRequest` (fluent builder)
 
 ```java

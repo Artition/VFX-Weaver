@@ -4,6 +4,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). The versions bel
 
 ## Unreleased / Guide v38
 ### Added
+- **Spark particles (`particles` spark mode + `kind: "spark"` presets)** — the `particles` effect can emit glowing additive sprites: `"particle": "spark"` (defaults) or a `vfx_particles` preset with `"kind": "spark"` (`vfxweaver:ember` ships built in). Fields: `count`, `speed`, `spread`, `life`, `gravity`, `bounce`, `size`, `trail`, `glow` and the `size_curve`/`color_curve`; the emitter reuses the effect's `shape`/`radius`/`height`/`turns`. Registered/overridden from code with `VFXAPI.registerSpark`/`spark`/`spawnSpark`. Client-local, never synced, capped; existing `particles` and `block_chain` behaviour is unchanged. The reference effect is `vfxweaver:sparks`; see `docs/GUIDE.md` §3.9.
 - **New `surface_pattern` effect** — a world-anchored shape pattern (`circle`/`ellipse`/`rect`/`polygon`, tiled by a `repeat` modifier) projected onto the terrain behind each pixel, so it stays fixed to world blocks as you move. The figure lives in a top-level `pattern` block (never in `params`), the anchor is the shape's `center`, the effect's first `position` or the camera, and a grid is a repeated figure while a ring is an `ellipse` with `fill: stroke`. It reads scene depth, so it renders on **26.1.2+** and needs `"screen_layer": 0`; additive, no existing definition changes behaviour. See `docs/GUIDE.md` §2.1.
 
 ## Unreleased / Guide v37

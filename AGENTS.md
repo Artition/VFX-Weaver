@@ -224,7 +224,11 @@ payload code is loader-agnostic and must not name a loader type.
   display brightness/transform; the display setters are private on 26.x, widened by the AW/AT — the
   `block_chain` submit path is unchanged); its presets come from
   `VFXBlockParticleManager` (`dev.vfxweaver.resource`, the datapack `vfx_particles` dir + local API
-  layer, mirroring `VFXDefinitionManager`).
+  layer, mirroring `VFXDefinitionManager`). The same engine list also carries spark-mode `particles`
+  effects, simulated by `VFXSparkEngine` (client, `dev.vfxweaver.client.render`) and drawn as
+  additive camera-facing sprites by `VFXWorldOverlayRenderer.renderSparks` through the existing
+  `GLOW_OCCLUDED` (or translucent `SPARK_OCCLUDED`) render type; their presets come from the same
+  `VFXBlockParticleManager` (`kind: "spark"`), with a local API layer via `VFXAPI.registerSpark`.
 - `ItemInHandRendererMixin`, `AvatarRendererMixin`, `ItemFrameRendererMixin`,
   `LivingEntityRendererMixin` (+ the two render-state mixins) — first-person/entity frame effects.
 - `CameraMixin` — FOV; `VFXPostProcessingManager` + `VFXShaderPrograms` — the pass chain (one shared
