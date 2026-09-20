@@ -127,6 +127,11 @@ public final class VFXGraph {
 			for (final String required : node.requiredInputs()) {
 				// Structural fields (points/expr/bind) are validated in their kind-specific branch,
 				// not as edge inputs; only edge-acceptable required inputs are checked here.
+				// A unary math op (floor) uses only `a`, so its `b` input is not required.
+				if (node.kind() == VFXNodeKind.MATH && "b".equals(required)
+					&& node.mathOp() != null && node.mathOp().unary()) {
+					continue;
+				}
 				if (node.kind().acceptsNodeInput(required) && !node.inputs().containsKey(required)) {
 					throw new IllegalArgumentException("node '" + node.id() + "': input '" + required + "' is not connected and has no default");
 				}

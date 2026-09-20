@@ -14,7 +14,7 @@ public final class VFXGraphNode {
 	/** The arithmetic operators accepted by a {@code math} node. */
 	public enum MathOp {
 		ADD("add"), SUBTRACT("subtract"), MULTIPLY("multiply"), DIVIDE("divide"),
-		MIN("min"), MAX("max"), POW("pow"), MOD("mod");
+		MIN("min"), MAX("max"), POW("pow"), MOD("mod"), FLOOR("floor");
 
 		private final String id;
 
@@ -24,6 +24,15 @@ public final class VFXGraphNode {
 
 		public String id() {
 			return this.id;
+		}
+
+		/**
+		 * True for the operators that use only the {@code a} input, so a {@code math} node with
+		 * this op does not need {@code b} connected. {@code floor} is the first: the sprite-sheet
+		 * frame example floors the time value (spec §2.4).
+		 */
+		public boolean unary() {
+			return this == FLOOR;
 		}
 
 		/**

@@ -235,6 +235,7 @@ public final class VFXGraphEvaluator {
 			case MAX -> Math.max(a, b);
 			case POW -> (float) Math.pow(a, b);
 			case MOD -> b == 0.0F ? 0.0F : ((a % b) + b) % b;
+			case FLOOR -> (float) Math.floor(a);
 		};
 	}
 
