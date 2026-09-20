@@ -19,6 +19,7 @@ import com.mojang.blaze3d.vertex.VertexFormat;
 /*import com.mojang.blaze3d.PrimitiveTopology;
 *///?}
 import dev.vfxweaver.client.render.VFXWorldOverlayRenderer;
+import dev.vfxweaver.effect.BoundParam;
 import dev.vfxweaver.effect.VFXActiveEffect;
 import dev.vfxweaver.effect.VFXWorldBindings;
 import dev.vfxweaver.mask.VFXMask;
@@ -27,8 +28,10 @@ import dev.vfxweaver.mask.VFXMaskPrimitive;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 //? if >=26.2 {
 /*import java.util.Optional;
 *///?}
@@ -87,22 +90,42 @@ public final class VFXMaskBlockGeometry {
 	private VFXMaskBlockGeometry() {
 	}
 
+	/** A cached selection plus the model manager it was baked against; recomputed on a key change. */
+	private static @Nullable SelectionCache selectionCache;
+
 	/**
-	 * The matching block positions inside the selection region, capped at
-	 * {@link VFXMaskBlockSelection#MAX_BLOCKS}. Air and block-entity-only blocks (empty baked model)
-	 * are skipped, so the draw never emits nothing for a selected block.
-	 *
-	 * @param level     the client level to scan
-	 * @param selection the parsed selection identity (ids / tag / properties)
-	 * @param center    the region centre, already resolved from a binding or the selection's literal
-	 * @param radius    the region radius in blocks, already clamped by the caller
-	 * @return the matching positions, bounded by the selection caps
+	 * The matching blocks inside the selection region, each with its baked model quads resolved
+	 * once, capped at {@link VFXMaskBlockSelection#MAX_BLOCKS}. Air and block-entity-only blocks
+	 * (empty baked model) are skipped. The result is cached keyed by the level, the model manager,
+	 * the selection identity and the resolved centre/radius, so the O((2r+1)^3) scan and the model
+	 * resolve run only when the region changes or a resource reload replaces the model manager.
 	 */
-	public static List<BlockPos> select(final Level level, final VFXMaskBlockSelection selection, final float[] center, final float radius) {
-		final List<BlockPos> found = new ArrayList<>();
+	private static List<SelectedBlock> select(final Level level, final VFXMaskBlockSelection selection, final float[] center, final float radius) {
+		final Object modelManager = Minecraft.getInstance().getModelManager();
+		final SelectionCache cached = selectionCache;
+		if (cached != null && cached.matches(level, modelManager, selection, center, radius)) {
+			return cached.blocks();
+		}
+		final List<SelectedBlock> blocks = scan(level, selection, center, radius);
+		selectionCache = new SelectionCache(level, modelManager, selection, center[0], center[1], center[2], radius, blocks);
+		return blocks;
+	}
+
+	/** Drops the cached selection; called when the world/level or a resource reload makes it stale. */
+	public static void invalidateSelectionCache() {
+		selectionCache = null;
+	}
+
+	/** The one-off scan behind {@link #select}; tag/id parsing and the property set are hoisted here. */
+	private static List<SelectedBlock> scan(final Level level, final VFXMaskBlockSelection selection, final float[] center, final float radius) {
+		final List<SelectedBlock> found = new ArrayList<>();
 		final int r = (int) Math.ceil(Math.min(radius, VFXMaskBlockSelection.MAX_RADIUS));
 		final BlockPos centerPos = BlockPos.containing(center[0], center[1], center[2]);
 		final double radiusSq = (double) radius * radius;
+		// Hoisted out of the per-position loop: the id set, the tag key and the property count are
+		// fixed for one selection.
+		final Set<String> ids = new HashSet<>(selection.blockIds());
+		final TagKey<Block> tag = selection.tag() == null ? null : TagKey.create(Registries.BLOCK, Identifier.parse(selection.tag()));
 		for (final BlockPos pos : BlockPos.betweenClosed(centerPos.offset(-r, -r, -r), centerPos.offset(r, r, r))) {
 			if (found.size() >= VFXMaskBlockSelection.MAX_BLOCKS) {
 				break;
@@ -111,26 +134,24 @@ public final class VFXMaskBlockGeometry {
 				continue;
 			}
 			final BlockState state = level.getBlockState(pos);
-			if (state.isAir() || !matches(state, selection) || !VFXWorldOverlayRenderer.hasBlockModelGeometry(state)) {
+			if (state.isAir() || !matches(state, selection, ids, tag)) {
 				continue;
 			}
-			found.add(pos.immutable());
+			final List<BakedQuad> quads = VFXWorldOverlayRenderer.getModelQuads(Minecraft.getInstance(), state);
+			if (quads.isEmpty()) {
+				continue;
+			}
+			found.add(new SelectedBlock(pos.immutable(), quads));
 		}
 		return found;
 	}
 
-	private static boolean matches(final BlockState state, final VFXMaskBlockSelection selection) {
-		if (!selection.blockIds().isEmpty()) {
-			final String id = BuiltInRegistries.BLOCK.getKey(state.getBlock()).toString();
-			if (!selection.blockIds().contains(id)) {
-				return false;
-			}
+	private static boolean matches(final BlockState state, final VFXMaskBlockSelection selection, final Set<String> ids, final @Nullable TagKey<Block> tag) {
+		if (!ids.isEmpty() && !ids.contains(BuiltInRegistries.BLOCK.getKey(state.getBlock()).toString())) {
+			return false;
 		}
-		if (selection.tag() != null) {
-			final TagKey<Block> tag = TagKey.create(Registries.BLOCK, Identifier.parse(selection.tag()));
-			if (!state.is(tag)) {
-				return false;
-			}
+		if (tag != null && !state.is(tag)) {
+			return false;
 		}
 		for (final Map.Entry<String, String> entry : selection.properties().entrySet()) {
 			if (!propertyMatches(state, entry.getKey(), entry.getValue())) {
@@ -158,80 +179,100 @@ public final class VFXMaskBlockGeometry {
 	 * @param encoder    the frame encoder the coverage prepass shares (so the draw is submitted first)
 	 * @param geometry   the mask's geometry scratch colour target
 	 * @param mainTarget the frame's main target, whose depth view occluding leaves are tested against
-	 * @param mask       the parsed mask whose block leaves drive the selection
+	 * @param mask       the parsed mask whose block leaf drives the selection
 	 * @param effect     the effect owning the mask, for the animated/faded radius parameter
+	 * @param depthReady true when the scene depth is usable this frame; when false, every block is
+	 *                   drawn x-ray (no depth test), matching the {@code surface_pattern} depth gate
 	 */
 	public static void render(
 		final CommandEncoder encoder,
 		final RenderTarget geometry,
 		final RenderTarget mainTarget,
 		final VFXMask mask,
-		final VFXActiveEffect effect
+		final VFXActiveEffect effect,
+		final boolean depthReady
 	) {
-		if (!clearGeometry(encoder, geometry)) {
-			return;
-		}
+		clearGeometry(encoder, geometry);
 		final VFXShaderPrograms.ProgramInfo program = VFXShaderPrograms.blockGeometryProgram();
 		final Minecraft minecraft = Minecraft.getInstance();
 		if (program == null || minecraft == null || minecraft.level == null) {
 			return;
 		}
-		final Level level = minecraft.level;
-		final List<SelectedBlock> blocks = new ArrayList<>();
+		// At most one block leaf (the parser enforces it), so the shared scratch has one source.
+		VFXMaskPrimitive blockPrimitive = null;
 		for (final VFXMaskPrimitive primitive : mask.primitives()) {
-			if (primitive.family() != VFXMaskPrimitive.Family.BLOCK || primitive.blockSelection() == null) {
-				continue;
-			}
-			final VFXMaskBlockSelection selection = primitive.blockSelection();
-			final float radius = blockRadius(mask, primitive, effect, selection);
-			final float[] center = blockCenter(primitive, selection);
-			for (final BlockPos pos : select(level, selection, center, radius)) {
-				blocks.add(new SelectedBlock(pos, primitive.occlude()));
+			if (primitive.family() == VFXMaskPrimitive.Family.BLOCK && primitive.blockSelection() != null) {
+				blockPrimitive = primitive;
+				break;
 			}
 		}
+		if (blockPrimitive == null) {
+			return;
+		}
+		final Level level = minecraft.level;
+		final VFXMaskBlockSelection selection = blockPrimitive.blockSelection();
+		final float radius = blockRadius(mask, blockPrimitive, effect, selection);
+		final float[] center = blockCenter(mask, blockPrimitive, effect, selection);
+		final List<SelectedBlock> blocks = select(level, selection, center, radius);
 		if (blocks.isEmpty()) {
 			return;
 		}
-		drawBlocks(encoder, geometry, mainTarget, program, minecraft, blocks);
+		drawBlocks(encoder, geometry, mainTarget, program, blocks, blockPrimitive.occlude() && depthReady);
 	}
 
-	/** One selected block plus whether its leaf opts into scene-depth occlusion (`"occlude"`). */
-	private record SelectedBlock(BlockPos pos, boolean occlude) {
+	/** One selected block plus its baked model quads (resolved once, reused for the cached selection). */
+	private record SelectedBlock(BlockPos pos, List<BakedQuad> quads) {
+	}
+
+	/** The selection key plus the blocks baked against it; an exact identity/region match reuses it. */
+	private record SelectionCache(Level level, Object modelManager, VFXMaskBlockSelection selection, float centerX, float centerY, float centerZ, float radius, List<SelectedBlock> blocks) {
+		private boolean matches(final Level level, final Object modelManager, final VFXMaskBlockSelection selection, final float[] center, final float radius) {
+			return this.level == level && this.modelManager == modelManager && this.selection.equals(selection)
+				&& this.centerX == center[0] && this.centerY == center[1] && this.centerZ == center[2] && this.radius == radius;
+		}
 	}
 
 	/** The selection radius: the leaf's bound/animated slot value, clamped to the cap. */
 	private static float blockRadius(final VFXMask mask, final VFXMaskPrimitive primitive, final VFXActiveEffect effect, final VFXMaskBlockSelection selection) {
 		final String[] slots = primitive.parameterSlots();
-		float radius = selection.radius();
-		if (slots.length > 0) {
-			final float fallback = primitive.parameterDefaults().length > 0 ? primitive.parameterDefaults()[0] : selection.radius();
-			final VFXMask.MaskSlot slot = mask.slots().get(slots[0]);
-			radius = slot != null && slot.binding() != null
-				? VFXWorldBindings.evaluate(slot.binding(), fallback)
-				: effect.getParam(slots[0], fallback);
+		if (slots.length == 0) {
+			return Math.min(Math.max(selection.radius(), 0.0F), VFXMaskBlockSelection.MAX_RADIUS);
 		}
+		final float fallback = primitive.parameterDefaults().length > 0 ? primitive.parameterDefaults()[0] : selection.radius();
+		final float radius = VFXMaskUniforms.slotValue(mask, effect, slots[0], fallback);
 		return Math.min(Math.max(radius, 0.0F), VFXMaskBlockSelection.MAX_RADIUS);
 	}
 
-	/** The selection centre: a resolved point binding when present, else the literal region centre. */
-	private static float[] blockCenter(final VFXMaskPrimitive primitive, final VFXMaskBlockSelection selection) {
-		if (primitive.centerBinding() != null) {
-			final float[] bound = VFXWorldBindings.evaluatePoint(primitive.centerBinding());
+	/**
+	 * The selection centre with the same precedence the coverage writer uses: a resolved point
+	 * binding wins, then the animated centre slot, then the parse-time literal. Resolving the slots
+	 * here makes {@code VFXAPI.sendMaskMove}/{@code maskMove}, graph-driven centre slots and live
+	 * {@code setParam} reach the scan region, which previously always read the bound point or the
+	 * literal.
+	 */
+	private static float[] blockCenter(final VFXMask mask, final VFXMaskPrimitive primitive, final VFXActiveEffect effect, final VFXMaskBlockSelection selection) {
+		final BoundParam binding = primitive.centerBinding();
+		if (binding != null && binding.kind() == BoundParam.Kind.POINT) {
+			final float[] bound = VFXWorldBindings.evaluatePoint(binding);
 			if (bound != null && bound.length >= 3) {
 				return new float[]{bound[0], bound[1], bound[2]};
 			}
 		}
-		return selection.center();
+		final String[] slots = primitive.centerSlots();
+		final float[] defaults = primitive.centerDefaults();
+		final float x = slots.length > 0 ? VFXMaskUniforms.slotValue(mask, effect, slots[0], defaults[0]) : defaults[0];
+		final float y = slots.length > 1 ? VFXMaskUniforms.slotValue(mask, effect, slots[1], defaults[1]) : (defaults.length > 1 ? defaults[1] : 0.0F);
+		final float z = slots.length > 2 ? VFXMaskUniforms.slotValue(mask, effect, slots[2], defaults[2]) : (defaults.length > 2 ? defaults[2] : 0.0F);
+		return new float[]{x, y, z};
 	}
 
-	/** Clears the scratch; returns false when the target cannot be cleared (and the draw is skipped). */
-	private static boolean clearGeometry(final CommandEncoder encoder, final RenderTarget geometry) {
+	/** Clears the scratch before the draw; the coverage shader samples whatever is left after. */
+	private static void clearGeometry(final CommandEncoder encoder, final RenderTarget geometry) {
 		//? if <26.2 {
 		encoder.clearColorTexture(geometry.getColorTexture(), 0);
 		//?} else {
 		/*encoder.clearColorTexture(geometry.getColorTexture(), new org.joml.Vector4f(0.0F, 0.0F, 0.0F, 0.0F));
 		*///?}
-		return true;
 	}
 
 	private static void drawBlocks(
@@ -239,16 +280,15 @@ public final class VFXMaskBlockGeometry {
 		final RenderTarget geometry,
 		final RenderTarget mainTarget,
 		final VFXShaderPrograms.ProgramInfo program,
-		final Minecraft minecraft,
-		final List<SelectedBlock> blocks
+		final List<SelectedBlock> blocks,
+		final boolean occlude
 	) {
 		final float camX = VFXFieldEnv.cameraX();
 		final float camY = VFXFieldEnv.cameraY();
 		final float camZ = VFXFieldEnv.cameraZ();
-		// The vertex colour's alpha is the per-leaf occlusion flag the fragment shader reads:
-		// opaque white occludes, alpha 0 is the x-ray look.
-		final int occludedColor = 0xFFFFFFFF;
-		final int xrayColor = 0x00FFFFFF;
+		// The vertex colour's alpha is the leaf's occlusion flag the fragment shader reads:
+		// opaque white occludes, alpha 0 is the x-ray look (also forced when depth is not trusted).
+		final int color = occlude ? 0xFFFFFFFF : 0x00FFFFFF;
 		//? if <26.2 {
 		final BufferBuilder builder = new BufferBuilder(staging(), VertexFormat.Mode.TRIANGLES, DefaultVertexFormat.POSITION_COLOR);
 		//?} else {
@@ -256,11 +296,10 @@ public final class VFXMaskBlockGeometry {
 		*///?}
 		POSE.pushPose();
 		for (final SelectedBlock block : blocks) {
-			final List<BakedQuad> quads = VFXWorldOverlayRenderer.getModelQuads(minecraft, minecraft.level.getBlockState(block.pos()));
+			final List<BakedQuad> quads = block.quads();
 			if (quads.isEmpty()) {
 				continue;
 			}
-			final int color = block.occlude() ? occludedColor : xrayColor;
 			POSE.pushPose();
 			POSE.translate(block.pos().getX() - camX, block.pos().getY() - camY, block.pos().getZ() - camZ);
 			for (final BakedQuad quad : quads) {
@@ -375,5 +414,6 @@ public final class VFXMaskBlockGeometry {
 			staging.close();
 			staging = null;
 		}
+		invalidateSelectionCache();
 	}
 }

@@ -13,6 +13,10 @@
 // near = 1, far = 0), sampled with texelFetch so the exact pixel of this fragment is compared.
 // A fragment farther than the scene surface at that pixel (a wall in front) is discarded; the
 // fragment's own surface sits at the scene depth, so a small bias keeps it.
+//
+// The reversed-depth convention below is the verified 26.2 recipe. On a node where the depth
+// recipe is not verified the CPU pass disables occlusion (emits alpha 0 for every block), so this
+// branch is never taken there - see VFXPostProcessingManager / VFXMaskBlockGeometry.
 
 uniform sampler2D DepthSampler;
 
