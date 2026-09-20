@@ -21,6 +21,7 @@ import dev.vfxweaver.client.effect.VFXEffectManager;
 import dev.vfxweaver.effect.VFXActiveEffect;
 import dev.vfxweaver.effect.VFXDefinition;
 import dev.vfxweaver.effect.VFXEffectType;
+import dev.vfxweaver.effect.VFXWorldBindings;
 import dev.vfxweaver.field.VFXFieldProgram;
 import dev.vfxweaver.field.VFXShape;
 import dev.vfxweaver.field.VFXSurfaceSelection;
@@ -52,6 +53,7 @@ import net.minecraft.client.renderer.ProjectionMatrixBuffer;
 //?}
 import net.minecraft.resources.Identifier;
 import net.minecraft.util.Mth;
+import net.minecraft.world.phys.Vec3;
 import org.joml.Matrix4fc;
 import org.joml.Vector3f;
 import org.jspecify.annotations.Nullable;
@@ -575,7 +577,7 @@ public final class VFXPostProcessingManager {
 		private final boolean coverage;
 		/** True when this pass's {@code Config} starts with {@code mat4 inv_view_proj} and it binds {@code DepthSampler}. */
 		private final boolean depthConfig;
-		/** The depth pass's resolved anchor (the shape centre / first position / camera), reused every frame. */
+		/** The depth pass's resolved anchor (the shape centre / effect world position / player), reused every frame. */
 		private final Vector3f scratchAnchor = new Vector3f();
 		/**
 		 * The field/pattern texture views, keyed by resource id. The loader is cached, never the
@@ -1077,8 +1079,11 @@ public final class VFXPostProcessingManager {
 		}
 
 		/**
-		 * Fills {@link #scratchAnchor}: the shape's structural centre, else the effect's first world
-		 * position (block centre), else the camera snapshot, else {@code (0, 0, 0)}.
+		 * Fills {@link #scratchAnchor}: the shape's structural centre, else the effect instance's
+		 * world position — its runtime move, then its first declared {@code positions} slot, then
+		 * authored {@code pos_x/pos_y/pos_z} — else the local player's position for a
+		 * player-anchored play. The camera is never the anchor: a camera-only change (F5, third
+		 * person, or any camera motion) must not slide a pattern that is fixed to the world.
 		 */
 		private void resolveAnchor(final VFXActiveEffect effect, final @Nullable VFXShape shape) {
 			if (shape != null && shape.center() != null) {
@@ -1086,12 +1091,37 @@ public final class VFXPostProcessingManager {
 				this.scratchAnchor.set(center[0], center[1], center[2]);
 				return;
 			}
-			if (!effect.getPositions().isEmpty()) {
+			final Vec3 moved = effect.getMovePosition();
+			if (moved != null) {
+				this.scratchAnchor.set((float) moved.x, (float) moved.y, (float) moved.z);
+				return;
+			}
+			// An entity-anchored slot stores a placeholder block at ZERO; only a real static slot
+			// names the anchor here (entity anchors are the world overlays' concern).
+			if (effect.getAnchors().isEmpty() && !effect.getPositions().isEmpty()) {
 				final BlockPos pos = effect.getPositions().get(0);
 				this.scratchAnchor.set(pos.getX() + 0.5F, pos.getY() + 0.5F, pos.getZ() + 0.5F);
 				return;
 			}
-			this.scratchAnchor.set(VFXFieldEnv.cameraX(), VFXFieldEnv.cameraY(), VFXFieldEnv.cameraZ());
+			if (hasPositionBind(effect)) {
+				this.scratchAnchor.set(
+					effect.getParam("pos_x", 0.0F), effect.getParam("pos_y", 0.0F), effect.getParam("pos_z", 0.0F));
+				return;
+			}
+			final VFXWorldBindings.PlayerState player = VFXWorldBindings.playerState();
+			if (player != null) {
+				this.scratchAnchor.set(player.px(), player.py(), player.pz());
+				return;
+			}
+			this.scratchAnchor.set(0.0F, 0.0F, 0.0F);
+		}
+
+		/** True when the definition authors {@code pos_x/pos_y/pos_z}, the position binds that drive the anchor. */
+		private static boolean hasPositionBind(final VFXActiveEffect effect) {
+			final VFXDefinition definition = VFXDefinitionManager.get().get(effect.getId());
+			return definition != null && (definition.getParams().containsKey("pos_x")
+				|| definition.getParams().containsKey("pos_y")
+				|| definition.getParams().containsKey("pos_z"));
 		}
 
 		/** True for the depth Config names the manager resolves from the shape/anchor, not the timeline. */
