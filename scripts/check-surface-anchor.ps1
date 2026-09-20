@@ -38,11 +38,11 @@ if ($anchor -match "VFXFieldEnv\.camera") {
 $iCenter = $anchor.IndexOf("shape.center()")
 $iMove = $anchor.IndexOf("getMovePosition()")
 $iPos = $anchor.IndexOf("getPositions()")
-$iBind = $anchor.IndexOf("hasPositionBind(effect)")
+$iBind = $anchor.IndexOf("hasPositionBind(definition)")
 $iPlayer = $anchor.IndexOf("VFXWorldBindings.playerState()")
 foreach ($pair in @(
 	@("shape.center()", $iCenter), @("getMovePosition()", $iMove), @("getPositions()", $iPos),
-	@("hasPositionBind(effect)", $iBind), @("VFXWorldBindings.playerState()", $iPlayer)
+	@("hasPositionBind(definition)", $iBind), @("VFXWorldBindings.playerState()", $iPlayer)
 )) {
 	if ($pair[1] -lt 0) { $problems.Add("resolveAnchor does not consult $($pair[0])") }
 }
@@ -61,9 +61,10 @@ if ($bindings -notmatch "public static @Nullable PlayerState playerState\(\)") {
 if ($bindings -notmatch "record PlayerState\(float health, float hunger, float speed, float light, float timeOfDay, float px, float py, float pz\)") {
 	$problems.Add("PlayerState no longer carries the player world position (px/py/pz)")
 }
-# 5) hasPositionBind is definition-driven (pos_x/y/z only count when authored)
-if ($manager -notmatch "private static boolean hasPositionBind\(final VFXActiveEffect effect\)") {
-	$problems.Add("hasPositionBind(effect) is missing")
+# 5) hasPositionBind is definition-driven (pos_x/y/z only count when authored); the caller resolves
+#    the definition once per pass and passes it in, instead of re-looking it up here.
+if ($manager -notmatch "private static boolean hasPositionBind\(final @Nullable VFXDefinition definition\)") {
+	$problems.Add("hasPositionBind(definition) is missing")
 }
 if ($manager -notmatch 'definition\.getParams\(\)\.containsKey\("pos_x"\)') {
 	$problems.Add("hasPositionBind does not check the authored pos_x parameter")
