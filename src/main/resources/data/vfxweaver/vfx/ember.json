@@ -1,0 +1,12 @@
+{
+	"type": "particles",
+	"duration": 40,
+	"particle": "vfxweaver:ember",
+	"shape": "sphere",
+	"params": {
+		"radius": 0.5,
+		"pos_x": { "bind": "player_x" },
+		"pos_y": { "bind": "player_y" },
+		"pos_z": { "bind": "player_z" }
+	}
+}

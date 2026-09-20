@@ -1613,8 +1613,10 @@ layer survives `/reload` and is private to this client; the datapack layer wins 
 `VFXAPI.unregisterSpark(id)` removes a local preset and `VFXAPI.spark(id)` looks one up.
 `VFXAPI.spawnSpark(spec, position, velocity)` spawns a single spark immediately on the client.
 
-The built-in `vfxweaver:ember` preset and the `vfxweaver:sparks` reference effect show a working
-emitter.
+The built-in `vfxweaver:ember` spark preset ships with two playable reference effects that
+emit it: `vfxweaver:ember` (a tight burst, the preset's own `count`) and `vfxweaver:sparks`
+(a wider burst that overrides `count`/`radius`). Play either with
+`/vfx play vfxweaver:ember` or `/vfx play vfxweaver:sparks`; both spawn at the player.
 
 ---
 
