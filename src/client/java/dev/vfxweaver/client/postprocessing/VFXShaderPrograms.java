@@ -230,8 +230,9 @@ public final class VFXShaderPrograms {
 		maskProgram = new ProgramInfo(maskPipeline, new String[0], 0, PassRole.NORMAL, false, null, true, false);
 
 		// The block-geometry contribution writes coverage into the geometry scratch; it is drawn by
-		// the manager, not scheduled as an effect-chain ProgramInfo. The rasterisation draw itself is
-		// deferred (see VFXMaskBlockGeometry), but the pipeline is registered so the shader is ready.
+		// the manager, not scheduled as an effect-chain ProgramInfo. It draws the selected blocks'
+		// baked model quads as triangles (TRIANGLES, one vertex buffer, no index buffer), camera-
+		// relative in the DynamicTransforms ModelViewMat, with an identity Projection.
 		blockGeometryPipeline = RenderPipelines.register(
 			RenderPipeline.builder()
 				.withLocation(Identifier.fromNamespaceAndPath("vfxweaver", "world/mask_block_geometry"))
@@ -240,11 +241,11 @@ public final class VFXShaderPrograms {
 				//? if <26.2 {
 				.withUniform("DynamicTransforms", UniformType.UNIFORM_BUFFER)
 				.withUniform("Projection", UniformType.UNIFORM_BUFFER)
-				.withVertexFormat(DefaultVertexFormat.POSITION_COLOR, VertexFormat.Mode.QUADS)
+				.withVertexFormat(DefaultVertexFormat.POSITION_COLOR, VertexFormat.Mode.TRIANGLES)
 				//?} else {
 				/*.withBindGroupLayout(BindGroupLayouts.MATRICES_PROJECTION)
 				.withVertexBinding(0, DefaultVertexFormat.POSITION_COLOR)
-				.withPrimitiveTopology(PrimitiveTopology.QUADS)
+				.withPrimitiveTopology(PrimitiveTopology.TRIANGLES)
 				*///?}
 				//? if <26.1 {
 				/*.withDepthTestFunction(DepthTestFunction.NO_DEPTH_TEST)

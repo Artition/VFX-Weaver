@@ -119,6 +119,7 @@ public final class VFXPostProcessingManager {
 			this.maskBefore.destroyBuffers();
 			this.maskBefore = null;
 		}
+		VFXMaskBlockGeometry.freeGpuResources();
 		this.stopMotionSlots.clear();
 		for (final VFXPass pass : this.passes.values()) {
 			pass.close();
@@ -246,7 +247,7 @@ public final class VFXPostProcessingManager {
 					if (entryMask != null && entryMask.hasBlockLeaf()) {
 						final TextureTarget geometry = this.geometryTargets.get(entry.getKey());
 						if (geometry != null) {
-							VFXMaskBlockGeometry.render(encoder, geometry);
+							VFXMaskBlockGeometry.render(encoder, geometry, entryMask, entry.getValue());
 						}
 					}
 				}

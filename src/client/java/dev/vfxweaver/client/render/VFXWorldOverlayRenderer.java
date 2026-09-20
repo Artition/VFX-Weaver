@@ -1773,11 +1773,11 @@ public final class VFXWorldOverlayRenderer {
 	}
 
 	//? if <26.1 {
-/*	private static List<BakedQuad> getModelQuads(final Minecraft minecraft, final BlockPos pos) {
+/*	public static List<BakedQuad> getModelQuads(final Minecraft minecraft, final BlockPos pos) {
 		return getModelQuads(minecraft, minecraft.level.getBlockState(pos));
 	}
 
-	private static List<BakedQuad> getModelQuads(final Minecraft minecraft, final BlockState state) {
+	public static List<BakedQuad> getModelQuads(final Minecraft minecraft, final BlockState state) {
 		try {
 			List<BlockModelPart> parts = new ArrayList<>();
 			minecraft.getModelManager().getBlockModelShaper().getBlockModel(state).collectParts(RAND, parts);
@@ -1801,11 +1801,11 @@ public final class VFXWorldOverlayRenderer {
 		}
 	}
 *///?} else {
-	private static List<BakedQuad> getModelQuads(final Minecraft minecraft, final BlockPos pos) {
+	public static List<BakedQuad> getModelQuads(final Minecraft minecraft, final BlockPos pos) {
 		return getModelQuads(minecraft, minecraft.level.getBlockState(pos));
 	}
 
-	private static List<BakedQuad> getModelQuads(final Minecraft minecraft, final BlockState state) {
+	public static List<BakedQuad> getModelQuads(final Minecraft minecraft, final BlockState state) {
 		try {
 			List<BlockStateModelPart> parts = new ArrayList<>();
 			minecraft.getModelManager().getBlockStateModelSet().get(state).collectParts(RAND, parts);
