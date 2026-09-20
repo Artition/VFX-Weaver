@@ -57,11 +57,23 @@ nav:
       - Value graphs: guide/graph.md
       - Per-pixel fields: guide/fields.md
       - Masks: guide/masks.md
-      - Spark presets: guide/sparks.md
+      - Custom particles:
+          - Block and item particles: guide/particles.md
+          - Spark presets: guide/particles/sparks.md
       - Guide changelog: guide/changelog.md
   - Java API: API.md
   - Architecture: ARCHITECTURE.md
   - Changelog: CHANGELOG.md
+
+# Version selector in the header, driven by mike (see .github/workflows/docs.yml).
+# `mike` writes each deployed version to the gh-pages branch and a versions.json the
+# selector reads; `default: latest` opens the newest version, `alias: true` shows the
+# `latest` alias next to the version in the dropdown.
+extra:
+  version:
+    provider: mike
+    default: latest
+    alias: true
 
 markdown_extensions:
   - admonition

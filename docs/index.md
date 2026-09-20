@@ -62,7 +62,7 @@ fades back.
 - **[Effects and the datapack format](guide/effects.md)** — effect types, params, positions, children.
 - **[Surface pattern](guide/surface-pattern.md)**, **[Value graphs](guide/graph.md)**,
   **[Per-pixel fields](guide/fields.md)**, **[Masks](guide/masks.md)**,
-  **[Spark presets](guide/sparks.md)** — the advanced definition blocks.
+  **[Custom particles](guide/particles.md)** — the advanced definition blocks.
 - **[Java API](API.md)** — `VFXAPI` for other mods.
 - **[Architecture](ARCHITECTURE.md)** — how rendering works under the hood.
 - **[Changelog](CHANGELOG.md)** — versioned change history.

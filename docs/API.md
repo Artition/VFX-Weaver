@@ -287,7 +287,8 @@ the `particles` block and item mode in the [effects guide](guide/effects.md).
 **Spark presets** use the same client-local registry: `VFXAPI.registerSpark(id, VFXSparkSpec)`,
 `VFXAPI.unregisterSpark(id)`, `VFXAPI.spark(id)` and `VFXAPI.spawnSpark(spec, position, velocity)`
 (the client-only `spawnSpark` is a `default` no-op on `VFXLocalDispatcher`, overridden by the mod's
-client dispatcher). A spark preset is a `vfx_particles` file with `"kind": "spark"`; see GUIDE §3.9.
+client dispatcher). A spark preset is a `vfx_particles` file with `"kind": "spark"`; see the
+[Spark presets](guide/particles/sparks.md) page.
 
 ### `VFXAPI.EffectRequest` (fluent builder)
 

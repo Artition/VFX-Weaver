@@ -17,7 +17,7 @@ The mutating commands `/vfx play`, `/vfx playat`, `/vfx playentity`, `/vfx stop`
 - [Value graphs](graph.md) - drive numeric inputs from a graph of nodes
 - [Per-pixel fields](fields.md) - make one input vary per pixel
 - [Masks](masks.md) - restrict where an effect applies
-- [Spark presets](sparks.md) - glowing additive sprite particles
+- [Custom particles](particles.md) - block/item model particles and glowing spark presets
 - [Guide changelog](changelog.md) - versioned history of this guide
 - [Java API](../API.md) - the `VFXAPI` reference
 - [Architecture](../ARCHITECTURE.md) - how rendering works under the hood
