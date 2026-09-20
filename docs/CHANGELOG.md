@@ -2,6 +2,14 @@
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). The versions below are guide/feature-set versions of the mod (as they progressed historically, see `docs/GUIDE.md`), plus git release tags where applicable (`v1.0.x`, `gradle.properties` → `mod_version`). Add new entries at the top, in the same PR as the behavior change.
 
+## Unreleased / Guide v39
+### Added
+- **`surface_pattern` surface selection** — an optional top-level structural `surface` block selects which face orientations receive the pattern and an optional world band. `faces` takes `up`/`down`/`north`/`south`/`east`/`west`, the axis aliases `x`/`y`/`z` and the groups `horizontal`/`vertical`/`all` (default `["up"]`, at most 8 tokens); `min`/`max` are an inclusive band applied **along the fragment's dominant axis** — Y for up/down, X for east/west, Z for north/south. Unknown keys/tokens and `min > max` are per-file parse errors. Additive: without the block the legacy numeric `normal_mask` behaviour is unchanged, so the built-in and every existing definition render exactly as before. See `docs/GUIDE.md` §2.1.
+
+### Changed
+- **`surface_pattern` projection follows the fragment's dominant world normal.** Floors/ceilings keep world XZ; a vertical wall is projected onto its horizontal tangent with world Y up, so the figure reads upright and un-mirrored on each wall instead of being sheared across it. The axis switch is hard (a seam only on genuinely diagonal geometry). `fade_radius` and `distort` now follow the chosen plane instead of assuming XZ. The built-in `vfxweaver:surface_pattern` is unaffected (it selects floors via `normal_mask`).
+- **One shared depth/world reconstruction** — the reversed-depth world recipe and the camera-facing normal moved into `include/camera.glsl`, imported by both `field.glsl` and `surface_pattern.fsh` (was duplicated inline). The `normal_facing` field function now returns an outward, camera-facing normal.
+
 ## Unreleased / Guide v38
 ### Added
 - **Spark particles (`particles` spark mode + `kind: "spark"` presets)** — the `particles` effect can emit glowing additive sprites: `"particle": "spark"` (defaults) or a `vfx_particles` preset with `"kind": "spark"` (`vfxweaver:ember` ships built in). Fields: `count`, `speed`, `spread`, `life`, `gravity`, `bounce`, `size`, `trail`, `glow` and the `size_curve`/`color_curve`; the emitter reuses the effect's `shape`/`radius`/`height`/`turns`. Registered/overridden from code with `VFXAPI.registerSpark`/`spark`/`spawnSpark`. Client-local, never synced, capped; existing `particles` and `block_chain` behaviour is unchanged. The built-in `vfxweaver:ember` spark preset ships with two playable reference effects that emit it, `vfxweaver:ember` and `vfxweaver:sparks`; see `docs/GUIDE.md` §3.9.

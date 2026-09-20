@@ -505,7 +505,7 @@ A shape pattern projected onto the terrain behind each pixel: a world-anchored f
 | `color_r` / `color_g` / `color_b` | 1 / 1 / 1 | Pattern colour |
 | `opacity` | 1 (fades to 0) | Overall strength |
 | `fade_radius` | 0 | Distance from the anchor at which the pattern fades out, blocks (0 = no fade) |
-| `normal_mask` | 0 | Minimum absolute Y of the surface normal — `0.6` keeps floors/ceilings and excludes walls (0 = off) |
+| `normal_mask` | 0 | Legacy orientation filter: minimum absolute Y of the surface normal — `0.6` keeps floors/ceilings and excludes walls (0 = off). Ignored when a `surface` block is present |
 | `distort` | 0 | World-space sine warp of the pattern coordinate (0 = off) |
 
 The figure is a top-level structural `pattern` block — the strings and figure numbers live there, never in `params` (which stays numeric and animatable), so an older mod ignores the whole block. It is owned by the shared shape library and uses the same figures as §3.7's `shape` field:
@@ -521,6 +521,30 @@ The figure is a top-level structural `pattern` block — the strings and figure 
 | `repeat` | `[1, 1]` | `[nx, ny]` tiling of the figure inside a cell, each `1..64` |
 
 **A grid is not a mode** — it is any figure with a `repeat` greater than 1 (or a stroked `rect`); **a ring is not a mode** — it is `ellipse` with `"fill": "stroke"`. To limit the pattern to a region, use the shared `mask` block (§3.8), not a `surface_pattern` field.
+
+The projection follows the fragment's **dominant world normal**: floors/ceilings keep world XZ, while a vertical wall is projected onto its horizontal tangent across and world Y up, so the figure reads upright and un-mirrored on each wall. The axis switch is hard (not blended) — a seam only shows on genuinely diagonal geometry, where "which wall this is" is ambiguous anyway.
+
+An optional top-level structural `surface` block (strings/enums, never in `params`) selects which faces receive the pattern and an optional world-space band. **Without it the shader keeps the legacy numeric `normal_mask` exactly as before**, so existing definitions are unchanged; with it, `faces` replaces `normal_mask` for orientation (the numeric param is then ignored).
+
+| Field | Default | Meaning |
+|---|---|---|
+| `faces` | `["up"]` | Which face orientations get the pattern. Tokens: `up`, `down`, `north`, `south`, `east`, `west`; axis aliases `x` (= west+east), `y` (= up+down), `z` (= north+south); groups `horizontal` (= up+down), `vertical` (= north+south+east+west), `all`. At most 8 tokens; duplicates collapse |
+| `min` | −∞ | Inclusive lower bound of the band, **along the fragment's dominant axis**: Y for `up`/`down`, X for `east`/`west`, Z for `north`/`south` |
+| `max` | +∞ | Inclusive upper bound of the band, same axis as `min` |
+
+An unknown key or face token, more than 8 tokens, a non-finite bound, or `min > max` is a per-file parse error.
+
+```json
+"surface": { "faces": ["up"], "min": 60, "max": 72 }
+```
+```json
+"surface": { "faces": ["x"], "min": -8, "max": 8 }
+```
+```json
+"surface": { "faces": ["z"], "min": -8, "max": 8 }
+```
+
+The first is a floor band on world Y; the second is a band along world X on the east/west walls; the third is a band along world Z on the north/south walls (the axes follow `faces`, not always Y).
 
 ```json
 {
@@ -1776,7 +1800,10 @@ Post-processing pipeline, world overlays, effect clock, load limits and fault to
 
 Versioned feature history — **[docs/CHANGELOG.md](CHANGELOG.md)**.
 
-Guide version: 38 — see changelog below.
+Guide version: 39 — see changelog below.
+
+### v39
+- **`surface_pattern` surface selection** — an optional top-level structural `surface` block selects which face orientations receive the pattern (`faces`: `up`/`down`/`north`/`south`/`east`/`west`, axis aliases `x`/`y`/`z`, groups `horizontal`/`vertical`/`all`) and an optional inclusive band (`min`/`max`) applied **along the fragment's dominant axis** (Y for up/down, X for east/west, Z for north/south). Without the block the legacy numeric `normal_mask` behaviour is unchanged, so the built-in and every existing definition keep rendering exactly as before. The projection now follows the fragment's dominant world normal, so vertical walls get an upright, un-mirrored figure instead of a sheared XZ one. See [2.1](#surface_pattern).
 
 ### v38
 - **New `surface_pattern` effect** — a world-anchored shape pattern (`circle`/`ellipse`/`rect`/`polygon`, tiled by a structural `repeat` modifier) projected onto the terrain behind each pixel, so it stays fixed to world blocks. Additive: it renders on 26.1.2+ (it reads scene depth), needs `"screen_layer": 0`, and no existing definition changes behaviour. The figure strings live in a top-level `pattern` block, never in `params`. See [2.1](#surface_pattern).
