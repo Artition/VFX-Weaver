@@ -584,9 +584,9 @@ An atlas source (`block`/`item`/`atlas`) samples the stitched atlas at the sprit
 	"params": {
 		"screen_layer": 0, "opacity": 0.9, "fade_radius": 40.0,
 		"rotation": { "keyframes": [ { "time": 0, "value": 0 }, { "time": 200, "value": 360, "easing": "linear" } ] },
-		"tile_scale": { "start": 1.0, "end": 3.0, "easing": "ease_in_out" },
-		"frame": { "from": "frame_t" }
+		"tile_scale": { "start": 1.0, "end": 3.0, "easing": "ease_in_out" }
 	},
+	"inputs": { "frame": { "from": "frame_t" } },
 	"surface": { "faces": ["up"] },
 	"pattern": {
 		"texture": { "id": "mypack:textures/vfx/summon", "source": "standalone", "sheet": [4, 4], "channel": "alpha" }

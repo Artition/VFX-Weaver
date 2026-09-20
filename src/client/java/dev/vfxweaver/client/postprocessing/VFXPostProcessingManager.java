@@ -897,27 +897,54 @@ public final class VFXPostProcessingManager {
 			//? if >=26.1 {
 			try {
 				final net.minecraft.resources.Identifier textureId = net.minecraft.resources.Identifier.parse(spec.id());
+				final net.minecraft.client.resources.model.sprite.AtlasManager atlasManager =
+					Minecraft.getInstance().getAtlasManager();
 				if (spec.source() == VFXTexture.Source.STANDALONE) {
-					final GpuTextureView view = Minecraft.getInstance().getTextureManager()
-						.getTexture(textureId).getTextureView();
+					// Standalone resolution mirrors the field-texture path (TextureManager.getTexture
+					// returns a SimpleTexture, creating it on demand); a 26.1 TextureManager no longer
+					// leaves getTextureView() null, so that is all that is needed. No view means the
+					// resolver left the loader unreachable, so the texture fails closed.
+					final net.minecraft.client.renderer.texture.AbstractTexture texture =
+						Minecraft.getInstance().getTextureManager().getTexture(textureId);
+					final com.mojang.blaze3d.textures.GpuTextureView view = texture.getTextureView();
+					if (view == null) {
+						VFXLog.warnOnce(LOGGER, "surface_pattern:texture:" + effectId,
+							"surface_pattern '{}': texture '{}' did not upload a GPU view; drawing nothing", effectId, spec.id());
+						return new PatternTexture(null, 0.0F, 0.0F, 1.0F, 1.0F, 1.0F, (float) flagBits, spec.sheetCols(), spec.sheetRows(), spec.channel().code());
+					}
 					return new PatternTexture(view, 0.0F, 0.0F, 1.0F, 1.0F, 1.0F,
 						(float) (flagBits | PatternTexture.RESOLVED), spec.sheetCols(), spec.sheetRows(), spec.channel().code());
 				}
+				// Atlas sources resolve through the AtlasManager. It is keyed by the atlas id
+				// (minecraft:blocks = AtlasIds.BLOCKS, minecraft:items = AtlasIds.ITEMS), NOT by
+				// TextureAtlas.LOCATION_BLOCKS (`minecraft:textures/atlas/blocks.png`, the atlas
+				// *texture* id): only the id forms are registered (26.1.2 AtlasManager), so passing
+				// the texture id throws "Invalid atlas id" and every block/item pattern failed closed.
 				final net.minecraft.resources.Identifier atlasLocation = switch (spec.source()) {
-					case BLOCK -> net.minecraft.client.renderer.texture.TextureAtlas.LOCATION_BLOCKS;
-					case ITEM -> net.minecraft.client.renderer.texture.TextureAtlas.LOCATION_ITEMS;
+					case BLOCK -> net.minecraft.data.AtlasIds.BLOCKS;
+					case ITEM -> net.minecraft.data.AtlasIds.ITEMS;
 					default -> net.minecraft.resources.Identifier.parse(spec.atlas());
 				};
-				final net.minecraft.client.renderer.texture.TextureAtlas atlas =
-					Minecraft.getInstance().getAtlasManager().getAtlasOrThrow(atlasLocation);
-				final net.minecraft.client.renderer.texture.TextureAtlasSprite sprite = atlas.getSprite(textureId);
-				if (sprite == atlas.missingSprite()) {
+				final net.minecraft.client.renderer.texture.TextureAtlasSprite sprite;
+				if (spec.source() == VFXTexture.Source.ATLAS) {
+					// An explicit atlas + id: the id is the sprite id in that atlas, used verbatim.
+					sprite = atlasManager.get(new net.minecraft.client.resources.model.sprite.SpriteId(
+						atlasLocation, net.minecraft.resources.Identifier.parse(spec.id())));
+				} else {
+					sprite = findSprite(atlasManager, atlasLocation, textureId);
+				}
+				if (sprite == null) {
+					VFXLog.warnOnce(LOGGER, "surface_pattern:texture:" + effectId,
+						"surface_pattern '{}': sprite '{}' is missing from atlas '{}'; drawing nothing", effectId, spec.id(), atlasLocation);
+					return new PatternTexture(null, 0.0F, 0.0F, 1.0F, 1.0F, 1.0F, (float) flagBits, spec.sheetCols(), spec.sheetRows(), spec.channel().code());
+				}
+				if (isMissingSprite(sprite)) {
 					VFXLog.warnOnce(LOGGER, "surface_pattern:texture:" + effectId,
 						"surface_pattern '{}': sprite '{}' is missing from atlas '{}'; drawing the missing texture", effectId, spec.id(), atlasLocation);
 				}
 				final int spriteHeight = sprite.contents().height();
 				final float aspect = spriteHeight > 0 ? sprite.contents().width() / (float) spriteHeight : 1.0F;
-				return new PatternTexture(atlas.getTextureView(), sprite.getU0(), sprite.getV0(), sprite.getU1(), sprite.getV1(),
+				return new PatternTexture(atlasManager.getAtlasOrThrow(atlasLocation).getTextureView(), sprite.getU0(), sprite.getV0(), sprite.getU1(), sprite.getV1(),
 					aspect, (float) (flagBits | PatternTexture.RESOLVED), spec.sheetCols(), spec.sheetRows(), spec.channel().code());
 			} catch (RuntimeException e) {
 				VFXLog.warnOnce(LOGGER, "surface_pattern:texture:" + effectId,
@@ -928,6 +955,66 @@ public final class VFXPostProcessingManager {
 			/*return new PatternTexture(null, 0.0F, 0.0F, 1.0F, 1.0F, 1.0F, (float) flagBits, spec.sheetCols(), spec.sheetRows(), spec.channel().code());*/
 			//?}
 		}
+
+		//? if >=26.1 {
+		/**
+		 * Finds a block/item sprite by its texture id. The vanilla id is a texture path
+		 * ({@code minecraft:block/stone}), while a block's sprite in the sprite lookup is keyed by
+		 * the blockstate id ({@code minecraft:stone}); both spellings are probed (a miss in the
+		 * sprite lookup is a map lookup and returns the atlas's missing sprite, which is skipped).
+		 * Returns {@code null} when nothing in the atlas matches, so the caller fails closed.
+		 *
+		 * @param atlasManager the client atlas manager
+		 * @param atlasLocation the atlas id ({@code minecraft:blocks}/{@code minecraft:items})
+		 * @param textureId the texture id from the definition ({@code minecraft:block/x})
+		 * @return the matching sprite, or {@code null}
+		 */
+		private static net.minecraft.client.renderer.texture.TextureAtlasSprite findSprite(
+			final net.minecraft.client.resources.model.sprite.AtlasManager atlasManager,
+			final net.minecraft.resources.Identifier atlasLocation,
+			final net.minecraft.resources.Identifier textureId
+		) {
+			final net.minecraft.resources.Identifier stripped = stripPrefix(textureId, "block/", "item/");
+			final java.util.List<net.minecraft.resources.Identifier> candidates = stripped == null
+				? java.util.List.of(textureId)
+				: java.util.List.of(textureId, stripped);
+			for (final net.minecraft.resources.Identifier candidate : candidates) {
+				final net.minecraft.client.resources.model.sprite.SpriteId key =
+					new net.minecraft.client.resources.model.sprite.SpriteId(atlasLocation, candidate);
+				final net.minecraft.client.renderer.texture.TextureAtlasSprite sprite = atlasManager.get(key);
+				if (sprite != null && !isMissingSprite(sprite)) {
+					return sprite;
+				}
+			}
+			return null;
+		}
+
+		/** Strips a leading {@code block/} or {@code item/} path prefix from an id, or {@code null} if absent. */
+		private static net.minecraft.resources.Identifier stripPrefix(
+			final net.minecraft.resources.Identifier id, final String first, final String second
+		) {
+			final String path = id.getPath();
+			final String trimmed;
+			if (path.startsWith(first)) {
+				trimmed = path.substring(first.length());
+			} else if (path.startsWith(second)) {
+				trimmed = path.substring(second.length());
+			} else {
+				return null;
+			}
+			return net.minecraft.resources.Identifier.fromNamespaceAndPath(id.getNamespace(), trimmed);
+		}
+
+		/**
+		 * True when the sprite is the atlas's generated missing sprite ({@code minecraft:missingno},
+		 * what {@code TextureAtlas.getSprite} substitutes for an unknown name). The sprite's own
+		 * {@code isMissing} accessor only exists from a later line, so the shared missing location
+		 * is compared instead — the same recipe on 26.1.2 and 26.2.
+		 */
+		private static boolean isMissingSprite(final net.minecraft.client.renderer.texture.TextureAtlasSprite sprite) {
+			return sprite.contents().name().equals(net.minecraft.client.renderer.texture.MissingTextureAtlasSprite.getLocation());
+		}
+		//?}
 
 		/** The structural shape of a {@code surface_pattern} effect, or {@code null}. */
 		private static @Nullable VFXShape shapeSpec(final VFXActiveEffect effect) {

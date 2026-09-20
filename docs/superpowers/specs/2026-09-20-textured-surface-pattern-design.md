@@ -120,7 +120,8 @@ Here the `ellipse` clips the pentagram to a circle (the texture has no alpha out
 "pattern": {
   "texture": { "id": "mypack:textures/vfx/summon", "source": "standalone", "sheet": [4, 4], "channel": "alpha" }
 },
-"params": { "frame": { "from": "frame_t" }, "tile_scale": 3.0, "opacity": 0.9 },
+"params": { "tile_scale": 3.0, "opacity": 0.9 },
+"inputs": { "frame": { "from": "frame_t" } },
 "graph": {
   "nodes": [
     { "id": "t", "kind": "time", "inputs": { "speed": 1.0 } },
