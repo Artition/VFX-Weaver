@@ -609,6 +609,21 @@ public final class VFXAPI {
 	}
 
 	/**
+	 * Tells a player's client to stop every running effect. Stops each effect the server has
+	 * recorded for the player through the existing {@link #sendStop(ServerPlayer, Identifier)}
+	 * payload (no new wire action), so the player's server-side effect registry and scoreboard
+	 * bindings are released as well. Effects a client played locally (never seen by the server)
+	 * are not covered - use the client-local {@link #stopAllEffects()} for those.
+	 *
+	 * @param player the receiving player
+	 */
+	public static void sendStopAll(final ServerPlayer player) {
+		for (final Identifier effectId : VFXServerEffects.get().activeEffects(player)) {
+			sendStop(player, effectId);
+		}
+	}
+
+	/**
 	 * Live-overrides a parameter of a running effect on the player's client, without
 	 * restarting its timeline. Ignored (with a client-side log warning) when the effect is
 	 * not currently running.

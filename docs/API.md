@@ -41,6 +41,11 @@ void sendStop(ServerPlayer player, Identifier effectId);
 // Stops one specific instance of an effect (see sendEffect with instanceId).
 void sendStop(ServerPlayer player, Identifier effectId, long instanceId);
 
+// Stops every effect the server has recorded for the player, reusing the per-effect stop payload
+// (no new wire action). Effects the player's client played locally (never seen by the server) are
+// not covered - use the client-local stopAllEffects() for those.
+void sendStopAll(ServerPlayer player);
+
 // Live-overrides a parameter of a running effect (without restarting the timeline).
 // Ignored by the client with a warning in the log if the effect is not currently running.
 void sendSetParam(ServerPlayer player, Identifier effectId, String param, float value);

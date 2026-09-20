@@ -9,6 +9,7 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import net.minecraft.resources.Identifier;
 import net.minecraft.server.level.ServerPlayer;
@@ -191,6 +192,19 @@ public final class VFXServerEffects {
 		if (active != null && active.instanceId() == instanceId) {
 			effects.remove(effectId);
 		}
+	}
+
+	/**
+	 * The effect ids currently recorded for the player, as a bounded copy. Used by
+	 * {@code VFXAPI.sendStopAll} to stop every active effect through the existing per-effect stop
+	 * payload. Empty when the player has no recorded effect.
+	 *
+	 * @param player the player to enumerate
+	 * @return a copy of the recorded effect ids
+	 */
+	public Set<Identifier> activeEffects(final ServerPlayer player) {
+		final Map<Identifier, ActiveEffect> effects = this.byPlayer.get(player.getUUID());
+		return effects == null || effects.isEmpty() ? Set.of() : Set.copyOf(effects.keySet());
 	}
 
 	/**

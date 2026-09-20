@@ -4,6 +4,7 @@
 	"commands.vfxweaver.played": "Playing VFX %s for %s player(s)",
 	"commands.vfxweaver.played_at": "Playing VFX %s at [%s, %s, %s] for %s player(s)",
 	"commands.vfxweaver.stopped": "Stopped VFX %s for %s player(s)",
+	"commands.vfxweaver.stopped_all": "Stopped all VFX effects for %s player(s)",
 	"commands.vfxweaver.set": "Set %s parameter(s) of VFX %s for %s player(s)",
 	"commands.vfxweaver.too_many_params": "Too many parameters in one command (max %s)",
 	"commands.vfxweaver.bad_param": "Bad parameter pair (expected name:value): %s",

@@ -41,7 +41,8 @@ import org.slf4j.LoggerFactory;
 
 /**
  * {@code /vfx play <effect> [<targets>]} triggers a VFX effect,
- * {@code /vfx stop <effect> [<targets>]} stops it and {@code /vfx list} lists known effects.
+ * {@code /vfx stop <effect> [<targets>]} stops it, {@code /vfx stop [<player>]} stops every
+ * effect of a player (default: the executor) and {@code /vfx list} lists known effects.
  * {@code /vfx validate [namespace]} prints a dry-run health report of datapack definitions.
  */
 public final class VFXCommand {
@@ -141,6 +142,7 @@ public final class VFXCommand {
 			.then(
 				Commands.literal("stop")
 						.requires(VFXCommand::requirePermission)
+						.executes(context2 -> stopAll(context2, List.of(requirePlayer(context2))))
 						.then(
 							Commands.argument("effect", IdentifierArgument.id())
 								.suggests(VFXCommand::suggestEffects)
@@ -149,6 +151,10 @@ public final class VFXCommand {
 									Commands.argument("targets", EntityArgument.players())
 										.executes(context2 -> stop(context2, EntityArgument.getPlayers(context2, "targets")))
 								)
+						)
+						.then(
+							Commands.argument("player", EntityArgument.player())
+								.executes(context2 -> stopAll(context2, List.of(EntityArgument.getPlayer(context2, "player"))))
 						)
 				)
 				.then(
@@ -305,6 +311,31 @@ public final class VFXCommand {
 		context.getSource()
 			.sendSuccess(
 				() -> Component.translatable("commands.vfxweaver.stopped", effectId.toString(), targets.size()),
+				false
+			);
+		return targets.size();
+	}
+
+	/**
+	 * Stops every active effect of the target players ({@code /vfx stop [<player>]}, defaulting to
+	 * the executor). The server path reuses the per-effect stop payload ({@link VFXAPI#sendStopAll});
+	 * for the executor's own client it also clears effects played locally (single player / a
+	 * client-only mod), which the server never recorded. The no-argument form is only reachable
+	 * when no {@code effect} or {@code player} argument follows; a bare token is parsed as an
+	 * {@code effect} first, so target a player with a selector ({@code @p}/{@code @a}) or a name
+	 * that is not a valid effect id.
+	 */
+	private static int stopAll(final CommandContext<CommandSourceStack> context, final Collection<ServerPlayer> targets) {
+		for (final ServerPlayer player : targets) {
+			VFXAPI.sendStopAll(player);
+		}
+		final ServerPlayer executor = context.getSource().getPlayer();
+		if (executor != null && targets.contains(executor)) {
+			VFXAPI.stopAllEffects();
+		}
+		context.getSource()
+			.sendSuccess(
+				() -> Component.translatable("commands.vfxweaver.stopped_all", targets.size()),
 				false
 			);
 		return targets.size();
