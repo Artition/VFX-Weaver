@@ -109,6 +109,63 @@ if ([Math]::Abs($lo2[1] - (0.0 + $halfTall[1])) -gt $tol -or [Math]::Abs($hi2[1]
 	$problems.Add("a 2x8 sheet cell is not inset independently on the v axis")
 }
 
+# --- value flow: the per-frame resolve reaches the shader's declared slot ----------------------
+# A name-only comparison (check-surface-pattern-ubo.ps1) cannot catch a swap between two same-typed
+# floats: `cols` and `rows` could be written to each other's slot, or the manager could read the
+# wrong PatternTexture accessor, and the check stayed green while the sheet silently never divided.
+# This section follows the sheet value from the resolver into PatternTexture's positional record and
+# then into the shader's sample call, so a swapped pair fails.
+$programsPath = Join-Path $repoRoot "src\client\java\dev\vfxweaver\client\postprocessing\VFXShaderPrograms.java"
+$managerPath = Join-Path $repoRoot "src\client\java\dev\vfxweaver\client\postprocessing\VFXPostProcessingManager.java"
+$programs = [System.IO.File]::ReadAllText($programsPath)
+$manager = [System.IO.File]::ReadAllText($managerPath)
+
+$record = [regex]::Match($manager, 'record\s+PatternTexture\((?<fields>.*?)\)\s*\{', 'Singleline')
+if (-not $record.Success) {
+	$problems.Add("VFXPostProcessingManager has no PatternTexture record to trace the sheet through")
+} else {
+	$fields = New-Object System.Collections.Generic.List[string]
+	foreach ($m in [regex]::Matches($record.Groups['fields'].Value, 'float\s+(\w+)')) { $fields.Add($m.Groups[1].Value) }
+	$expected = @('u0', 'v0', 'u1', 'v1', 'aspect', 'flags', 'cols', 'rows', 'channel', 'pxW', 'pxH')
+	if (($fields -join ',') -ne ($expected -join ',')) {
+		$problems.Add("PatternTexture float fields are '$($fields -join ',')', expected '$($expected -join ',')'")
+	}
+}
+
+# The resolver must pass the sheet values in the cols/rows positions (not swapped).
+if ($manager -notmatch 'spec\.sheetCols\(\), spec\.sheetRows\(\), spec\.channel\(\)\.code\(\)') {
+	$problems.Add("the resolver does not pass spec.sheetCols(), spec.sheetRows(), spec.channel().code() in record order")
+}
+if ($manager -match 'spec\.sheetRows\(\), spec\.sheetCols\(\)') {
+	$problems.Add("the resolver passes sheetRows() before sheetCols() (cols/rows swapped)")
+}
+
+# The manager's per-frame switch: each shader name must read its matching field, by value.
+$valueFlow = [ordered]@{
+	'tex_cols' = 'patternTexture\.cols\(\)'
+	'tex_rows' = 'patternTexture\.rows\(\)'
+	'tex_flags' = 'patternTexture\.flags\(\)'
+	'tex_channel' = 'patternTexture\.channel\(\)'
+	'tex_px_w' = 'patternTexture\.pxW\(\)'
+	'tex_px_h' = 'patternTexture\.pxH\(\)'
+}
+foreach ($name in $valueFlow.Keys) {
+	if ($manager -notmatch ('case\s+"' + [regex]::Escape($name) + '"\s*->\s*' + $valueFlow[$name])) {
+		$problems.Add("the manager's '$name' case does not read $($valueFlow[$name])")
+	}
+}
+if ($manager -notmatch 'case\s+"tex_frame"\s*->\s*effect\.getParam\("frame"') {
+	$problems.Add("the manager's 'tex_frame' case does not read the animatable 'frame' param")
+}
+
+# The shader's sample must take vec2(tex_cols, tex_rows), in that order.
+if ($pattern -notmatch 'vfx_texture_sample\(PatternSampler,\s*uv,\s*vec4\(tex_u0, tex_v0, tex_u1, tex_v1\),\s*vec2\(tex_cols, tex_rows\),\s*tex_frame,\s*halfTexel\)') {
+	$problems.Add("surface_pattern.fsh does not sample with vec2(tex_cols, tex_rows) + tex_frame + halfTexel")
+}
+if ($pattern -match 'vec2\(tex_rows, tex_cols\)') {
+	$problems.Add("surface_pattern.fsh passes vec2(tex_rows, tex_cols) (cols/rows swapped)")
+}
+
 Write-Host "Sprite-sheet cell UV check"
 Write-Host "  4x4 sheet on a 64x64 texture: $frames frames exact + half-texel inset; wrap and non-square cells checked"
 if ($problems.Count -gt 0) {

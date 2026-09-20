@@ -928,7 +928,11 @@ public final class VFXPostProcessingManager {
 					final com.mojang.blaze3d.textures.GpuTexture gpu = texture.getTexture();
 					final float pxW = Math.max(1, gpu == null ? 1 : gpu.getWidth(0));
 					final float pxH = Math.max(1, gpu == null ? 1 : gpu.getHeight(0));
-					return new PatternTexture(view, 0.0F, 0.0F, 1.0F, 1.0F, 1.0F,
+					// A standalone texture has no atlas aspect: its pixel aspect is its width/height
+					// (the sheet cell aspect is then tex_aspect * rows / cols in the shader). The old
+					// hardcoded 1.0 made `preserve` a no-op for a non-square pack texture.
+					final float aspect = pxW / pxH;
+					return new PatternTexture(view, 0.0F, 0.0F, 1.0F, 1.0F, aspect,
 						(float) (flagBits | PatternTexture.RESOLVED), spec.sheetCols(), spec.sheetRows(), spec.channel().code(), pxW, pxH);
 				}
 				// The 26.2 AtlasManager keeps two maps: `atlasById`, keyed by the atlas
