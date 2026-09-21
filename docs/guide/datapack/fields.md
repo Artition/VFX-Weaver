@@ -140,7 +140,7 @@ The tint demo (`fade_ticks: 0` keeps the loop from pulsing; a field-driven input
 
 ### `show_tint_field_demo`
 
-<video autoplay loop muted playsinline width="100%"><source src="../../assets/media/tint_field_demo.mp4" type="video/mp4"></video>
+<video autoplay loop muted playsinline width="100%"><source src="../../../assets/media/tint_field_demo.mp4" type="video/mp4"></video>
 
 ```
 /vfx play vfx_demos:show_tint_field_demo

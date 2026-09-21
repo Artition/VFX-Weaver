@@ -1,6 +1,6 @@
 # gradient_map
 
-<video autoplay loop muted playsinline width="100%"><source src="../../../assets/media/gradient_map.mp4" type="video/mp4"></video>
+<video autoplay loop muted playsinline width="100%"><source src="../../../../assets/media/gradient_map.mp4" type="video/mp4"></video>
 
 `type: "gradient_map"`
 

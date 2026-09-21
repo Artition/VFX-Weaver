@@ -1,6 +1,6 @@
 # dent
 
-<video autoplay loop muted playsinline width="100%"><source src="../../../assets/media/dent.mp4" type="video/mp4"></video>
+<video autoplay loop muted playsinline width="100%"><source src="../../../../assets/media/dent.mp4" type="video/mp4"></video>
 
 `type: "dent"`
 
@@ -92,7 +92,7 @@ Its datapack definition:
 
 ### `show_dent_field_demo`
 
-<video autoplay loop muted playsinline width="100%"><source src="../../../assets/media/dent_field_demo.mp4" type="video/mp4"></video>
+<video autoplay loop muted playsinline width="100%"><source src="../../../../assets/media/dent_field_demo.mp4" type="video/mp4"></video>
 
 ```
 /vfx play vfx_demos:show_dent_field_demo

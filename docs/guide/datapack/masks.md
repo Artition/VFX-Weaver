@@ -159,7 +159,7 @@ petal-modulated lobes — to prove the injected plugin source runs.
 
 ### `show_mask_screen_demo`
 
-<video autoplay loop muted playsinline width="100%"><source src="../../assets/media/mask_screen_demo.mp4" type="video/mp4"></video>
+<video autoplay loop muted playsinline width="100%"><source src="../../../assets/media/mask_screen_demo.mp4" type="video/mp4"></video>
 
 ```
 /vfx play vfx_demos:show_mask_screen_demo
@@ -241,7 +241,7 @@ Its datapack definition:
 
 ### `show_mask_custom_glsl_demo`
 
-<video autoplay loop muted playsinline width="100%"><source src="../../assets/media/mask_custom_glsl_demo.mp4" type="video/mp4"></video>
+<video autoplay loop muted playsinline width="100%"><source src="../../../assets/media/mask_custom_glsl_demo.mp4" type="video/mp4"></video>
 
 ```
 /vfx play vfx_demos:show_mask_custom_glsl_demo
@@ -323,7 +323,7 @@ Its datapack definition:
 
 ### `show_mask_block_demo`
 
-<video autoplay loop muted playsinline width="100%"><source src="../../assets/media/mask_block_demo.mp4" type="video/mp4"></video>
+<video autoplay loop muted playsinline width="100%"><source src="../../../assets/media/mask_block_demo.mp4" type="video/mp4"></video>
 
 ```
 /vfx play vfx_demos:show_mask_block_demo
@@ -405,7 +405,7 @@ Its datapack definition:
 
 ### `show_mask_block_xray_demo`
 
-<video autoplay loop muted playsinline width="100%"><source src="../../assets/media/mask_block_xray_demo.mp4" type="video/mp4"></video>
+<video autoplay loop muted playsinline width="100%"><source src="../../../assets/media/mask_block_xray_demo.mp4" type="video/mp4"></video>
 
 ```
 /vfx play vfx_demos:show_mask_block_xray_demo
@@ -487,7 +487,7 @@ Its datapack definition:
 
 ### `show_mask_custom_demo`
 
-<img src="../../assets/media/mask_custom_demo.png" alt="mask_custom_demo showcase">
+<img src="../../../assets/media/mask_custom_demo.png" alt="mask_custom_demo showcase">
 
 ```
 /vfx play vfx_demos:show_mask_custom_demo
@@ -568,7 +568,7 @@ Its datapack definition:
 
 ### `show_mask_entity_demo`
 
-<video autoplay loop muted playsinline width="100%"><source src="../../assets/media/mask_entity_demo.mp4" type="video/mp4"></video>
+<video autoplay loop muted playsinline width="100%"><source src="../../../assets/media/mask_entity_demo.mp4" type="video/mp4"></video>
 
 ```
 /vfx play vfx_demos:show_mask_entity_demo
@@ -629,7 +629,7 @@ Its datapack definition:
 
 ### `show_mask_world_demo`
 
-<img src="../../assets/media/mask_world_demo.png" alt="mask_world_demo showcase">
+<img src="../../../assets/media/mask_world_demo.png" alt="mask_world_demo showcase">
 
 ```
 /vfx play vfx_demos:show_mask_world_demo
@@ -690,7 +690,7 @@ Its datapack definition:
 
 ### `show_mask_pulse_demo`
 
-<video autoplay loop muted playsinline width="100%"><source src="../../assets/media/mask_pulse_demo.mp4" type="video/mp4"></video>
+<video autoplay loop muted playsinline width="100%"><source src="../../../assets/media/mask_pulse_demo.mp4" type="video/mp4"></video>
 
 ```
 /vfx play vfx_demos:show_mask_pulse_demo

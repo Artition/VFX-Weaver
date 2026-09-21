@@ -1,6 +1,6 @@
 # surface_pattern
 
-<video autoplay loop muted playsinline width="100%"><source src="../../../assets/media/surface_pattern.mp4" type="video/mp4"></video>
+<video autoplay loop muted playsinline width="100%"><source src="../../../../assets/media/surface_pattern.mp4" type="video/mp4"></video>
 
 `type: "surface_pattern"`
 
@@ -316,7 +316,7 @@ Its datapack definition:
 
 ### `show_surface_pattern_texture`
 
-<video autoplay loop muted playsinline width="100%"><source src="../../../assets/media/surface_pattern_texture.mp4" type="video/mp4"></video>
+<video autoplay loop muted playsinline width="100%"><source src="../../../../assets/media/surface_pattern_texture.mp4" type="video/mp4"></video>
 
 ```
 /vfx play vfx_demos:show_surface_pattern_texture

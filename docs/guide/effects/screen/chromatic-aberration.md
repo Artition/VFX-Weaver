@@ -1,6 +1,6 @@
 # chromatic_aberration
 
-<video autoplay loop muted playsinline width="100%"><source src="../../../assets/media/chromatic_aberration.mp4" type="video/mp4"></video>
+<video autoplay loop muted playsinline width="100%"><source src="../../../../assets/media/chromatic_aberration.mp4" type="video/mp4"></video>
 
 `type: "chromatic_aberration"`
 

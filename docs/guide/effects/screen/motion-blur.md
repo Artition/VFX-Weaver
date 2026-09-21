@@ -1,6 +1,6 @@
 # motion_blur
 
-<video autoplay loop muted playsinline width="100%"><source src="../../../assets/media/motion_blur.mp4" type="video/mp4"></video>
+<video autoplay loop muted playsinline width="100%"><source src="../../../../assets/media/motion_blur.mp4" type="video/mp4"></video>
 
 `type: "motion_blur"`
 

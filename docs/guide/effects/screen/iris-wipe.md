@@ -1,6 +1,6 @@
 # iris_wipe
 
-<video autoplay loop muted playsinline width="100%"><source src="../../../assets/media/iris_wipe.mp4" type="video/mp4"></video>
+<video autoplay loop muted playsinline width="100%"><source src="../../../../assets/media/iris_wipe.mp4" type="video/mp4"></video>
 
 `type: "iris_wipe"`
 

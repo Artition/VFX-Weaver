@@ -1,6 +1,6 @@
 # double_vision
 
-<video autoplay loop muted playsinline width="100%"><source src="../../../assets/media/double_vision.mp4" type="video/mp4"></video>
+<video autoplay loop muted playsinline width="100%"><source src="../../../../assets/media/double_vision.mp4" type="video/mp4"></video>
 
 `type: "double_vision"`
 

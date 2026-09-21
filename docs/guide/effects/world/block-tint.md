@@ -1,6 +1,6 @@
 # block_tint
 
-<video autoplay loop muted playsinline width="100%"><source src="../../../assets/media/block_tint.mp4" type="video/mp4"></video>
+<video autoplay loop muted playsinline width="100%"><source src="../../../../assets/media/block_tint.mp4" type="video/mp4"></video>
 
 `type: "block_tint"`
 

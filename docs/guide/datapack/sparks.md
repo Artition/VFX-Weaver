@@ -77,7 +77,7 @@ emit it: `vfxweaver:ember` (a tight burst, the preset's own `count`) and `vfxwea
 
 ### `show_sparks`
 
-<video autoplay loop muted playsinline width="100%"><source src="../../assets/media/sparks.mp4" type="video/mp4"></video>
+<video autoplay loop muted playsinline width="100%"><source src="../../../assets/media/sparks.mp4" type="video/mp4"></video>
 
 ```
 /vfx play vfx_demos:show_sparks
@@ -127,7 +127,7 @@ Its datapack definition:
 
 ### `show_ember`
 
-<video autoplay loop muted playsinline width="100%"><source src="../../assets/media/ember.mp4" type="video/mp4"></video>
+<video autoplay loop muted playsinline width="100%"><source src="../../../assets/media/ember.mp4" type="video/mp4"></video>
 
 ```
 /vfx play vfx_demos:show_ember

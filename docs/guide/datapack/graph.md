@@ -146,7 +146,7 @@ Masks are implemented (see [Masks](masks.md)): an optional top-level `mask` bloc
 
 ### `show_graph_demo`
 
-<video autoplay loop muted playsinline width="100%"><source src="../../assets/media/graph_demo.mp4" type="video/mp4"></video>
+<video autoplay loop muted playsinline width="100%"><source src="../../../assets/media/graph_demo.mp4" type="video/mp4"></video>
 
 ```
 /vfx play vfx_demos:show_graph_demo
@@ -228,7 +228,7 @@ Its datapack definition:
 
 ### `show_graph_logic_demo`
 
-<video autoplay loop muted playsinline width="100%"><source src="../../assets/media/graph_logic_demo.mp4" type="video/mp4"></video>
+<video autoplay loop muted playsinline width="100%"><source src="../../../assets/media/graph_logic_demo.mp4" type="video/mp4"></video>
 
 ```
 /vfx play vfx_demos:show_graph_logic_demo
