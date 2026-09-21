@@ -1,5 +1,7 @@
 # entity_tint
 
+<video autoplay loop muted playsinline width="100%"><source src="../../../assets/media/entity_tint.mp4" type="video/mp4"></video>
+
 `type: "entity_tint"`
 
 Fills the entity with the effect colour **accounting for its texture** (the texture is the alpha mask, so the effect follows the silhouette).
@@ -27,4 +29,62 @@ Fills the entity with the effect colour **accounting for its texture** (the text
 
 ```
 /vfx playentity vfxweaver:entity_tint @e[type=pig,limit=1] {[alpha:0.8],[color_r:1]}
+```
+
+## Code
+
+```
+/vfx play vfx_demos:show_entity_tint
+```
+
+Its datapack definition:
+
+```json
+{
+	"type": "entity_tint",
+	"duration": 160,
+	"easing": "ease_in_out_cubic",
+	"persistent": true,
+	"loop": true,
+	"fade_ticks": 12,
+	"entity_selector": "@e[tag=vfx_showcase,limit=1]",
+	"params": {
+		"color_r": {
+			"keyframes": [
+				{
+					"time": 0,
+					"value": 0.2
+				},
+				{
+					"time": 80,
+					"value": 1.0
+				},
+				{
+					"time": 160,
+					"value": 0.2
+				}
+			]
+		},
+		"color_g": 0.6,
+		"color_b": 1.0,
+		"alpha": {
+			"keyframes": [
+				{
+					"time": 0,
+					"value": 0.15
+				},
+				{
+					"time": 80,
+					"value": 0.7
+				},
+				{
+					"time": 160,
+					"value": 0.15
+				}
+			]
+		},
+		"texture": 1.0,
+		"through_blocks": 0.0
+	}
+}
 ```

@@ -1,5 +1,7 @@
 # entity_displace
 
+<video autoplay loop muted playsinline width="100%"><source src="../../../assets/media/entity_displace.mp4" type="video/mp4"></video>
+
 `type: "entity_displace"`
 
 Displaces the target entity's model vertices themselves (rendered with the vanilla body material, so lighting/shadows stay normal) - the body tears/glitches, no ghost copy on top.
@@ -29,4 +31,44 @@ Targets are set via `/vfx playentity <effect> <selector>`, via the Java API (see
 
 ```
 /vfx playentity vfxweaver:entity_displace @e[type=zombie,limit=1] {[amplitude:0.2],[scale:6]}
+```
+
+## Code
+
+```
+/vfx play vfx_demos:show_entity_displace
+```
+
+Its datapack definition:
+
+```json
+{
+	"type": "entity_displace",
+	"duration": 160,
+	"easing": "ease_in_out_cubic",
+	"persistent": true,
+	"loop": true,
+	"fade_ticks": 12,
+	"entity_selector": "@e[tag=vfx_showcase,limit=1]",
+	"params": {
+		"amplitude": {
+			"keyframes": [
+				{
+					"time": 0,
+					"value": 0.0
+				},
+				{
+					"time": 80,
+					"value": 0.12
+				},
+				{
+					"time": 160,
+					"value": 0.0
+				}
+			]
+		},
+		"scale": 4.0,
+		"seed": 0.0
+	}
+}
 ```

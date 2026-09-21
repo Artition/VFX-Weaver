@@ -135,3 +135,75 @@ The tint demo (`fade_ticks: 0` keeps the loop from pulsing; a field-driven input
 	}
 }
 ```
+
+## Showcase
+
+### `show_tint_field_demo`
+
+<video autoplay loop muted playsinline width="100%"><source src="../../assets/media/tint_field_demo.mp4" type="video/mp4"></video>
+
+```
+/vfx play vfx_demos:show_tint_field_demo
+```
+
+Its datapack definition:
+
+```json
+{
+	"type": "color_grade",
+	"duration": 200,
+	"easing": "ease_in_out_cubic",
+	"persistent": true,
+	"loop": true,
+	"fade_ticks": 0,
+	"params": {
+		"saturation": {
+			"keyframes": [
+				{
+					"time": 0,
+					"value": 0.6
+				},
+				{
+					"time": 100,
+					"value": 1.0
+				},
+				{
+					"time": 200,
+					"value": 0.6
+				}
+			]
+		},
+		"contrast": 1.0,
+		"brightness": 1.0,
+		"tint_r": 4.0,
+		"tint_g": 1.0,
+		"tint_b": {
+			"keyframes": [
+				{
+					"time": 0,
+					"value": 1.0
+				},
+				{
+					"time": 100,
+					"value": 1.5
+				},
+				{
+					"time": 200,
+					"value": 1.0
+				}
+			]
+		},
+		"screen_layer": 1
+	},
+	"inputs": {
+		"tint_r": {
+			"field": "noise",
+			"space": "screen",
+			"scale": 3.0,
+			"octaves": 3,
+			"gain": 0.5,
+			"lacunarity": 2.0
+		}
+	}
+}
+```

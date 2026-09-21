@@ -1,5 +1,7 @@
 # motion_blur
 
+<video autoplay loop muted playsinline width="100%"><source src="../../../assets/media/motion_blur.mp4" type="video/mp4"></video>
+
 `type: "motion_blur"`
 
 Directional blur from camera rotation speed. The built-in tracks the camera itself.
@@ -26,4 +28,49 @@ Directional blur from camera rotation speed. The built-in tracks the camera itse
 
 ```
 /vfx play vfxweaver:motion_blur
+```
+
+## Code
+
+```
+/vfx play vfx_demos:show_motion_blur
+```
+
+Its datapack definition:
+
+```json
+{
+	"type": "motion_blur",
+	"duration": 160,
+	"easing": "ease_in_out_cubic",
+	"persistent": true,
+	"loop": true,
+	"fade_ticks": 12,
+	"params": {
+		"intensity": {
+			"keyframes": [
+				{
+					"time": 0,
+					"value": 0.0
+				},
+				{
+					"time": 80,
+					"value": 0.4
+				},
+				{
+					"time": 160,
+					"value": 0.0
+				}
+			]
+		},
+		"yaw_delta": {
+			"bind": "camera_yaw_delta",
+			"range": 1.0
+		},
+		"pitch_delta": {
+			"bind": "camera_pitch_delta",
+			"range": 1.0
+		}
+	}
+}
 ```

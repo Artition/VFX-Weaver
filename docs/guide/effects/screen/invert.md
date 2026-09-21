@@ -1,5 +1,7 @@
 # invert
 
+<video autoplay loop muted playsinline width="100%"><source src="../../../assets/media/invert.mp4" type="video/mp4"></video>
+
 `type: "invert"`
 
 Inverts the screen colours.
@@ -24,4 +26,41 @@ Inverts the screen colours.
 
 ```
 /vfx play vfxweaver:invert
+```
+
+## Code
+
+```
+/vfx play vfx_demos:show_invert
+```
+
+Its datapack definition:
+
+```json
+{
+	"type": "invert",
+	"duration": 200,
+	"easing": "ease_in_out_cubic",
+	"persistent": true,
+	"loop": true,
+	"fade_ticks": 12,
+	"params": {
+		"intensity": {
+			"keyframes": [
+				{
+					"time": 0,
+					"value": 0.0
+				},
+				{
+					"time": 100,
+					"value": 0.85
+				},
+				{
+					"time": 200,
+					"value": 0.0
+				}
+			]
+		}
+	}
+}
 ```

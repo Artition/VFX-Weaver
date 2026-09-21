@@ -1,5 +1,7 @@
 # digital_glitch
 
+<video autoplay loop muted playsinline width="100%"><source src="../../../assets/media/digital_glitch.mp4" type="video/mp4"></video>
+
 `type: "digital_glitch"`
 
 The frame tears into horizontal bands with RGB-split spikes, in bursts (slot-gated, not constant tearing).
@@ -30,4 +32,62 @@ The frame tears into horizontal bands with RGB-split spikes, in bursts (slot-gat
 
 ```
 /vfx play vfxweaver:digital_glitch {[chance:1],[displacement:0.15]}
+```
+
+## Code
+
+```
+/vfx play vfx_demos:show_digital_glitch
+```
+
+Its datapack definition:
+
+```json
+{
+	"type": "digital_glitch",
+	"duration": 200,
+	"easing": "ease_in_out_cubic",
+	"persistent": true,
+	"loop": true,
+	"fade_ticks": 12,
+	"params": {
+		"block": 0.03,
+		"displacement": 0.035,
+		"rate": 3.0,
+		"chroma": 0.25,
+		"seed": 0.0,
+		"chance": {
+			"keyframes": [
+				{
+					"time": 0,
+					"value": 0.05
+				},
+				{
+					"time": 100,
+					"value": 0.2
+				},
+				{
+					"time": 200,
+					"value": 0.05
+				}
+			]
+		},
+		"intensity": {
+			"keyframes": [
+				{
+					"time": 0,
+					"value": 0.1
+				},
+				{
+					"time": 100,
+					"value": 0.4
+				},
+				{
+					"time": 200,
+					"value": 0.1
+				}
+			]
+		}
+	}
+}
 ```

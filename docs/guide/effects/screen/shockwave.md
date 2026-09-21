@@ -1,5 +1,7 @@
 # shockwave
 
+<video autoplay loop muted playsinline width="100%"><source src="../../../assets/media/shockwave.mp4" type="video/mp4"></video>
+
 `type: "shockwave"`
 
 A single refraction ring ripples outward from a point.
@@ -28,4 +30,61 @@ A single refraction ring ripples outward from a point.
 
 ```
 /vfx play vfxweaver:shockwave {[radius:0.8]}
+```
+
+## Code
+
+```
+/vfx play vfx_demos:show_shockwave
+```
+
+Its datapack definition:
+
+```json
+{
+	"type": "shockwave",
+	"duration": 160,
+	"easing": "ease_in_out_cubic",
+	"persistent": true,
+	"loop": true,
+	"fade_ticks": 12,
+	"params": {
+		"center_x": 0.5,
+		"center_y": 0.5,
+		"radius": {
+			"keyframes": [
+				{
+					"time": 0,
+					"value": 0.2
+				},
+				{
+					"time": 80,
+					"value": 1.2
+				},
+				{
+					"time": 160,
+					"value": 0.2
+				}
+			]
+		},
+		"width": 0.12,
+		"amplitude": {
+			"keyframes": [
+				{
+					"time": 0,
+					"value": 0.0
+				},
+				{
+					"time": 80,
+					"value": 0.05
+				},
+				{
+					"time": 160,
+					"value": 0.0
+				}
+			]
+		},
+		"sharpness": 1.5
+	}
+}
 ```

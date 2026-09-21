@@ -1,5 +1,7 @@
 # scanlines
 
+<video autoplay loop muted playsinline width="100%"><source src="../../../assets/media/scanlines.mp4" type="video/mp4"></video>
+
 `type: "scanlines"`
 
 CRT bands drifting across the screen.
@@ -26,4 +28,43 @@ CRT bands drifting across the screen.
 
 ```
 /vfx play vfxweaver:scanlines {[line_count:6]}
+```
+
+## Code
+
+```
+/vfx play vfx_demos:show_scanlines
+```
+
+Its datapack definition:
+
+```json
+{
+	"type": "scanlines",
+	"duration": 160,
+	"easing": "ease_in_out_cubic",
+	"persistent": true,
+	"loop": true,
+	"fade_ticks": 12,
+	"params": {
+		"intensity": {
+			"keyframes": [
+				{
+					"time": 0,
+					"value": 0.0
+				},
+				{
+					"time": 80,
+					"value": 0.22
+				},
+				{
+					"time": 160,
+					"value": 0.0
+				}
+			]
+		},
+		"line_count": 3.0,
+		"speed": 0.4
+	}
+}
 ```

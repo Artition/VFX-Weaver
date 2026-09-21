@@ -1,5 +1,7 @@
 # depth_of_field
 
+<video autoplay loop muted playsinline width="100%"><source src="../../../assets/media/depth_of_field.mp4" type="video/mp4"></video>
+
 `type: "depth_of_field"`
 
 Screen tilt-shift: a sharp band, blur away from it.
@@ -26,4 +28,58 @@ Screen tilt-shift: a sharp band, blur away from it.
 
 ```
 /vfx play vfxweaver:depth_of_field
+```
+
+## Code
+
+```
+/vfx play vfx_demos:show_depth_of_field
+```
+
+Its datapack definition:
+
+```json
+{
+	"type": "depth_of_field",
+	"duration": 160,
+	"easing": "ease_in_out_cubic",
+	"persistent": true,
+	"loop": true,
+	"fade_ticks": 12,
+	"params": {
+		"intensity": {
+			"keyframes": [
+				{
+					"time": 0,
+					"value": 0.0
+				},
+				{
+					"time": 80,
+					"value": 0.65
+				},
+				{
+					"time": 160,
+					"value": 0.0
+				}
+			]
+		},
+		"focus_center": {
+			"keyframes": [
+				{
+					"time": 0,
+					"value": 0.3
+				},
+				{
+					"time": 80,
+					"value": 0.7
+				},
+				{
+					"time": 160,
+					"value": 0.3
+				}
+			]
+		},
+		"focus_range": 0.15
+	}
+}
 ```

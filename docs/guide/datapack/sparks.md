@@ -72,3 +72,105 @@ The built-in `vfxweaver:ember` spark preset ships with two playable reference ef
 emit it: `vfxweaver:ember` (a tight burst, the preset's own `count`) and `vfxweaver:sparks`
 (a wider burst that overrides `count`/`radius`). Play either with
 `/vfx play vfxweaver:ember` or `/vfx play vfxweaver:sparks`; both spawn at the player.
+
+## Showcase
+
+### `show_sparks`
+
+<video autoplay loop muted playsinline width="100%"><source src="../../assets/media/sparks.mp4" type="video/mp4"></video>
+
+```
+/vfx play vfx_demos:show_sparks
+```
+
+Its datapack definition:
+
+```json
+{
+	"type": "particles",
+	"duration": 160,
+	"easing": "ease_in_out_cubic",
+	"persistent": true,
+	"loop": true,
+	"fade_ticks": 12,
+	"particle": "spark",
+	"shape": "sphere",
+	"positions": [
+		[
+			2000,
+			101,
+			2000
+		]
+	],
+	"params": {
+		"radius": {
+			"keyframes": [
+				{
+					"time": 0,
+					"value": 0.6
+				},
+				{
+					"time": 80,
+					"value": 1.6
+				},
+				{
+					"time": 160,
+					"value": 0.6
+				}
+			]
+		},
+		"count": 500
+	}
+}
+```
+
+
+### `show_ember`
+
+<video autoplay loop muted playsinline width="100%"><source src="../../assets/media/ember.mp4" type="video/mp4"></video>
+
+```
+/vfx play vfx_demos:show_ember
+```
+
+Its datapack definition:
+
+```json
+{
+	"type": "particles",
+	"duration": 160,
+	"easing": "ease_in_out_cubic",
+	"persistent": true,
+	"loop": true,
+	"fade_ticks": 12,
+	"particle": "vfxweaver:ember",
+	"shape": "sphere",
+	"positions": [
+		[
+			2000,
+			100.5,
+			2000
+		]
+	],
+	"params": {
+		"radius": {
+			"keyframes": [
+				{
+					"time": 0,
+					"value": 0.4
+				},
+				{
+					"time": 80,
+					"value": 0.9
+				},
+				{
+					"time": 160,
+					"value": 0.4
+				}
+			]
+		},
+		"count": 40,
+		"speed": 0.06
+	}
+}
+```

@@ -1,5 +1,7 @@
 # distortion
 
+<video autoplay loop muted playsinline width="100%"><source src="../../../assets/media/distortion.mp4" type="video/mp4"></video>
+
 `type: "distortion"`
 
 Barrel (`amount > 0`) / pincushion (`amount < 0`) distortion of the whole screen.
@@ -25,4 +27,42 @@ Barrel (`amount > 0`) / pincushion (`amount < 0`) distortion of the whole screen
 
 ```
 /vfx play vfxweaver:distortion
+```
+
+## Code
+
+```
+/vfx play vfx_demos:show_distortion
+```
+
+Its datapack definition:
+
+```json
+{
+	"type": "distortion",
+	"duration": 160,
+	"easing": "ease_in_out_cubic",
+	"persistent": true,
+	"loop": true,
+	"fade_ticks": 12,
+	"params": {
+		"amount": {
+			"keyframes": [
+				{
+					"time": 0,
+					"value": -0.04
+				},
+				{
+					"time": 80,
+					"value": 0.1
+				},
+				{
+					"time": 160,
+					"value": -0.04
+				}
+			]
+		},
+		"radius": 0.9
+	}
+}
 ```

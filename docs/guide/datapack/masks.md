@@ -154,3 +154,600 @@ proximity pulse). `vfxweaver:mask_screen_demo` is a screen-only mask and works a
 `vfxweaver:mask_custom_demo` is a registered composed SDF (a ringed volume); the built-in GLSL
 plugin demo `vfxweaver:mask_custom_glsl_demo` uses `vfxweaver:ringed_glsl` — a screen ring with 8
 petal-modulated lobes — to prove the injected plugin source runs.
+
+## Showcase
+
+### `show_mask_screen_demo`
+
+<video autoplay loop muted playsinline width="100%"><source src="../../assets/media/mask_screen_demo.mp4" type="video/mp4"></video>
+
+```
+/vfx play vfx_demos:show_mask_screen_demo
+```
+
+Its datapack definition:
+
+```json
+{
+	"type": "invert",
+	"duration": 200,
+	"easing": "ease_in_out_cubic",
+	"persistent": true,
+	"loop": true,
+	"fade_ticks": 16,
+	"params": {
+		"intensity": {
+			"keyframes": [
+				{
+					"time": 0,
+					"value": 0.3
+				},
+				{
+					"time": 100,
+					"value": 1.0
+				},
+				{
+					"time": 200,
+					"value": 0.3
+				}
+			]
+		},
+		"mask.p0.p0": {
+			"keyframes": [
+				{
+					"time": 0,
+					"value": 0.25
+				},
+				{
+					"time": 100,
+					"value": 0.4
+				},
+				{
+					"time": 200,
+					"value": 0.25
+				}
+			]
+		}
+	},
+	"mask": {
+		"invert": false,
+		"op": "difference",
+		"a": {
+			"shape": "rect",
+			"space": "screen",
+			"center": [
+				0.5,
+				0.5
+			],
+			"half_width": 0.35,
+			"half_height": 0.35,
+			"corner_radius": 0.08,
+			"softness": 0.02
+		},
+		"b": {
+			"shape": "circle",
+			"space": "screen",
+			"center": [
+				0.5,
+				0.5
+			],
+			"radius": 0.18,
+			"softness": 0.05
+		}
+	}
+}
+```
+
+
+### `show_mask_custom_glsl_demo`
+
+<video autoplay loop muted playsinline width="100%"><source src="../../assets/media/mask_custom_glsl_demo.mp4" type="video/mp4"></video>
+
+```
+/vfx play vfx_demos:show_mask_custom_glsl_demo
+```
+
+Its datapack definition:
+
+```json
+{
+	"type": "color_grade",
+	"duration": 200,
+	"easing": "ease_in_out_cubic",
+	"persistent": true,
+	"loop": true,
+	"fade_ticks": 16,
+	"params": {
+		"screen_layer": 1,
+		"saturation": {
+			"keyframes": [
+				{
+					"time": 0,
+					"value": 1.0
+				},
+				{
+					"time": 100,
+					"value": 0.15
+				},
+				{
+					"time": 200,
+					"value": 1.0
+				}
+			]
+		},
+		"contrast": 1.0,
+		"brightness": 1.0,
+		"tint_r": 0.3,
+		"tint_g": 0.85,
+		"tint_b": 1.0,
+		"mask.p0.p0": {
+			"keyframes": [
+				{
+					"time": 0,
+					"value": 0.25
+				},
+				{
+					"time": 100,
+					"value": 0.45
+				},
+				{
+					"time": 200,
+					"value": 0.25
+				}
+			]
+		}
+	},
+	"mask": {
+		"invert": false,
+		"a": {
+			"shape": "vfxweaver:ringed_glsl",
+			"space": "screen",
+			"center": [
+				0.5,
+				0.5
+			],
+			"params": [
+				0.5,
+				0.5,
+				0.28,
+				0.02,
+				8.0,
+				0.25
+			],
+			"softness": 0.03
+		}
+	}
+}
+```
+
+
+### `show_mask_block_demo`
+
+<video autoplay loop muted playsinline width="100%"><source src="../../assets/media/mask_block_demo.mp4" type="video/mp4"></video>
+
+```
+/vfx play vfx_demos:show_mask_block_demo
+```
+
+Its datapack definition:
+
+```json
+{
+	"type": "color_grade",
+	"duration": 200,
+	"easing": "ease_in_out_cubic",
+	"persistent": true,
+	"loop": true,
+	"fade_ticks": 16,
+	"params": {
+		"screen_layer": 0,
+		"saturation": {
+			"keyframes": [
+				{
+					"time": 0,
+					"value": 1.0
+				},
+				{
+					"time": 100,
+					"value": 0.2
+				},
+				{
+					"time": 200,
+					"value": 1.0
+				}
+			]
+		},
+		"contrast": 1.0,
+		"brightness": 1.0,
+		"tint_r": 0.6,
+		"tint_g": 0.8,
+		"tint_b": 1.0,
+		"mask.p0.p0": {
+			"keyframes": [
+				{
+					"time": 0,
+					"value": 8.0
+				},
+				{
+					"time": 100,
+					"value": 14.0
+				},
+				{
+					"time": 200,
+					"value": 8.0
+				}
+			]
+		}
+	},
+	"mask": {
+		"invert": false,
+		"a": {
+			"shape": "block",
+			"blocks": [
+				"minecraft:smooth_stone",
+				"minecraft:white_concrete",
+				"minecraft:red_concrete",
+				"minecraft:blue_concrete"
+			],
+			"center": [
+				2000.0,
+				101.0,
+				2000.0
+			],
+			"radius": 12.0,
+			"softness": 1.0,
+			"occlude": true
+		}
+	}
+}
+```
+
+
+### `show_mask_block_xray_demo`
+
+<video autoplay loop muted playsinline width="100%"><source src="../../assets/media/mask_block_xray_demo.mp4" type="video/mp4"></video>
+
+```
+/vfx play vfx_demos:show_mask_block_xray_demo
+```
+
+Its datapack definition:
+
+```json
+{
+	"type": "color_grade",
+	"duration": 200,
+	"easing": "ease_in_out_cubic",
+	"persistent": true,
+	"loop": true,
+	"fade_ticks": 16,
+	"params": {
+		"screen_layer": 0,
+		"saturation": {
+			"keyframes": [
+				{
+					"time": 0,
+					"value": 1.0
+				},
+				{
+					"time": 100,
+					"value": 0.2
+				},
+				{
+					"time": 200,
+					"value": 1.0
+				}
+			]
+		},
+		"contrast": 1.0,
+		"brightness": 1.0,
+		"tint_r": 1.0,
+		"tint_g": 0.5,
+		"tint_b": 0.2,
+		"mask.p0.p0": {
+			"keyframes": [
+				{
+					"time": 0,
+					"value": 8.0
+				},
+				{
+					"time": 100,
+					"value": 14.0
+				},
+				{
+					"time": 200,
+					"value": 8.0
+				}
+			]
+		}
+	},
+	"mask": {
+		"invert": false,
+		"a": {
+			"shape": "block",
+			"blocks": [
+				"minecraft:smooth_stone",
+				"minecraft:white_concrete",
+				"minecraft:red_concrete",
+				"minecraft:blue_concrete"
+			],
+			"center": [
+				2000.0,
+				101.0,
+				2000.0
+			],
+			"radius": 12.0,
+			"softness": 1.0,
+			"occlude": false
+		}
+	}
+}
+```
+
+
+### `show_mask_custom_demo`
+
+<img src="../../assets/media/mask_custom_demo.png" alt="mask_custom_demo showcase">
+
+```
+/vfx play vfx_demos:show_mask_custom_demo
+```
+
+Its datapack definition:
+
+```json
+{
+	"type": "color_grade",
+	"duration": 200,
+	"easing": "ease_in_out_cubic",
+	"persistent": true,
+	"loop": true,
+	"fade_ticks": 16,
+	"params": {
+		"screen_layer": 1,
+		"saturation": {
+			"keyframes": [
+				{
+					"time": 0,
+					"value": 1.0
+				},
+				{
+					"time": 100,
+					"value": 0.3
+				},
+				{
+					"time": 200,
+					"value": 1.0
+				}
+			]
+		},
+		"contrast": {
+			"keyframes": [
+				{
+					"time": 0,
+					"value": 1.0
+				},
+				{
+					"time": 100,
+					"value": 1.25
+				},
+				{
+					"time": 200,
+					"value": 1.0
+				}
+			]
+		},
+		"brightness": 1.0,
+		"tint_r": 1.0,
+		"tint_g": 0.7,
+		"tint_b": 0.3
+	},
+	"mask": {
+		"invert": false,
+		"a": {
+			"shape": "vfxweaver:ringed_glsl",
+			"space": "screen",
+			"center": [
+				0.5,
+				0.5
+			],
+			"params": [
+				0.5,
+				0.5,
+				0.3,
+				0.03,
+				8.0,
+				0.25
+			],
+			"softness": 0.03
+		}
+	}
+}
+```
+
+
+### `show_mask_entity_demo`
+
+<video autoplay loop muted playsinline width="100%"><source src="../../assets/media/mask_entity_demo.mp4" type="video/mp4"></video>
+
+```
+/vfx play vfx_demos:show_mask_entity_demo
+```
+
+Its datapack definition:
+
+```json
+{
+	"type": "color_grade",
+	"duration": 200,
+	"easing": "ease_in_out_cubic",
+	"persistent": true,
+	"loop": true,
+	"fade_ticks": 16,
+	"params": {
+		"screen_layer": 1,
+		"saturation": {
+			"keyframes": [
+				{
+					"time": 0,
+					"value": 1.0
+				},
+				{
+					"time": 100,
+					"value": 0.0
+				},
+				{
+					"time": 200,
+					"value": 1.0
+				}
+			]
+		},
+		"contrast": 1.0,
+		"brightness": 1.0,
+		"tint_r": 1.0,
+		"tint_g": 0.2,
+		"tint_b": 0.2
+	},
+	"mask": {
+		"invert": false,
+		"a": {
+			"shape": "sphere",
+			"space": "world",
+			"volume": "aura",
+			"center": {
+				"bind": "entity",
+				"selector": "@e[type=minecraft:villager,limit=1]",
+				"point": "center"
+			},
+			"radius": 4.0,
+			"softness": 0.5
+		}
+	}
+}
+```
+
+
+### `show_mask_world_demo`
+
+<img src="../../assets/media/mask_world_demo.png" alt="mask_world_demo showcase">
+
+```
+/vfx play vfx_demos:show_mask_world_demo
+```
+
+Its datapack definition:
+
+```json
+{
+	"type": "color_grade",
+	"duration": 200,
+	"easing": "ease_in_out_cubic",
+	"persistent": true,
+	"loop": true,
+	"fade_ticks": 16,
+	"params": {
+		"screen_layer": 1,
+		"saturation": {
+			"keyframes": [
+				{
+					"time": 0,
+					"value": 1.0
+				},
+				{
+					"time": 100,
+					"value": 0.0
+				},
+				{
+					"time": 200,
+					"value": 1.0
+				}
+			]
+		},
+		"contrast": 1.0,
+		"brightness": 1.0,
+		"tint_r": 0.2,
+		"tint_g": 0.4,
+		"tint_b": 1.0
+	},
+	"mask": {
+		"invert": false,
+		"a": {
+			"shape": "sphere",
+			"space": "world",
+			"volume": "surface",
+			"center": {
+				"bind": "entity",
+				"selector": "@e[type=minecraft:villager,limit=1]",
+				"point": "center"
+			},
+			"radius": 4.0,
+			"softness": 0.5
+		}
+	}
+}
+```
+
+
+### `show_mask_pulse_demo`
+
+<video autoplay loop muted playsinline width="100%"><source src="../../assets/media/mask_pulse_demo.mp4" type="video/mp4"></video>
+
+```
+/vfx play vfx_demos:show_mask_pulse_demo
+```
+
+Its datapack definition:
+
+```json
+{
+	"type": "color_grade",
+	"duration": 200,
+	"easing": "ease_in_out_cubic",
+	"persistent": true,
+	"loop": true,
+	"fade_ticks": 16,
+	"params": {
+		"screen_layer": 0,
+		"saturation": {
+			"keyframes": [
+				{
+					"time": 0,
+					"value": 1.0
+				},
+				{
+					"time": 100,
+					"value": 0.0
+				},
+				{
+					"time": 200,
+					"value": 1.0
+				}
+			]
+		},
+		"contrast": 1.0,
+		"brightness": 1.0,
+		"tint_r": 1.0,
+		"tint_g": 0.2,
+		"tint_b": 0.2
+	},
+	"mask": {
+		"invert": false,
+		"a": {
+			"shape": "sphere",
+			"space": "world",
+			"volume": "aura",
+			"center": {
+				"bind": "entity",
+				"selector": "@e[tag=vfx_showcase,limit=1]",
+				"point": "center"
+			},
+			"radius": {
+				"bind": "entity",
+				"selector": "@e[tag=vfx_showcase,limit=1]",
+				"derive": "distance"
+			},
+			"softness": 0.5
+		}
+	}
+}
+```

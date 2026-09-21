@@ -1,5 +1,7 @@
 # light_beam
 
+<video autoplay loop muted playsinline width="100%"><source src="../../../assets/media/light_beam.mp4" type="video/mp4"></video>
+
 `type: "light_beam"`
 
 A vertical glowing shaft of soft light descending onto each position. `top_scale` flares the top: 1 = cylinder, 2 = cone with twice the top radius. `softness` increases the number of concentric shells and fades their alpha: 0 = two hard tubes, higher = many thin, faint shells (a smooth blurred column).
@@ -32,4 +34,73 @@ A vertical glowing shaft of soft light descending onto each position. `top_scale
 
 ```
 /vfx playat vfxweaver:light_beam 8 70 8 {[radius:2],[top_scale:2],[softness:3]}
+```
+
+## Code
+
+```
+/vfx play vfx_demos:show_light_beam
+```
+
+Its datapack definition:
+
+```json
+{
+	"type": "light_beam",
+	"duration": 160,
+	"easing": "ease_in_out_cubic",
+	"persistent": true,
+	"loop": true,
+	"fade_ticks": 12,
+	"positions": [
+		[
+			1996,
+			100,
+			1996
+		]
+	],
+	"params": {
+		"red": 1.0,
+		"green": 0.95,
+		"blue": 0.75,
+		"radius": {
+			"keyframes": [
+				{
+					"time": 0,
+					"value": 1.0
+				},
+				{
+					"time": 80,
+					"value": 1.8
+				},
+				{
+					"time": 160,
+					"value": 1.0
+				}
+			]
+		},
+		"height": 16.0,
+		"softness": 1.2,
+		"top_scale": 1.5,
+		"top_fade": 0.5,
+		"bottom_fade": 0.0,
+		"through_blocks": 0.0,
+		"intensity": {
+			"keyframes": [
+				{
+					"time": 0,
+					"value": 0.25
+				},
+				{
+					"time": 80,
+					"value": 0.9
+				},
+				{
+					"time": 160,
+					"value": 0.25
+				}
+			]
+		}
+	}
+}
 ```

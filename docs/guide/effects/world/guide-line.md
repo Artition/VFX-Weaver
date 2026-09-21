@@ -1,5 +1,7 @@
 # guide_line
 
+<video autoplay loop muted playsinline width="100%"><source src="../../../assets/media/guide_line.mp4" type="video/mp4"></video>
+
 `type: "guide_line"`
 
 A glowing dashed line along a parabolic arc between two anchors.
@@ -31,4 +33,62 @@ A glowing dashed line along a parabolic arc between two anchors.
 
 ```
 /vfx playat vfxweaver:guide_line 8 70 8 {[arc:3]}
+```
+
+## Code
+
+```
+/vfx play vfx_demos:show_guide_line
+```
+
+Its datapack definition:
+
+```json
+{
+	"type": "guide_line",
+	"duration": 160,
+	"easing": "ease_in_out_cubic",
+	"persistent": true,
+	"loop": true,
+	"fade_ticks": 12,
+	"positions": [
+		[
+			1996,
+			101,
+			1996
+		],
+		[
+			2004,
+			101,
+			1996
+		]
+	],
+	"params": {
+		"red": 0.25,
+		"green": 1.0,
+		"blue": 0.45,
+		"width": 0.12,
+		"dash_length": 0.5,
+		"gap": 0.4,
+		"speed": 2.0,
+		"arc": {
+			"keyframes": [
+				{
+					"time": 0,
+					"value": 0.0
+				},
+				{
+					"time": 80,
+					"value": 1.6
+				},
+				{
+					"time": 160,
+					"value": 0.0
+				}
+			]
+		},
+		"through_blocks": 0.0,
+		"intensity": 1.0
+	}
+}
 ```

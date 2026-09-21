@@ -1,5 +1,7 @@
 # vhs
 
+<video autoplay loop muted playsinline width="100%"><source src="../../../assets/media/vhs.mp4" type="video/mp4"></video>
+
 `type: "vhs"`
 
 Worn VHS playback: wobble, a crawling noise tracking band, colour bleed and washed contrast.
@@ -29,4 +31,46 @@ Worn VHS playback: wobble, a crawling noise tracking band, colour bleed and wash
 
 ```
 /vfx play vfxweaver:vhs {[band_speed:0.3]}
+```
+
+## Code
+
+```
+/vfx play vfx_demos:show_vhs
+```
+
+Its datapack definition:
+
+```json
+{
+	"type": "vhs",
+	"duration": 200,
+	"easing": "ease_in_out_cubic",
+	"persistent": true,
+	"loop": true,
+	"fade_ticks": 12,
+	"params": {
+		"tracking": 0.2,
+		"band_height": 0.05,
+		"band_speed": 0.08,
+		"bleed": 0.012,
+		"wobble": 0.002,
+		"intensity": {
+			"keyframes": [
+				{
+					"time": 0,
+					"value": 0.4
+				},
+				{
+					"time": 100,
+					"value": 0.9
+				},
+				{
+					"time": 200,
+					"value": 0.4
+				}
+			]
+		}
+	}
+}
 ```

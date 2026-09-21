@@ -1,5 +1,7 @@
 # letterbox
 
+<video autoplay loop muted playsinline width="100%"><source src="../../../assets/media/letterbox.mp4" type="video/mp4"></video>
+
 `type: "letterbox"`
 
 Cinematic bars at the top and bottom of the screen.
@@ -25,4 +27,44 @@ Cinematic bars at the top and bottom of the screen.
 
 ```
 /vfx play vfxweaver:letterbox {[height:0.2]}
+```
+
+## Code
+
+```
+/vfx play vfx_demos:show_letterbox
+```
+
+Its datapack definition:
+
+```json
+{
+	"type": "letterbox",
+	"duration": 160,
+	"easing": "ease_in_out_cubic",
+	"persistent": true,
+	"loop": true,
+	"fade_ticks": 12,
+	"params": {
+		"height": {
+			"keyframes": [
+				{
+					"time": 0,
+					"value": 0.0
+				},
+				{
+					"time": 80,
+					"value": 0.18
+				},
+				{
+					"time": 160,
+					"value": 0.0
+				}
+			]
+		},
+		"color_r": 0.0,
+		"color_g": 0.0,
+		"color_b": 0.0
+	}
+}
 ```

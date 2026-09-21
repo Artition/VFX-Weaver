@@ -1,5 +1,7 @@
 # hue_isolation
 
+<video autoplay loop muted playsinline width="100%"><source src="../../../assets/media/hue_isolation.mp4" type="video/mp4"></video>
+
 `type: "hue_isolation"`
 
 Keeps the chosen hue, everything else goes grayscale.
@@ -26,4 +28,43 @@ Keeps the chosen hue, everything else goes grayscale.
 
 ```
 /vfx play vfxweaver:hue_isolation {[hue:0.33],[tolerance:0.1]}
+```
+
+## Code
+
+```
+/vfx play vfx_demos:show_hue_isolation
+```
+
+Its datapack definition:
+
+```json
+{
+	"type": "hue_isolation",
+	"duration": 200,
+	"easing": "ease_in_out_cubic",
+	"persistent": true,
+	"loop": true,
+	"fade_ticks": 12,
+	"params": {
+		"hue": {
+			"keyframes": [
+				{
+					"time": 0,
+					"value": 0.0
+				},
+				{
+					"time": 100,
+					"value": 0.4
+				},
+				{
+					"time": 200,
+					"value": 0.0
+				}
+			]
+		},
+		"tolerance": 0.25,
+		"intensity": 0.9
+	}
+}
 ```

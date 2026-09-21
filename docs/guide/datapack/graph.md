@@ -141,3 +141,221 @@ The built-in `vfxweaver:graph_logic_demo` combines both: a `pulse` macro (a `tim
 the first half of each `$period` and holding it at `0` for the second.
 
 Masks are implemented (see [Masks](masks.md)): an optional top-level `mask` block restricts where a post-processing effect applies, evaluated once per frame in a coverage prepass at screen layer 0.
+
+## Showcase
+
+### `show_graph_demo`
+
+<video autoplay loop muted playsinline width="100%"><source src="../../assets/media/graph_demo.mp4" type="video/mp4"></video>
+
+```
+/vfx play vfx_demos:show_graph_demo
+```
+
+Its datapack definition:
+
+```json
+{
+	"type": "blur",
+	"duration": 200,
+	"loop": true,
+	"persistent": true,
+	"fade_ticks": 20,
+	"params": {
+		"radius": 2.0
+	},
+	"graph": {
+		"version": 1,
+		"nodes": [
+			{
+				"id": "phase",
+				"kind": "time",
+				"inputs": {
+					"speed": 0.5
+				}
+			},
+			{
+				"id": "pulse",
+				"kind": "curve",
+				"inputs": {
+					"points": [
+						{
+							"time": 0,
+							"value": 0.0
+						},
+						{
+							"time": 50,
+							"value": 8.0
+						},
+						{
+							"time": 100,
+							"value": 0.0
+						}
+					]
+				}
+			}
+		],
+		"edges": [
+			{
+				"from": "phase",
+				"to": "pulse",
+				"input": "time"
+			}
+		],
+		"meta": {
+			"phase": {
+				"pos": [
+					40,
+					60
+				]
+			},
+			"pulse": {
+				"pos": [
+					200,
+					60
+				]
+			}
+		}
+	},
+	"inputs": {
+		"radius": {
+			"from": "pulse"
+		}
+	}
+}
+```
+
+
+### `show_graph_logic_demo`
+
+<video autoplay loop muted playsinline width="100%"><source src="../../assets/media/graph_logic_demo.mp4" type="video/mp4"></video>
+
+```
+/vfx play vfx_demos:show_graph_logic_demo
+```
+
+Its datapack definition:
+
+```json
+{
+	"type": "blur",
+	"duration": 160,
+	"loop": true,
+	"persistent": true,
+	"fade_ticks": 20,
+	"params": {
+		"radius": 0.0
+	},
+	"subgraphs": [
+		{
+			"id": "pulse",
+			"inputs": {
+				"period": 160.0,
+				"peak": 8.0,
+				"duty": 0.5
+			},
+			"nodes": [
+				{
+					"id": "t",
+					"kind": "time",
+					"inputs": {
+						"speed": 1.0
+					}
+				},
+				{
+					"id": "phase",
+					"kind": "math",
+					"op": "mod",
+					"inputs": {
+						"a": {
+							"from": "t"
+						},
+						"b": "$period"
+					}
+				},
+				{
+					"id": "half",
+					"kind": "math",
+					"op": "multiply",
+					"inputs": {
+						"a": "$period",
+						"b": "$duty"
+					}
+				},
+				{
+					"id": "on",
+					"kind": "compare",
+					"op": "lt",
+					"inputs": {
+						"a": {
+							"from": "phase"
+						},
+						"b": {
+							"from": "half"
+						}
+					}
+				},
+				{
+					"id": "ramp",
+					"kind": "remap",
+					"inputs": {
+						"value": {
+							"from": "phase"
+						},
+						"in_min": 0.0,
+						"in_max": 80.0,
+						"out_min": 0.0,
+						"out_max": "$peak"
+					}
+				},
+				{
+					"id": "out",
+					"kind": "if",
+					"inputs": {
+						"condition": {
+							"from": "on"
+						},
+						"then": {
+							"from": "ramp"
+						},
+						"else": 0.0
+					}
+				}
+			],
+			"outputs": {
+				"amount": "out",
+				"raw": "ramp"
+			}
+		}
+	],
+	"graph": {
+		"version": 1,
+		"nodes": [
+			{
+				"id": "n1",
+				"kind": "subgraph",
+				"subgraph": "pulse",
+				"inputs": {
+					"period": 160.0,
+					"peak": 8.0
+				}
+			}
+		],
+		"edges": [
+			{
+				"from": "n1",
+				"output": "amount",
+				"to": "radius"
+			}
+		]
+	},
+	"meta": {
+		"n1": {
+			"pos": [
+				60,
+				60
+			]
+		}
+	}
+}
+```

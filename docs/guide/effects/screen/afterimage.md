@@ -1,5 +1,7 @@
 # afterimage
 
+<video autoplay loop muted playsinline width="100%"><source src="../../../assets/media/afterimage.mp4" type="video/mp4"></video>
+
 `type: "afterimage"`
 
 Feedback echo: movement leaves smearing trails that linger and dissolve on a fixed decay schedule.
@@ -28,4 +30,60 @@ Feedback echo: movement leaves smearing trails that linger and dissolve on a fix
 
 ```
 /vfx play vfxweaver:afterimage {[intensity:0.5]}
+```
+
+## Code
+
+```
+/vfx play vfx_demos:show_afterimage
+```
+
+Its datapack definition:
+
+```json
+{
+	"type": "afterimage",
+	"duration": 160,
+	"easing": "ease_in_out_cubic",
+	"persistent": true,
+	"loop": true,
+	"fade_ticks": 12,
+	"params": {
+		"decay": 0.9,
+		"blend": 0.4,
+		"drift": {
+			"keyframes": [
+				{
+					"time": 0,
+					"value": 0.0
+				},
+				{
+					"time": 80,
+					"value": 0.03
+				},
+				{
+					"time": 160,
+					"value": 0.0
+				}
+			]
+		},
+		"desat": 0.3,
+		"intensity": {
+			"keyframes": [
+				{
+					"time": 0,
+					"value": 0.25
+				},
+				{
+					"time": 80,
+					"value": 0.7
+				},
+				{
+					"time": 160,
+					"value": 0.25
+				}
+			]
+		}
+	}
+}
 ```

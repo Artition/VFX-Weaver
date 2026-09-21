@@ -1,5 +1,7 @@
 # noise_warp
 
+<video autoplay loop muted playsinline width="100%"><source src="../../../assets/media/noise_warp.mp4" type="video/mp4"></video>
+
 `type: "noise_warp"`
 
 An animated value-noise field warps the picture in soft fluid patches; bright noise areas drag pixels the hardest.
@@ -29,4 +31,63 @@ An animated value-noise field warps the picture in soft fluid patches; bright no
 
 ```
 /vfx play vfxweaver:noise_warp {[amplitude:0.06],[scale:4],[contrast:3]}
+```
+
+## Code
+
+```
+/vfx play vfx_demos:show_noise_warp
+```
+
+Its datapack definition:
+
+```json
+{
+	"type": "noise_warp",
+	"duration": 160,
+	"easing": "ease_in_out_cubic",
+	"persistent": true,
+	"loop": true,
+	"fade_ticks": 12,
+	"params": {
+		"scale": 6.0,
+		"amplitude": {
+			"keyframes": [
+				{
+					"time": 0,
+					"value": 0.0
+				},
+				{
+					"time": 80,
+					"value": 0.035
+				},
+				{
+					"time": 160,
+					"value": 0.0
+				}
+			]
+		},
+		"contrast": 2.0,
+		"coherence": 1.0,
+		"speed": 0.3,
+		"drift_x": 0.0,
+		"drift_y": {
+			"keyframes": [
+				{
+					"time": 0,
+					"value": -0.01
+				},
+				{
+					"time": 80,
+					"value": 0.01
+				},
+				{
+					"time": 160,
+					"value": -0.01
+				}
+			]
+		},
+		"seed": 0.0
+	}
+}
 ```

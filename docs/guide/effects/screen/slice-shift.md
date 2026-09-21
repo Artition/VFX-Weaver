@@ -1,5 +1,7 @@
 # slice_shift
 
+<video autoplay loop muted playsinline width="100%"><source src="../../../assets/media/slice_shift.mp4" type="video/mp4"></video>
+
 `type: "slice_shift"`
 
 The frame is cut by a straight line and the halves slide past each other along it; the exposed strips at the screen edges are filled with wrapped or mirrored copies of the world (no black gap).
@@ -27,4 +29,59 @@ The frame is cut by a straight line and the halves slide past each other along i
 
 ```
 /vfx play vfxweaver:slice_shift {[angle:25],[shift:0.12]}
+```
+
+## Code
+
+```
+/vfx play vfx_demos:show_slice_shift
+```
+
+Its datapack definition:
+
+```json
+{
+	"type": "slice_shift",
+	"duration": 160,
+	"easing": "ease_in_out_cubic",
+	"persistent": true,
+	"loop": true,
+	"fade_ticks": 12,
+	"params": {
+		"angle": {
+			"keyframes": [
+				{
+					"time": 0,
+					"value": 0.0
+				},
+				{
+					"time": 80,
+					"value": 20.0
+				},
+				{
+					"time": 160,
+					"value": 0.0
+				}
+			]
+		},
+		"offset": 0.0,
+		"shift": {
+			"keyframes": [
+				{
+					"time": 0,
+					"value": 0.0
+				},
+				{
+					"time": 80,
+					"value": 0.06
+				},
+				{
+					"time": 160,
+					"value": 0.0
+				}
+			]
+		},
+		"mirror": 0.0
+	}
+}
 ```

@@ -1,5 +1,7 @@
 # block_chain
 
+<video autoplay loop muted playsinline width="100%"><source src="../../../assets/media/block_chain.mp4" type="video/mp4"></video>
+
 `type: "block_chain"`
 
 A line of **real block-model links** between two anchors (like `guide_line`, but made of blocks) — the `block` definition field picks the block, links render with full vanilla textures/lighting and follow moving anchors every frame.
@@ -45,3 +47,58 @@ Physics is a client-side visual simulation (verlet rope at a fixed tick rate) �
 The built-in `vfxweaver:block_chain` demo hangs a 6-link `minecraft:iron_chain` from the local player (`pos_x/y/z` bound to `player_x/y/z`, `physics: 1`), so plain `/vfx play vfxweaver:block_chain` works without a datapack — the same self-anchoring pattern the `vfxweaver:particles` demo uses.
 
 The builtin `vfxweaver:particles` demo binds its position to the local player (`pos_x/y/z` with `bind: player_x/y/z`), so plain `/vfx play vfxweaver:particles` spawns the helix around the viewer; `/vfx playat` and `positions` override that as usual.
+
+## Code
+
+```
+/vfx play vfx_demos:show_block_chain
+```
+
+Its datapack definition:
+
+```json
+{
+	"type": "block_chain",
+	"duration": 160,
+	"easing": "ease_in_out_cubic",
+	"persistent": true,
+	"loop": true,
+	"fade_ticks": 12,
+	"block": "minecraft:iron_chain",
+	"positions": [
+		[
+			1994,
+			105,
+			2001
+		],
+		[
+			2006,
+			100,
+			2001
+		]
+	],
+	"params": {
+		"spacing": 1.0,
+		"scale": 1.0,
+		"align": 1.0,
+		"physics": 0.0,
+		"arc": {
+			"keyframes": [
+				{
+					"time": 0,
+					"value": -1.2
+				},
+				{
+					"time": 80,
+					"value": 1.2
+				},
+				{
+					"time": 160,
+					"value": -1.2
+				}
+			]
+		},
+		"sway": 0.2
+	}
+}
+```

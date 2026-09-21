@@ -1,5 +1,7 @@
 # speed_lines
 
+<video autoplay loop muted playsinline width="100%"><source src="../../../assets/media/speed_lines.mp4" type="video/mp4"></video>
+
 `type: "speed_lines"`
 
 "Speed lines" emanating from the screen borders and pointing to the centre (or a given point).
@@ -32,4 +34,52 @@
 
 ```
 /vfx play vfxweaver:speed_lines {[count:120],[length:0.8]}
+```
+
+## Code
+
+```
+/vfx play vfx_demos:show_speed_lines
+```
+
+Its datapack definition:
+
+```json
+{
+	"type": "speed_lines",
+	"duration": 160,
+	"easing": "ease_in_out_cubic",
+	"persistent": true,
+	"loop": true,
+	"fade_ticks": 12,
+	"params": {
+		"center_x": 0.5,
+		"center_y": 0.5,
+		"count": 40.0,
+		"length": 0.4,
+		"length_rand": 0.6,
+		"pos_rand": 0.8,
+		"width": 0.4,
+		"seed": 0.0,
+		"color_r": 1.0,
+		"color_g": 1.0,
+		"color_b": 1.0,
+		"intensity": {
+			"keyframes": [
+				{
+					"time": 0,
+					"value": 0.0
+				},
+				{
+					"time": 80,
+					"value": 0.7
+				},
+				{
+					"time": 160,
+					"value": 0.0
+				}
+			]
+		}
+	}
+}
 ```

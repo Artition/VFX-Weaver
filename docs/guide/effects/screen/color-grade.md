@@ -1,5 +1,7 @@
 # color_grade
 
+<video autoplay loop muted playsinline width="100%"><source src="../../../assets/media/color_grade.mp4" type="video/mp4"></video>
+
 `type: "color_grade"`
 
 Colour grading: saturation, contrast, brightness and a colour tint.
@@ -27,4 +29,61 @@ Colour grading: saturation, contrast, brightness and a colour tint.
 
 ```
 /vfx play vfxweaver:color_grade
+```
+
+## Code
+
+```
+/vfx play vfx_demos:show_color_grade
+```
+
+Its datapack definition:
+
+```json
+{
+	"type": "color_grade",
+	"duration": 160,
+	"easing": "ease_in_out_cubic",
+	"persistent": true,
+	"loop": true,
+	"fade_ticks": 12,
+	"params": {
+		"saturation": {
+			"keyframes": [
+				{
+					"time": 0,
+					"value": 1.0
+				},
+				{
+					"time": 80,
+					"value": 0.25
+				},
+				{
+					"time": 160,
+					"value": 1.0
+				}
+			]
+		},
+		"contrast": {
+			"keyframes": [
+				{
+					"time": 0,
+					"value": 1.0
+				},
+				{
+					"time": 80,
+					"value": 1.12
+				},
+				{
+					"time": 160,
+					"value": 1.0
+				}
+			]
+		},
+		"brightness": 1.0,
+		"tint_r": 1.0,
+		"tint_g": 1.0,
+		"tint_b": 1.0
+	}
+}
 ```

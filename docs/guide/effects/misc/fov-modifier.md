@@ -1,5 +1,7 @@
 # fov_modifier
 
+<video autoplay loop muted playsinline width="100%"><source src="../../../assets/media/fov_modifier.mp4" type="video/mp4"></video>
+
 `type: "fov_modifier"`
 
 Changes the player's field of view.
@@ -32,4 +34,41 @@ Changes the player's field of view.
 
 ```
 /vfx play vfxweaver:fov_modifier {[fov_delta:-20]}
+```
+
+## Code
+
+```
+/vfx play vfx_demos:show_fov_modifier
+```
+
+Its datapack definition:
+
+```json
+{
+	"type": "fov_modifier",
+	"duration": 160,
+	"easing": "ease_in_out_cubic",
+	"persistent": true,
+	"loop": true,
+	"fade_ticks": 12,
+	"params": {
+		"fov_delta": {
+			"keyframes": [
+				{
+					"time": 0,
+					"value": 0.0
+				},
+				{
+					"time": 80,
+					"value": 10.0
+				},
+				{
+					"time": 160,
+					"value": 0.0
+				}
+			]
+		}
+	}
+}
 ```

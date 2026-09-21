@@ -1,5 +1,7 @@
 # particles
 
+<video autoplay loop muted playsinline width="100%"><source src="../../../assets/media/particles.mp4" type="video/mp4"></video>
+
 `type: "particles"`
 
 Emits **vanilla particles** in animated shapes — no custom textures, everything is datapack-driven and works under shaderpacks. Two definition-level string fields choose the look:
@@ -60,4 +62,72 @@ Aimed stream example — accelerating shot from one block to another (put both p
 
 ```
 /vfx play vfxweaver:particles
+```
+
+## Code
+
+```
+/vfx play vfx_demos:show_particles
+```
+
+Its datapack definition:
+
+```json
+{
+	"type": "particles",
+	"duration": 160,
+	"easing": "ease_in_out_cubic",
+	"persistent": true,
+	"loop": true,
+	"fade_ticks": 12,
+	"particle": "dust",
+	"shape": "helix",
+	"positions": [
+		[
+			2000,
+			100,
+			2000
+		]
+	],
+	"params": {
+		"rate": 100.0,
+		"radius": {
+			"keyframes": [
+				{
+					"time": 0,
+					"value": 0.6
+				},
+				{
+					"time": 80,
+					"value": 1.4
+				},
+				{
+					"time": 160,
+					"value": 0.6
+				}
+			]
+		},
+		"height": {
+			"keyframes": [
+				{
+					"time": 0,
+					"value": 2.0
+				},
+				{
+					"time": 80,
+					"value": 3.5
+				},
+				{
+					"time": 160,
+					"value": 2.0
+				}
+			]
+		},
+		"turns": 2.0,
+		"size": 1.0,
+		"color_r": 1.0,
+		"color_g": 0.85,
+		"color_b": 0.3
+	}
+}
 ```

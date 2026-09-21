@@ -1,5 +1,7 @@
 # eyelids
 
+<video autoplay loop muted playsinline width="100%"><source src="../../../assets/media/eyelids.mp4" type="video/mp4"></video>
+
 `type: "eyelids"`
 
 Two soft curved dark lids slide in from the top and bottom. Animate `openness` 1 -> 0 to close the eyes; the built-in is a static half-open template.
@@ -26,4 +28,43 @@ Two soft curved dark lids slide in from the top and bottom. Animate `openness` 1
 
 ```
 /vfx play vfxweaver:eyelids {[openness:0.2]}
+```
+
+## Code
+
+```
+/vfx play vfx_demos:show_eyelids
+```
+
+Its datapack definition:
+
+```json
+{
+	"type": "eyelids",
+	"duration": 200,
+	"easing": "ease_in_out_cubic",
+	"persistent": true,
+	"loop": true,
+	"fade_ticks": 12,
+	"params": {
+		"openness": {
+			"keyframes": [
+				{
+					"time": 0,
+					"value": 1.0
+				},
+				{
+					"time": 100,
+					"value": 0.25
+				},
+				{
+					"time": 200,
+					"value": 1.0
+				}
+			]
+		},
+		"softness": 0.2,
+		"curve": 0.4
+	}
+}
 ```

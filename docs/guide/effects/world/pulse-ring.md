@@ -1,5 +1,7 @@
 # pulse_ring
 
+<video autoplay loop muted playsinline width="100%"><source src="../../../assets/media/pulse_ring.mp4" type="video/mp4"></video>
+
 `type: "pulse_ring"`
 
 A glowing ring around each position. With `billboard:1` (default) the ring always faces the camera (perfect circle from any angle); with `billboard:0` it stays in a fixed plane rotated by `rot_x/rot_y/rot_z`.
@@ -32,4 +34,70 @@ A glowing ring around each position. With `billboard:1` (default) the ring alway
 
 ```
 /vfx playat vfxweaver:pulse_ring 8 70 8 {[radius:10],[billboard:0],[rot_x:60]}
+```
+
+## Code
+
+```
+/vfx play vfx_demos:show_pulse_ring
+```
+
+Its datapack definition:
+
+```json
+{
+	"type": "pulse_ring",
+	"duration": 160,
+	"easing": "ease_in_out_cubic",
+	"persistent": true,
+	"loop": true,
+	"fade_ticks": 12,
+	"positions": [
+		[
+			2000,
+			100.2,
+			2000
+		]
+	],
+	"params": {
+		"red": 1.0,
+		"green": 0.35,
+		"blue": 0.1,
+		"radius": {
+			"keyframes": [
+				{
+					"time": 0,
+					"value": 0.0
+				},
+				{
+					"time": 80,
+					"value": 6.0
+				},
+				{
+					"time": 160,
+					"value": 0.0
+				}
+			]
+		},
+		"thickness": 0.4,
+		"billboard": 1.0,
+		"through_blocks": 0.0,
+		"intensity": {
+			"keyframes": [
+				{
+					"time": 0,
+					"value": 0.2
+				},
+				{
+					"time": 80,
+					"value": 1.0
+				},
+				{
+					"time": 160,
+					"value": 0.2
+				}
+			]
+		}
+	}
+}
 ```

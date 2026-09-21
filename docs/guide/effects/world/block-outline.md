@@ -1,5 +1,7 @@
 # block_outline
 
+<video autoplay loop muted playsinline width="100%"><source src="../../../assets/media/block_outline.mp4" type="video/mp4"></video>
+
 `type: "block_outline"`
 
 Block outline, two modes.
@@ -31,4 +33,73 @@ Both support a list of coordinates via `positions` (see [Datapack format](../../
 
 ```
 /vfx play vfxweaver:block_outline {[width:0.08],[shell:1]}
+```
+
+## Code
+
+```
+/vfx play vfx_demos:show_block_outline
+```
+
+Its datapack definition:
+
+```json
+{
+	"type": "block_outline",
+	"duration": 160,
+	"easing": "ease_in_out_cubic",
+	"persistent": true,
+	"loop": true,
+	"fade_ticks": 12,
+	"positions": [
+		[
+			1996,
+			100,
+			1996
+		],
+		[
+			2004,
+			100,
+			1996
+		]
+	],
+	"params": {
+		"color_r": 1.0,
+		"color_g": 0.85,
+		"color_b": 0.2,
+		"alpha": {
+			"keyframes": [
+				{
+					"time": 0,
+					"value": 0.25
+				},
+				{
+					"time": 80,
+					"value": 0.95
+				},
+				{
+					"time": 160,
+					"value": 0.25
+				}
+			]
+		},
+		"width": {
+			"keyframes": [
+				{
+					"time": 0,
+					"value": 0.02
+				},
+				{
+					"time": 80,
+					"value": 0.07
+				},
+				{
+					"time": 160,
+					"value": 0.02
+				}
+			]
+		},
+		"through_blocks": 0.0
+	}
+}
 ```

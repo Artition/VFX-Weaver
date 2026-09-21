@@ -1,5 +1,7 @@
 # surface_pattern
 
+<video autoplay loop muted playsinline width="100%"><source src="../../../assets/media/surface_pattern.mp4" type="video/mp4"></video>
+
 `type: "surface_pattern"`
 
 Projects a world-anchored figure (or a texture) onto the terrain behind each pixel, using scene
@@ -215,3 +217,188 @@ A procedurally stroked rectangle on a floor band, still using the legacy `normal
   `sheet`, or an `id` whose source cannot be inferred is a per-file parse error. A `surface_pattern`
   whose `positions` contains an entity anchor is also a parse error - the pattern anchor is a world
   point, so the shader would otherwise silently fall back to the player.
+
+## Code
+
+```
+/vfx play vfx_demos:show_surface_pattern
+```
+
+Its datapack definition:
+
+```json
+{
+	"type": "surface_pattern",
+	"duration": 200,
+	"easing": "linear",
+	"persistent": true,
+	"loop": true,
+	"fade_ticks": 12,
+	"params": {
+		"screen_layer": 0,
+		"tile_scale": {
+			"keyframes": [
+				{
+					"time": 0,
+					"value": 2.6
+				},
+				{
+					"time": 100,
+					"value": 3.6
+				},
+				{
+					"time": 200,
+					"value": 2.6
+				}
+			]
+		},
+		"color_r": 0.35,
+		"color_g": 0.85,
+		"color_b": 1.0,
+		"opacity": {
+			"keyframes": [
+				{
+					"time": 0,
+					"value": 0.45
+				},
+				{
+					"time": 100,
+					"value": 0.9
+				},
+				{
+					"time": 200,
+					"value": 0.45
+				}
+			]
+		},
+		"fade_radius": 26.0,
+		"distort": 0.0,
+		"rotation": {
+			"keyframes": [
+				{
+					"time": 0,
+					"value": 0.0
+				},
+				{
+					"time": 200,
+					"value": 360.0,
+					"easing": "linear"
+				}
+			]
+		}
+	},
+	"pattern": {
+		"center": [
+			2000.0,
+			100.0,
+			2000.0
+		],
+		"figure": "ellipse",
+		"fill": "stroke",
+		"radius_x": 0.42,
+		"radius_y": 0.42,
+		"stroke_width": 0.03,
+		"softness": 0.03,
+		"repeat": [
+			1,
+			1
+		]
+	},
+	"surface": {
+		"faces": [
+			"up"
+		]
+	}
+}
+```
+
+## Variants
+
+### `show_surface_pattern_texture`
+
+<video autoplay loop muted playsinline width="100%"><source src="../../../assets/media/surface_pattern_texture.mp4" type="video/mp4"></video>
+
+```
+/vfx play vfx_demos:show_surface_pattern_texture
+```
+
+Its datapack definition:
+
+```json
+{
+	"type": "surface_pattern",
+	"duration": 200,
+	"easing": "linear",
+	"persistent": true,
+	"loop": true,
+	"fade_ticks": 12,
+	"params": {
+		"screen_layer": 0,
+		"tile_scale": {
+			"keyframes": [
+				{
+					"time": 0,
+					"value": 2.6
+				},
+				{
+					"time": 100,
+					"value": 3.4
+				},
+				{
+					"time": 200,
+					"value": 2.6
+				}
+			]
+		},
+		"opacity": {
+			"keyframes": [
+				{
+					"time": 0,
+					"value": 0.7
+				},
+				{
+					"time": 100,
+					"value": 1.0
+				},
+				{
+					"time": 200,
+					"value": 0.7
+				}
+			]
+		},
+		"fade_radius": 26.0,
+		"distort": 0.0,
+		"rotation": {
+			"keyframes": [
+				{
+					"time": 0,
+					"value": 0.0
+				},
+				{
+					"time": 200,
+					"value": 360.0,
+					"easing": "linear"
+				}
+			]
+		}
+	},
+	"pattern": {
+		"center": [
+			2000.0,
+			102.0,
+			2006.0
+		],
+		"texture": {
+			"id": "minecraft:item/ender_eye",
+			"source": "item",
+			"channel": "alpha",
+			"aspect": "preserve"
+		}
+	},
+	"surface": {
+		"faces": [
+			"north"
+		]
+	}
+}
+```
