@@ -64,3 +64,6 @@ docs/superpowers/
 # mkdocs build output
 
 site/
+
+# local tooling (recording/trimming helpers)
+tools/
