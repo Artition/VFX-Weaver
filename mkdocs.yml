@@ -51,7 +51,8 @@ theme:
 
 nav:
   - Home: index.md
-  - Getting started: guide/index.md
+  - Getting started: guide/index.md
+  - Showcase datapack: guide/showcase-datapack.md
   - Your first datapack: guide/first-datapack.md
   - Effects:
       - Overview: guide/effects/index.md
