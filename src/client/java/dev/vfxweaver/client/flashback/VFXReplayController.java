@@ -2,6 +2,7 @@ package dev.vfxweaver.client.flashback;
 
 import dev.vfxweaver.client.effect.VFXEffectManager;
 import dev.vfxweaver.effect.EasingFunction;
+import dev.vfxweaver.effect.VFXReplayClock;
 import dev.vfxweaver.util.VFXLog;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -9,6 +10,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 import net.minecraft.resources.Identifier;
 import net.minecraft.world.phys.Vec3;
 import org.jspecify.annotations.Nullable;
@@ -63,7 +65,7 @@ public final class VFXReplayController {
 	}
 
 	/** Records a play action at its replay tick. Re-fired events (a seek) are ignored. */
-	public void onPlay(final Identifier effectId, final int durationTicks, final Map<String, Float> params, final @Nullable EasingFunction easing, final @Nullable Vec3 anchor, final int triggerTick) {
+	public void onPlay(final Identifier effectId, final int durationTicks, final Map<String, Float> params, final @Nullable EasingFunction easing, final @Nullable Vec3 anchor, final List<UUID> entityUuids, final int triggerTick) {
 		if (triggerTick < 0 || !this.reserve()) {
 			return;
 		}
@@ -71,7 +73,7 @@ public final class VFXReplayController {
 		if (this.plays.containsKey(key)) {
 			return;
 		}
-		this.plays.put(key, new PlayEvent(effectId, triggerTick, durationTicks, params, easing, anchor));
+		this.plays.put(key, new PlayEvent(effectId, triggerTick, durationTicks, params, easing, anchor, entityUuids));
 	}
 
 	/** Records a stop action at its replay tick. */
@@ -127,7 +129,7 @@ public final class VFXReplayController {
 		if (paused && !Double.isNaN(this.lastReplayTick) && replayTick == this.lastReplayTick) {
 			return;
 		}
-		final boolean seek = Double.isNaN(this.lastReplayTick) || Math.abs(replayTick - this.lastReplayTick) > SEEK_THRESHOLD_TICKS;
+		final boolean seek = VFXReplayClock.isSeek(this.lastReplayTick, replayTick, SEEK_THRESHOLD_TICKS);
 		this.lastReplayTick = replayTick;
 		if (seek) {
 			this.rebuild(replayTick);
@@ -197,7 +199,7 @@ public final class VFXReplayController {
 				continue;
 			}
 			final long instanceId = manager.allocateInstanceId();
-			manager.playReplay(play.effectId, play.durationTicks, play.triggerTick, instanceId, play.anchor, play.params, play.easing, !rebuilding && !play.soundPlayed);
+			manager.playReplay(play.effectId, play.durationTicks, play.triggerTick, instanceId, play.anchor, play.entityUuids, play.params, play.easing, !rebuilding && !play.soundPlayed);
 			play.instanceId = instanceId;
 			play.started = true;
 			play.soundPlayed = true;
@@ -263,17 +265,19 @@ public final class VFXReplayController {
 		private final Map<String, Float> params;
 		private final @Nullable EasingFunction easing;
 		private final @Nullable Vec3 anchor;
+		private final List<UUID> entityUuids;
 		private long instanceId;
 		private boolean started;
 		private boolean soundPlayed;
 
-		private PlayEvent(final Identifier effectId, final int triggerTick, final int durationTicks, final Map<String, Float> params, final @Nullable EasingFunction easing, final @Nullable Vec3 anchor) {
+		private PlayEvent(final Identifier effectId, final int triggerTick, final int durationTicks, final Map<String, Float> params, final @Nullable EasingFunction easing, final @Nullable Vec3 anchor, final List<UUID> entityUuids) {
 			this.effectId = effectId;
 			this.triggerTick = triggerTick;
 			this.durationTicks = durationTicks;
 			this.params = params;
 			this.easing = easing;
 			this.anchor = anchor;
+			this.entityUuids = List.copyOf(entityUuids);
 		}
 	}
 

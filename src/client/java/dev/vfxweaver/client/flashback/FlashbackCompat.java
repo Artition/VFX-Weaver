@@ -5,17 +5,22 @@ import dev.vfxweaver.effect.EasingFunction;
 import dev.vfxweaver.effect.EasingType;
 import dev.vfxweaver.effect.VFXActiveEffect;
 import dev.vfxweaver.effect.VFXCurveManager;
+import dev.vfxweaver.effect.VFXDefinition;
 import dev.vfxweaver.effect.VFXEffectType;
 import dev.vfxweaver.effect.VFXTimeline;
+import dev.vfxweaver.network.VFXTriggerPayload;
 import dev.vfxweaver.platform.VFXPlatform;
 import dev.vfxweaver.resource.VFXDefinitionManager;
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.function.Consumer;
 import net.minecraft.client.Minecraft;
 import net.minecraft.network.RegistryFriendlyByteBuf;
@@ -77,6 +82,13 @@ public final class FlashbackCompat {
 	private static @Nullable Method getPartialReplayTickMethod;
 	private static @Nullable Field replayPausedField;
 	private static @Nullable Field currentTickField;
+	/**
+	 * {@code ReplayServer.jumpToTick}: the pending seek target set by {@code goToReplayTick} and
+	 * applied to {@code targetTick} by the replay server tick. While the replay is paused the
+	 * server is frozen, so the polled replay time can lag behind a scrub; reading the pending
+	 * target lets the effect clock follow the scrub immediately.
+	 */
+	private static @Nullable Field jumpToTickField;
 	/** The last {@code Flashback.RECORDER} instance seen, to detect a new recording start. */
 	private static @Nullable Object lastRecorder;
 	/** True once the snapshot of already-active effects has been written for the current recording. */
@@ -119,6 +131,7 @@ public final class FlashbackCompat {
 			replayPausedField = replayServerClass.getField("replayPaused");
 			currentTickField = replayServerClass.getDeclaredField("currentTick");
 			currentTickField.setAccessible(true);
+			jumpToTickField = replayServerClass.getField("jumpToTick");
 			enabled = true;
 			LOGGER.info("Flashback compatibility enabled: VFX effects are recorded into replays");
 		} catch (Throwable t) {
@@ -186,6 +199,12 @@ public final class FlashbackCompat {
 	 * The replay's current time in ticks, fractional between ticks (Flashback's
 	 * {@code getPartialReplayTick}); it holds still while the replay is paused.
 	 *
+	 * <p>While paused, a scrub is delivered through {@code goToReplayTick} into the pending
+	 * {@code jumpToTick} and only reaches {@code targetTick} on the next replay server tick (the
+	 * server is frozen while paused), so {@code getPartialReplayTick} can report the pre-scrub
+	 * position for a frame. The pending target is preferred while paused so the effect clock and
+	 * the replay controller see the seek immediately and rebuild instead of holding stale effects.
+	 *
 	 * @return the replay time in ticks, or {@code 0} outside a replay
 	 */
 	public static double getReplayTimeTicks() {
@@ -194,6 +213,12 @@ public final class FlashbackCompat {
 			return 0.0;
 		}
 		try {
+			if (isReplayPaused() && jumpToTickField != null) {
+				int pending = jumpToTickField.getInt(server);
+				if (pending >= 0) {
+					return pending;
+				}
+			}
 			return ((Number) getPartialReplayTickMethod.invoke(server)).doubleValue();
 		} catch (Throwable t) {
 			return 0.0;
@@ -326,9 +351,10 @@ public final class FlashbackCompat {
 				}
 				int duration = Math.max(1, (int) Math.ceil(timeline.getDuration() - timeline.getElapsed()));
 				Map<String, Float> params = snapshotParams(id, timeline);
+				List<UUID> entityUuids = effect.getEntityUuids();
 				submitCustomTaskMethod.invoke(recorder, (Consumer<Object>) writer -> {
 					try {
-						writeAction(writer, id, duration, params, EasingType.LINEAR, null);
+						writeAction(writer, id, duration, params, EasingType.LINEAR, null, entityUuids);
 					} catch (Throwable t) {
 						LOGGER.warn("Failed to write snapshot of running VFX effect '{}' into Flashback replay", id, t);
 					}
@@ -342,13 +368,18 @@ public final class FlashbackCompat {
 	/**
 	 * Collects the current value of every timeline parameter (values, bindings, multipliers,
 	 * expressions and live overrides) into a constant map, preserving the effect's on-screen
-	 * state. Bounded by {@link #MAX_PARAMS} because the reader refuses a play action with more
-	 * params than that, so an oversized effect is truncated rather than written undecodable.
+	 * state. A parameter the definition animates (keyframes, start/end, {@code expr}, a world
+	 * binding or a graph input) is deliberately <b>not</b> snapshotted: the replay rebuilds its
+	 * timeline from the definition snapshot, so the value must be re-evaluated from the effect's
+	 * age instead of frozen at the recording-start value. Bounded by {@link #MAX_PARAMS} because
+	 * the reader refuses a play action with more params than that, so an oversized effect is
+	 * truncated rather than written undecodable.
 	 *
 	 * @param id       effect id, for the truncation warning
 	 * @param timeline the running timeline to snapshot
 	 */
 	private static Map<String, Float> snapshotParams(final Identifier id, final VFXTimeline timeline) {
+		VFXDefinition definition = VFXDefinitionManager.get().get(id);
 		Map<String, Float> params = new LinkedHashMap<>();
 		Map<String, Float> deferred = new LinkedHashMap<>();
 		timeline.getValues().keySet().forEach(name -> deferred.put(name, timeline.getValue(name, Float.NaN)));
@@ -358,6 +389,10 @@ public final class FlashbackCompat {
 		timeline.getOverrideNames().forEach(name -> deferred.put(name, timeline.getValue(name, Float.NaN)));
 		for (Map.Entry<String, Float> entry : deferred.entrySet()) {
 			if (Float.isNaN(entry.getValue())) {
+				continue;
+			}
+			if (isDefinitionAnimated(definition, entry.getKey())) {
+				// The definition re-evaluates this param from the effect's replay age.
 				continue;
 			}
 			if (params.size() >= MAX_PARAMS) {
@@ -370,6 +405,23 @@ public final class FlashbackCompat {
 	}
 
 	/**
+	 * True when the definition drives the parameter over time (keyframes, start/end, {@code expr},
+	 * a world binding/multiplier or a graph input), so a snapshot must let the definition evaluate
+	 * it instead of freezing its current value.
+	 */
+	private static boolean isDefinitionAnimated(final @Nullable VFXDefinition definition, final String name) {
+		if (definition == null) {
+			return false;
+		}
+		if (definition.getGraphInputs().containsKey(name)) {
+			return true;
+		}
+		VFXDefinition.ParamSpec spec = definition.getParams().get(name);
+		return spec != null
+			&& (spec.animated() || !spec.keyframes().isEmpty() || spec.exprSource() != null || spec.bound() != null || spec.multiply() != null);
+	}
+
+	/**
 	 * Records a client-local effect play into the active Flashback replay, if one is running.
 	 * Persistent (negative duration) effects are recorded too: the replay controller keeps such a
 	 * play alive until a recorded stop (or the whole replay when it was never stopped), so an
@@ -378,7 +430,7 @@ public final class FlashbackCompat {
 	 * trigger.
 	 */
 	public static void recordPlay(final Identifier effectId, final int durationTicks, final Map<String, Float> params, final EasingType easing) {
-		recordPlay(effectId, durationTicks, params, easing, null);
+		recordPlay(effectId, durationTicks, params, easing, null, List.of());
 	}
 
 	/**
@@ -388,6 +440,17 @@ public final class FlashbackCompat {
 	 * build (which never wrote it) still decode.
 	 */
 	public static void recordPlay(final Identifier effectId, final int durationTicks, final Map<String, Float> params, final @Nullable EasingType easing, final @Nullable Vec3 position) {
+		recordPlay(effectId, durationTicks, params, easing, position, List.of());
+	}
+
+	/**
+	 * Same as {@link #recordPlay(Identifier, int, Map, EasingType, Vec3)} but with entity targets:
+	 * an entity effect (tint/outline/displace) is attached to the entities the server resolved at
+	 * trigger time, so the replay must carry those UUIDs or the effect has nothing to render on.
+	 * The entity list is optional and trailing (after the anchor), so older recordings still
+	 * decode.
+	 */
+	public static void recordPlay(final Identifier effectId, final int durationTicks, final Map<String, Float> params, final @Nullable EasingType easing, final @Nullable Vec3 position, final List<UUID> entityUuids) {
 		if (!enabled) {
 			return;
 		}
@@ -396,6 +459,7 @@ public final class FlashbackCompat {
 		// replay controller's replayEffectActive/phaseAt keep it active until a recorded stop.
 		// Normalise to -1 so it can never collide with the -2..-5 edit sentinels.
 		final int recordedDuration = durationTicks < 0 ? -1 : durationTicks;
+		final List<UUID> recordedEntities = List.copyOf(entityUuids);
 		try {
 			Minecraft.getInstance().execute(() -> {
 				try {
@@ -408,7 +472,7 @@ public final class FlashbackCompat {
 					}
 					submitCustomTaskMethod.invoke(recorder, (Consumer<Object>) writer -> {
 						try {
-							writeAction(writer, effectId, recordedDuration, params, easing, position);
+							writeAction(writer, effectId, recordedDuration, params, easing, position, recordedEntities);
 						} catch (Throwable t) {
 							LOGGER.warn("Failed to write VFX effect '{}' into Flashback replay", effectId, t);
 						}
@@ -426,10 +490,11 @@ public final class FlashbackCompat {
 	 * Records a server-triggered effect play into the active Flashback replay (Flashback does not
 	 * replay unknown custom payload packets on its own). A persistent definition arrives as a
 	 * negative duration (VFXAPI sends -1) and is recorded like any other play; the replay
-	 * controller keeps it alive until a recorded stop.
+	 * controller keeps it alive until a recorded stop. The position and entity UUIDs the server
+	 * shipped are recorded too, so a spatial or entity effect replays on the same target.
 	 */
-	public static void recordServerPlay(final Identifier effectId, final int durationTicks, final Map<String, Float> params, final String easing) {
-		recordPlay(effectId, durationTicks, params, EasingType.fromString(easing));
+	public static void recordServerPlay(final Identifier effectId, final int durationTicks, final Map<String, Float> params, final String easing, final @Nullable Vec3 position, final List<UUID> entityUuids) {
+		recordPlay(effectId, durationTicks, params, EasingType.fromString(easing), position, entityUuids);
 	}
 
 	/**
@@ -565,7 +630,7 @@ public final class FlashbackCompat {
 	/**
 	 * Writes one replay action via the {@code ReplayWriter} handed to us by Flashback's recorder.
 	 */
-	private static void writeAction(final Object writer, final Identifier effectId, final int durationTicks, final Map<String, Float> params, final @Nullable EasingType easing, final @Nullable Vec3 position) throws Exception {
+	private static void writeAction(final Object writer, final Identifier effectId, final int durationTicks, final Map<String, Float> params, final @Nullable EasingType easing, final @Nullable Vec3 position, final List<UUID> entityUuids) throws Exception {
 		boolean started = false;
 		try {
 			startActionMethod.invoke(writer, action);
@@ -587,6 +652,13 @@ public final class FlashbackCompat {
 				buf.writeDouble(position.x());
 				buf.writeDouble(position.y());
 				buf.writeDouble(position.z());
+			}
+			// Optional trailing entity targets, capped like the network payload so the action stays
+			// bounded. Also absent in older recordings.
+			int entityCount = Math.min(entityUuids.size(), VFXTriggerPayload.MAX_ENTITY_UUIDS);
+			buf.writeVarInt(entityCount);
+			for (int i = 0; i < entityCount; i++) {
+				buf.writeUUID(entityUuids.get(i));
 			}
 		} finally {
 			if (started) {
@@ -655,11 +727,28 @@ public final class FlashbackCompat {
 		if (buf.isReadable() && buf.readBoolean()) {
 			anchor = new Vec3(buf.readDouble(), buf.readDouble(), buf.readDouble());
 		}
+		// Optional trailing entity targets, after the anchor. Absent in older recordings, where no
+		// bytes remain once the anchor block has been read.
+		List<UUID> entityUuids = List.of();
+		if (buf.isReadable()) {
+			int entityCount = buf.readVarInt();
+			if (entityCount < 0 || entityCount > VFXTriggerPayload.MAX_ENTITY_UUIDS) {
+				throw new IllegalStateException("Invalid VFX action entity count: " + entityCount);
+			}
+			if (entityCount > 0) {
+				List<UUID> targets = new ArrayList<>(entityCount);
+				for (int i = 0; i < entityCount; i++) {
+					targets.add(buf.readUUID());
+				}
+				entityUuids = List.copyOf(targets);
+			}
+		}
 		final Vec3 anchorPos = anchor;
+		final List<UUID> targetUuids = entityUuids;
 		final EasingFunction easingFunction = easing == null ? null : EasingFunction.builtIn(easing);
 		final int recordedTick = triggerTick;
 		Minecraft.getInstance().execute(() ->
-			VFXReplayController.get().onPlay(effectId, durationTicks, params, easingFunction, anchorPos, recordedTick)
+			VFXReplayController.get().onPlay(effectId, durationTicks, params, easingFunction, anchorPos, targetUuids, recordedTick)
 		);
 	}
 

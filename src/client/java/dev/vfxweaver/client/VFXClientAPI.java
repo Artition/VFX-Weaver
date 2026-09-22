@@ -60,7 +60,7 @@ public class VFXClientAPI implements VFXLocalDispatcher {
 			} else {
 				VFXEffectManager.get().play(effectId, durationTicks, instanceId, position, entityUuids, params, easingFunction);
 			}
-			FlashbackCompat.recordPlay(effectId, durationTicks, params, easing, position);
+			FlashbackCompat.recordPlay(effectId, durationTicks, params, easing, position, entityUuids);
 		});
 		return instanceId;
 	}

@@ -24,6 +24,24 @@ public final class VFXReplayClock {
 	}
 
 	/**
+	 * Whether a change of the replay time is a seek (a rebuild) rather than normal playback.
+	 * The first frame is always a seek; a backward move is always a seek (scrubbing back must
+	 * drop effects that have not started yet, even one tick at a time while paused); a forward
+	 * move is a seek only once it exceeds the threshold, so ordinary playback stays incremental.
+	 *
+	 * @param previousTick replay time on the previous frame ({@code NaN} before the first frame)
+	 * @param newTick      replay time now
+	 * @param thresholdTicks forward jump above which the change counts as a seek
+	 * @return true when the controller should rebuild the effect set
+	 */
+	public static boolean isSeek(final double previousTick, final double newTick, final double thresholdTicks) {
+		if (Double.isNaN(previousTick)) {
+			return true;
+		}
+		return newTick < previousTick || newTick - previousTick > thresholdTicks;
+	}
+
+	/**
 	 * Resolves the lifecycle phase of a recorded effect at the given replay time.
 	 *
 	 * @param replayTick  current replay time in ticks (fractional between ticks)

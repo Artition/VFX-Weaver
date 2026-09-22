@@ -18,11 +18,13 @@ function Read-Source([string]$path) { return [System.IO.File]::ReadAllText($path
 
 $flashback = Read-Source (Join-Path $client "flashback\FlashbackCompat.java")
 $controller = Read-Source (Join-Path $client "flashback\VFXReplayController.java")
+$vfxClient = Read-Source (Join-Path $client "VFXClient.java")
 $manager = Read-Source (Join-Path $client "effect\VFXEffectManager.java")
 $replayClock = Read-Source (Join-Path $main "effect\VFXReplayClock.java")
 $timeline = Read-Source (Join-Path $main "effect\VFXTimeline.java")
 $mixin = Read-Source (Join-Path $client "mixin\GameRendererMixin.java")
 $hooks = Read-Source (Join-Path $client "platform\VFXClientRenderHooks.java")
+$post = Read-Source (Join-Path $client "postprocessing\VFXPostProcessingManager.java")
 $graphDemo = Read-Source (Join-Path $repoRoot "src\main\resources\data\vfxweaver\vfx\graph_demo.json")
 $graphLogicDemo = Read-Source (Join-Path $repoRoot "src\main\resources\data\vfxweaver\vfx\graph_logic_demo.json")
 
@@ -151,6 +153,44 @@ if ($timeline -notmatch '(?s)AnimatedValue override = this\.overrides\.get\(name
 	$problems.Add("VFXTimeline.getValue: runtime overrides no longer win over graph inputs")
 }
 
+# 8) Bug 1: an entity effect's target UUIDs travel with the recorded play (they are what makes an
+#    entity tint attach at all), and the snapshot does not freeze a definition-animated param.
+if ($flashback -notmatch 'buf\.writeUUID\(entityUuids\.get\(i\)\)') {
+	$problems.Add("FlashbackCompat: recorded plays do not write entity UUIDs")
+}
+if ($flashback -notmatch 'buf\.readUUID\(\)') {
+	$problems.Add("FlashbackCompat: playback does not read recorded entity UUIDs")
+}
+if ($vfxClient -notmatch 'recordServerPlay\(payload\.effectId\(\), payload\.durationTicks\(\), payload\.params\(\), payload\.easing\(\), payload\.position\(\), payload\.entityUuids\(\)\)') {
+	$problems.Add("VFXClient: the server play record drops the position/entity UUIDs")
+}
+if ($flashback -notmatch 'isDefinitionAnimated\(definition, entry\.getKey\(\)\)') {
+	$problems.Add("FlashbackCompat: the snapshot still freezes a definition-animated parameter")
+}
+if ($controller -notmatch 'play\.entityUuids' -or $manager -notmatch 'final List<UUID> entityUuids, final Map<String, Float> params, final @Nullable EasingFunction easing, final boolean playSound') {
+	$problems.Add("the replay controller does not pass recorded entity UUIDs into playReplay")
+}
+
+# 9) Bug 2: the stop-motion hold is bypassed while a replay is paused, so the paused camera moves.
+if ($post -notmatch 'if \(FlashbackCompat\.isReplayPaused\(\)\)') {
+	$problems.Add("VFXPostProcessingManager: stop_motion still holds the frame while a replay is paused")
+}
+
+# 10) Bug 3: a paused scrub is read from Flashback's pending seek target (the server is frozen while
+#     paused, so the polled replay time lags), and a backward move always classifies as a rebuild.
+if ($flashback -notmatch 'jumpToTickField = replayServerClass\.getField\("jumpToTick"\)') {
+	$problems.Add("FlashbackCompat: the pending seek target (jumpToTick) is not resolved")
+}
+if ($flashback -notmatch 'if \(isReplayPaused\(\) && jumpToTickField != null\)') {
+	$problems.Add("FlashbackCompat: the replay time does not consult the pending seek target while paused")
+}
+if ($replayClock -notmatch 'public static boolean isSeek\(') {
+	$problems.Add("VFXReplayClock: isSeek is missing")
+}
+if ($controller -notmatch 'VFXReplayClock\.isSeek\(') {
+	$problems.Add("VFXReplayController: the seek classification is not the shared VFXReplayClock.isSeek")
+}
+
 Write-Host "Flashback replay clock check (static)"
 if ($problems.Count -gt 0) {
 	$problems | ForEach-Object { Write-Host "  - $_" }
@@ -209,7 +249,14 @@ public final class ReplayClockCheck {
 		require(VFXReplayClock.ageAt(190.0, trigger, duration, false) == 40.0F, "age at the end");
 		require(VFXReplayClock.ageAt(100.0, trigger, duration, false) == 0.0F, "age clamps before the trigger");
 		require(VFXReplayClock.ageAt(195.0, trigger, duration, true) == 5.0F, "looping age wraps");
-		System.out.println("replay clock check OK: BEFORE/ACTIVE/AFTER, ages 0/20/40/5 and looping/persistent at 1e6 ticks all place correctly");
+		// A paused scrub back must classify as a rebuild and drop an effect that has not started.
+		require(VFXReplayClock.isSeek(200.0, 100.0, 1.5), "a backward move is a seek");
+		require(VFXReplayClock.isSeek(100.0, 200.0, 1.5), "a large forward move is a seek");
+		require(!VFXReplayClock.isSeek(100.0, 100.5, 1.5), "normal playback is not a seek");
+		require(!VFXReplayClock.isSeek(100.0, 101.0, 1.5), "a sub-threshold forward step is not a seek");
+		require(VFXReplayClock.isSeek(Double.NaN, 100.0, 1.5), "the first frame is a seek");
+		require(VFXReplayClock.phaseAt(100.0, trigger, duration, false, false) == Phase.BEFORE, "scrubbed before the trigger is BEFORE");
+		System.out.println("replay clock check OK: BEFORE/ACTIVE/AFTER, ages 0/20/40/5, looping/persistent at 1e6 ticks, and backward-seek classification all place correctly");
 	}
 
 	private static void require(final boolean condition, final String message) {

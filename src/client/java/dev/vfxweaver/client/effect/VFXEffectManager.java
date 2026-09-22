@@ -122,13 +122,14 @@ public class VFXEffectManager {
 	 * @param startTick     replay tick the effect was triggered at
 	 * @param instanceId    stable instance id owned by the replay event
 	 * @param position      world anchor recorded with the play (may be null)
+	 * @param entityUuids   entity targets recorded with the play (empty for non-entity effects)
 	 * @param params        recorded parameter values
 	 * @param easing        recorded easing (may be null)
 	 * @param playSound     false when rebuilding after a seek (never re-trigger the sound)
 	 * @return the instance id, or {@code 0} when the effect was ignored
 	 */
-	public long playReplay(final Identifier effectId, final int durationTicks, final float startTick, final long instanceId, final @Nullable Vec3 position, final Map<String, Float> params, final @Nullable EasingFunction easing, final boolean playSound) {
-		return this.play(effectId, durationTicks, instanceId, position, List.of(), params, easing, 0, 0, null, List.of(), startTick, playSound);
+	public long playReplay(final Identifier effectId, final int durationTicks, final float startTick, final long instanceId, final @Nullable Vec3 position, final List<UUID> entityUuids, final Map<String, Float> params, final @Nullable EasingFunction easing, final boolean playSound) {
+		return this.play(effectId, durationTicks, instanceId, position, entityUuids, params, easing, 0, 0, null, List.of(), startTick, playSound);
 	}
 
 	/**

@@ -23,6 +23,7 @@ import com.mojang.blaze3d.systems.SamplerCache;
 import com.mojang.blaze3d.textures.FilterMode;
 import com.mojang.blaze3d.textures.GpuTextureView;
 import dev.vfxweaver.client.effect.VFXEffectManager;
+import dev.vfxweaver.client.flashback.FlashbackCompat;
 import dev.vfxweaver.effect.VFXActiveEffect;
 import dev.vfxweaver.effect.VFXDefinition;
 import dev.vfxweaver.effect.VFXEffectType;
@@ -436,6 +437,12 @@ public final class VFXPostProcessingManager {
 	 * CPU hold gating for {@code stop_motion}: when the quantised age slot changes, recapture the
 	 * live main target into the hold target (the next frames repeat it), else keep holding.
 	 *
+	 * <p>While a Flashback replay is paused the replay clock (and therefore the effect's age and
+	 * its quantised slot) is frozen, so holding would keep compositing the pre-pause frame over the
+	 * live one and hide every camera move. The hold is bypassed while paused so the paused replay
+	 * can still be inspected; the slot is dropped so the frame is recaptured on the first unpaused
+	 * frame and the stop-motion visual resumes.
+	 *
 	 * @return 1.0F to hold the captured frame, 0.0F to pass the live frame through
 	 */
 	private float updateStopMotionHold(
@@ -447,6 +454,10 @@ public final class VFXPostProcessingManager {
 	) {
 		float fps = effect.getParam("fps", 0.0F);
 		if (fps <= 1.0F) {
+			this.stopMotionSlots.remove(effect.getId());
+			return 0.0F;
+		}
+		if (FlashbackCompat.isReplayPaused()) {
 			this.stopMotionSlots.remove(effect.getId());
 			return 0.0F;
 		}

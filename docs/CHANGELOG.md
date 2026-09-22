@@ -16,6 +16,27 @@ change.
 
 ### Fixed
 
+- **An entity tint in a Flashback replay keeps its timeline parameters and its target.** A recorded
+  play carried the effect id, its trigger params and a world anchor, but not the entity UUIDs the
+  server had resolved for an entity effect (`entity_tint`/`entity_outline`/`entity_displace`), so a
+  replayed tint had no entity to attach to. The recorded action now carries those UUIDs (optional and
+  trailing, so older recordings still decode) and the replay controller passes them into the play.
+  A parameter the definition animates (keyframes, start/end, `expr`, a world binding or a graph
+  input) is no longer frozen into the recording-start snapshot: the definition snapshot rebuilds the
+  timeline and the value is evaluated from the effect's replay age, so the tint animates exactly as
+  it did live.
+- **A paused Flashback replay can still be inspected with `stop_motion` running.** The stop-motion
+  hold pass kept compositing the captured pre-pause frame over the live one while the replay was
+  paused (the effect's age, and therefore its quantised hold slot, is frozen), which hid every camera
+  move. The hold is now bypassed while a replay is paused — the paused frame passes through so the
+  camera can be moved — and the captured frame is refreshed on the first unpaused frame, so the
+  stop-motion visual resumes during playback.
+- **Scrubbing a paused Flashback replay back past an effect's trigger removes the effect.** While
+  paused the replay server is frozen, so the polled replay time (`getPartialReplayTick`, which
+  returns the pre-scrub tick) can lag behind a scrub that is still pending in `ReplayServer.jumpToTick`;
+  the controller saw an unchanged time, skipped its rebuild and left the effect on screen. The replay
+  clock now follows the pending seek target while paused, and any backward time move is classified as
+  a rebuild, so scrubbing back drops effects whose trigger is in the future and re-places the rest.
 - **A player's effects survive a re-login and keep counting while they are offline.** The
   server-side effect memory used to be wiped on disconnect (a leak fix), so every effect vanished
   when a player re-joined. It is now kept — bounded to 256 players — and re-applied on re-join at

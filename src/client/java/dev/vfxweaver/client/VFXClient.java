@@ -164,7 +164,7 @@ public class VFXClient {
 				}
 			}
 		} else {
-			FlashbackCompat.recordServerPlay(payload.effectId(), payload.durationTicks(), payload.params(), payload.easing());
+			FlashbackCompat.recordServerPlay(payload.effectId(), payload.durationTicks(), payload.params(), payload.easing(), payload.position(), payload.entityUuids());
 			// A blank easing name means "use the definition default" (e.g. an inline curve that
 			// only exists in the definition, so it cannot travel as a name).
 			EasingFunction payloadEasing = payload.easing() == null || payload.easing().isBlank() ? null : EasingFunction.fromString(payload.easing());
