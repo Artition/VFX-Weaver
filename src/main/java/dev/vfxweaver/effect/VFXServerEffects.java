@@ -29,15 +29,18 @@ import org.slf4j.LoggerFactory;
  * Persistent (negative duration) and looping effects are always re-applied; finite ones only while
  * their duration has not elapsed.
  *
- * <p>A player's age is <b>frozen at the instant they disconnect</b>, so an effect that was 30 %
- * through comes back 30 % through no matter how long the player was away; time spent offline never
- * advances an effect. Finite effects that already reached the end of their timeline are not
- * resurrected.
+ * <p>Time keeps running while a player is offline: on re-join an effect's age is the full
+ * wall-clock time since it started, so an effect that was 30 % through comes back further along by
+ * however long the player was away. A finite effect that reached the end of its timeline during the
+ * absence is pruned instead of resurrected; a looping one resumes at its current phase (the client
+ * wraps the elapsed time modulo the period) and a persistent one comes back as if it had never
+ * stopped. The age is computed from the recorded start time, so no frozen clock is stored.
  *
  * <p>The store is bounded in two independent ways: per player ({@link #MAX_EFFECTS_PER_PLAYER}) and
- * globally ({@link #MAX_TRACKED_PLAYERS} distinct UUIDs, with entries that have been offline longer
- * than {@link #MAX_OFFLINE_MILLIS} pruned first). This keeps the deliberate leak fix of the
- * previous disconnect wipe while still letting a player's effects survive a re-login.
+ * globally ({@link #MAX_TRACKED_PLAYERS} distinct UUIDs, the least recently touched evicted first).
+ * The global cap is the load-bearing bound — it caps the persistent effects of players who never
+ * return; no separate offline expiry is needed now that the age no longer depends on a stored
+ * disconnect instant.
  *
  * <p>Everything is disabled during Flashback replay playback: the replay already carries the
  * effects (as packets or custom actions) and re-injecting them from the live registry would
@@ -51,16 +54,10 @@ public final class VFXServerEffects {
 	private static final int MAX_KEYS_PER_EFFECT = 32;
 	/**
 	 * Safety cap on distinct players with remembered effects. A long-lived server with many unique
-	 * UUIDs evicts the least recently active player instead of growing forever.
+	 * UUIDs evicts the least recently touched player instead of growing forever. This is the
+	 * load-bearing bound: it caps the persistent effects of players who never return.
 	 */
 	private static final int MAX_TRACKED_PLAYERS = 256;
-	/**
-	 * A disconnected player's memory is kept for this long (wall clock) before being pruned. One
-	 * day covers "logged out for the night and came back"; finite effects expire by their own
-	 * remaining time long before this, so only persistent/looping ones use the full window. The
-	 * value is a safety net, the real bound is {@link #MAX_TRACKED_PLAYERS}.
-	 */
-	static final long MAX_OFFLINE_MILLIS = 24L * 60L * 60L * 1000L;
 	private static final VFXServerEffects INSTANCE = new VFXServerEffects();
 
 	/**
@@ -138,13 +135,12 @@ public final class VFXServerEffects {
 	}
 
 	/**
-	 * Per-player memory: the recorded effects plus the wall-clock instant the age is frozen at.
+	 * Per-player memory: the recorded effects plus the wall-clock instant the player was last seen
+	 * (record/join/disconnect), used to pick an eviction victim.
 	 */
 	private static final class PlayerEffects {
 		private final Map<Identifier, ActiveEffect> effects = new HashMap<>();
-		/** Wall-clock millis the age is frozen at, or {@code 0} while the player is online. */
-		private long disconnectedAtMillis;
-		/** Wall-clock millis of the last record/join, used to pick an eviction victim. */
+		/** Wall-clock millis of the last record/join/disconnect, used to pick an eviction victim. */
 		private long lastTouchedMillis;
 	}
 
@@ -166,7 +162,6 @@ public final class VFXServerEffects {
 		}
 		final long now = System.currentTimeMillis();
 		final PlayerEffects state = playerState(player.getUUID(), now);
-		state.disconnectedAtMillis = 0L;
 		state.lastTouchedMillis = now;
 		final Map<Identifier, ActiveEffect> effects = state.effects;
 		if (!effects.containsKey(effectId) && effects.size() >= MAX_EFFECTS_PER_PLAYER) {
@@ -249,9 +244,9 @@ public final class VFXServerEffects {
 	}
 
 	/**
-	 * Freezes the player's effect ages at the moment they left and prunes anything already expired,
-	 * instead of wiping the state. The entry is kept (bounded globally by
-	 * {@link #MAX_TRACKED_PLAYERS} and {@link #MAX_OFFLINE_MILLIS}) so a re-join can resume it.
+	 * Keeps the player's effect memory (time keeps running while they are away) and prunes anything
+	 * already expired, instead of wiping the state. The entry is kept, bounded globally by
+	 * {@link #MAX_TRACKED_PLAYERS}, so a re-join can resume it.
 	 *
 	 * @param player the player that left
 	 */
@@ -261,41 +256,20 @@ public final class VFXServerEffects {
 			return;
 		}
 		final long now = System.currentTimeMillis();
-		state.disconnectedAtMillis = now;
 		state.lastTouchedMillis = now;
 		pruneExpiredEffects(state, now);
 		if (state.effects.isEmpty()) {
 			this.byPlayer.remove(player.getUUID());
-			return;
-		}
-		pruneExpired(now);
-	}
-
-	/**
-	 * Freezes every still-tracked player when the server stops. A singleplayer world reload does not
-	 * fire a disconnect, so without this the offline time would advance the effects' age.
-	 */
-	public void onServerStopping() {
-		final long now = System.currentTimeMillis();
-		final Iterator<Map.Entry<UUID, PlayerEffects>> it = this.byPlayer.entrySet().iterator();
-		while (it.hasNext()) {
-			final PlayerEffects state = it.next().getValue();
-			if (state.disconnectedAtMillis == 0L) {
-				state.disconnectedAtMillis = now;
-			}
-			pruneExpiredEffects(state, now);
-			if (state.effects.isEmpty()) {
-				it.remove();
-			}
 		}
 	}
 
 	/**
 	 * Re-sends the still-active effects to a (re)joining player. Each play carries the elapsed
-	 * offset (frozen at the disconnect instant, so offline time does not advance it) so the client
-	 * resumes mid-animation, followed by the recorded keyframes so runtime edits survive the
-	 * reconnect. Called after the datapack definitions have been synced so the client can resolve
-	 * the ids. Already-finished finite entries are pruned on the way.
+	 * offset since the effect started, so offline time counts and the client resumes at the age the
+	 * effect would have reached (a looping one wraps to its current phase), followed by the recorded
+	 * keyframes so runtime edits survive the reconnect. Called after the datapack definitions have
+	 * been synced so the client can resolve the ids. Entries that finished during the absence are
+	 * pruned on the way.
 	 */
 	public void applyTo(final ServerPlayer player) {
 		if (flashbackIsReplaying()) {
@@ -305,9 +279,9 @@ public final class VFXServerEffects {
 		if (state == null || state.effects.isEmpty()) {
 			return;
 		}
-		// While offline the age is frozen at the disconnect instant; an effect that was 30 % through
-		// comes back 30 % through regardless of how long the player was away.
-		final long now = resumeClock(state.disconnectedAtMillis, System.currentTimeMillis());
+		// Time keeps running offline: the age is the full wall-clock elapsed since the effect
+		// started, not frozen at the disconnect instant.
+		final long now = System.currentTimeMillis();
 		final Iterator<Map.Entry<Identifier, ActiveEffect>> it = state.effects.entrySet().iterator();
 		while (it.hasNext()) {
 			final ActiveEffect active = it.next().getValue();
@@ -334,19 +308,10 @@ public final class VFXServerEffects {
 				VFXScoreboardSync.onEffectPlayed(player, definition, remaining);
 			}
 		}
-		state.disconnectedAtMillis = 0L;
 		state.lastTouchedMillis = System.currentTimeMillis();
 		if (state.effects.isEmpty()) {
 			this.byPlayer.remove(player.getUUID());
 		}
-	}
-
-	/**
-	 * The clock an effect's age is measured against: the frozen disconnect instant while the player
-	 * is offline, otherwise the current time.
-	 */
-	static long resumeClock(final long disconnectedAtMillis, final long nowMillis) {
-		return disconnectedAtMillis != 0L ? disconnectedAtMillis : nowMillis;
 	}
 
 	/**
@@ -367,14 +332,6 @@ public final class VFXServerEffects {
 		final float effectiveDuration = Math.max(durationTicks, lastKeyTime);
 		final long remaining = (long) effectiveDuration - elapsedTicks;
 		return remaining <= 0L ? -1 : (int) Math.min(remaining, Integer.MAX_VALUE);
-	}
-
-	/**
-	 * True when a disconnected player's memory has outlived {@link #MAX_OFFLINE_MILLIS} and should
-	 * be pruned.
-	 */
-	static boolean isOfflineExpired(final long disconnectedAtMillis, final long nowMillis) {
-		return disconnectedAtMillis != 0L && nowMillis - disconnectedAtMillis > MAX_OFFLINE_MILLIS;
 	}
 
 	/** The last keyframe time of a recorded effect, or {@code 0} when it has none. */
@@ -407,7 +364,6 @@ public final class VFXServerEffects {
 	private PlayerEffects playerState(final UUID uuid, final long now) {
 		PlayerEffects state = this.byPlayer.get(uuid);
 		if (state == null) {
-			pruneExpired(now);
 			if (this.byPlayer.size() >= MAX_TRACKED_PLAYERS) {
 				evictOldest();
 			}
@@ -418,31 +374,14 @@ public final class VFXServerEffects {
 		return state;
 	}
 
-	/** Drops every player whose offline memory has outlived {@link #MAX_OFFLINE_MILLIS}. */
-	private void pruneExpired(final long now) {
-		final Iterator<Map.Entry<UUID, PlayerEffects>> it = this.byPlayer.entrySet().iterator();
-		while (it.hasNext()) {
-			final Map.Entry<UUID, PlayerEffects> entry = it.next();
-			if (isOfflineExpired(entry.getValue().disconnectedAtMillis, now)) {
-				it.remove();
-				LOGGER.info("Forgetting {} effect(s) for player {} after {} ms offline (offline memory limit)", entry.getValue().effects.size(), entry.getKey(), MAX_OFFLINE_MILLIS);
-			}
-		}
-	}
-
-	/** Evicts the longest-offline (else least recently touched) player when the global cap is hit. */
+	/** Evicts the least recently touched player when the global cap is hit. */
 	private void evictOldest() {
 		UUID victim = null;
-		long bestRank = Long.MAX_VALUE;
+		long oldest = Long.MAX_VALUE;
 		for (final Map.Entry<UUID, PlayerEffects> entry : this.byPlayer.entrySet()) {
-			final PlayerEffects state = entry.getValue();
-			// Disconnected players rank below online ones (their disconnect instant is far below
-			// Long.MAX_VALUE - lastTouched), and within each group the oldest ranks first.
-			final long rank = state.disconnectedAtMillis != 0L
-				? state.disconnectedAtMillis
-				: Long.MAX_VALUE - state.lastTouchedMillis;
-			if (rank < bestRank) {
-				bestRank = rank;
+			final long touched = entry.getValue().lastTouchedMillis;
+			if (touched < oldest) {
+				oldest = touched;
 				victim = entry.getKey();
 			}
 		}

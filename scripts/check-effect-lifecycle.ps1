@@ -5,9 +5,9 @@
 #                      fallback-less bind node (it delegated to eval(index) -> fallback 0 before).
 #   * LifecycleCheck - VFXEffectManager.resolveTimelineDuration + VFXActiveEffect.isFinished:
 #                      "never ends" is the lifecycle flag, not an Integer.MAX_VALUE timeline.
-#   * ServerEffectsCheck - VFXServerEffects: a stored effect resumes at the age it had at disconnect
-#                      (offline time is not counted), expired finites are not resurrected and the
-#                      offline-memory bound prunes old entries.
+#   * ServerEffectsCheck - VFXServerEffects: a stored effect resumes at the full wall-clock age since
+#                      it started (offline time counts), an expired-while-offline finite is dropped
+#                      and the global player cap keeps the store bounded.
 #
 # Usage: powershell -ExecutionPolicy Bypass -File scripts/check-effect-lifecycle.ps1
 # Exits 1 (after listing the problem) on a mismatch; 0 when the contract holds.
@@ -101,7 +101,7 @@ foreach ($pair in @(@('VFXWorldOverlayRenderer', $overlay), @('VFXSparkEngine', 
 	}
 }
 
-# 6) A disconnecting player's effects are kept (age frozen), not wiped; the store stays bounded.
+# 6) A disconnecting player's effects are kept and time keeps running offline; the store stays bounded.
 if ($serverEffects -notmatch 'public void onPlayerDisconnect\(final ServerPlayer player\)') {
 	$problems.Add("VFXServerEffects: onPlayerDisconnect(ServerPlayer) is missing")
 }
@@ -111,31 +111,27 @@ if ($loaderEvents -notmatch 'VFXServerEffects\.get\(\)\.onPlayerDisconnect\(play
 if ($serverEffects -match 'public void remove\(final ServerPlayer player\)') {
 	$problems.Add("VFXServerEffects: the wipe-on-disconnect remove(ServerPlayer) is still present")
 }
-if ($serverEffects -notmatch 'public void onServerStopping\(\)') {
-	$problems.Add("VFXServerEffects: onServerStopping() (singleplayer world-reload freeze) is missing")
+# The frozen clock is gone: no stored disconnect instant, no resumeClock, no offline expiry and no
+# shutdown freeze (time keeps running while offline, so none of it is needed).
+if ($serverEffects -match 'disconnectedAtMillis|resumeClock|isOfflineExpired|MAX_OFFLINE_MILLIS|onServerStopping') {
+	$problems.Add("VFXServerEffects: a frozen-clock/offline-expiry remnant is still present")
 }
-if ($loaderEvents -notmatch 'VFXServerEffects\.get\(\)\.onServerStopping\(\);') {
-	$problems.Add("VFXLoaderEvents.onServerStopping: VFXServerEffects.onServerStopping is not called")
+if ($loaderEvents -match 'VFXServerEffects\.get\(\)\.onServerStopping\(\)') {
+	$problems.Add("VFXLoaderEvents.onServerStopping: the removed VFXServerEffects.onServerStopping is still called")
 }
 if ($serverEffects -notmatch 'MAX_TRACKED_PLAYERS = 256') {
 	$problems.Add("VFXServerEffects: the global player cap MAX_TRACKED_PLAYERS is missing")
 }
-if ($serverEffects -notmatch 'MAX_OFFLINE_MILLIS = 24L \* 60L \* 60L \* 1000L') {
-	$problems.Add("VFXServerEffects: the offline expiry MAX_OFFLINE_MILLIS is missing")
-}
 if ($serverEffects -notmatch 'this\.byPlayer\.size\(\) >= MAX_TRACKED_PLAYERS') {
 	$problems.Add("VFXServerEffects: the global cap is not enforced on a new player")
 }
-if ($serverEffects -notmatch 'isOfflineExpired\(entry\.getValue\(\)\.disconnectedAtMillis, now\)') {
-	$problems.Add("VFXServerEffects: offline entries are not pruned by age")
+# The age must be the full wall-clock elapsed since the effect started: applyTo reads the live
+# clock and derives the offset from the recorded start, so offline time counts.
+if ($serverEffects -notmatch '(?s)applyTo\(final ServerPlayer player\).*?final long now = System\.currentTimeMillis\(\);') {
+	$problems.Add("VFXServerEffects.applyTo: the resume clock is not the live wall clock")
 }
-# The age must be frozen at disconnect, not advanced by the offline time: applyTo resolves its
-# clock through resumeClock, and a persistent effect is no longer resumed from elapsed 0.
-if ($serverEffects -notmatch 'resumeClock\(state\.disconnectedAtMillis, System\.currentTimeMillis\(\)\)') {
-	$problems.Add("VFXServerEffects.applyTo: the resume clock is not frozen at disconnect")
-}
-if ($serverEffects -match 'int elapsed = persistent \? 0 :') {
-	$problems.Add("VFXServerEffects.applyTo: a persistent effect still resumes from elapsed 0 (phase restarts)")
+if ($serverEffects -notmatch 'elapsedTicksAt\(active\.startMillis\(\), now\)') {
+	$problems.Add("VFXServerEffects.applyTo: the elapsed offset is not computed from the effect's original start")
 }
 if ($serverEffects -notmatch 'active\.neverExpires\(\)') {
 	$problems.Add("VFXServerEffects: looping/persistent effects are not tracked as never-expiring")
@@ -287,28 +283,27 @@ public final class LifecycleCheck {
 $serverEffectsJava = @'
 package dev.vfxweaver.effect;
 
-/** A stored effect must resume at the age it had when the player left; offline time never advances it. */
+/** A stored effect resumes at the full wall-clock age since it started; offline time counts. */
 public final class ServerEffectsCheck {
 	public static void main(final String[] args) {
 		final long start = 1_000L;
 		final long disconnect = start + 30_000L; // 30 s in = 600 ticks
 		require(VFXServerEffects.elapsedTicksAt(start, disconnect) == 600, "age at disconnect");
-		// The disconnect instant is the resume clock: the age is frozen, not advanced by the away time.
+		// Time keeps running offline: the resumed age is the full wall-clock elapsed since the start,
+		// including the away window, not the age at the disconnect instant.
 		final long away = disconnect + 6L * 60L * 60L * 1000L; // six hours later
-		final long resume = VFXServerEffects.resumeClock(disconnect, away);
-		require(resume == disconnect, "offline time is not counted");
-		require(VFXServerEffects.elapsedTicksAt(start, resume) == 600, "resumed age equals age at disconnect");
-		require(VFXServerEffects.resumeClock(0L, away) == away, "the online clock still advances");
-		// Finite effects: remaining is what was left, and an already-finished one does not come back.
-		require(VFXServerEffects.remainingTicksFor(1200, 600, 0) == 600, "remaining = duration - frozen age");
-		require(VFXServerEffects.remainingTicksFor(1200, 1200, 0) == -1, "an expired finite effect is not resurrected");
-		require(VFXServerEffects.remainingTicksFor(-1, 600, 0) == -1, "a persistent effect has no remaining");
+		require(VFXServerEffects.elapsedTicksAt(start, away) == 432_600, "resumed age equals the full wall-clock elapsed (offline time counts)");
+		require(VFXServerEffects.elapsedTicksAt(start, away) > 600, "offline time advances the age");
+		// A finite effect that would have finished during the absence is dropped, not resurrected.
+		require(VFXServerEffects.remainingTicksFor(1200, VFXServerEffects.elapsedTicksAt(start, away), 0) == -1, "an effect that expired while offline is not resurrected");
+		// A finite effect still inside its duration comes back with the correct remaining time.
+		require(VFXServerEffects.remainingTicksFor(12000, 600, 0) == 11400, "remaining counts down while offline");
+		require(VFXServerEffects.remainingTicksFor(1200, 600, 0) == 600, "remaining = duration - elapsed");
 		require(VFXServerEffects.remainingTicksFor(1200, 600, 2000) == 1400, "a late keyframe extends the lifetime");
-		// The global offline bound expires old entries and keeps fresh ones.
-		require(!VFXServerEffects.isOfflineExpired(1_000L, 1_000L + VFXServerEffects.MAX_OFFLINE_MILLIS), "an offline entry inside the window is kept");
-		require(VFXServerEffects.isOfflineExpired(1_000L, 1_000L + VFXServerEffects.MAX_OFFLINE_MILLIS + 1L), "an offline entry past the window is pruned");
-		require(!VFXServerEffects.isOfflineExpired(0L, Long.MAX_VALUE), "an online player is never offline-expired");
-		System.out.println("server effects check OK: resume age frozen at 600 ticks, remaining/expiry/bound hold");
+		// Looping/persistent effects keep no finite remaining and resume at the unwrapped elapsed (the
+		// client wraps it modulo the period, so the phase is right and the animation does not restart).
+		require(VFXServerEffects.remainingTicksFor(-1, 999_999, 0) == -1, "a persistent effect has no remaining");
+		System.out.println("server effects check OK: resumed age is the full wall-clock elapsed, expired-while-offline finites are dropped, bounds hold");
 	}
 
 	private static void require(final boolean condition, final String message) {

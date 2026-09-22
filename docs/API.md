@@ -360,7 +360,7 @@ Semantics:
 | `effectId` | `Identifier` | Effect id (built-in or datapack) |
 | `action` | `VFXAction` (`PLAY`/`STOP`/`SET_PARAM`/`KEYFRAME`/`SET_EXPR`/`MOVE`) | `SET_PARAM`/`KEYFRAME` apply to **running** effect instances: `params` carries exactly one `name → value` entry, for `KEYFRAME` the frame time is in `durationTicks` (negative = start the segment at the current time and run over `|time|` ticks), the segment easing in `easing`; `SET_EXPR` uses `exprParam`+`exprSource`; `MOVE` uses `position` + `instanceId` |
 | `durationTicks` | varint | 0 = definition default, negative = persistent (only for `PLAY`) |
-| `elapsedTicks` | varint | Resume offset: how far into the timeline the effect already is (only for `PLAY`, 0 = start fresh). Used when the server re-applies effects after a reconnect, with the age frozen at the disconnect instant. |
+| `elapsedTicks` | varint | Resume offset: how far into the timeline the effect already is (only for `PLAY`, 0 = start fresh). Used when the server re-applies effects after a reconnect, computed from the effect's original start so time spent offline counts. |
 | `params` | `Map<String, Float>` | Constant overrides, numbers only |
 | `easing` | `EasingType` (string) | |
 | `exprParam` / `exprSource` | optional strings | Only for `SET_EXPR`: the parameter name and the raw expression source |

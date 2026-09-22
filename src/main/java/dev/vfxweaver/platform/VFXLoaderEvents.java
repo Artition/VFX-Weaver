@@ -155,14 +155,13 @@ public final class VFXLoaderEvents {
 	}
 
 	/**
-	 * Drops the per-player scoreboard state and freezes the recorded-effect ages on server
-	 * shutdown (a singleplayer world reload fires no disconnect, so the age must be frozen here).
+	 * Drops the per-player scoreboard state on server shutdown. The recorded-effect memory is left
+	 * alone: time keeps running while offline, so nothing has to be frozen at shutdown.
 	 *
 	 * @param server the server that is stopping
 	 */
 	public static void onServerStopping(final MinecraftServer server) {
 		VFXScoreboardSync.clear();
-		VFXServerEffects.get().onServerStopping();
 	}
 
 	/**

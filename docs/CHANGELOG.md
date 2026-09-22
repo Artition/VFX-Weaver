@@ -16,13 +16,14 @@ change.
 
 ### Fixed
 
-- **A player's effects survive a re-login and resume from the moment they left.** The server-side
-  effect memory used to be wiped on disconnect (a leak fix), so every effect vanished when a player
-  re-joined. It is now kept — bounded to 256 players and a 24 h offline window — and re-applied on
-  re-join with the age frozen at the disconnect instant: an effect that was 30 % through comes back
-  30 % through, however long the player was away. Finite effects that had already ended are not
-  resurrected, while looping and persistent effects come back at the phase they had instead of
-  restarting. No wire or protocol change (`elapsedTicks` already carried the offset).
+- **A player's effects survive a re-login and keep counting while they are offline.** The
+  server-side effect memory used to be wiped on disconnect (a leak fix), so every effect vanished
+  when a player re-joined. It is now kept — bounded to 256 players — and re-applied on re-join at
+  the age the effect would have reached, computed from its original start: time spent offline counts
+  (an effect that was 30 % through comes back 30 % plus however long the player was away). A finite
+  effect that would have ended during the absence is not resurrected, while looping and persistent
+  effects come back at the phase they would be in instead of restarting. No wire or protocol change
+  (`elapsedTicks` already carried the offset).
 - **VFX effects in Flashback replays now follow the replay timeline instead of the wall clock.**
   Pausing a replay holds the effects, seeking places every recorded effect at the age it should have
   at the new replay time (an effect whose trigger is in the future, or already past its end, is not
