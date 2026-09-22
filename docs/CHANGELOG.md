@@ -16,6 +16,16 @@ change.
 
 ### Fixed
 
+- **The replay-timeline integration works on 1.21.11 Fabric again.** Flashback 0.39.9 (1.21.11)
+  declares `ReplayServer.jumpToTick` as a **private** field, while 0.43.x (26.2) declares it
+  public. The old all-or-nothing init read it with a bare `getField`, threw
+  `NoSuchFieldException: jumpToTick`, and aborted the entire compatibility layer — recording
+  silently stopped and every effect kept running on the wall clock, so pausing the replay no longer
+  paused the effects. The playback symbols are now resolved individually and tolerantly (public
+  field first, then the declared/private one), so a visibility change degrades only the feature
+  that needs it; a missing, renamed or non-public symbol is reported once through
+  `VFXLog.warnOnce`, naming the symbol and the installed Flashback version, instead of no-oping
+  silently. 26.2 behaviour is unchanged.
 - **An effect triggered by another mod is removed when a replay is scrubbed back past its trigger,
   and an effect no longer disappears after a single frame during playback.** A backward scrub used
   to leave an instance the replay controller did not own — e.g. a mace-hit mod's effect reaching the

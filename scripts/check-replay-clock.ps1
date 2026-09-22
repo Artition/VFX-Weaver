@@ -39,7 +39,7 @@ if ($flashback -notmatch 'public static boolean isReplayActive\(\)') {
 if ($flashback -notmatch 'getPartialReplayTick') {
 	$problems.Add("FlashbackCompat: the replay time does not come from getPartialReplayTick")
 }
-if ($flashback -notmatch 'getDeclaredField\("currentTick"\)') {
+if ($flashback -notmatch 'resolveField\(replayServerClass, "currentTick"\)') {
 	$problems.Add("FlashbackCompat: the recorded action tick does not come from ReplayServer.currentTick")
 }
 if ($flashback -notmatch 'currentTickField\.getInt\(server\)') {
@@ -180,7 +180,7 @@ if ($post -notmatch 'if \(FlashbackCompat\.isReplayPaused\(\)\)') {
 
 # 10) Bug 3: a paused scrub is read from Flashback's pending seek target (the server is frozen while
 #     paused, so the polled replay time lags), and a backward move always classifies as a rebuild.
-if ($flashback -notmatch 'jumpToTickField = replayServerClass\.getField\("jumpToTick"\)') {
+if ($flashback -notmatch 'resolveField\(replayServerClass, "jumpToTick"\)') {
 	$problems.Add("FlashbackCompat: the pending seek target (jumpToTick) is not resolved")
 }
 if ($flashback -notmatch 'if \(isReplayPaused\(\) && jumpToTickField != null\)') {
@@ -245,6 +245,56 @@ if ($replayClock -match 'hidesNonReplay') {
 }
 if ($flashback -match 'setReplayReconciling') {
 	$problems.Add("FlashbackCompat: still flags the manager as replay-reconciling")
+}
+
+# 13) A missing, renamed or non-public Flashback symbol must NOT silently disable the integration.
+#     The 1.21.11 regression: Flashback 0.39.9 declares ReplayServer.jumpToTick PRIVATE (0.43.x has
+#     it public), the bare getField threw NoSuchFieldException, the all-or-nothing init aborted and
+#     every effect ran on the wall clock while the replay integration was inert. The guard asserts:
+#       * every playback symbol is resolved through a tolerant helper (public field first, then the
+#         declared/private one, made accessible);
+#       * a miss is logged once through VFXLog.warnOnce, naming the symbol AND the Flashback version;
+#       * the required recording symbols live in their own try block, so an optional playback symbol
+#         cannot abort recording.
+if ($flashback -notmatch 'owner\.getField\(name\)') {
+	$problems.Add("FlashbackCompat: the field resolver does not try the public field first")
+}
+if ($flashback -notmatch 'owner\.getDeclaredField\(name\)') {
+	$problems.Add("FlashbackCompat: the field resolver has no declared/private fallback (the 1.21.11 jumpToTick case)")
+}
+if ($flashback -notmatch 'field\.setAccessible\(true\)') {
+	$problems.Add("FlashbackCompat: the private-field fallback does not make the field accessible")
+}
+# Every reflection lookup the replay clock depends on goes through the tolerant resolver. The
+# per-version symbol set is the union of what the supported Flashback builds expose:
+#   getReplayServer, getPartialReplayTick, replayPaused, currentTick, jumpToTick.
+foreach ($symbol in @('getReplayServer', 'getPartialReplayTick', 'replayPaused', 'currentTick', 'jumpToTick')) {
+	if ($flashback -notmatch "resolve(Field|Method)\([^)]*""$symbol""\)") {
+		$problems.Add("FlashbackCompat: $symbol is not resolved through the tolerant resolver")
+	}
+}
+if ($flashback -notmatch 'private static void warnMissingSymbol\(') {
+	$problems.Add("FlashbackCompat: a missing symbol has no dedicated diagnostic")
+}
+if ($flashback -notmatch 'VFXLog\.warnOnce\(LOGGER, "flashback-symbol-') {
+	$problems.Add("FlashbackCompat: a missing symbol is not reported through VFXLog.warnOnce (bounded, once)")
+}
+if ($flashback -notmatch 'VFXPlatform\.modVersion\("flashback"\)') {
+	$problems.Add("FlashbackCompat: the missing-symbol warning does not name the installed Flashback version")
+}
+# No bare getField/getMethod lookup may remain for the playback symbols: the old
+# `replayServerClass.getField("jumpToTick")` is exactly what aborted init on 1.21.11.
+foreach ($symbol in @('getReplayServer', 'getPartialReplayTick', 'replayPaused', 'currentTick', 'jumpToTick')) {
+	if ($flashback -match "\.get(Field|Method)\(""$symbol""\)") {
+		$problems.Add("FlashbackCompat: $symbol is still looked up with a bare getField/getMethod (a miss aborts init)")
+	}
+}
+# `enabled = true` must come after the optional symbols are resolved, so a miss degrades the feature
+# instead of disabling the whole integration.
+$jumpIdx = $flashback.IndexOf('resolveField(replayServerClass, "jumpToTick")')
+$enableIdx = $flashback.IndexOf('enabled = true;')
+if ($jumpIdx -lt 0 -or $enableIdx -lt 0 -or $enableIdx -lt $jumpIdx) {
+	$problems.Add("FlashbackCompat: enabled is set before the optional playback symbols are resolved")
 }
 
 Write-Host "Flashback replay clock check (static)"

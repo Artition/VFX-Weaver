@@ -36,4 +36,22 @@ public final class VFXPlatform {
 		/*return "neoforge";*/
 		//?}
 	}
+
+	/**
+	 * Reads a loaded mod's version for diagnostics (a missing symbol in an integration is logged
+	 * with the installed version it was resolved against). Flashback is Fabric-only, so the
+	 * NeoForge branch never runs for it and reports {@code "unknown"}.
+	 *
+	 * @param modId the mod id to look up
+	 * @return the friendly version string, or {@code "unknown"} when the mod is absent
+	 */
+	public static String modVersion(final String modId) {
+		//? if fabric {
+		return FabricLoader.getInstance().getModContainer(modId)
+			.map(container -> container.getMetadata().getVersion().getFriendlyString())
+			.orElse("unknown");
+		//?} else {
+		/*return "unknown";*/
+		//?}
+	}
 }

@@ -11,6 +11,7 @@ import dev.vfxweaver.effect.VFXTimeline;
 import dev.vfxweaver.network.VFXTriggerPayload;
 import dev.vfxweaver.platform.VFXPlatform;
 import dev.vfxweaver.resource.VFXDefinitionManager;
+import dev.vfxweaver.util.VFXLog;
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Method;
@@ -50,6 +51,16 @@ import org.slf4j.LoggerFactory;
  * <p>Both client-local plays and server-triggered ones are recorded - Flashback does not replay
  * unknown custom payload packets on its own, so without this the server-triggered effects would be
  * missing from replays entirely (especially after the server-side mod has been removed).
+ *
+ * <p><b>Version tolerance.</b> The playback-state symbols are resolved individually and tolerantly,
+ * because Flashback changes their visibility between builds (Flashback 0.39.9 for 1.21.11 declares
+ * {@code ReplayServer.jumpToTick} {@code private}, while 0.43.x for 26.2 declares it {@code public}).
+ * A symbol that is missing, renamed or not public only degrades the feature that needs it and is
+ * reported once through {@code VFXLog.warnOnce}, naming the symbol and the installed Flashback
+ * version - it never aborts the whole integration. The old all-or-nothing init turned a single
+ * {@code NoSuchFieldException} into a silent no-op, which is why the replay clock was inert on
+ * 1.21.11. The recording symbols (the action registry, the recorder and the replay writer) are
+ * required: if one of those is absent the integration is disabled with a stack trace.
  */
 public final class FlashbackCompat {
 	private static final Logger LOGGER = LoggerFactory.getLogger("vfxweaver/flashback");
@@ -126,18 +137,84 @@ public final class FlashbackCompat {
 			startActionMethod = replayWriterClass.getMethod("startAction", actionClass);
 			finishActionMethod = replayWriterClass.getMethod("finishAction", actionClass);
 			friendlyByteBufMethod = replayWriterClass.getMethod("friendlyByteBuf");
-			getReplayServerMethod = flashbackClass.getMethod("getReplayServer");
-			getPartialReplayTickMethod = replayServerClass.getMethod("getPartialReplayTick");
-			replayPausedField = replayServerClass.getField("replayPaused");
-			currentTickField = replayServerClass.getDeclaredField("currentTick");
-			currentTickField.setAccessible(true);
-			jumpToTickField = replayServerClass.getField("jumpToTick");
-			enabled = true;
-			LOGGER.info("Flashback compatibility enabled: VFX effects are recorded into replays");
 		} catch (Throwable t) {
 			enabled = false;
 			LOGGER.warn("Failed to initialize Flashback compatibility; effects won't be recorded into replays", t);
+			return;
 		}
+		// The playback-state handles are resolved separately and tolerantly, because a Flashback
+		// build can expose a symbol with a different visibility or name between versions: 1.21.11's
+		// Flashback 0.39.9 has ReplayServer.jumpToTick as a *private* field while 0.43.x has it
+		// public, so a bare getField threw NoSuchFieldException and the old all-or-nothing init
+		// aborted the whole integration - recording silently stopped and the effects ran on the wall
+		// clock. Each handle is now resolved on its own and a miss only degrades the feature that
+		// needs it, with a once-per-symbol warning naming the symbol and the installed version.
+		getReplayServerMethod = resolveMethod(flashbackClass, "getReplayServer");
+		getPartialReplayTickMethod = resolveMethod(replayServerClass, "getPartialReplayTick");
+		replayPausedField = resolveField(replayServerClass, "replayPaused");
+		currentTickField = resolveField(replayServerClass, "currentTick");
+		jumpToTickField = resolveField(replayServerClass, "jumpToTick");
+		enabled = true;
+		LOGGER.info("Flashback compatibility enabled: VFX effects are recorded into replays");
+	}
+
+	/**
+	 * Resolves a field by name, tolerating a visibility change between Flashback builds: a public
+	 * field is read directly, otherwise the declared field is made accessible. A miss is reported
+	 * once (naming the symbol and the installed Flashback version) and returns {@code null} instead
+	 * of aborting the integration.
+	 *
+	 * @param owner the class that owns the field
+	 * @param name  the field name
+	 * @return the field, or {@code null} when Flashback does not expose it
+	 */
+	private static @Nullable Field resolveField(final Class<?> owner, final String name) {
+		try {
+			return owner.getField(name);
+		} catch (NoSuchFieldException notPublic) {
+			// Not public (a version-dependent visibility): fall through to the declared lookup.
+		}
+		try {
+			final Field field = owner.getDeclaredField(name);
+			field.setAccessible(true);
+			return field;
+		} catch (Throwable t) {
+			warnMissingSymbol(owner, name, t);
+			return null;
+		}
+	}
+
+	/**
+	 * Resolves a public no-argument method by name, with the same once-per-symbol diagnostic as
+	 * {@link #resolveField(Class, String)}.
+	 *
+	 * @param owner the class that owns the method
+	 * @param name  the method name
+	 * @return the method, or {@code null} when Flashback does not expose it
+	 */
+	private static @Nullable Method resolveMethod(final Class<?> owner, final String name) {
+		try {
+			return owner.getMethod(name);
+		} catch (Throwable t) {
+			warnMissingSymbol(owner, name, t);
+			return null;
+		}
+	}
+
+	/**
+	 * Warns once per symbol that Flashback does not expose it, naming the symbol and the installed
+	 * Flashback version, so a version mismatch is diagnosable instead of silently no-oping the
+	 * replay-timeline integration. The affected handle is left {@code null} and the callers degrade
+	 * gracefully.
+	 *
+	 * @param owner the class the symbol was looked up on
+	 * @param name  the missing symbol
+	 * @param cause the lookup failure, for its exception type
+	 */
+	private static void warnMissingSymbol(final Class<?> owner, final String name, final Throwable cause) {
+		VFXLog.warnOnce(LOGGER, "flashback-symbol-" + owner.getSimpleName() + "." + name,
+			"Flashback {} does not expose {}.{} ({}); the replay-timeline integration will not work correctly - update Flashback or report the symbol mismatch",
+			VFXPlatform.modVersion("flashback"), owner.getSimpleName(), name, cause.getClass().getSimpleName());
 	}
 
 	/**
