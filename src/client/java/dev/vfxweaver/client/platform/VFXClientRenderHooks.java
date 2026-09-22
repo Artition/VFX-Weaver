@@ -85,6 +85,7 @@ public final class VFXClientRenderHooks {
 	/** Runs the once-per-tick client work (Flashback recording-start detection). */
 	public static void onClientTick() {
 		FlashbackCompat.detectRecordingStart();
+		FlashbackCompat.tickReplayState();
 	}
 
 	/** Resets the server-pushed scoreboard cache when the player joins a server. */

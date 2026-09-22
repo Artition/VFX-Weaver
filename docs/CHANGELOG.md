@@ -14,6 +14,15 @@ change.
 
 ## Unreleased
 
+### Fixed
+
+- **VFX effects in Flashback replays now follow the replay timeline instead of the wall clock.**
+  Pausing a replay holds the effects, seeking places every recorded effect at the age it should have
+  at the new replay time (an effect whose trigger is in the future, or already past its end, is not
+  playing), and a recorded play or live edit only takes effect when the replay time reaches its
+  recorded tick — so scrubbing back and forth shows the same frame instead of restarting the effect.
+  Normal, non-replay gameplay is unchanged. Flashback is Fabric-only.
+
 ## 2.0.0 — 2026-09-20
 
 2.0.0 gathers everything that landed after the previous release. Nearly all of it is additive —

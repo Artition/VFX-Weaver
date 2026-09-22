@@ -1,6 +1,8 @@
 package dev.vfxweaver.client.mixin;
 
 import dev.vfxweaver.client.effect.VFXEffectManager;
+import dev.vfxweaver.client.flashback.FlashbackCompat;
+import dev.vfxweaver.client.flashback.VFXReplayController;
 import dev.vfxweaver.client.postprocessing.VFXPostProcessingManager;
 import dev.vfxweaver.effect.VFXWorldBindings;
 import net.minecraft.client.Camera;
@@ -148,7 +150,16 @@ public abstract class GameRendererMixin {
 				(float) Mth.lerp(partialTick, player.zo, player.getZ())
 			);
 		}
-		VFXEffectManager.get().advance(deltaTicks);
+		// While a Flashback replay is open the effect clock is the replay's own time position, so
+		// pausing and seeking the replay pause and move the effects with it. Outside a replay the
+		// wall clock is used exactly as before.
+		if (FlashbackCompat.isReplayActive()) {
+			float replayTick = (float) FlashbackCompat.getReplayTimeTicks();
+			VFXEffectManager.get().setClock(replayTick);
+			VFXReplayController.get().apply(replayTick, FlashbackCompat.isReplayPaused());
+		} else {
+			VFXEffectManager.get().advance(deltaTicks);
+		}
 		VFXEffectManager.get().update();
 	}
 

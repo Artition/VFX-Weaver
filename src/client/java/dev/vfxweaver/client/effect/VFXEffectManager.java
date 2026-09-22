@@ -6,6 +6,7 @@ import dev.vfxweaver.effect.EasingType;
 import dev.vfxweaver.effect.VFXActiveEffect;
 import dev.vfxweaver.effect.VFXDefinition;
 import dev.vfxweaver.effect.VFXEffectType;
+import dev.vfxweaver.effect.VFXReplayClock;
 import dev.vfxweaver.effect.VFXTimeline;
 import dev.vfxweaver.resource.VFXDefinitionManager;
 import java.util.ArrayList;
@@ -13,6 +14,7 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.atomic.AtomicLong;
@@ -76,6 +78,106 @@ public class VFXEffectManager {
 	 */
 	public void advance(final float deltaTicks) {
 		this.clock += Math.max(0.0F, deltaTicks);
+	}
+
+	/**
+	 * Sets the shared effect clock to an absolute time (in ticks). Used while a Flashback replay
+	 * drives the effects: the replay's own time position is the clock, so pausing and seeking the
+	 * replay pause and move the effects with it.
+	 *
+	 * @param now absolute clock time in ticks
+	 */
+	public void setClock(final float now) {
+		this.clock = now;
+	}
+
+	/**
+	 * True when a recorded effect with the given duration is in its ACTIVE phase at {@code now}.
+	 * Resolves the definition's loop/persistent flags and effective duration the same way
+	 * {@link #play} does, so the replay controller never starts an already-ended effect.
+	 *
+	 * @param effectId      effect id
+	 * @param durationTicks recorded duration in ticks (0 uses the definition default)
+	 * @param startTick     replay tick the effect was triggered at
+	 * @param now           current replay time in ticks
+	 * @return true when the effect should be playing at {@code now}
+	 */
+	public boolean replayEffectActive(final Identifier effectId, final int durationTicks, final float startTick, final float now) {
+		VFXDefinition definition = VFXDefinitionManager.get().get(effectId);
+		boolean loop = definition != null && definition.isLoop();
+		boolean persistent = (definition != null && (definition.isPersistent() || loop)) || (definition == null && durationTicks < 0);
+		int clampedTicks = Math.min(Math.max(durationTicks, 0), MAX_DURATION_TICKS);
+		int definitionDuration = definition != null ? definition.getDefaultDuration() : DEFAULT_PARAM_DURATION;
+		int duration = resolveTimelineDuration(loop, clampedTicks, definitionDuration);
+		return VFXReplayClock.phaseAt(now, startTick, duration, loop, persistent) == VFXReplayClock.Phase.ACTIVE;
+	}
+
+	/**
+	 * Starts an effect on the replay timeline: the instance's start time is the recorded trigger
+	 * tick, so its age at any replay time is {@code replayTick - triggerTick} and seeking back and
+	 * forth shows the same frame instead of restarting the effect.
+	 *
+	 * @param effectId      effect id
+	 * @param durationTicks recorded duration in ticks (0 uses the definition default)
+	 * @param startTick     replay tick the effect was triggered at
+	 * @param instanceId    stable instance id owned by the replay event
+	 * @param position      world anchor recorded with the play (may be null)
+	 * @param params        recorded parameter values
+	 * @param easing        recorded easing (may be null)
+	 * @param playSound     false when rebuilding after a seek (never re-trigger the sound)
+	 * @return the instance id, or {@code 0} when the effect was ignored
+	 */
+	public long playReplay(final Identifier effectId, final int durationTicks, final float startTick, final long instanceId, final @Nullable Vec3 position, final Map<String, Float> params, final @Nullable EasingFunction easing, final boolean playSound) {
+		return this.play(effectId, durationTicks, instanceId, position, List.of(), params, easing, 0, 0, null, List.of(), startTick, playSound);
+	}
+
+	/**
+	 * Removes the given instances immediately (no fade), used when a replay seek rebuilds the
+	 * effect set from the recorded timeline.
+	 *
+	 * @param instanceIds the instance ids to remove
+	 */
+	public void removeInstances(final Set<Long> instanceIds) {
+		if (instanceIds.isEmpty()) {
+			return;
+		}
+		this.active.removeIf(effect -> instanceIds.contains(effect.getInstanceId()));
+	}
+
+	/**
+	 * Removes one instance immediately (no fade), used by the replay controller when the replay
+	 * time moves back before an effect's trigger.
+	 *
+	 * @param instanceId the instance id to remove
+	 */
+	public void removeInstance(final long instanceId) {
+		this.active.removeIf(effect -> effect.getInstanceId() == instanceId);
+	}
+
+	/**
+	 * Drops every pending collection child. Used when a replay seek rebuilds the effect set, so a
+	 * re-scheduled collection does not stack duplicate children on the ones already queued.
+	 */
+	public void clearScheduled() {
+		this.scheduled.clear();
+	}
+
+	/**
+	 * Live-overrides a parameter on every running instance of the effect without starting one when
+	 * none is running (unlike {@link #setParam}). Used to replay a recorded {@code set-param} edit
+	 * at its recorded time without materialising an effect that the replay never triggered.
+	 *
+	 * @return {@code true} when at least one running instance was updated
+	 */
+	public boolean applyParam(final Identifier effectId, final String name, final float value) {
+		boolean applied = false;
+		for (VFXActiveEffect effect : this.active) {
+			if (effect.getId().equals(effectId)) {
+				effect.getTimeline().setOverride(name, value);
+				applied = true;
+			}
+		}
+		return applied;
 	}
 
 	/**
@@ -198,6 +300,16 @@ public class VFXEffectManager {
 	}
 
 	private long play(final Identifier effectId, final int durationTicks, final long instanceId, final @Nullable Vec3 position, final List<UUID> entityUuids, final Map<String, Float> params, final EasingFunction easing, final int depth, final int elapsedTicks, final @Nullable VFXDefinition predefined, final List<Identifier> collections) {
+		return this.play(effectId, durationTicks, instanceId, position, entityUuids, params, easing, depth, elapsedTicks, predefined, collections, Float.NaN, true);
+	}
+
+	/**
+	 * Full play path. {@code startTime} overrides the driving clock as the instance's start time
+	 * (used by the Flashback replay controller to place an effect at its recorded trigger tick);
+	 * {@code NaN} means "start at the current clock". {@code playSound} is false when a replay is
+	 * rebuilt after a seek, so seeking never re-triggers the effect's sound.
+	 */
+	private long play(final Identifier effectId, final int durationTicks, final long instanceId, final @Nullable Vec3 position, final List<UUID> entityUuids, final Map<String, Float> params, final EasingFunction easing, final int depth, final int elapsedTicks, final @Nullable VFXDefinition predefined, final List<Identifier> collections, final float startTime, final boolean playSound) {
 		VFXDefinition definition = predefined != null ? predefined : VFXDefinitionManager.get().get(effectId);
 		VFXEffectType type = definition != null ? definition.getType() : VFXEffectType.fromString(effectId.getPath());
 		if (type == null) {
@@ -230,11 +342,11 @@ public class VFXEffectManager {
 					// constant overrides.
 					childDef = childDef.withParams(child.params());
 				}
-				this.scheduled.add(new ScheduledPlay(this.clock + child.delay(), childDef, child.duration(), position, child.easing(), depth + 1, childCollections));
+				this.scheduled.add(new ScheduledPlay((Float.isNaN(startTime) ? this.clock : startTime) + child.delay(), childDef, child.duration(), position, child.easing(), depth + 1, childCollections));
 				scheduledCount++;
 			}
 			LOGGER.debug("Scheduled {} child effect(s) from collection '{}'", scheduledCount, effectId);
-			if (definition.getSound() != null) {
+			if (playSound && definition.getSound() != null) {
 				// Collections have no timeline of their own, so volume/pitch/position use defaults.
 				playSound(definition.getSound(), 1.0F, 1.0F, null);
 			}
@@ -305,7 +417,8 @@ public class VFXEffectManager {
 		if (instanceId != 0L) {
 			this.active.removeIf(existing -> existing.getInstanceId() == instanceId);
 		}
-		VFXActiveEffect effect = new VFXActiveEffect(effectId, type, id, instanceSeed, this.clock, timeline, fadeTicks, loop, persistent, positions, entityUuids, anchors, definition != null ? definition.getParticleId() : null, definition != null ? definition.getShape() : null, definition != null ? definition.getBlockId() : null, definition != null ? definition.getItemId() : null);
+		final float effectiveStart = Float.isNaN(startTime) ? this.clock : startTime;
+		VFXActiveEffect effect = new VFXActiveEffect(effectId, type, id, instanceSeed, effectiveStart, timeline, fadeTicks, loop, persistent, positions, entityUuids, anchors, definition != null ? definition.getParticleId() : null, definition != null ? definition.getShape() : null, definition != null ? definition.getBlockId() : null, definition != null ? definition.getItemId() : null);
 		// Same-id replays with auto-allocated ids stack as independent instances; MAX_ACTIVE_EFFECTS caps the total.
 		while (this.active.size() >= MAX_ACTIVE_EFFECTS) {
 			LOGGER.warn("Active VFX effect limit ({}) reached; removing oldest effect '{}'", MAX_ACTIVE_EFFECTS, this.active.get(0).getId());
@@ -317,7 +430,7 @@ public class VFXEffectManager {
 			// instead of restarting from the first keyframe.
 			effect.update(this.clock + elapsedTicks);
 		}
-		if (definition != null && definition.getSound() != null) {
+		if (playSound && definition != null && definition.getSound() != null) {
 			// Volume/pitch come from reserved effect parameters (constant, bound or expression),
 			// evaluated once at start time — matching the "one-shot sound" behaviour.
 			// When sound_pos_x/y/z are present the sound is played at those world coordinates

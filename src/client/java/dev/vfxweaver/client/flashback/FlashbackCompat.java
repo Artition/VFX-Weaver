@@ -62,6 +62,7 @@ public final class FlashbackCompat {
 	private static @Nullable Class<?> recorderClass;
 	private static @Nullable Class<?> replayWriterClass;
 	private static @Nullable Class<?> flashbackClass;
+	private static @Nullable Class<?> replayServerClass;
 	private static @Nullable Object action;
 	// Reflective handles resolved once during init to avoid per-call getMethod/getField lookups.
 	private static @Nullable Field recorderField;
@@ -70,6 +71,12 @@ public final class FlashbackCompat {
 	private static @Nullable Method startActionMethod;
 	private static @Nullable Method finishActionMethod;
 	private static @Nullable Method friendlyByteBufMethod;
+	// Playback-state handles: the live ReplayServer, its replay time and pause flag, and the tick
+	// the action currently being handled was recorded at.
+	private static @Nullable Method getReplayServerMethod;
+	private static @Nullable Method getPartialReplayTickMethod;
+	private static @Nullable Field replayPausedField;
+	private static @Nullable Field currentTickField;
 	/** The last {@code Flashback.RECORDER} instance seen, to detect a new recording start. */
 	private static @Nullable Object lastRecorder;
 	/** True once the snapshot of already-active effects has been written for the current recording. */
@@ -92,6 +99,7 @@ public final class FlashbackCompat {
 			recorderClass = Class.forName("com.moulberry.flashback.record.Recorder");
 			replayWriterClass = Class.forName("com.moulberry.flashback.io.ReplayWriter");
 			flashbackClass = Class.forName("com.moulberry.flashback.Flashback");
+			replayServerClass = Class.forName("com.moulberry.flashback.playback.ReplayServer");
 			action = Proxy.newProxyInstance(actionClass.getClassLoader(), new Class<?>[]{actionClass}, new ActionHandler());
 			// Exactly ONE action is registered on purpose: Flashback keys its action registry by the
 			// proxy class, and two proxies with the same interfaces share one generated class, so a
@@ -106,6 +114,11 @@ public final class FlashbackCompat {
 			startActionMethod = replayWriterClass.getMethod("startAction", actionClass);
 			finishActionMethod = replayWriterClass.getMethod("finishAction", actionClass);
 			friendlyByteBufMethod = replayWriterClass.getMethod("friendlyByteBuf");
+			getReplayServerMethod = flashbackClass.getMethod("getReplayServer");
+			getPartialReplayTickMethod = replayServerClass.getMethod("getPartialReplayTick");
+			replayPausedField = replayServerClass.getField("replayPaused");
+			currentTickField = replayServerClass.getDeclaredField("currentTick");
+			currentTickField.setAccessible(true);
 			enabled = true;
 			LOGGER.info("Flashback compatibility enabled: VFX effects are recorded into replays");
 		} catch (Throwable t) {
@@ -146,6 +159,94 @@ public final class FlashbackCompat {
 			}
 		} catch (Throwable t) {
 			LOGGER.warn("Failed to detect Flashback recording start", t);
+		}
+	}
+
+	/**
+	 * {@code true} when a Flashback replay world is currently open (playing or paused). The effect
+	 * clock is driven by the replay's own time while this is true.
+	 */
+	public static boolean isReplayActive() {
+		return replayServer() != null;
+	}
+
+	/** The live {@code ReplayServer}, or {@code null} outside a replay. */
+	public static @Nullable Object replayServer() {
+		if (!enabled || getReplayServerMethod == null) {
+			return null;
+		}
+		try {
+			return getReplayServerMethod.invoke(null);
+		} catch (Throwable t) {
+			return null;
+		}
+	}
+
+	/**
+	 * The replay's current time in ticks, fractional between ticks (Flashback's
+	 * {@code getPartialReplayTick}); it holds still while the replay is paused.
+	 *
+	 * @return the replay time in ticks, or {@code 0} outside a replay
+	 */
+	public static double getReplayTimeTicks() {
+		Object server = replayServer();
+		if (server == null || getPartialReplayTickMethod == null) {
+			return 0.0;
+		}
+		try {
+			return ((Number) getPartialReplayTickMethod.invoke(server)).doubleValue();
+		} catch (Throwable t) {
+			return 0.0;
+		}
+	}
+
+	/**
+	 * Whether the replay is currently paused. A paused replay's time does not advance, so the
+	 * effects hold their state.
+	 *
+	 * @return {@code true} when the replay is paused
+	 */
+	public static boolean isReplayPaused() {
+		Object server = replayServer();
+		if (server == null || replayPausedField == null) {
+			return false;
+		}
+		try {
+			return replayPausedField.getBoolean(server);
+		} catch (Throwable t) {
+			return false;
+		}
+	}
+
+	/**
+	 * Clears replay-created effects and the recorded timeline once no replay is open, so a replay
+	 * never leaves its effects running in normal gameplay. Called once per client tick.
+	 */
+	public static void tickReplayState() {
+		if (!enabled) {
+			return;
+		}
+		if (replayServer() == null) {
+			VFXReplayController.get().clear();
+		}
+	}
+
+	/**
+	 * The replay tick the action currently being handled was recorded at, read from Flashback's
+	 * private {@code ReplayServer.currentTick}. Must be read synchronously on the replay server
+	 * thread inside {@link #handlePlayback} - the value moves on before the render-thread hop.
+	 *
+	 * @return the recorded tick, or {@code -1} when it cannot be read
+	 */
+	private static int currentActionTick() {
+		Object server = replayServer();
+		if (server == null || currentTickField == null) {
+			return -1;
+		}
+		try {
+			return currentTickField.getInt(server);
+		} catch (Throwable t) {
+			return -1;
 		}
 	}
 
@@ -488,14 +589,16 @@ public final class FlashbackCompat {
 			return;
 		}
 		int durationTicks = buf.readVarInt();
+		// The tick this action was recorded at: read now, while still on the replay server thread.
+		int triggerTick = currentActionTick();
 		if (durationTicks == ACTION_STOP) {
-			Minecraft.getInstance().execute(() -> VFXEffectManager.get().stop(effectId));
+			Minecraft.getInstance().execute(() -> VFXReplayController.get().onStop(effectId, triggerTick));
 			return;
 		}
 		if (durationTicks == ACTION_SET_PARAM) {
 			String name = buf.readUtf();
 			float value = buf.readFloat();
-			Minecraft.getInstance().execute(() -> VFXEffectManager.get().setParam(effectId, name, value));
+			Minecraft.getInstance().execute(() -> VFXReplayController.get().onSetParam(effectId, name, value, triggerTick));
 			return;
 		}
 		if (durationTicks == ACTION_KEYFRAME) {
@@ -504,13 +607,13 @@ public final class FlashbackCompat {
 			float value = buf.readFloat();
 			String easingName = buf.readUtf();
 			EasingFunction keyframeEasing = EasingFunction.fromString(easingName);
-			Minecraft.getInstance().execute(() -> VFXEffectManager.get().setKeyframe(effectId, name, time, value, keyframeEasing));
+			Minecraft.getInstance().execute(() -> VFXReplayController.get().onKeyframe(effectId, name, time, value, keyframeEasing, triggerTick));
 			return;
 		}
 		if (durationTicks == ACTION_SET_EXPR) {
 			String name = buf.readUtf();
 			String exprSource = buf.readUtf();
-			Minecraft.getInstance().execute(() -> VFXEffectManager.get().setExpression(effectId, name, exprSource.isBlank() ? null : exprSource));
+			Minecraft.getInstance().execute(() -> VFXReplayController.get().onSetExpr(effectId, name, exprSource.isBlank() ? null : exprSource, triggerTick));
 			return;
 		}
 		String easingName = buf.readUtf();
@@ -535,8 +638,9 @@ public final class FlashbackCompat {
 		}
 		final Vec3 anchorPos = anchor;
 		final EasingFunction easingFunction = easing == null ? null : EasingFunction.builtIn(easing);
+		final int recordedTick = triggerTick;
 		Minecraft.getInstance().execute(() ->
-			VFXEffectManager.get().play(effectId, durationTicks, 0L, anchorPos, params, easingFunction)
+			VFXReplayController.get().onPlay(effectId, durationTicks, params, easingFunction, anchorPos, recordedTick)
 		);
 	}
 
