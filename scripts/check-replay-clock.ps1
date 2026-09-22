@@ -20,8 +20,11 @@ $flashback = Read-Source (Join-Path $client "flashback\FlashbackCompat.java")
 $controller = Read-Source (Join-Path $client "flashback\VFXReplayController.java")
 $manager = Read-Source (Join-Path $client "effect\VFXEffectManager.java")
 $replayClock = Read-Source (Join-Path $main "effect\VFXReplayClock.java")
+$timeline = Read-Source (Join-Path $main "effect\VFXTimeline.java")
 $mixin = Read-Source (Join-Path $client "mixin\GameRendererMixin.java")
 $hooks = Read-Source (Join-Path $client "platform\VFXClientRenderHooks.java")
+$graphDemo = Read-Source (Join-Path $repoRoot "src\main\resources\data\vfxweaver\vfx\graph_demo.json")
+$graphLogicDemo = Read-Source (Join-Path $repoRoot "src\main\resources\data\vfxweaver\vfx\graph_logic_demo.json")
 
 $problems = New-Object System.Collections.Generic.List[string]
 
@@ -114,6 +117,40 @@ if ($replayClock -match 'net\.minecraft') {
 	$problems.Add("VFXReplayClock: must stay Minecraft-free for the standalone check")
 }
 
+# 6) Looping/persistent effects are recorded, not skipped: the snapshot and the live-play path
+#    must both carry them, and the snapshot payload must stay decodable (MAX_PARAMS cap).
+if ($flashback -match 'effect\.isLooping\(\)|effect\.isPersistent\(\)') {
+	$problems.Add("FlashbackCompat: the active-effects snapshot still skips looping/persistent effects")
+}
+if ($flashback -match 'if \(!enabled \|\| durationTicks < 0\)') {
+	$problems.Add("FlashbackCompat: recordPlay still drops negative-duration (persistent) plays")
+}
+if ($flashback -notmatch 'durationTicks < 0 \? -1 : durationTicks') {
+	$problems.Add("FlashbackCompat: a persistent play is not normalised to the -1 sentinel")
+}
+if ($flashback -notmatch 'params\.size\(\) >= MAX_PARAMS') {
+	$problems.Add("FlashbackCompat: the snapshot params are not capped at MAX_PARAMS")
+}
+foreach ($pair in @(@('graph_demo', $graphDemo), @('graph_logic_demo', $graphLogicDemo))) {
+	if ($pair[1] -notmatch '"loop"\s*:\s*true' -or $pair[1] -notmatch '"persistent"\s*:\s*true') {
+		$problems.Add("$($pair[0]).json: not loop+persistent, so it is no longer a snapshot candidate")
+	}
+}
+
+# 7) The definitions snapshot carries the raw JSON (graph/inputs/meta/subgraphs verbatim) and
+#    re-applies it through the same parse path, so graph wiring and subgraph macros survive.
+if ($flashback -notmatch 'getRawDefinitions\(\)') {
+	$problems.Add("FlashbackCompat: the definitions snapshot does not write the raw definition JSON")
+}
+if ($flashback -notmatch 'VFXDefinitionManager\.get\(\)\.applySynced\(definitions\)') {
+	$problems.Add("FlashbackCompat: the definitions snapshot is not re-applied through applySynced")
+}
+# Precedence: a runtime override (set-param/keyframe) wins over a graph input, but a graph input
+# wins over a plain definition value - the same order live and on playback.
+if ($timeline -notmatch '(?s)AnimatedValue override = this\.overrides\.get\(name\);.*?final String graphNode = this\.graphInputs\.get\(name\);') {
+	$problems.Add("VFXTimeline.getValue: runtime overrides no longer win over graph inputs")
+}
+
 Write-Host "Flashback replay clock check (static)"
 if ($problems.Count -gt 0) {
 	$problems | ForEach-Object { Write-Host "  - $_" }
@@ -166,11 +203,13 @@ public final class ReplayClockCheck {
 		require(VFXReplayClock.phaseAt(190.0, trigger, duration, false, false) == Phase.AFTER, "after the end");
 		require(VFXReplayClock.phaseAt(1000.0, trigger, duration, true, false) == Phase.ACTIVE, "looping never ends");
 		require(VFXReplayClock.phaseAt(1000.0, trigger, duration, false, true) == Phase.ACTIVE, "persistent never ends");
+		require(VFXReplayClock.phaseAt(1_000_000.0, trigger, duration, true, false) == Phase.ACTIVE, "looping is still active a million ticks later");
+		require(VFXReplayClock.phaseAt(1_000_000.0, trigger, duration, false, true) == Phase.ACTIVE, "persistent is still active a million ticks later");
 		require(VFXReplayClock.ageAt(170.0, trigger, duration, false) == 20.0F, "age mid-effect");
 		require(VFXReplayClock.ageAt(190.0, trigger, duration, false) == 40.0F, "age at the end");
 		require(VFXReplayClock.ageAt(100.0, trigger, duration, false) == 0.0F, "age clamps before the trigger");
 		require(VFXReplayClock.ageAt(195.0, trigger, duration, true) == 5.0F, "looping age wraps");
-		System.out.println("replay clock check OK: BEFORE/ACTIVE/AFTER and ages 0/20/40/5 all place correctly");
+		System.out.println("replay clock check OK: BEFORE/ACTIVE/AFTER, ages 0/20/40/5 and looping/persistent at 1e6 ticks all place correctly");
 	}
 
 	private static void require(final boolean condition, final String message) {

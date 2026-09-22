@@ -22,6 +22,13 @@ change.
   playing), and a recorded play or live edit only takes effect when the replay time reaches its
   recorded tick — so scrubbing back and forth shows the same frame instead of restarting the effect.
   Normal, non-replay gameplay is unchanged. Flashback is Fabric-only.
+- **Looping and persistent effects are recorded into Flashback replays.** They used to be skipped:
+  a persistent play (`-1`) was dropped outright and an already-running looping/persistent effect was
+  left out of the recording-start snapshot, on the (now obsolete) assumption that it would loop
+  forever without a stop event. With the replay-timeline controller a recorded play is placed at its
+  tick and kept alive until a recorded stop — or for the whole replay when it was never stopped —
+  which is exactly how it ran, so an infinite effect now reproduces like a finite one. A looping
+  showcase such as `vfxweaver:graph_demo` or `vfxweaver:graph_logic_demo` replays correctly.
 
 ## 2.0.0 — 2026-09-20
 

@@ -309,22 +309,23 @@ public final class FlashbackCompat {
 
 	/**
 	 * Writes one replay action per already-running effect into the given recording, using each
-	 * effect's current parameter values so it replays in the same state. Persistent and looping
-	 * effects are skipped — with no recorded stop event they would loop forever during playback.
+	 * effect's current parameter values so it replays in the same state. Looping and persistent
+	 * effects are snapshotted too: the replay controller keeps such a play alive until a recorded
+	 * stop (or for the whole replay when it was never stopped), which is exactly how it ran
+	 * originally — so an infinite effect reproduces like a finite one instead of being lost.
+	 * Collections are skipped (they own no timeline; their children are separate effects) and
+	 * camera shakes are skipped as before.
 	 */
 	private static void writeActiveEffectsSnapshot(final Object recorder) {
 		try {
 			for (VFXActiveEffect effect : VFXEffectManager.get().getActive()) {
 				Identifier id = effect.getId();
 				VFXTimeline timeline = effect.getTimeline();
-				// Without a recorded stop event a looping/persistent effect would loop forever
-				// during playback, so only finite-duration effects are snapshotted.
-				if (effect.getType() == VFXEffectType.COLLECTION || effect.getType() == VFXEffectType.CAMERA_SHAKE
-					|| effect.isLooping() || effect.isPersistent()) {
+				if (effect.getType() == VFXEffectType.COLLECTION || effect.getType() == VFXEffectType.CAMERA_SHAKE) {
 					continue;
 				}
 				int duration = Math.max(1, (int) Math.ceil(timeline.getDuration() - timeline.getElapsed()));
-				Map<String, Float> params = snapshotParams(timeline);
+				Map<String, Float> params = snapshotParams(id, timeline);
 				submitCustomTaskMethod.invoke(recorder, (Consumer<Object>) writer -> {
 					try {
 						writeAction(writer, id, duration, params, EasingType.LINEAR, null);
@@ -340,9 +341,14 @@ public final class FlashbackCompat {
 
 	/**
 	 * Collects the current value of every timeline parameter (values, bindings, multipliers,
-	 * expressions and live overrides) into a constant map, preserving the effect's on-screen state.
+	 * expressions and live overrides) into a constant map, preserving the effect's on-screen
+	 * state. Bounded by {@link #MAX_PARAMS} because the reader refuses a play action with more
+	 * params than that, so an oversized effect is truncated rather than written undecodable.
+	 *
+	 * @param id       effect id, for the truncation warning
+	 * @param timeline the running timeline to snapshot
 	 */
-	private static Map<String, Float> snapshotParams(final VFXTimeline timeline) {
+	private static Map<String, Float> snapshotParams(final Identifier id, final VFXTimeline timeline) {
 		Map<String, Float> params = new LinkedHashMap<>();
 		Map<String, Float> deferred = new LinkedHashMap<>();
 		timeline.getValues().keySet().forEach(name -> deferred.put(name, timeline.getValue(name, Float.NaN)));
@@ -351,18 +357,25 @@ public final class FlashbackCompat {
 		timeline.getExpressions().keySet().forEach(name -> deferred.put(name, timeline.getValue(name, Float.NaN)));
 		timeline.getOverrideNames().forEach(name -> deferred.put(name, timeline.getValue(name, Float.NaN)));
 		for (Map.Entry<String, Float> entry : deferred.entrySet()) {
-			if (!Float.isNaN(entry.getValue())) {
-				params.put(entry.getKey(), entry.getValue());
+			if (Float.isNaN(entry.getValue())) {
+				continue;
 			}
+			if (params.size() >= MAX_PARAMS) {
+				LOGGER.warn("Snapshot of VFX effect '{}' has more than {} parameters; the rest are dropped", id, MAX_PARAMS);
+				break;
+			}
+			params.put(entry.getKey(), entry.getValue());
 		}
 		return params;
 	}
 
 	/**
 	 * Records a client-local effect play into the active Flashback replay, if one is running.
-	 * Persistent (negative duration) effects are skipped: without a recorded stop event they would
-	 * loop forever during playback. The payload is written on the render thread, mirroring the
-	 * {@code effectId, durationTicks, easing, params} order of the network trigger.
+	 * Persistent (negative duration) effects are recorded too: the replay controller keeps such a
+	 * play alive until a recorded stop (or the whole replay when it was never stopped), so an
+	 * infinite effect reproduces exactly like a finite one. The payload is written on the render
+	 * thread, mirroring the {@code effectId, durationTicks, easing, params} order of the network
+	 * trigger.
 	 */
 	public static void recordPlay(final Identifier effectId, final int durationTicks, final Map<String, Float> params, final EasingType easing) {
 		recordPlay(effectId, durationTicks, params, easing, null);
@@ -375,9 +388,14 @@ public final class FlashbackCompat {
 	 * build (which never wrote it) still decode.
 	 */
 	public static void recordPlay(final Identifier effectId, final int durationTicks, final Map<String, Float> params, final @Nullable EasingType easing, final @Nullable Vec3 position) {
-		if (!enabled || durationTicks < 0) {
+		if (!enabled) {
 			return;
 		}
+		// A negative duration is the persistent sentinel (VFXAPI sends -1 for a persistent
+		// definition). It is recorded, not skipped, so the play action exists at its tick; the
+		// replay controller's replayEffectActive/phaseAt keep it active until a recorded stop.
+		// Normalise to -1 so it can never collide with the -2..-5 edit sentinels.
+		final int recordedDuration = durationTicks < 0 ? -1 : durationTicks;
 		try {
 			Minecraft.getInstance().execute(() -> {
 				try {
@@ -390,7 +408,7 @@ public final class FlashbackCompat {
 					}
 					submitCustomTaskMethod.invoke(recorder, (Consumer<Object>) writer -> {
 						try {
-							writeAction(writer, effectId, durationTicks, params, easing, position);
+							writeAction(writer, effectId, recordedDuration, params, easing, position);
 						} catch (Throwable t) {
 							LOGGER.warn("Failed to write VFX effect '{}' into Flashback replay", effectId, t);
 						}
@@ -406,8 +424,9 @@ public final class FlashbackCompat {
 
 	/**
 	 * Records a server-triggered effect play into the active Flashback replay (Flashback does not
-	 * replay unknown custom payload packets on its own). Persistent (negative duration) effects
-	 * are skipped: without a recorded stop event they would loop forever during playback.
+	 * replay unknown custom payload packets on its own). A persistent definition arrives as a
+	 * negative duration (VFXAPI sends -1) and is recorded like any other play; the replay
+	 * controller keeps it alive until a recorded stop.
 	 */
 	public static void recordServerPlay(final Identifier effectId, final int durationTicks, final Map<String, Float> params, final String easing) {
 		recordPlay(effectId, durationTicks, params, EasingType.fromString(easing));

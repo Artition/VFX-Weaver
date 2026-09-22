@@ -66,8 +66,10 @@ if ($activeEffect -notmatch '(?s)if \(this\.persistent\) \{.*?return false;.*?\}
 if ($activeEffect -notmatch 'public boolean isPersistent\(\)') {
 	$problems.Add("VFXActiveEffect: isPersistent() getter is missing")
 }
-if ($flashback -notmatch 'effect\.isPersistent\(\)') {
-	$problems.Add("FlashbackCompat: the persistent snapshot guard does not use isPersistent()")
+# The active-effects snapshot must no longer skip persistent/looping effects: the replay
+# controller keeps such a play alive until a recorded stop, so an infinite effect reproduces.
+if ($flashback -match 'effect\.isPersistent\(\)|effect\.isLooping\(\)') {
+	$problems.Add("FlashbackCompat: the active-effects snapshot still skips persistent/looping effects")
 }
 
 # 3) The evaluator routes the fallback through the in-range path.

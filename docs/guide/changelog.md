@@ -5,8 +5,11 @@ documentation changed. A guide revision is not a mod version — the two numbers
 released mod versions are recorded on the **[mod Changelog](../CHANGELOG.md)** instead. Where a guide
 revision shipped with a release, the entry says so (for example `v47 — released as 2.0.0`).
 
-Current guide revision: **v47**. Mod version it documents: **2.0.0**. Which jar to download is in the
+Current guide revision: **v48**. Mod version it documents: **2.0.0**. Which jar to download is in the
 [download table](../index.md#download).
+
+### v48
+- **Looping and persistent effects are recorded into Flashback replays.** They used to be skipped when a recording started (an effect already running was not snapshotted) and a persistent play (`-1`) was dropped entirely; both now record like a finite effect, because the replay-timeline controller keeps a recorded play alive until a recorded stop (or the whole replay when it was never stopped). This is what makes a looping showcase such as `vfxweaver:graph_demo` or `vfxweaver:graph_logic_demo` reproduce in a replay. See [Flashback compatibility](index.md#flashback-compatibility).
 
 ### v47 — released as 2.0.0
 - **Mod version 2.0.0.** Everything accumulated since v32 — guides v33–v46: value graphs and macros, per-pixel fields, masks with block geometry and GLSL-plugin shapes, `surface_pattern` with textures/faces/bands/stitch, spark particles and `/vfx stop [<player>]`, plus per-line scene depth — ships together as **2.0.0**. No guide behaviour changed in this entry; only `mod_version` and the version wording moved, so the actual changes are the v33–v46 entries below.

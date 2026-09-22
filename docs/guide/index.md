@@ -6,7 +6,7 @@ post-processing (ping-pong FBO), camera shake, world overlays (block tint/outlin
 and a public Java API.
 
 - **Mod version: 2.0.0** — what you download (`vfxweaver-2.0.0+<mc>[-neoforge].jar`).
-- **Guide revision: v47** — the revision of *this documentation*, independent of the mod version.
+- **Guide revision: v48** — the revision of *this documentation*, independent of the mod version.
   The mod number lives in the release; the guide number lives in the
   [Guide changelog](changelog.md). One jar exists per Minecraft line and loader; Fabric jars need
   Fabric API, NeoForge builds use the `-neoforge` suffix. See the
@@ -103,8 +103,11 @@ the client records server-triggered effects too.)
 
 Things to know:
 
-- Effects played with a **negative (persistent) duration** are not recorded - without a recorded stop
-  event they would loop forever during playback.
+- **Looping and persistent effects are recorded too.** Their play is written at the tick it was
+  played and the replay keeps it running until a recorded stop - or for the whole replay when it was
+  never stopped, exactly as it ran originally. An effect that is already running when the recording
+  starts is snapshotted the same way. Seeking places it at the age it should have at the new replay
+  time (a looping effect keeps looping).
 - The recording needs no config: start a Flashback recording, play effects, done.
 - No interaction with the Flashback editor keyframes; this is replay recording/playback only.
 
