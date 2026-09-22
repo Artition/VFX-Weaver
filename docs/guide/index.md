@@ -112,6 +112,10 @@ Things to know:
   starts is snapshotted the same way. Seeking places it at the age it should have at the new replay
   time (a looping effect keeps looping).
 - The recording needs no config: start a Flashback recording, play effects, done.
+- **Scrubbing back past an effect's trigger removes it**, whether the effect came from this mod, a
+  datapack, or **another mod triggering an effect through the API** (client-local or over the
+  network). A play that a replay cannot remove - one the recording never wrote - is held out of the
+  effect loop while a replay is open, so it cannot survive a scrub.
 - No interaction with the Flashback editor keyframes; this is replay recording/playback only.
 
 ## How it renders (for debugging)

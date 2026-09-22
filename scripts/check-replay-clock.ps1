@@ -19,7 +19,9 @@ function Read-Source([string]$path) { return [System.IO.File]::ReadAllText($path
 $flashback = Read-Source (Join-Path $client "flashback\FlashbackCompat.java")
 $controller = Read-Source (Join-Path $client "flashback\VFXReplayController.java")
 $vfxClient = Read-Source (Join-Path $client "VFXClient.java")
+$vfxClientApi = Read-Source (Join-Path $client "VFXClientAPI.java")
 $manager = Read-Source (Join-Path $client "effect\VFXEffectManager.java")
+$api = Read-Source (Join-Path $main "api\VFXAPI.java")
 $replayClock = Read-Source (Join-Path $main "effect\VFXReplayClock.java")
 $timeline = Read-Source (Join-Path $main "effect\VFXTimeline.java")
 $mixin = Read-Source (Join-Path $client "mixin\GameRendererMixin.java")
@@ -191,6 +193,69 @@ if ($controller -notmatch 'VFXReplayClock\.isSeek\(') {
 	$problems.Add("VFXReplayController: the seek classification is not the shared VFXReplayClock.isSeek")
 }
 
+# 11) Every trigger path records a play: the client-local dispatcher (the path a third-party mod
+#     calls through VFXAPI.playEffect/playEffectId) and the server->client network receiver. A
+#     play triggered by another mod must not be able to reach the effect manager without being
+#     written into the replay, or a backward scrub cannot remove it.
+$vfxClientApi = Read-Source (Join-Path $client "VFXClientAPI.java")
+if ($vfxClientApi -notmatch 'FlashbackCompat\.recordPlay\(effectId, durationTicks, params, easing, position, entityUuids\)') {
+	$problems.Add("VFXClientAPI: the client-local play path does not record into the replay")
+}
+if ($vfxClientApi -notmatch '(?s)Minecraft\.getInstance\(\)\.execute\(\(\) -> \{.*?VFXEffectManager\.get\(\)\.play.*?FlashbackCompat\.recordPlay') {
+	$problems.Add("VFXClientAPI: recordPlay is not on the same render-thread hop as the play")
+}
+if ($vfxClient -notmatch 'FlashbackCompat\.recordServerPlay\(payload\.effectId\(\), payload\.durationTicks\(\), payload\.params\(\), payload\.easing\(\), payload\.position\(\), payload\.entityUuids\(\)\)') {
+	$problems.Add("VFXClient: the network play path does not record into the replay")
+}
+# Every public API play entry point goes through the local dispatcher, so there is no path that
+# starts an effect without a recording hook.
+foreach ($entry in @('playEffect', 'playEffectId')) {
+	if ($api -notmatch "public static (boolean|long) $entry\(") {
+		$problems.Add("VFXAPI: the $entry entry point is missing")
+	}
+}
+if ($api -notmatch 'localDispatcher\.playEffect\(') {
+	$problems.Add("VFXAPI: play entry points do not route through the local dispatcher")
+}
+
+# 12) A rebuild removes instances created by BOTH paths: the play-event path (the controller tracks
+#     the instance id it allocated and removes it) and the snapshot/manager path (a play not placed
+#     on the replay timeline is flagged and removed while a replay reconciles). The manager tracks
+#     the non-replay flag, clears it for a replay-placed instance, and drops the flagged instances.
+if ($manager -notmatch 'private final Set<Long> nonReplayInstances') {
+	$problems.Add("VFXEffectManager: nonReplayInstances tracking is missing")
+}
+if ($manager -notmatch 'public void setReplayReconciling\(final boolean reconciling\)') {
+	$problems.Add("VFXEffectManager: setReplayReconciling is missing")
+}
+if ($manager -notmatch 'if \(this\.replayReconciling && !this\.nonReplayInstances\.isEmpty\(\)\)') {
+	$problems.Add("VFXEffectManager.update: flagged non-replay instances are not dropped while a replay is open")
+}
+if ($manager -notmatch '(?s)public long playReplay\(.*?this\.nonReplayInstances\.remove\(instanceId\);.*?return this\.play') {
+	$problems.Add("VFXEffectManager.playReplay: a replay-placed instance is not cleared from the non-replay set")
+}
+if ($manager -notmatch 'static boolean hidesNonReplay\(final boolean reconciling, final boolean onReplayTimeline\)') {
+	$problems.Add("VFXEffectManager: the pure hidesNonReplay decision is missing")
+}
+if ($manager -notmatch 'return VFXReplayClock\.hidesNonReplay\(reconciling, onReplayTimeline\);') {
+	$problems.Add("VFXEffectManager.hidesNonReplay: does not delegate to the MC-free helper")
+}
+if ($replayClock -notmatch 'public static boolean hidesNonReplay\(final boolean reconciling, final boolean onReplayTimeline\)') {
+	$problems.Add("VFXReplayClock: hidesNonReplay is missing")
+}
+if ($manager -notmatch '(?s)if \(hidesNonReplay\(this\.replayReconciling, !Float\.isNaN\(startTime\)\)\) \{.*?this\.markNonReplay\(id\);') {
+	$problems.Add("VFXEffectManager.play: a non-replay play while reconciling is not flagged")
+}
+if ($manager -notmatch 'this\.nonReplayInstances\.removeAll\(instanceIds\);') {
+	$problems.Add("VFXEffectManager.removeInstances: the non-replay set is not cleared on removal")
+}
+if ($flashback -notmatch 'VFXEffectManager\.get\(\)\.setReplayReconciling\(true\)') {
+	$problems.Add("FlashbackCompat.tickReplayState: the manager is not flagged while a replay is open")
+}
+if ($flashback -notmatch 'VFXEffectManager\.get\(\)\.setReplayReconciling\(false\)') {
+	$problems.Add("FlashbackCompat.tickReplayState: the manager is not unflagged once no replay is open")
+}
+
 Write-Host "Flashback replay clock check (static)"
 if ($problems.Count -gt 0) {
 	$problems | ForEach-Object { Write-Host "  - $_" }
@@ -256,7 +321,14 @@ public final class ReplayClockCheck {
 		require(!VFXReplayClock.isSeek(100.0, 101.0, 1.5), "a sub-threshold forward step is not a seek");
 		require(VFXReplayClock.isSeek(Double.NaN, 100.0, 1.5), "the first frame is a seek");
 		require(VFXReplayClock.phaseAt(100.0, trigger, duration, false, false) == Phase.BEFORE, "scrubbed before the trigger is BEFORE");
-		System.out.println("replay clock check OK: BEFORE/ACTIVE/AFTER, ages 0/20/40/5, looping/persistent at 1e6 ticks, and backward-seek classification all place correctly");
+		// A rebuild must remove instances from BOTH paths. Replay-placed (on the timeline) is owned
+		// by the controller; a play the recording never wrote (network / client-local while a replay
+		// reconciles) must be hidden so a scrub back cannot leave it running.
+		require(!VFXReplayClock.hidesNonReplay(true, true), "a replay-placed play is kept (replay-event path)");
+		require(VFXReplayClock.hidesNonReplay(true, false), "a non-recorded play while reconciling is hidden (snapshot/API path)");
+		require(!VFXReplayClock.hidesNonReplay(false, false), "a play outside a replay runs normally");
+		require(!VFXReplayClock.hidesNonReplay(false, true), "an explicit-start play outside a replay runs normally");
+		System.out.println("replay clock check OK: BEFORE/ACTIVE/AFTER, ages 0/20/40/5, looping/persistent at 1e6 ticks, backward-seek classification and replay-vs-non-replay removal all place correctly");
 	}
 
 	private static void require(final boolean condition, final String message) {

@@ -5,8 +5,11 @@ documentation changed. A guide revision is not a mod version — the two numbers
 released mod versions are recorded on the **[mod Changelog](../CHANGELOG.md)** instead. Where a guide
 revision shipped with a release, the entry says so (for example `v47 — released as 2.0.0`).
 
-Current guide revision: **v48**. Mod version it documents: **2.0.0**. Which jar to download is in the
+Current guide revision: **v49**. Mod version it documents: **2.0.0**. Which jar to download is in the
 [download table](../index.md#download).
+
+### v49
+- **An effect another mod triggers through the API is removed when a replay is scrubbed back past its trigger.** A play that reached the effect loop without being recorded into the replay (a network trigger or a client-local API play while a replay was open) used to be owned by nobody, so a backward scrub left it running. Such a play is now held out of the effect loop while a replay is open, so a scrub back before its trigger removes it - finite, looping or persistent alike. See [Flashback compatibility](index.md#flashback-compatibility).
 
 ### v48
 - **Looping and persistent effects are recorded into Flashback replays.** They used to be skipped when a recording started (an effect already running was not snapshotted) and a persistent play (`-1`) was dropped entirely; both now record like a finite effect, because the replay-timeline controller keeps a recorded play alive until a recorded stop (or the whole replay when it was never stopped). This is what makes a looping showcase such as `vfxweaver:graph_demo` or `vfxweaver:graph_logic_demo` reproduce in a replay. See [Flashback compatibility](index.md#flashback-compatibility).

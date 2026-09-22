@@ -11,6 +11,7 @@ import dev.vfxweaver.effect.VFXTimeline;
 import dev.vfxweaver.resource.VFXDefinitionManager;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -56,6 +57,14 @@ public class VFXEffectManager {
 	 */
 	private Map<UUID, List<VFXActiveEffect>> entityEffectsIndex = Map.of();
 	private final AtomicLong instanceCounter = new AtomicLong();
+	/**
+	 * Active instances this manager did not itself place on a replay timeline (created by the
+	 * network receiver or a client-local API play). While a Flashback replay is open these are
+	 * kept out of the update loop and hidden, so a non-recorded play cannot survive a scrub back
+	 * before its trigger; see {@link #setReplayReconciling(boolean)}.
+	 */
+	private final Set<Long> nonReplayInstances = new HashSet<>();
+	private boolean replayReconciling;
 	private float clock;
 
 	private VFXEffectManager() {
@@ -129,7 +138,51 @@ public class VFXEffectManager {
 	 * @return the instance id, or {@code 0} when the effect was ignored
 	 */
 	public long playReplay(final Identifier effectId, final int durationTicks, final float startTick, final long instanceId, final @Nullable Vec3 position, final List<UUID> entityUuids, final Map<String, Float> params, final @Nullable EasingFunction easing, final boolean playSound) {
+		this.nonReplayInstances.remove(instanceId);
 		return this.play(effectId, durationTicks, instanceId, position, entityUuids, params, easing, 0, 0, null, List.of(), startTick, playSound);
+	}
+
+	/**
+	 * Sets whether a Flashback replay is currently driving the effects. While true, an instance the
+	 * manager placed on the replay timeline is kept out of this flag and left to the replay
+	 * controller, but any effect created by a path that did not record it into the replay (the
+	 * network receiver or a client-local API play made while Flashback is recording/playing but the
+	 * play itself was not written into the stream) is held out of the update loop and hidden, so a
+	 * scrub back before its trigger removes it instead of leaving it running forever.
+	 *
+	 * @param reconciling true while a replay is open and the replay controller owns the effects
+	 */
+	public void setReplayReconciling(final boolean reconciling) {
+		this.replayReconciling = reconciling;
+	}
+
+	/**
+	 * True while a replay is open and this manager hides instances it did not place on the replay
+	 * timeline. Called once per client tick by the Flashback bridge.
+	 */
+	public boolean isReplayReconciling() {
+		return this.replayReconciling;
+	}
+
+	/**
+	 * Whether an instance created by a play must be held out of the update loop because a replay
+	 * cannot remove it: true when a replay is open ({@code reconciling}) and the play was not placed
+	 * on the replay timeline ({@code onReplayTimeline} false, i.e. not a {@code playReplay}). Pure
+	 * so a standalone check can assert it.
+	 *
+	 * @param reconciling     whether a replay is currently reconciling the effect set
+	 * @param onReplayTimeline whether the play was placed on the replay timeline
+	 * @return true when the instance must be hidden/removed
+	 */
+	static boolean hidesNonReplay(final boolean reconciling, final boolean onReplayTimeline) {
+		return VFXReplayClock.hidesNonReplay(reconciling, onReplayTimeline);
+	}
+
+	/**
+	 * Marks an instance as manager-owned (not replay-owned), see {@link #setReplayReconciling}.
+	 */
+	private void markNonReplay(final long instanceId) {
+		this.nonReplayInstances.add(instanceId);
 	}
 
 	/**
@@ -143,6 +196,7 @@ public class VFXEffectManager {
 			return;
 		}
 		this.active.removeIf(effect -> instanceIds.contains(effect.getInstanceId()));
+		this.nonReplayInstances.removeAll(instanceIds);
 	}
 
 	/**
@@ -153,6 +207,7 @@ public class VFXEffectManager {
 	 */
 	public void removeInstance(final long instanceId) {
 		this.active.removeIf(effect -> effect.getInstanceId() == instanceId);
+		this.nonReplayInstances.remove(instanceId);
 	}
 
 	/**
@@ -186,6 +241,11 @@ public class VFXEffectManager {
 	 * remaining effects to the current clock time.
 	 */
 	public void update() {
+		if (this.replayReconciling && !this.nonReplayInstances.isEmpty()) {
+			// A replay is open: drop the instances the replay controller does not own (a play that
+			// was never recorded into the stream) instead of letting them run outside the timeline.
+			removeInstances(new HashSet<>(this.nonReplayInstances));
+		}
 		this.active.removeIf(VFXActiveEffect::isFinished);
 		if (!this.scheduled.isEmpty()) {
 			List<ScheduledPlay> due = new ArrayList<>();
@@ -426,6 +486,14 @@ public class VFXEffectManager {
 			this.active.remove(0);
 		}
 		this.active.add(effect);
+		if (hidesNonReplay(this.replayReconciling, !Float.isNaN(startTime))) {
+			// This play is not on the replay timeline (network receiver / client-local API while a
+			// replay is open) and was not recorded: hold it out of the update loop so it cannot
+			// survive a scrub. A replay-placed instance (playReplay cleared the mark) is kept.
+			this.markNonReplay(id);
+		} else {
+			this.nonReplayInstances.remove(id);
+		}
 		if (elapsedTicks > 0) {
 			// Resume: fast-forward the fresh instance so reconnects continue mid-animation
 			// instead of restarting from the first keyframe.

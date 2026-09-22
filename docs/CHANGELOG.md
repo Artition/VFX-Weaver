@@ -16,6 +16,15 @@ change.
 
 ### Fixed
 
+- **An effect triggered by another mod survives scrubbing a replay back past its trigger.** An
+  effect started through the public API or the network while a replay was open — e.g. another mod
+  (such as a mace-hit mod) firing a VFX effect — could be created through a path the replay
+  controller does not own, so a backward scrub removed the recorded effects but left that instance
+  running. Any play that is not placed on the replay timeline is now held out of the effect update
+  loop while a replay is open, so a scrub back before its trigger removes it. Both trigger paths
+  (the client-local `VFXAPI.playEffect`/`playEffectId` dispatcher and the server→client network
+  receiver) already recorded into the replay; this closes the gap where a play reached the effect
+  manager without the controller tracking it.
 - **An entity tint in a Flashback replay keeps its timeline parameters and its target.** A recorded
   play carried the effect id, its trigger params and a world anchor, but not the entity UUIDs the
   server had resolved for an entity effect (`entity_tint`/`entity_outline`/`entity_displace`), so a
