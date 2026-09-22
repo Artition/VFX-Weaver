@@ -126,14 +126,14 @@ public final class VFXLoaderEvents {
 	}
 
 	/**
-	 * Releases a disconnecting player's per-player state: scoreboard subscriptions and the
-	 * recorded-effect registry.
+	 * Releases a disconnecting player's scoreboard subscriptions and freezes their recorded-effect
+	 * ages at the moment they left (the entry itself is kept, bounded, so a re-join resumes it).
 	 *
 	 * @param player the player that left
 	 */
 	public static void onPlayerDisconnect(final ServerPlayer player) {
 		VFXScoreboardSync.onPlayerLeft(player);
-		VFXServerEffects.get().remove(player);
+		VFXServerEffects.get().onPlayerDisconnect(player);
 	}
 
 	/**
@@ -155,12 +155,14 @@ public final class VFXLoaderEvents {
 	}
 
 	/**
-	 * Drops the per-player scoreboard state on server shutdown.
+	 * Drops the per-player scoreboard state and freezes the recorded-effect ages on server
+	 * shutdown (a singleplayer world reload fires no disconnect, so the age must be frozen here).
 	 *
 	 * @param server the server that is stopping
 	 */
 	public static void onServerStopping(final MinecraftServer server) {
 		VFXScoreboardSync.clear();
+		VFXServerEffects.get().onServerStopping();
 	}
 
 	/**

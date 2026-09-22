@@ -5,6 +5,9 @@
 #                      fallback-less bind node (it delegated to eval(index) -> fallback 0 before).
 #   * LifecycleCheck - VFXEffectManager.resolveTimelineDuration + VFXActiveEffect.isFinished:
 #                      "never ends" is the lifecycle flag, not an Integer.MAX_VALUE timeline.
+#   * ServerEffectsCheck - VFXServerEffects: a stored effect resumes at the age it had at disconnect
+#                      (offline time is not counted), expired finites are not resurrected and the
+#                      offline-memory bound prunes old entries.
 #
 # Usage: powershell -ExecutionPolicy Bypass -File scripts/check-effect-lifecycle.ps1
 # Exits 1 (after listing the problem) on a mismatch; 0 when the contract holds.
@@ -98,12 +101,44 @@ foreach ($pair in @(@('VFXWorldOverlayRenderer', $overlay), @('VFXSparkEngine', 
 	}
 }
 
-# 6) The per-player recorded-effect registry is released on disconnect.
-if ($serverEffects -notmatch 'public void remove\(final ServerPlayer player\)') {
-	$problems.Add("VFXServerEffects: remove(ServerPlayer) is missing")
+# 6) A disconnecting player's effects are kept (age frozen), not wiped; the store stays bounded.
+if ($serverEffects -notmatch 'public void onPlayerDisconnect\(final ServerPlayer player\)') {
+	$problems.Add("VFXServerEffects: onPlayerDisconnect(ServerPlayer) is missing")
 }
-if ($loaderEvents -notmatch 'VFXServerEffects\.get\(\)\.remove\(player\);') {
-	$problems.Add("VFXLoaderEvents.onPlayerDisconnect: VFXServerEffects.remove is not called")
+if ($loaderEvents -notmatch 'VFXServerEffects\.get\(\)\.onPlayerDisconnect\(player\);') {
+	$problems.Add("VFXLoaderEvents.onPlayerDisconnect: VFXServerEffects.onPlayerDisconnect is not called")
+}
+if ($serverEffects -match 'public void remove\(final ServerPlayer player\)') {
+	$problems.Add("VFXServerEffects: the wipe-on-disconnect remove(ServerPlayer) is still present")
+}
+if ($serverEffects -notmatch 'public void onServerStopping\(\)') {
+	$problems.Add("VFXServerEffects: onServerStopping() (singleplayer world-reload freeze) is missing")
+}
+if ($loaderEvents -notmatch 'VFXServerEffects\.get\(\)\.onServerStopping\(\);') {
+	$problems.Add("VFXLoaderEvents.onServerStopping: VFXServerEffects.onServerStopping is not called")
+}
+if ($serverEffects -notmatch 'MAX_TRACKED_PLAYERS = 256') {
+	$problems.Add("VFXServerEffects: the global player cap MAX_TRACKED_PLAYERS is missing")
+}
+if ($serverEffects -notmatch 'MAX_OFFLINE_MILLIS = 24L \* 60L \* 60L \* 1000L') {
+	$problems.Add("VFXServerEffects: the offline expiry MAX_OFFLINE_MILLIS is missing")
+}
+if ($serverEffects -notmatch 'this\.byPlayer\.size\(\) >= MAX_TRACKED_PLAYERS') {
+	$problems.Add("VFXServerEffects: the global cap is not enforced on a new player")
+}
+if ($serverEffects -notmatch 'isOfflineExpired\(entry\.getValue\(\)\.disconnectedAtMillis, now\)') {
+	$problems.Add("VFXServerEffects: offline entries are not pruned by age")
+}
+# The age must be frozen at disconnect, not advanced by the offline time: applyTo resolves its
+# clock through resumeClock, and a persistent effect is no longer resumed from elapsed 0.
+if ($serverEffects -notmatch 'resumeClock\(state\.disconnectedAtMillis, System\.currentTimeMillis\(\)\)') {
+	$problems.Add("VFXServerEffects.applyTo: the resume clock is not frozen at disconnect")
+}
+if ($serverEffects -match 'int elapsed = persistent \? 0 :') {
+	$problems.Add("VFXServerEffects.applyTo: a persistent effect still resumes from elapsed 0 (phase restarts)")
+}
+if ($serverEffects -notmatch 'active\.neverExpires\(\)') {
+	$problems.Add("VFXServerEffects: looping/persistent effects are not tracked as never-expiring")
 }
 
 # 7) A malformed field texture id degrades only its own pass.
@@ -176,6 +211,7 @@ $checkDir = Join-Path $env:TEMP "vfxweaver-lifecycle-check"
 New-Item -ItemType Directory -Force -Path $checkDir | Out-Null
 $fallbackSrc = Join-Path $checkDir "FallbackCheck.java"
 $lifecycleSrc = Join-Path $checkDir "LifecycleCheck.java"
+$serverEffectsSrc = Join-Path $checkDir "ServerEffectsCheck.java"
 $cpFile = Join-Path $checkDir "cp.txt"
 $cp = "versions/26.1.2/build/classes/java/main;versions/26.1.2/build/classes/java/client;$($checkDir.Replace('\', '/'));$($mcJar.FullName.Replace('\', '/'));$jars"
 [System.IO.File]::WriteAllText($cpFile, "-cp `"$cp`"", [System.Text.UTF8Encoding]::new($false))
@@ -248,17 +284,54 @@ public final class LifecycleCheck {
 	}
 }
 '@
+$serverEffectsJava = @'
+package dev.vfxweaver.effect;
+
+/** A stored effect must resume at the age it had when the player left; offline time never advances it. */
+public final class ServerEffectsCheck {
+	public static void main(final String[] args) {
+		final long start = 1_000L;
+		final long disconnect = start + 30_000L; // 30 s in = 600 ticks
+		require(VFXServerEffects.elapsedTicksAt(start, disconnect) == 600, "age at disconnect");
+		// The disconnect instant is the resume clock: the age is frozen, not advanced by the away time.
+		final long away = disconnect + 6L * 60L * 60L * 1000L; // six hours later
+		final long resume = VFXServerEffects.resumeClock(disconnect, away);
+		require(resume == disconnect, "offline time is not counted");
+		require(VFXServerEffects.elapsedTicksAt(start, resume) == 600, "resumed age equals age at disconnect");
+		require(VFXServerEffects.resumeClock(0L, away) == away, "the online clock still advances");
+		// Finite effects: remaining is what was left, and an already-finished one does not come back.
+		require(VFXServerEffects.remainingTicksFor(1200, 600, 0) == 600, "remaining = duration - frozen age");
+		require(VFXServerEffects.remainingTicksFor(1200, 1200, 0) == -1, "an expired finite effect is not resurrected");
+		require(VFXServerEffects.remainingTicksFor(-1, 600, 0) == -1, "a persistent effect has no remaining");
+		require(VFXServerEffects.remainingTicksFor(1200, 600, 2000) == 1400, "a late keyframe extends the lifetime");
+		// The global offline bound expires old entries and keeps fresh ones.
+		require(!VFXServerEffects.isOfflineExpired(1_000L, 1_000L + VFXServerEffects.MAX_OFFLINE_MILLIS), "an offline entry inside the window is kept");
+		require(VFXServerEffects.isOfflineExpired(1_000L, 1_000L + VFXServerEffects.MAX_OFFLINE_MILLIS + 1L), "an offline entry past the window is pruned");
+		require(!VFXServerEffects.isOfflineExpired(0L, Long.MAX_VALUE), "an online player is never offline-expired");
+		System.out.println("server effects check OK: resume age frozen at 600 ticks, remaining/expiry/bound hold");
+	}
+
+	private static void require(final boolean condition, final String message) {
+		if (!condition) {
+			throw new AssertionError(message);
+		}
+	}
+}
+'@
 [System.IO.File]::WriteAllText($fallbackSrc, $fallbackJava, [System.Text.UTF8Encoding]::new($false))
 [System.IO.File]::WriteAllText($lifecycleSrc, $lifecycleJava, [System.Text.UTF8Encoding]::new($false))
+[System.IO.File]::WriteAllText($serverEffectsSrc, $serverEffectsJava, [System.Text.UTF8Encoding]::new($false))
 
 Push-Location $repoRoot
 try {
-	& $javac "@$cpFile" -d $checkDir $fallbackSrc $lifecycleSrc
+	& $javac "@$cpFile" -d $checkDir $fallbackSrc $lifecycleSrc $serverEffectsSrc
 	if ($LASTEXITCODE -ne 0) { throw "javac failed" }
 	& $java "@$cpFile" FallbackCheck
 	if ($LASTEXITCODE -ne 0) { throw "FallbackCheck failed" }
 	& $java "@$cpFile" dev.vfxweaver.client.effect.LifecycleCheck
 	if ($LASTEXITCODE -ne 0) { throw "LifecycleCheck failed" }
+	& $java "@$cpFile" dev.vfxweaver.effect.ServerEffectsCheck
+	if ($LASTEXITCODE -ne 0) { throw "ServerEffectsCheck failed" }
 } finally {
 	Pop-Location
 }

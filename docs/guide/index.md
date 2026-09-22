@@ -87,9 +87,12 @@ grants broadcast only to operators (gamemaster level), so regular-player clients
 at others. Custom named easing curves are not preserved on the request path (built-in easing names
 only).
 
-Effects sent via `VFXAPI.sendEffect` are remembered server-side: if the player reconnects (or a new
-player joins) while the effect is still running, it is re-applied with its remaining duration.
-Persistent (`-1`) effects are always re-applied. Stopping an effect (`sendStop`) forgets it.
+Effects sent via `VFXAPI.sendEffect` are remembered server-side: when the player disconnects their
+effect ages are frozen, and on re-join the still-active ones are re-applied from exactly that point
+(an effect that was 30 % through comes back 30 % through, however long the player was away). Finite
+effects that already ended are not brought back; persistent (`-1`) and looping effects always are,
+at the phase they had. Stopping an effect (`sendStop`) forgets it. The memory is bounded (256
+players, a 24 h offline window).
 
 ## Flashback compatibility
 
