@@ -218,42 +218,33 @@ if ($api -notmatch 'localDispatcher\.playEffect\(') {
 	$problems.Add("VFXAPI: play entry points do not route through the local dispatcher")
 }
 
-# 12) A rebuild removes instances created by BOTH paths: the play-event path (the controller tracks
-#     the instance id it allocated and removes it) and the snapshot/manager path (a play not placed
-#     on the replay timeline is flagged and removed while a replay reconciles). The manager tracks
-#     the non-replay flag, clears it for a replay-placed instance, and drops the flagged instances.
-if ($manager -notmatch 'private final Set<Long> nonReplayInstances') {
-	$problems.Add("VFXEffectManager: nonReplayInstances tracking is missing")
+# 12) A seek rebuild stops EVERY active instance and re-places only the effects at or before the new
+#     time. There is deliberately no per-frame dropping of "non-replay" instances: that dropped the
+#     replay's own re-delivered play (the network receiver path) one frame after it was created. The
+#     untracked instance (a network trigger re-delivered by the replay or a snapshot) is removed on
+#     the seek path instead, by the controller stopping everything before it re-places the due ones.
+if ($manager -notmatch 'public void removeAllInstances\(\)') {
+	$problems.Add("VFXEffectManager: removeAllInstances (the seek rebuild's stop-everything) is missing")
 }
-if ($manager -notmatch 'public void setReplayReconciling\(final boolean reconciling\)') {
-	$problems.Add("VFXEffectManager: setReplayReconciling is missing")
+if ($controller -notmatch 'removeAllInstances\(\)') {
+	$problems.Add("VFXReplayController.rebuild: a seek does not stop every active instance")
 }
-if ($manager -notmatch 'if \(this\.replayReconciling && !this\.nonReplayInstances\.isEmpty\(\)\)') {
-	$problems.Add("VFXEffectManager.update: flagged non-replay instances are not dropped while a replay is open")
+if ($controller -notmatch '(?s)private void rebuild\(final float replayTick\) \{.*?removeAllInstances\(\);.*?this\.place\(replayTick, true\);') {
+	$problems.Add("VFXReplayController.rebuild: does not stop everything before re-placing the due effects")
 }
-if ($manager -notmatch '(?s)public long playReplay\(.*?this\.nonReplayInstances\.remove\(instanceId\);.*?return this\.play') {
-	$problems.Add("VFXEffectManager.playReplay: a replay-placed instance is not cleared from the non-replay set")
+# The flagging/one-frame-drop mechanism must be gone: no non-replay set, no reconciling flag, no
+# per-frame drop, and no hidesNonReplay helper anywhere.
+if ($manager -match 'nonReplayInstances|setReplayReconciling|isReplayReconciling|replayReconciling|markNonReplay|hidesNonReplay') {
+	$problems.Add("VFXEffectManager: the per-frame non-replay dropping (or its flag) is still present")
 }
-if ($manager -notmatch 'static boolean hidesNonReplay\(final boolean reconciling, final boolean onReplayTimeline\)') {
-	$problems.Add("VFXEffectManager: the pure hidesNonReplay decision is missing")
+if ($manager -match 'if \(this\.replayReconciling') {
+	$problems.Add("VFXEffectManager.update: still drops instances on a per-frame flag")
 }
-if ($manager -notmatch 'return VFXReplayClock\.hidesNonReplay\(reconciling, onReplayTimeline\);') {
-	$problems.Add("VFXEffectManager.hidesNonReplay: does not delegate to the MC-free helper")
+if ($replayClock -match 'hidesNonReplay') {
+	$problems.Add("VFXReplayClock: hidesNonReplay should be gone with the per-frame dropping")
 }
-if ($replayClock -notmatch 'public static boolean hidesNonReplay\(final boolean reconciling, final boolean onReplayTimeline\)') {
-	$problems.Add("VFXReplayClock: hidesNonReplay is missing")
-}
-if ($manager -notmatch '(?s)if \(hidesNonReplay\(this\.replayReconciling, !Float\.isNaN\(startTime\)\)\) \{.*?this\.markNonReplay\(id\);') {
-	$problems.Add("VFXEffectManager.play: a non-replay play while reconciling is not flagged")
-}
-if ($manager -notmatch 'this\.nonReplayInstances\.removeAll\(instanceIds\);') {
-	$problems.Add("VFXEffectManager.removeInstances: the non-replay set is not cleared on removal")
-}
-if ($flashback -notmatch 'VFXEffectManager\.get\(\)\.setReplayReconciling\(true\)') {
-	$problems.Add("FlashbackCompat.tickReplayState: the manager is not flagged while a replay is open")
-}
-if ($flashback -notmatch 'VFXEffectManager\.get\(\)\.setReplayReconciling\(false\)') {
-	$problems.Add("FlashbackCompat.tickReplayState: the manager is not unflagged once no replay is open")
+if ($flashback -match 'setReplayReconciling') {
+	$problems.Add("FlashbackCompat: still flags the manager as replay-reconciling")
 }
 
 Write-Host "Flashback replay clock check (static)"
@@ -321,14 +312,7 @@ public final class ReplayClockCheck {
 		require(!VFXReplayClock.isSeek(100.0, 101.0, 1.5), "a sub-threshold forward step is not a seek");
 		require(VFXReplayClock.isSeek(Double.NaN, 100.0, 1.5), "the first frame is a seek");
 		require(VFXReplayClock.phaseAt(100.0, trigger, duration, false, false) == Phase.BEFORE, "scrubbed before the trigger is BEFORE");
-		// A rebuild must remove instances from BOTH paths. Replay-placed (on the timeline) is owned
-		// by the controller; a play the recording never wrote (network / client-local while a replay
-		// reconciles) must be hidden so a scrub back cannot leave it running.
-		require(!VFXReplayClock.hidesNonReplay(true, true), "a replay-placed play is kept (replay-event path)");
-		require(VFXReplayClock.hidesNonReplay(true, false), "a non-recorded play while reconciling is hidden (snapshot/API path)");
-		require(!VFXReplayClock.hidesNonReplay(false, false), "a play outside a replay runs normally");
-		require(!VFXReplayClock.hidesNonReplay(false, true), "an explicit-start play outside a replay runs normally");
-		System.out.println("replay clock check OK: BEFORE/ACTIVE/AFTER, ages 0/20/40/5, looping/persistent at 1e6 ticks, backward-seek classification and replay-vs-non-replay removal all place correctly");
+		System.out.println("replay clock check OK: BEFORE/ACTIVE/AFTER, ages 0/20/40/5, looping/persistent at 1e6 ticks and the backward-seek classification all place correctly (a seek rebuild stops every instance and re-places only the effects at or before the new time; nothing is dropped per frame)");
 	}
 
 	private static void require(final boolean condition, final String message) {

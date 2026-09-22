@@ -246,21 +246,13 @@ public final class FlashbackCompat {
 	/**
 	 * Clears replay-created effects and the recorded timeline once no replay is open, so a replay
 	 * never leaves its effects running in normal gameplay. Called once per client tick.
-	 *
-	 * <p>While a replay is open it flags the effect manager as reconciling, so any effect created by
-	 * a path that did not record it into the replay timeline (a network trigger or client-local API
-	 * play the recording never wrote) is held out of the update loop and removed instead of drawing
-	 * outside the replay time - a scrubbed-back replay cannot leave such an instance behind.
 	 */
 	public static void tickReplayState() {
 		if (!enabled) {
 			return;
 		}
 		if (replayServer() == null) {
-			VFXEffectManager.get().setReplayReconciling(false);
 			VFXReplayController.get().clear();
-		} else {
-			VFXEffectManager.get().setReplayReconciling(true);
 		}
 	}
 

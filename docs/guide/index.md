@@ -114,8 +114,8 @@ Things to know:
 - The recording needs no config: start a Flashback recording, play effects, done.
 - **Scrubbing back past an effect's trigger removes it**, whether the effect came from this mod, a
   datapack, or **another mod triggering an effect through the API** (client-local or over the
-  network). A play that a replay cannot remove - one the recording never wrote - is held out of the
-  effect loop while a replay is open, so it cannot survive a scrub.
+  network). A seek stops every running instance and rebuilds the timeline from the recorded events,
+  so an instance the replay controller does not own cannot survive a backward scrub.
 - No interaction with the Flashback editor keyframes; this is replay recording/playback only.
 
 ## How it renders (for debugging)

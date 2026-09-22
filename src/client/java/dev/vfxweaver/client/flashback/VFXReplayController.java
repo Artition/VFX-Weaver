@@ -160,9 +160,15 @@ public final class VFXReplayController {
 		this.reset();
 	}
 
-	/** Rebuilds the effect set from the recorded events at the new replay time (a seek). */
+	/**
+	 * Rebuilds the effect set from the recorded events at the new replay time (a seek). Every
+	 * active instance is stopped - including one a replay play action did not place on the timeline
+	 * (a network trigger re-delivered by the replay or a snapshot) - and only the effects whose
+	 * recorded trigger is at or before the new time are re-placed, which removes the untracked
+	 * instances and restores the timeline without touching anything between seeks.
+	 */
 	private void rebuild(final float replayTick) {
-		VFXEffectManager.get().removeInstances(this.liveInstances);
+		VFXEffectManager.get().removeAllInstances();
 		VFXEffectManager.get().clearScheduled();
 		this.liveInstances.clear();
 		for (PlayEvent play : this.plays.values()) {

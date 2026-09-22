@@ -78,20 +78,4 @@ public final class VFXReplayClock {
 		}
 		return age;
 	}
-
-	/**
-	 * Whether an instance created by a play must be held out of the update loop because a replay
-	 * cannot remove it. True when a replay is currently reconciling the effect set and the play was
-	 * not placed on the replay timeline (not a {@code playReplay}) - i.e. a play that was never
-	 * recorded into the stream walked in from the network receiver or a client-local API call. A
-	 * replay-placed play is owned by the replay controller and removed on a scrub back; a play made
-	 * outside a replay runs normally.
-	 *
-	 * @param reconciling      whether a replay is currently reconciling the effect set
-	 * @param onReplayTimeline whether the play was placed on the replay timeline
-	 * @return true when the instance must be hidden (and removed) rather than advanced
-	 */
-	public static boolean hidesNonReplay(final boolean reconciling, final boolean onReplayTimeline) {
-		return reconciling && !onReplayTimeline;
-	}
 }
