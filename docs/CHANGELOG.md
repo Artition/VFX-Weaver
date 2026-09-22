@@ -3,7 +3,7 @@
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 **This page is the authoritative record of released mod versions.** The newest entry is the current
-mod version (`2.0.0`, read from `mod_version` in the build). Each `##` heading names a release; where
+mod version (`2.0.1`, read from `mod_version` in the build). Each `##` heading names a release; where
 a release shipped with a guide revision the heading shows both numbers (`v1.2.0 / Guide v32`), and a
 heading titled only `Guide vN` is a guide change that shipped without a mod version bump. The two
 numbers are independent: the **mod version** is what you download, the **guide revision** is how many
@@ -13,6 +13,34 @@ the [download table](index.md#download). Add new entries at the top, in the same
 change.
 
 ## Unreleased
+
+## 2.0.1 — 2026-09-22
+
+2.0.1 is a correctness release. It fixes the `blur` effect's animation stepping, makes client entity
+selectors resolve the arguments they were silently ignoring, and brings the Flashback replay
+integration in line with the replay clock. Everything here is a bug fix — no datapack format, network
+protocol or Java API change — so existing worlds and packs keep working.
+
+### Added
+
+- **Client entity selectors now support `tag=`, `name=`, `distance=`, `limit=` and `sort=`.** A
+  binding such as `@e[tag=vfx_showcase,limit=1]` used to resolve through a reader that understood
+  only `type=`, so it fell through to the generic branch and matched the nearest loaded entity
+  regardless of the tag — silently binding the wrong entity, or nothing usable. The client subset of
+  the vanilla selector grammar now covers `@s`/`@p`/`@a`/`@r`/`@e`/bare name plus `type=`, `tag=`,
+  `name=` (each optionally negated or quoted), `distance=` (a number or a `N..M`/`..M`/`N..` range),
+  `limit=` and `sort=` (`nearest`/`furthest`/`random`/`arbitrary`). A selector outside that subset
+  (`nbt=`, `scores=`, `gamemode=`, `x`/`y`/`z`, …) now **fails closed** and reports once through
+  `VFXLog.warnOnce`, naming the argument, instead of quietly matching the wrong entity.
+
+### Changed
+
+- **The `blur` effect uses a fixed-tap separable Gaussian, so an animated radius no longer steps.**
+  The pass derived its tap count from the radius (`int(r * 0.5 + 2)`, clamped), so as an animated
+  radius crossed a threshold a whole symmetric pair of taps appeared or vanished at once and the
+  normalised result jumped — a visible strength pop. Both passes now always take 12 taps per side
+  with fixed weights spanning ±3σ, and only the sample spacing scales with the radius, so the
+  Gaussian stays well sampled and the blur fades smoothly at every radius.
 
 ### Fixed
 

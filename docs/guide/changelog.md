@@ -5,8 +5,11 @@ documentation changed. A guide revision is not a mod version — the two numbers
 released mod versions are recorded on the **[mod Changelog](../CHANGELOG.md)** instead. Where a guide
 revision shipped with a release, the entry says so (for example `v47 — released as 2.0.0`).
 
-Current guide revision: **v49**. Mod version it documents: **2.0.0**. Which jar to download is in the
+Current guide revision: **v50**. Mod version it documents: **2.0.1**. Which jar to download is in the
 [download table](../index.md#download).
+
+### v50 — released as 2.0.1
+- **Mod version 2.0.1.** A correctness release: the `blur` effect uses a fixed-tap separable Gaussian, so an animated radius no longer pops; client entity selectors support `tag=`, `name=`, `distance=`, `limit=` and `sort=`, and a selector outside the supported subset fails closed with a warning naming the argument instead of binding the wrong entity (see [Masks](datapack/masks.md)); and the Flashback replay integration follows the replay clock — pause holds the effects, a scrub places or removes them (including effects from other mods and effects already running when the recording started), looping/persistent effects are recorded, and on 1.21.11 the private/public playback field is resolved tolerantly per symbol (the replay items documented in v48–v49). Effects also keep counting while a player is offline and resume on re-join from the elapsed time. No datapack format, network protocol or Java API changed; the full list is in the [mod changelog](../CHANGELOG.md).
 
 ### v49
 - **An effect another mod triggers through the API is removed when a replay is scrubbed back past its trigger, and a played effect no longer flashes for a single frame.** A play that reached the effect loop without being recorded into the replay (a network trigger or a client-local API play while a replay was open) used to be owned by nobody, so a backward scrub left it running. A seek now stops *every* active instance and re-places only the effects whose recorded trigger is at or before the new time, so a scrub back before its trigger removes it - finite, looping or persistent alike - without dropping anything between seeks (the earlier per-frame removal made the replay's own effect disappear after one frame). See [Flashback compatibility](index.md#flashback-compatibility).
