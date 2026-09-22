@@ -38,6 +38,17 @@ neutral for `union`/`difference` and contracts `intersection`), and an `invert` 
 all-unresolved (empty) result into full-screen coverage. The unresolved source still reports once
 through `VFXLog.warnOnce`.
 
+A binding resolves its selector against the loaded **client** entities through a subset of the
+vanilla selector grammar: the bases `@s`, `@p`, `@a`, `@r`, `@e` and a bare entity name, and the
+arguments `type=`, `tag=`, `name=` (each optionally negated with `!`, values optionally quoted),
+`distance=` (`N`, `N..M`, `..M`, `N..`), `limit=N` and `sort=nearest|furthest|random|arbitrary`.
+That covers the natural forms — `@e[tag=vfx_showcase,limit=1]` and
+`@e[type=minecraft:villager,limit=1]` both work. Server-only grammar (`nbt=`, `scores=`,
+`advancements=`, `team=`, `gamemode=`, `level=`, `x`/`y`/`z`/`dx`/`dy`/`dz`, `x_rotation`/
+`y_rotation`, `predicate`) is **not** supported client-side: such a selector fails the binding closed
+like any other unresolved source and logs the offending selector **once**, instead of silently
+matching the nearest entity.
+
 Two caveats. An entity outside the client's tracking range is **genuinely unresolvable on the client**
 — that is a client-search limitation, not a bug, and the bound leaf contributes nothing there. To
 drive a mask from data the client does not have, set its centre from the **server** every tick with

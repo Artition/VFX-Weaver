@@ -1,6 +1,8 @@
 package dev.vfxweaver.client.render;
 
+import dev.vfxweaver.effect.VFXEntitySelector;
 import dev.vfxweaver.effect.VFXWorldBindings;
+import dev.vfxweaver.util.VFXLog;
 import java.util.UUID;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
@@ -10,6 +12,8 @@ import net.minecraft.world.entity.Entity;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 import org.jspecify.annotations.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * The client {@link VFXWorldBindings.EntityReader}: resolves an entity UUID directly and a selector
@@ -18,15 +22,19 @@ import org.jspecify.annotations.Nullable;
  * No match returns {@code null} (the binding falls back and warns once).
  *
  * <p>The full vanilla selector grammar is server-side: {@code EntitySelector.findEntities} needs a
- * {@code CommandSourceStack} backed by a {@code ServerLevel}, which the client does not have. This
- * reader resolves the documented client subset — {@code @s}, {@code @p}, {@code @a}, {@code @e},
- * {@code @r}, a bare entity name, and an optional {@code type=<id>} filter — which covers the
- * entity/screen_rect binding contract. Resolution is a bounded per-frame scan (cached by
- * {@link VFXWorldBindings}), never a per-pixel path.
+ * {@code CommandSourceStack} backed by a {@code ServerLevel}, which the client does not have. The
+ * selector is instead parsed by {@link VFXEntitySelector}, which supports the natural subset —
+ * {@code @s}, {@code @p}, {@code @a}, {@code @r}, {@code @e}, a bare entity name, and the
+ * {@code type=}, {@code tag=}, {@code name=}, {@code distance=}, {@code limit=} and {@code sort=}
+ * arguments (see that class for the exact grammar). A selector outside that subset is rejected and
+ * warned about once, never silently matched against every entity: resolution fails closed so a mask
+ * leaf is dropped rather than bound to the wrong entity. Resolution is a bounded per-frame scan
+ * (cached by {@link VFXWorldBindings}), never a per-pixel path.
  */
 public final class VFXClientEntityReader implements VFXWorldBindings.EntityReader {
 	/** The most selector matches considered before the nearest-to-player pick. */
 	private static final int MAX_CANDIDATES = 32;
+	private static final Logger LOGGER = LoggerFactory.getLogger("vfxweaver/bindings");
 
 	@Override
 	public float @Nullable [] point(final @Nullable String selector, final @Nullable String uuid, final String point) {
@@ -70,64 +78,77 @@ public final class VFXClientEntityReader implements VFXWorldBindings.EntityReade
 		if (selector == null || selector.isBlank()) {
 			return null;
 		}
-		final String trimmed = selector.trim();
-		if (trimmed.startsWith("@s")) {
-			return minecraft.player;
+		final VFXEntitySelector.Selector parsed;
+		try {
+			parsed = VFXEntitySelector.parse(selector);
+		} catch (final IllegalArgumentException e) {
+			// Fail closed: an unsupported selector must not fall through to "match every entity".
+			VFXLog.warnOnce(LOGGER, "selector:unsupported:" + selector, "Entity selector '{}' is not supported client-side; the binding is left unresolved: {}", selector, e.getMessage());
+			return null;
 		}
 		final Vec3 reference = minecraft.player != null ? minecraft.player.position() : Vec3.ZERO;
-		if (trimmed.startsWith("@p")) {
-			Entity best = null;
-			double bestDistance = Double.MAX_VALUE;
-			for (final AbstractClientPlayer player : level.players()) {
-				final double distance = player.position().distanceToSqr(reference);
-				if (distance < bestDistance) {
-					bestDistance = distance;
-					best = player;
-				}
-			}
-			return best;
+		if (parsed.base() == VFXEntitySelector.Base.SELF) {
+			final Entity self = minecraft.player;
+			return self != null && matches(parsed, self, reference) ? self : null;
 		}
-		final boolean playersOnly = trimmed.startsWith("@a");
-		final String type = typeFilter(trimmed);
-		final boolean bareName = !trimmed.startsWith("@");
+		final boolean furthest = parsed.sort() == VFXEntitySelector.Sort.FURTHEST;
+		final boolean random = parsed.sort() == VFXEntitySelector.Sort.RANDOM;
 		Entity best = null;
-		double bestDistance = Double.MAX_VALUE;
+		double bestDistance = furthest ? -1.0 : Double.MAX_VALUE;
+		Entity randomPick = null;
 		int matches = 0;
 		for (final Entity entity : level.entitiesForRendering()) {
 			if (matches >= MAX_CANDIDATES) {
 				break;
 			}
-			if (playersOnly && !(entity instanceof AbstractClientPlayer)) {
-				continue;
-			}
-			if (type != null && !BuiltInRegistries.ENTITY_TYPE.getKey(entity.getType()).toString().equals(type)) {
-				continue;
-			}
-			if (bareName && !entity.getName().getString().equals(trimmed)) {
+			if (!matches(parsed, entity, reference)) {
 				continue;
 			}
 			matches++;
 			final double distance = entity.position().distanceToSqr(reference);
-			if (distance < bestDistance) {
+			if (furthest ? distance > bestDistance : distance < bestDistance) {
 				bestDistance = distance;
 				best = entity;
 			}
+			if (random && level.getRandom().nextInt(matches) == 0) {
+				randomPick = entity;
+			}
 		}
-		return best;
+		return random ? randomPick : best;
 	}
 
-	/** Extracts the {@code type=<id>} value of a selector, or {@code null} when absent. */
-	private static @Nullable String typeFilter(final String selector) {
-		final int start = selector.indexOf("type=");
-		if (start < 0) {
-			return null;
+	private static boolean matches(final VFXEntitySelector.Selector selector, final Entity entity, final Vec3 reference) {
+		if ((selector.base() == VFXEntitySelector.Base.ALL_PLAYERS || selector.base() == VFXEntitySelector.Base.NEAREST_PLAYER) && !(entity instanceof AbstractClientPlayer)) {
+			return false;
 		}
-		final int valueStart = start + "type=".length();
-		int end = valueStart;
-		while (end < selector.length() && selector.charAt(end) != ',' && selector.charAt(end) != ']') {
-			end++;
+		if (selector.type() != null) {
+			final boolean equal = BuiltInRegistries.ENTITY_TYPE.getKey(entity.getType()).toString().equals(selector.type());
+			if (selector.typeInverted() ? equal : !equal) {
+				return false;
+			}
 		}
-		final String value = selector.substring(valueStart, end);
-		return value.isBlank() ? null : value;
+		if (selector.tag() != null) {
+			//? if <26.1 {
+			/*final boolean has = entity.getTags().contains(selector.tag());
+*///?} else {
+			final boolean has = entity.entityTags().contains(selector.tag());
+//?}
+			if (selector.tagInverted() ? has : !has) {
+				return false;
+			}
+		}
+		if (selector.name() != null) {
+			final boolean equal = entity.getName().getString().equals(selector.name());
+			if (selector.nameInverted() ? equal : !equal) {
+				return false;
+			}
+		}
+		if (selector.hasDistance()) {
+			final double distance = Math.sqrt(entity.position().distanceToSqr(reference));
+			if (distance < selector.minDistance() || distance > selector.maxDistance()) {
+				return false;
+			}
+		}
+		return true;
 	}
 }
