@@ -154,6 +154,7 @@ public final class VFXReplayController {
 			return;
 		}
 		VFXEffectManager.get().removeInstances(this.liveInstances);
+		VFXEffectManager.get().clearScheduled();
 		this.reset();
 	}
 
