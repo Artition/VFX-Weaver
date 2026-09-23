@@ -3,7 +3,7 @@
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 **This page is the authoritative record of released mod versions.** The newest entry is the current
-mod version (`2.0.1`, read from `mod_version` in the build). Each `##` heading names a release; where
+mod version (`2.0.2`, read from `mod_version` in the build). Each `##` heading names a release; where
 a release shipped with a guide revision the heading shows both numbers (`v1.2.0 / Guide v32`), and a
 heading titled only `Guide vN` is a guide change that shipped without a mod version bump. The two
 numbers are independent: the **mod version** is what you download, the **guide revision** is how many
@@ -14,6 +14,13 @@ change.
 
 ## Unreleased
 
+## 2.0.2 — 2026-09-23
+
+2.0.2 lets a GLSL mask plugin shape read live per-leaf float data, so its geometry can move every
+tick without recompiling the shader variant. It also raises the network parameter cap to fit a large
+mask's resolved map. No datapack format or wire format changed — `PROTOCOL_VERSION` stays 6 — and an
+existing plugin that ignores the new helper compiles and behaves exactly as before.
+
 ### Added
 
 - **GLSL mask plugin shapes can read live per-leaf float data.** A custom mask leaf now carries 32
@@ -23,8 +30,10 @@ change.
   `vfx_mask_data(vfx_shape_data_base + j)`, so a set of moving primitives far larger than the eight
   animatable params can be driven **without recompiling the shader variant** (the variant is keyed
   only by the set of plugin ids). Backward compatible: an existing plugin that ignores the helper
-  compiles and behaves exactly as before. See [Masks](guide/datapack/masks.md) and the
-  [Java API](API.md).
+  compiles and behaves exactly as before. Two limits remain: a mask's custom leaves may reference
+  only **one distinct GLSL plugin id** (two different plugin ids in one mask fail to compile and fall
+  back to neutral coverage), and on the `1.21.11` node the missing shader-source hook leaves a
+  GLSL-plugin shape inert. See [Masks](guide/datapack/masks.md) and the [Java API](API.md).
 
 ### Changed
 
@@ -33,7 +42,9 @@ change.
 - **The network parameter cap is raised 32 → 256** (`VFXTriggerPayload.MAX_PARAMS`,
   `VFXTimeline.MAX_OVERRIDES`, `ParamMapArgument.MAX_PARAMS`, and the Flashback replay snapshot cap)
   so a large mask's resolved parameter map (two custom leaves × 32 data slots plus the other leaf
-  slots) fits. The wire format is unchanged, so `PROTOCOL_VERSION` stays 6.
+  slots) fits. The wire format is unchanged, so `PROTOCOL_VERSION` stays 6; the cap is a read-side
+  bound, so a 2.0.1 client still caps the map at 32 and cannot decode a larger play packet — a
+  many-slot mask needs a 2.0.2 client.
 
 ## 2.0.1 — 2026-09-22
 
