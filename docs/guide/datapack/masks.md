@@ -130,6 +130,15 @@ recompiles it. An existing plugin that ignores the helper compiles and behaves e
 > The dynamic data is per **leaf** (index in declaration order), matching `p<J>`. A leaf's data is
 > delivered to the plugin call for that leaf; the plugin function itself is shared.
 
+Two limitations are deliberate. A mask's custom leaves may reference **one distinct GLSL plugin id**:
+the compiled coverage variant injects a single `vfx_shape_custom`, so two leaves that name two
+*different* plugin ids fail to compile and the whole mask falls back to neutral coverage (two leaves
+sharing one plugin id, or a composed leaf beside a plugin leaf, are fine). And on the `1.21.11` node
+there is no shader-source hook, so a GLSL-plugin shape renders nothing there — the composed-SDF kind
+works on every node. A `"data"` array registers a constant `mask.p<N>.d<J>` param per slot, so a
+large mask sends a larger play packet; a 2.0.1 client caps the parameter map at 32 and cannot decode
+it, so pair a many-slot mask with 2.0.2 clients (the wire format itself is unchanged).
+
 #### World-volume evaluation: `volume`
 
 A `sphere`/`box` leaf carries an optional `"volume"` field choosing how the volume is evaluated

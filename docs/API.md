@@ -269,9 +269,18 @@ Limits and failure behaviour, all of them deliberate:
 - A custom leaf carries at most **32** dynamic values (`mask.p<N>.d0 … d31`); a longer `"data"`
   array is a per-file parse error. The array is written to the coverage UBO as `vec4`-packed data
   (1024 bytes; the coverage UBO grows from 1312 to 2336 bytes), appended after every existing field.
-- The coverage shader is compiled per distinct set of plugin ids, capped at **4 variants**; the
-  variant re-reads the live plugin source, so re-registering a plugin (or a resource reload) does
-  not leave a stale program. A **data value change never reaches the variant** (it is a param edit).
+- The raised parameter cap (`MAX_PARAMS` 32 → 256) is a **read-side bound only**: the wire format is
+  still a varint count plus entries and `PROTOCOL_VERSION` is unchanged. A **2.0.1 client** still
+  enforces its own 32-entry cap, so a play packet whose resolved map exceeds 32 params — which a mask
+  with many `data` slots produces, since every reserved `mask.p<N>.d<J>` default is a constant param
+  — cannot be decoded there; such a definition needs a matching 2.0.2 client.
+- The coverage shader variant is keyed by the sorted set of plugin ids, capped at **4 variants**; a
+  variant re-reads the live plugin source, so re-registering a plugin (or a resource reload) does not
+  leave a stale program. A **data value change never reaches the variant** (it is a param edit). Only
+  **one distinct GLSL plugin id** can be compiled into a mask: the injected source defines a single
+  `vfx_shape_custom`, so two custom leaves that reference two *different* plugin ids make the variant
+  fail to compile and the whole mask falls back to neutral coverage (two leaves sharing one plugin
+  id, or a composed leaf beside a plugin leaf, compile fine).
 - A plugin that fails to compile degrades **only the masks using it** to neutral coverage and is
   reported once through `VFXLog.warnOnce`; it never takes down the mod or another effect.
 - On the `1.21.11` node there is no shader-source hook, so a GLSL-plugin shape renders nothing
