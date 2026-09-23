@@ -18,7 +18,7 @@ import java.util.Map;
  */
 public final class ParamMapArgument implements ArgumentType<Map<String, Float>> {
 	/** Mirrors {@code VFXTimeline.MAX_OVERRIDES} (command input, see AGENTS.md). */
-	public static final int MAX_PARAMS = 32;
+	public static final int MAX_PARAMS = 256;
 
 	@Override
 	public Map<String, Float> parse(final StringReader reader) throws CommandSyntaxException {

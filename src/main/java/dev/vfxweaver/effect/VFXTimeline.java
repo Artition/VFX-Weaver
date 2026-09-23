@@ -25,8 +25,12 @@ import org.slf4j.LoggerFactory;
  */
 public class VFXTimeline {
 	private static final Logger LOGGER = LoggerFactory.getLogger("vfxweaver/timeline");
-	/** Safety cap for runtime overrides (network/command input, see AGENTS.md). */
-	private static final int MAX_OVERRIDES = 32;
+	/**
+	 * Safety cap for runtime overrides (network/command input, see AGENTS.md). Raised from 32 to
+	 * 256 so an integration can hold a mask leaf's {@code MAX_LEAF_DATA = 32} dynamic values live
+	 * (plus other edits) without the oldest being evicted.
+	 */
+	private static final int MAX_OVERRIDES = 256;
 
 	private final float duration;
 	private Map<String, AnimatedValue> values;

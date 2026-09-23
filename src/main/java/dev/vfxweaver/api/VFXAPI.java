@@ -219,6 +219,34 @@ public final class VFXAPI {
 	}
 
 	/**
+	 * Writes a leaf's dynamic float data on every running instance of the effect on this client - the
+	 * local (no packet) counterpart of {@link #sendMaskData(ServerPlayer, Identifier, int, float[])}.
+	 * It expands into the reserved {@code mask.p<N>.d<J>} parameters (ordinary animatable effect
+	 * params; a GLSL-plugin leaf reads them live through {@code vfx_mask_data(...)}), so it applies
+	 * through exactly the same path as {@link #setParam(Identifier, String, float)} on each of them
+	 * and never recompiles the shader variant. Call it every tick to move a plugin-driven set of
+	 * primitives.
+	 *
+	 * @param effectId  effect id
+	 * @param primitive mask leaf index (0-based, in mask declaration order)
+	 * @param values    the leaf's dynamic values; at most
+	 *                  {@link VFXMaskSlots#MAX_LEAF_DATA} are written, the rest ignored
+	 * @return {@code true} when every write was applied or queued; {@code false} without a client or
+	 *         when {@code values} is {@code null}
+	 */
+	public static boolean maskData(final Identifier effectId, final int primitive, final float[] values) {
+		if (localDispatcher == null || values == null) {
+			return false;
+		}
+		boolean applied = true;
+		final int count = Math.min(values.length, VFXMaskSlots.MAX_LEAF_DATA);
+		for (int j = 0; j < count; j++) {
+			applied &= setParam(effectId, VFXMaskSlots.data(primitive, j), values[j]);
+		}
+		return applied;
+	}
+
+	/**
 	 * Live-replaces a parameter of every running instance with a math expression on this client -
 	 * the local counterpart of {@link #sendSetParamExpr(ServerPlayer, Identifier, String, String)}.
 	 * Same syntax as the JSON {@code expr} field (see {@code docs/GUIDE.md}); {@code null} or an
@@ -690,6 +718,31 @@ public final class VFXAPI {
 		sendSetParam(player, effectId, VFXMaskSlots.center(primitive, "x"), (float) position.x());
 		sendSetParam(player, effectId, VFXMaskSlots.center(primitive, "y"), (float) position.y());
 		sendSetParam(player, effectId, VFXMaskSlots.center(primitive, "z"), (float) position.z());
+	}
+
+	/**
+	 * Writes a mask leaf's dynamic float data on the player's client, by expanding it into the
+	 * reserved {@code mask.p<N>.d<J>} parameters (ordinary animatable effect params, so keyframes,
+	 * expressions, graph nodes and bindings all work on them; a GLSL-plugin leaf reads them live
+	 * through {@code vfx_mask_data(...)}). Reuses the existing {@code SET_PARAM} wire action - one
+	 * packet per value, no new action and no protocol bump. Call it every tick to drive a
+	 * plugin-authored set of moving primitives without recompiling the shader variant. Ignored (with
+	 * a client-side log warning) when the effect is not currently running.
+	 *
+	 * @param player    the receiving player
+	 * @param effectId  effect id
+	 * @param primitive mask leaf index (0-based, in mask declaration order)
+	 * @param values    the leaf's dynamic values; at most
+	 *                  {@link VFXMaskSlots#MAX_LEAF_DATA} are sent, the rest ignored
+	 */
+	public static void sendMaskData(final ServerPlayer player, final Identifier effectId, final int primitive, final float[] values) {
+		if (values == null) {
+			return;
+		}
+		final int count = Math.min(values.length, VFXMaskSlots.MAX_LEAF_DATA);
+		for (int j = 0; j < count; j++) {
+			sendSetParam(player, effectId, VFXMaskSlots.data(primitive, j), values[j]);
+		}
 	}
 
 	/**

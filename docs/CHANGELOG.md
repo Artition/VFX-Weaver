@@ -14,6 +14,27 @@ change.
 
 ## Unreleased
 
+### Added
+
+- **GLSL mask plugin shapes can read live per-leaf float data.** A custom mask leaf now carries 32
+  reserved dynamic floats, `mask.p<N>.d0 … d31`, authored as a `"data": [ … ]` array on the leaf or
+  set every tick with the new `VFXAPI.maskData`/`VFXAPI.sendMaskData` (or `setParam`/`sendSetParam`
+  on a single slot). A plugin reads its own leaf's values through the wrapper helper
+  `vfx_mask_data(vfx_shape_data_base + j)`, so a set of moving primitives far larger than the eight
+  animatable params can be driven **without recompiling the shader variant** (the variant is keyed
+  only by the set of plugin ids). Backward compatible: an existing plugin that ignores the helper
+  compiles and behaves exactly as before. See [Masks](guide/datapack/masks.md) and the
+  [Java API](API.md).
+
+### Changed
+
+- **The mask coverage UBO gains a `shape_data` array** (a `vec4`-packed, per-leaf slice; 18 fields,
+  2336 bytes, appended after every existing field). The `check-mask-ubo.ps1` layout guard covers it.
+- **The network parameter cap is raised 32 → 256** (`VFXTriggerPayload.MAX_PARAMS`,
+  `VFXTimeline.MAX_OVERRIDES`, `ParamMapArgument.MAX_PARAMS`, and the Flashback replay snapshot cap)
+  so a large mask's resolved parameter map (two custom leaves × 32 data slots plus the other leaf
+  slots) fits. The wire format is unchanged, so `PROTOCOL_VERSION` stays 6.
+
 ## 2.0.1 — 2026-09-22
 
 2.0.1 is a correctness release. It fixes the `blur` effect's animation stepping, makes client entity

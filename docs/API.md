@@ -67,6 +67,12 @@ void sendMove(ServerPlayer player, Identifier effectId, long instanceId, Vec3 wo
 // is outside the client's tracking range).
 void sendMaskMove(ServerPlayer player, Identifier effectId, int primitive, Vec3 position);
 
+// Writes a mask leaf's dynamic float data (the reserved mask.p<N>.d<J> params; a GLSL-plugin leaf
+// reads them live through vfx_mask_data(...)). Reuses SET_PARAM - one packet per value, no new wire
+// action. Up to MAX_LEAF_DATA (32) values are sent; the rest are ignored. Call every tick to drive
+// plugin geometry without recompiling the shader variant.
+void sendMaskData(ServerPlayer player, Identifier effectId, int primitive, float[] values);
+
 // Adds/replaces a keyframe of a parameter of a running effect.
 // A negative timeTicks means "from here": the value the parameter has right now is pinned at the
 // current time and the animation runs to `value` over |timeTicks| ticks - so animation segments
@@ -148,6 +154,10 @@ boolean setKeyframe(Identifier effectId, String name, int time, float value, Str
 // Move one mask leaf locally (no packet) - the local counterpart of sendMaskMove; expands into
 // the three mask.p<N>.center_* params (see "Mask leaf params" below).
 boolean maskMove(Identifier effectId, int primitive, Vec3 position);
+
+// Write one mask leaf's dynamic float data locally (no packet) - the local counterpart of
+// sendMaskData; expands into the mask.p<N>.d<J> params. Up to MAX_LEAF_DATA (32) values.
+boolean maskData(Identifier effectId, int primitive, float[] values);
 ```
 
 Like `moveEffect`, these return `true` when applied on the render thread or queued for it. A `null`
@@ -163,6 +173,7 @@ live-control and animation surface above works on them unchanged:
 | `mask.p<N>.center_x` / `.center_y` / `.center_z` | leaf `<N>` centre (screen leaves use x/y) |
 | `mask.p<N>.rotation` | leaf rotation (degrees) |
 | `mask.p<N>.p<J>` | the leaf's per-shape parameter `J` (radius, half_width, … in `VFXMaskShapeKind` order) |
+| `mask.p<N>.d<J>` | the custom leaf's dynamic float data (`J` = 0..31; a GLSL plugin reads them via `vfx_mask_data(...)`) |
 | `mask.p<N>.soft` | edge falloff width |
 | `mask.p<N>.stroke` | stroke width (`fill: "stroke"`) |
 | `mask.p<N>.field_amount` / `.field_scale` | edge-field amount / scale |
@@ -178,6 +189,17 @@ VFXAPI.sendMaskMove(player, effectId, 0, entity.position());
 
 // Client-local, same expansion, no packet:
 VFXAPI.maskMove(effectId, 0, new Vec3(x, y, z));
+```
+
+`sendMaskData`/`maskData` are the same kind of convenience for the dynamic float data (one value per
+reserved `mask.p<N>.d<J>` slot, up to `VFXMaskSlots.MAX_LEAF_DATA` = 32):
+
+```java
+// Server: move a plugin-authored set of circles every tick.
+VFXAPI.sendMaskData(player, effectId, 0, new float[]{cx0, cy0, r0, cx1, cy1, r1, 0.0F, 0.0F});
+
+// Client-local, same expansion, no packet:
+VFXAPI.maskData(effectId, 0, values);
 ```
 
 `mask.` is **reserved**: a user parameter with that prefix would be shadowed by the mask, not merged.
@@ -215,19 +237,48 @@ VFXAPI.registerMaskShapeGlsl(Identifier.fromNamespaceAndPath("mymod", "pentagram
 VFXAPI.unregisterMaskShapeGlsl(id);
 ```
 
+**Dynamic per-leaf data.** A custom leaf also carries 32 reserved dynamic floats
+(`mask.p<N>.d0 … d31`, authored as a `"data": [...]` array or set live with `sendMaskData`/`maskData`/
+`setParam`). The wrapper declares `int vfx_shape_data_base` and `float vfx_mask_data(int index)` and
+points the base at the calling leaf's slice, so the plugin reads its own values as
+`vfx_mask_data(vfx_shape_data_base + j)`:
+
+```glsl
+float vfx_shape_custom(vec3 world, vec2 uv, vec4 p0, vec4 p1) {
+	// Three circles at (cx, cy, r) from mask.p<N>.d0..d8, updated every tick.
+	float acc = 1.0e6;
+	for (int c = 0; c < 3; c++) {
+		vec2 centre = vec2(vfx_mask_data(vfx_shape_data_base + c * 3),
+		                  vfx_mask_data(vfx_shape_data_base + c * 3 + 1));
+		float radius = vfx_mask_data(vfx_shape_data_base + c * 3 + 2);
+		acc = min(acc, length(uv - centre) - radius);
+	}
+	return acc;
+}
+```
+
+The plugin must **not** declare `vfx_mask_data` or `vfx_shape_data_base` (the wrapper supplies
+them), and must not name a uniform or variable after a GLSL built-in. A plugin that ignores the
+helper compiles and behaves exactly as before. A data update is an ordinary param edit — the shader
+variant is keyed only by the set of plugin ids, so it never triggers a recompile.
+
 Limits and failure behaviour, all of them deliberate:
 
 - A mask may hold at most **2 custom leaves**; a third is a per-file parse error (it would alias
   row 0 in the packed coverage UBO).
+- A custom leaf carries at most **32** dynamic values (`mask.p<N>.d0 … d31`); a longer `"data"`
+  array is a per-file parse error. The array is written to the coverage UBO as `vec4`-packed data
+  (1024 bytes; the coverage UBO grows from 1312 to 2336 bytes), appended after every existing field.
 - The coverage shader is compiled per distinct set of plugin ids, capped at **4 variants**; the
   variant re-reads the live plugin source, so re-registering a plugin (or a resource reload) does
-  not leave a stale program.
+  not leave a stale program. A **data value change never reaches the variant** (it is a param edit).
 - A plugin that fails to compile degrades **only the masks using it** to neutral coverage and is
   reported once through `VFXLog.warnOnce`; it never takes down the mod or another effect.
 - On the `1.21.11` node there is no shader-source hook, so a GLSL-plugin shape renders nothing
   there; the composed-SDF kind works on every node.
 - Plugin coverage obeys the same per-leaf fail-closed contract as every other leaf: an unresolved
-  leaf contributes zero and can never be inverted into "everywhere".
+  leaf contributes zero and can never be inverted into "everywhere". A bound `d<J>` slot that cannot
+  resolve fails its leaf closed like any other bound slot.
 
 `vfxweaver:ringed_glsl` is a built-in plugin (a screen ring with 8 petal-modulated lobes) shipped
 so the path is testable in game; see the [guide](guide/index.md) for the datapack side.
@@ -367,7 +418,7 @@ Semantics:
 
 ### Serverbound: `vfxweaver:vfx_request` (`VFXRequestPayload`)
 
-Lets a client mod ask the server to play an effect through the definition registry. Fields: `protocolVersion` (must match `VFXTriggerPayload.PROTOCOL_VERSION`), `effectId`, `broadcast` (boolean), `instanceId` (long, 0 = allocate), `worldPos` (optional `Vec3`), `params` (max 32), `easing` (built-in easing name string).
+Lets a client mod ask the server to play an effect through the definition registry. Fields: `protocolVersion` (must match `VFXTriggerPayload.PROTOCOL_VERSION`), `effectId`, `broadcast` (boolean), `instanceId` (long, 0 = allocate), `worldPos` (optional `Vec3`), `params` (max `VFXTriggerPayload.MAX_PARAMS` = 256), `easing` (built-in easing name string).
 
 - `broadcast = false`: the effect plays only on the requesting player's client.
 - `broadcast = true`: the effect plays for every connected player, but the server only honours it from operators (gamemaster level) — anyone else is silently dropped (logged server-side).

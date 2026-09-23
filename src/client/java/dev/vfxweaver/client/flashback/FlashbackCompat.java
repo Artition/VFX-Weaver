@@ -67,8 +67,12 @@ public final class FlashbackCompat {
 	private static final Identifier ACTION_NAME = Identifier.fromNamespaceAndPath("vfxweaver", "effect_trigger");
 	/** Reserved id written as the first field of a payload that carries the definitions snapshot. */
 	private static final Identifier ACTION_DEFS_NAME = Identifier.fromNamespaceAndPath("vfxweaver", "definitions");
-	/** Safety cap on the number of params decoded from a replay file. */
-	private static final int MAX_PARAMS = 32;
+	/**
+	 * Safety cap on the number of params decoded from a replay file. Kept in step with
+	 * {@code VFXTriggerPayload.MAX_PARAMS} (raised to 256 for mask dynamic data): a snapshot of a
+	 * large mask must not be truncated. Old recordings (at most 32 params) still decode.
+	 */
+	private static final int MAX_PARAMS = 256;
 	/** Safety cap on the total characters of synced definition/curve JSON written into a replay. */
 	private static final int MAX_DEFS_CHARS = 2_000_000;
 

@@ -264,6 +264,19 @@ public final class VFXMaskParser {
 				final JsonElement value = customParams != null && customParams.size() > j ? customParams.get(j) : null;
 				parameterDefaults[j] = number(slots, parameterSlots[j], value, 0.0F);
 			}
+			// Dynamic float data: up to VFXMaskSlots.MAX_LEAF_DATA reserved slots (mask.p<N>.d<J>),
+			// authored as a `"data": [ n0, n1, ... ]` array (each a number, { "from": node } or a
+			// binding); absent = 0. A GLSL plugin reads them live through vfx_mask_data(...) without
+			// a recompile. Registered as ordinary slots so every live-control path reaches them.
+			final JsonElement dataElement = json.get("data");
+			final JsonArray customData = dataElement != null && dataElement.isJsonArray() ? dataElement.getAsJsonArray() : null;
+			if (customData != null && customData.size() > VFXMaskSlots.MAX_LEAF_DATA) {
+				throw new IllegalArgumentException("mask: custom shape '" + shapeName + "' takes at most " + VFXMaskSlots.MAX_LEAF_DATA + " data values");
+			}
+			for (int j = 0; j < VFXMaskSlots.MAX_LEAF_DATA; j++) {
+				final JsonElement value = customData != null && customData.size() > j ? customData.get(j) : null;
+				number(slots, VFXMaskSlots.data(i, j), value, 0.0F);
+			}
 		}
 
 		final VFXMaskFill fill = json.has("fill") && !json.get("fill").isJsonNull()

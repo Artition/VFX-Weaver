@@ -76,11 +76,59 @@ drive a mask from data the client does not have, set its centre from the **serve
 
 The mask's numeric leaves are ordinary animatable effect parameters under reserved names:
 `mask.p<N>.center_x|center_y|center_z`, `.rotation`, `.p<J>` (the per-shape parameter `J`), `.soft`
-(falloff), `.stroke` (stroke width) and `.field_amount`/`.field_scale`; `<N>` is the leaf index in
-declaration order (0-based). Because they are ordinary params, keyframes, `expr`, graph
-`{ "from": node }` driven inputs, datapack bindings and every live-edit API (`sendSetParam`,
-`sendKeyframe`, `setParam`, …) work on them unchanged. The `mask.` prefix is reserved (see the
-[Java API](../../API.md)).
+(falloff), `.stroke` (stroke width), `.field_amount`/`.field_scale`, and the dynamic float data
+`.d<J>` (see below); `<N>` is the leaf index in declaration order (0-based). Because they are
+ordinary params, keyframes, `expr`, graph `{ "from": node }` driven inputs, datapack bindings and
+every live-edit API (`sendSetParam`, `sendKeyframe`, `setParam`, …) work on them unchanged. The
+`mask.` prefix is reserved (see the [Java API](../../API.md)).
+
+#### Dynamic float data (`data`): live plugin geometry without a recompile
+
+A **custom leaf** (composed or GLSL plugin) carries up to **32** reserved dynamic floats
+`mask.p<N>.d0 … d31`, authored as a `"data": [ … ]` array on the leaf (each entry a number,
+`{ "from": "<node>" }` or a world binding; absent entries default to 0). They are registered exactly
+like the `p<J>` params, so every live path reaches them — and a GLSL plugin reads them **live**:
+
+```json
+{
+	"mask": {
+		"a": {
+			"shape": "mymod:blobs",
+			"space": "screen",
+			"center": [0.5, 0.5],
+			"data": [0.25, 0.25, 0.1, 0.75, 0.6, 0.08],
+			"softness": 0.02
+		}
+	}
+}
+```
+
+A GLSL-plugin leaf reads its own slice through the wrapper helpers (declared for it — the plugin
+must **not** declare them):
+
+```glsl
+float vfx_shape_custom(vec3 world, vec2 uv, vec4 p0, vec4 p1) {
+	// Three circles at (cx, cy, r), driven by mask.p0.d0..d8, updated every tick.
+	float acc = 1.0e6;
+	for (int c = 0; c < 3; c++) {
+		vec2 centre = vec2(vfx_mask_data(vfx_shape_data_base + c * 3),
+		                  vfx_mask_data(vfx_shape_data_base + c * 3 + 1));
+		float radius = vfx_mask_data(vfx_shape_data_base + c * 3 + 2);
+		acc = min(acc, length(uv - centre) - radius);
+	}
+	return acc;
+}
+```
+
+`vfx_shape_data_base` is set by the coverage shader to the calling leaf's slice start (leaf `i`
+owns `i * 32`), so one plugin source serves every leaf. Update the values from code every tick with
+`VFXAPI.maskData(effect, leaf, values)` / `VFXAPI.sendMaskData(player, effect, leaf, values)`, or one
+at a time with `setParam`/`sendSetParam` on `mask.p<N>.d<J>`. A `data` update is an ordinary param
+edit: the coverage shader variant is keyed **only** by the set of plugin ids, so changing data never
+recompiles it. An existing plugin that ignores the helper compiles and behaves exactly as before.
+
+> The dynamic data is per **leaf** (index in declaration order), matching `p<J>`. A leaf's data is
+> delivered to the plugin call for that leaf; the plugin function itself is shared.
 
 #### World-volume evaluation: `volume`
 

@@ -14,10 +14,28 @@ public final class VFXMaskSlots {
 	public static final int MAX_PRIMITIVES = 8;
 	/** The per-leaf numeric parameter cap (mirrors the shared shape library's packing). */
 	public static final int MAX_LEAF_PARAMS = 8;
+	/**
+	 * The per-leaf dynamic float-data cap: {@code mask.p<N>.d0 .. d(K-1)}. Delivered to a GLSL
+	 * plugin through the coverage {@code shape_data} UBO array (a {@code vec4[]}-packed layout, so
+	 * the array costs {@code MAX_PRIMITIVES * MAX_LEAF_DATA} floats = 1 KiB) and read with the
+	 * {@code vfx_mask_data(index)} helper. 32 floats let one plugin leaf drive ten 3-float
+	 * primitives (centre + radius), well past the eight animatable {@code p<J>} params.
+	 */
+	public static final int MAX_LEAF_DATA = 32;
+	/** The {@code vec4} count the {@link #MAX_LEAF_DATA} floats are packed into (std140 array stride). */
+	public static final int MAX_LEAF_DATA_VEC4 = MAX_LEAF_DATA / 4;
 
 	/** The centre component ({@code x}/{@code y}/{@code z}) slot of primitive {@code i}. */
 	public static String center(final int i, final String axis) {
 		return "mask.p" + i + ".center_" + axis;
+	}
+
+	/**
+	 * The dynamic float-data slot {@code j} of primitive {@code i} ({@code mask.p<N>.d<J>}), read by
+	 * a GLSL plugin through {@code vfx_mask_data(i * MAX_LEAF_DATA + j)}.
+	 */
+	public static String data(final int i, final int j) {
+		return "mask.p" + i + ".d" + j;
 	}
 
 	/** The rotation slot of primitive {@code i} (degrees, shared shape convention). */

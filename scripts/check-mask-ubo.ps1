@@ -56,6 +56,7 @@ $javaSymbols = @{
 	'VFXMask.MAX_PRIMITIVES'          = $defines['MASK_MAX_PRIMITIVES']
 	'VFXCustomShape.MAX_CUSTOM_LEAVES' = $defines['MASK_MAX_CUSTOM_LEAVES']
 	'VFXCustomShape.MAX_CUSTOM_PARTS'  = $defines['MASK_MAX_CUSTOM_PARTS']
+	'VFXMaskSlots.MAX_LEAF_DATA_VEC4'  = $defines['MASK_MAX_LEAF_DATA_VEC4']
 }
 $layoutMatch = [regex]::Match($writer, 'CONFIG_LAYOUT\s*=\s*List\.of\((?<body>.*?)\);', 'Singleline')
 if (-not $layoutMatch.Success) { throw "no CONFIG_LAYOUT list found in $writerPath" }

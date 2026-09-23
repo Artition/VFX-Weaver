@@ -40,6 +40,7 @@ layout(std140) uniform SamplerInfo {
 #define MASK_MAX_PRIMITIVES 8
 #define MASK_MAX_CUSTOM_PARTS 3
 #define MASK_MAX_CUSTOM_LEAVES 2
+#define MASK_MAX_LEAF_DATA_VEC4 8
 
 layout(std140) uniform Config {
     mat4 invViewProj;
@@ -59,6 +60,7 @@ layout(std140) uniform Config {
     vec4 custom_kind[MASK_MAX_CUSTOM_LEAVES * MASK_MAX_CUSTOM_PARTS];   // x=kind, y=space, z=rounding, w=repeat
     vec4 custom_center[MASK_MAX_CUSTOM_LEAVES * MASK_MAX_CUSTOM_PARTS]; // xyz=centre, w=rotation
     vec4 custom_params[MASK_MAX_CUSTOM_LEAVES * MASK_MAX_CUSTOM_PARTS]; // x/y/z/w = p0..p3 of the part
+    vec4 shape_data[MASK_MAX_PRIMITIVES * MASK_MAX_LEAF_DATA_VEC4];     // per-leaf dynamic data, vec4-packed
 };
 
 out vec4 fragColor;
@@ -98,6 +100,19 @@ float fieldValue(int field, vec3 samplePos, float scale, float seed) {
         return valueNoise(samplePos * scale + vec3(seed, seed * 1.7, seed * 2.3));
     }
     return 0.0;
+}
+
+// Per-leaf dynamic float data. The Config `shape_data` array is vec4-packed; this helper flattens
+// it so a GLSL plugin reads its own leaf's K floats (K = MASK_MAX_LEAF_DATA_VEC4 * 4 = 32) as
+// vfx_mask_data(vfx_shape_data_base + j). `vfx_shape_data_base` is set by the coverage loop to the
+// calling leaf's slice start (i * K) just before vfx_shape_custom is invoked, so the same plugin
+// source serves every leaf. Both symbols are declared here (outside the injection markers) and are
+// read by the injected plugin; the plugin never declares them. A plugin that ignores them behaves
+// exactly as before.
+int vfx_shape_data_base = 0;
+
+float vfx_mask_data(int index) {
+    return shape_data[index >> 2][index & 3];
 }
 
 // A neutral GLSL-plugin stub. VFXMaskShaderVariants replaces the marked region below with the
@@ -191,7 +206,10 @@ void main() {
                 // (int(-0.5) == 0 would silently render the first custom shape).
                 cov = 0.0;
             } else if (int(custom_op[row].x + 0.5) == 1) {
-                // GLSL plugin: a distance like any built-in, so field/softness apply.
+                // GLSL plugin: a distance like any built-in, so field/softness apply. Point the
+                // plugin's data slice at this leaf before the call (i * 32), so the shared plugin
+                // source reads its own leaf's values via vfx_mask_data(vfx_shape_data_base + j).
+                vfx_shape_data_base = i * (MASK_MAX_LEAF_DATA_VEC4 * 4);
                 float d = vfx_shape_custom(world, texCoord, shape_params0[i], shape_params1[i]);
                 d += fieldValue(int(so.w + 0.5), (leafSpace == 1) ? world : vec3(texCoord, mask_time), field_params[i].y, field_params[i].z) * field_params[i].x;
                 cov = clamp(0.5 - d / max(so.z, 1.0e-4), 0.0, 1.0);

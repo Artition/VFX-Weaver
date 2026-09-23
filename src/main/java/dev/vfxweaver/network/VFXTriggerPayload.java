@@ -41,8 +41,14 @@ public record VFXTriggerPayload(
 	@Nullable String exprSource
 ) implements CustomPacketPayload {
 	public static final byte PROTOCOL_VERSION = 6;
-	/** Safety cap on the number of parameters a play packet may carry (server input, see AGENTS.md). */
-	public static final int MAX_PARAMS = 32;
+	/**
+	 * Safety cap on the number of parameters a play packet may carry (server input, see AGENTS.md).
+	 * Raised from 32 to 256 for per-leaf mask dynamic data: a mask may hold eight leaves and two
+	 * custom leaves each register {@code MAX_LEAF_DATA = 32} {@code mask.p<N>.d<J>} params, so a
+	 * large mask's resolved constant map no longer fits in 32. The wire format is unchanged (a
+	 * varint count then entries); only this read bound moved, so {@code PROTOCOL_VERSION} stays 6.
+	 */
+	public static final int MAX_PARAMS = 256;
 	/** Safety cap on the number of entity UUIDs in one packet. */
 	public static final int MAX_ENTITY_UUIDS = 16;
 	public static final Type<VFXTriggerPayload> TYPE = new Type<>(Identifier.fromNamespaceAndPath("vfxweaver", "vfx_trigger"));

@@ -57,7 +57,7 @@ public final class VFXMaskUniforms {
 	 * per leaf, so an unresolved screen leaf no longer takes a still-resolved world leaf down with
 	 * it. A binding with no world source (literal {@code pos}) is always resolved.
 	 */
-	private static boolean primitiveResolved(final VFXMask mask, final VFXMaskPrimitive primitive) {
+	private static boolean primitiveResolved(final VFXMask mask, final VFXMaskPrimitive primitive, final int primitiveIndex) {
 		if (!bindingResolved(primitive.centerBinding())) {
 			return false;
 		}
@@ -74,6 +74,12 @@ public final class VFXMaskUniforms {
 		}
 		for (final String slot : primitive.parameterSlots()) {
 			if (!slotResolved(mask, slot)) {
+				return false;
+			}
+		}
+		// A bound dynamic-data slot (only custom leaves register them) fails the leaf closed too.
+		for (int j = 0; j < VFXMaskSlots.MAX_LEAF_DATA; j++) {
+			if (!slotResolved(mask, VFXMaskSlots.data(primitiveIndex, j))) {
 				return false;
 			}
 		}
@@ -139,7 +145,11 @@ public final class VFXMaskUniforms {
 		new ConfigField("custom_op", "vec4", VFXCustomShape.MAX_CUSTOM_LEAVES),
 		new ConfigField("custom_kind", "vec4", VFXCustomShape.MAX_CUSTOM_LEAVES * VFXCustomShape.MAX_CUSTOM_PARTS),
 		new ConfigField("custom_center", "vec4", VFXCustomShape.MAX_CUSTOM_LEAVES * VFXCustomShape.MAX_CUSTOM_PARTS),
-		new ConfigField("custom_params", "vec4", VFXCustomShape.MAX_CUSTOM_LEAVES * VFXCustomShape.MAX_CUSTOM_PARTS)
+		new ConfigField("custom_params", "vec4", VFXCustomShape.MAX_CUSTOM_LEAVES * VFXCustomShape.MAX_CUSTOM_PARTS),
+		// Per-leaf dynamic float data, vec4-packed: primitive i owns the slice
+		// [i * MAX_LEAF_DATA, (i + 1) * MAX_LEAF_DATA). Appended last (never reorder the existing
+		// fields). A GLSL plugin reads it through vfx_mask_data(i * MAX_LEAF_DATA + j).
+		new ConfigField("shape_data", "vec4", VFXMask.MAX_PRIMITIVES * VFXMaskSlots.MAX_LEAF_DATA_VEC4)
 	);
 
 	/**
@@ -223,7 +233,7 @@ public final class VFXMaskUniforms {
 			if (primitive == null) {
 				continue;
 			}
-			final boolean leafResolved = primitiveResolved(mask, primitive);
+			final boolean leafResolved = primitiveResolved(mask, primitive, i);
 			final float operation = i == 0 ? 0.0F : mask.ops().get(i - 1).ordinal();
 			final Integer customRow = primitive.family() == VFXMaskPrimitive.Family.CUSTOM ? customRows.get(primitive.customShape()) : null;
 			// z = the animated falloff: the leaf's softness slot wins over the parse-time default
@@ -311,6 +321,30 @@ public final class VFXMaskUniforms {
 				for (int p = 0; p < VFXCustomShape.MAX_CUSTOM_PARTS; p++) {
 					builder.putVec4(partRows[row][p][field][0], partRows[row][p][field][1], partRows[row][p][field][2], partRows[row][p][field][3]);
 				}
+			}
+		}
+
+		// Per-leaf dynamic float data (vec4-packed, std140 array stride 16): primitive i owns the
+		// contiguous slice [i * MAX_LEAF_DATA, (i + 1) * MAX_LEAF_DATA). A GLSL plugin reads it
+		// live through vfx_mask_data(i * MAX_LEAF_DATA + j); the values are ordinary animatable
+		// mask slots, so setParam/sendSetParam updates them every tick without recompiling the
+		// shader variant (the variant is keyed by the plugin-id set, never by a param value).
+		for (int i = 0; i < VFXMask.MAX_PRIMITIVES; i++) {
+			// Only a custom leaf registers data slots; every other leaf writes a zero slice without
+			// a per-slot lookup (the array still must be written positionally).
+			final VFXMaskPrimitive primitive = i < mask.primitives().size() ? mask.primitives().get(i) : null;
+			final boolean custom = primitive != null && primitive.family() == VFXMaskPrimitive.Family.CUSTOM;
+			for (int g = 0; g < VFXMaskSlots.MAX_LEAF_DATA_VEC4; g++) {
+				if (!custom) {
+					builder.putVec4(0.0F, 0.0F, 0.0F, 0.0F);
+					continue;
+				}
+				final int base = g * 4;
+				builder.putVec4(
+					slotValue(mask, effect, VFXMaskSlots.data(i, base), 0.0F),
+					slotValue(mask, effect, VFXMaskSlots.data(i, base + 1), 0.0F),
+					slotValue(mask, effect, VFXMaskSlots.data(i, base + 2), 0.0F),
+					slotValue(mask, effect, VFXMaskSlots.data(i, base + 3), 0.0F));
 			}
 		}
 	}

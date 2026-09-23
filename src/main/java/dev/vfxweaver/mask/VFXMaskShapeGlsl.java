@@ -17,6 +17,22 @@ package dev.vfxweaver.mask;
  * the prelude and the dispatch. Compilation is isolated per variant: a plugin that fails to compile
  * falls back to neutral coverage for that leaf and is reported as a validation error naming the
  * shape.
+ *
+ * <p><b>Dynamic per-leaf data.</b> A leaf may also carry {@code K = 32} dynamic floats, reserved
+ * as the ordinary animatable params {@code mask.p<N>.d0 .. d31} (authored as a {@code "data": [...]}
+ * array on the mask leaf, or set live with {@code setParam}/{@code sendSetParam}/{@code maskData}).
+ * The coverage shader points {@code vfx_shape_data_base} at the calling leaf's slice before the
+ * call, so the plugin reads its own leaf's values through the helper:
+ *
+ * <pre>{@code
+ * float radius = vfx_mask_data(vfx_shape_data_base + 0);
+ * float cx     = vfx_mask_data(vfx_shape_data_base + 1);
+ * }</pre>
+ *
+ * <p>The plugin must not declare {@code vfx_mask_data} or {@code vfx_shape_data_base} (the wrapper
+ * declares them). A plugin that never calls the helper compiles and behaves exactly as before; a
+ * {@code mask.p<N>.d<J>} update is an ordinary param edit and never recompiles the shader variant
+ * (the variant is keyed only by the set of plugin ids).
  */
 @FunctionalInterface
 public interface VFXMaskShapeGlsl {
