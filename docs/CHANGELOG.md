@@ -88,6 +88,22 @@ change.
   now explicit for custom leaves, whose SDF may be intentionally unbounded. A plugin that relied on
   painting the sky from a `surface` leaf will no longer do so.
 
+### Fixed
+
+- **`sky_pattern` `patch` mode now ends in a clean circular edge instead of a straight cut and a
+  smear at its rim.** The gnomonic decal divides by `dot(dir, anchor)`, so as the ray approached the
+  tangent plane's horizon its cell coordinate (and therefore the tiling frequency) grew without
+  bound and the pattern smeared/converged into a point; the caller's `facing` gate then cut it off
+  along a hard straight line, which made a large patch read as a flat plane lying over the sky. The
+  patch branch now bounds the decal to its **unit disc** (`tile_scale` = `tan(half the patch's
+  angular size)`, so radius 1 is the patch edge): the coverage fades to zero over `softness` (with a
+  0.05 cell-unit floor) and nothing is evaluated past radius 1, so the singular rim is never
+  visible; the `facing` gate remains only as a hard backstop. The demos were reassigned to match
+  what each projection is for: `show_sky_pattern_texture` (a whole-sky texture) and `sky_cracks`
+  are `fill`, while `show_sky_pattern` (the ring) and `nine_red_pixels` are small bounded `patch`
+  decals (`tile_scale` 0.4–0.55 and 0.3). The effect is not in any release yet; no datapack field
+  was renamed and `PROTOCOL_VERSION` is unchanged.
+
 ## 2.0.2 — 2026-09-23
 
 2.0.2 lets a GLSL mask plugin shape read live per-leaf float data, so its geometry can move every

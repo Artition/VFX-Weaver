@@ -14,7 +14,7 @@ How a pixel's view ray is turned into a pattern coordinate is chosen by the **`s
 
 | `sky_mode` | Projection | Use it for |
 |---|---|---|
-| `patch` **(default)** | One **gnomonic** (tangent-plane) decal at the authored anchor - a local chart | A figure or image at one spot in the sky |
+| `patch` **(default)** | One **gnomonic** (tangent-plane) decal at the authored anchor, bounded to its unit disc - a local chart | A figure or image at one spot in the sky |
 | `fill` | The **whole sphere** by three orthographic charts blended with a sharpened partition of unity ("triplanar on a sphere") | Content that must cover the whole sky (cracks, a full-sky fill) |
 | `dome` | The original single **equirectangular** chart (legacy) | Existing content only - **do not author new content in it** |
 
@@ -25,9 +25,13 @@ look - and `u` has to wrap somewhere (±180° yaw), leaving a visible **seam / m
 are properties of the chart, not formula bugs, so `patch` and `fill` replace the addressing with an
 **atlas of local charts plus a smooth partition of unity** instead of trying to patch equirect.
 
-- **`patch`** projects the ray onto the tangent plane at the anchor. A tangent plane covers one
-  hemisphere, so a pixel on or behind the decal horizon (`dot(dir, anchor) <= 0`) is **cleanly
-  discarded** - no sampler wrap, no edge-texel smear, no pole convergence. In-plane distortion is
+- **`patch`** projects the ray onto the tangent plane at the anchor and **bounds the decal to its
+  unit disc**: `tile_scale` is `tan(half the patch's angular size)`, so radius 1 in cell space is
+  the patch edge. The coverage fades to zero over `softness` (with a small floor) as it approaches
+  radius 1, and nothing is evaluated past radius 1, so the gnomonic `1/cos` stretch that grows
+  toward the tangent-plane horizon is **never seen** - the decal ends in a clean circular edge, not
+  the old hard straight cut at the horizon. A pixel exactly behind the decal horizon
+  (`dot(dir, anchor) <= 0`) is still discarded as a backstop. In-plane distortion is still
   `1/cos(angle from the anchor)` (~1.41 at 45°, ~2 at 60°), so keep `tile_scale <= 1.0` for clean
   decals.
 - **`fill`** tiles each of the three orthographic charts and blends them with a sharpened partition
@@ -42,6 +46,10 @@ are properties of the chart, not formula bugs, so `patch` and `fill` replace the
 A full skybox **cube** (six authored faces, not a tiling) is a separate future feature; `fill` is
 the whole-sky tiling mode today.
 
+The `patch` decal is a **flat sign**, not a whole-sky fill: it is one tangent plane projected onto
+the dome, so it does not follow the dome's curvature and its in-plane scale grows toward the rim.
+Use it for a figure or image at a spot; use `fill` for anything that must wrap the whole sky.
+
 ## Fields
 
 > Every screen effect also accepts **`screen_layer`** and the [shared definition fields](../index.md#shared-fields) (`duration`, `easing`, `loop`, `persistent`, `fade_ticks`, `sound`).
@@ -53,7 +61,7 @@ the whole-sky tiling mode today.
 | `anchor_yaw` | float | 0 | Dome yaw of the pattern centre, in degrees (yaw `0` = south, `90` = west, `±180` = north). Animatable. In `fill` mode it is a tiling **phase shift**, not a position |
 | `anchor_pitch` | float | 0 | Dome pitch of the pattern centre, in degrees (pitch `-90` = straight up, `0` = horizon, `90` = straight down). Animatable. In `fill` mode a tiling **phase shift** |
 | `dome_rotation` | float | 0 | Rotates the whole image about the world Y axis, in degrees, before it is projected (lock an image to the rotating star sphere). Animatable |
-| `tile_scale` | float | 1 | Size of one cell. In `patch` mode it is `tan(half the decal's angular size)` (0.50 ≈ 26.6°, 0.577 = 30°, 1.0 = 45°); in `fill` mode it is the tile half-size in units where 1.0 = 90° from the chart pole. Larger = bigger cell |
+| `tile_scale` | float | 1 | Size of one cell. In `patch` mode it is the patch's **angular half-size**, `tan(half angle)`: 0.27 ≈ 15°, 0.45 ≈ 24°, 0.577 = 30°, 1.0 = 45° (the decal is a **flat sign**, so keep it modest); in `fill` mode it is the tile half-size in units where 1.0 = 90° from the chart pole. Larger = bigger cell |
 | `line_width` | float | — | Numeric override of the structural `pattern.stroke_width` (cell units) |
 | `color_r` / `color_g` / `color_b` | float | 1 / 1 / 1 | Pattern colour |
 | `opacity` | float | 1 (fades to 0) | Overall strength |
@@ -88,8 +96,9 @@ samples the sprite's own sub-rect, a `standalone` source samples a resource-pack
 
 ## Examples
 
-Nine red dots in one spot - a `patch` decal with a `circle` figure and `repeat: [3, 3]` (the
-`repeat` tiles inside the one decal, so the nine dots stay together; no texture needed):
+Nine red dots in one small spot - a bounded `patch` decal (`tile_scale` ~0.3, a ~33° disc) with a
+`circle` figure and `repeat: [3, 3]` (the `repeat` tiles inside the one decal, so the dots stay
+together; no texture needed):
 
 ```json
 {
@@ -97,7 +106,7 @@ Nine red dots in one spot - a `patch` decal with a `circle` figure and `repeat: 
 	"duration": 120, "persistent": true, "fade_ticks": 20,
 	"params": {
 		"screen_layer": 0, "sky_mode": "patch", "anchor_pitch": -25.0,
-		"tile_scale": 0.9, "opacity": { "start": 0.0, "end": 1.0 },
+		"tile_scale": 0.3, "opacity": { "start": 0.0, "end": 1.0 },
 		"color_r": 1.0, "color_g": 0.0, "color_b": 0.0
 	},
 	"pattern": {
@@ -150,8 +159,10 @@ pixels are a layer-0 post pass, the beam is world geometry.
   untouched, so a `sky_pattern` can never tint terrain, the hand or the GUI. A pack that leaves no
   trustworthy far depth makes the gate never match - the effect no-ops (fail-closed), never a
   full-screen fill.
-- **`patch` limits.** Keep `tile_scale <= 1.0` for clean decals; past the decal horizon the pixel is
-  discarded (a hard edge at the tangent-plane horizon, which is the intended "decal ends here").
+- **`patch` limits.** Keep `tile_scale <= 1.0` for clean decals. The decal is a bounded disc: the
+  coverage fades to zero at its rim (over `softness`, min 0.05 cell units), so there is a soft
+  circular edge and the gnomonic rim stretch is never drawn; the raw horizon test remains only as a
+  hard backstop. It is a **flat sign**, so use `fill` for content that must cover the whole sky.
 - **`fill` limits.** The per-chart density varies by up to ~1.7x between a chart pole and a chart
   diagonal, and there are soft crossfade ribbons along the `|x|=|y|`, `|y|=|z|`, `|z|=|x|` great
   circles (roughly ±8°). For chaotic content such as cracks the ribbons read as slightly denser
@@ -184,7 +195,7 @@ A soft stroked ring at a spot in the sky (`patch`), gently animated. Its datapac
 	"params": {
 		"screen_layer": 0,
 		"sky_mode": "patch", "anchor_yaw": 0.0, "anchor_pitch": -30.0,
-		"tile_scale": { "keyframes": [ { "time": 0, "value": 0.55 }, { "time": 100, "value": 0.8 }, { "time": 200, "value": 0.55 } ] },
+		"tile_scale": { "keyframes": [ { "time": 0, "value": 0.4 }, { "time": 100, "value": 0.55 }, { "time": 200, "value": 0.4 } ] },
 		"color_r": 0.35, "color_g": 0.85, "color_b": 1.0,
 		"opacity": { "keyframes": [ { "time": 0, "value": 0.4 }, { "time": 100, "value": 0.9 }, { "time": 200, "value": 0.4 } ] },
 		"dome_rotation": { "keyframes": [ { "time": 0, "value": 0.0 }, { "time": 200, "value": 360.0, "easing": "linear" } ] }
@@ -204,14 +215,14 @@ A soft stroked ring at a spot in the sky (`patch`), gently animated. Its datapac
 /vfx play vfx_demos:show_sky_pattern_texture
 ```
 
-A vanilla block sprite tiled inside a `patch` decal:
+A vanilla block sprite tiled across the whole sky (`fill`):
 
 ```json
 {
 	"type": "sky_pattern",
 	"duration": 200, "easing": "linear", "persistent": true, "loop": true, "fade_ticks": 12,
 	"params": {
-		"screen_layer": 0, "sky_mode": "patch", "anchor_yaw": 0.0, "anchor_pitch": 0.0,
+		"screen_layer": 0, "sky_mode": "fill", "anchor_yaw": 0.0, "anchor_pitch": 0.0,
 		"tile_scale": { "keyframes": [ { "time": 0, "value": 0.7 }, { "time": 100, "value": 1.0 }, { "time": 200, "value": 0.7 } ] },
 		"opacity": 0.9, "distort": 0.0,
 		"rotation": { "keyframes": [ { "time": 0, "value": 0.0 }, { "time": 200, "value": 360.0, "easing": "linear" } ] }
