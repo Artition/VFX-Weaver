@@ -4,7 +4,7 @@
 
 `type: "light_beam"`
 
-A vertical glowing shaft of soft light descending onto each position. `top_scale` flares the top: 1 = cylinder, 2 = cone with twice the top radius. `softness` increases the number of concentric shells and fades their alpha: 0 = two hard tubes, higher = many thin, faint shells (a smooth blurred column).
+A glowing shaft of soft light emitted from each position along a direction (straight up by default). `top_scale` flares the top: 1 = cylinder, 2 = cone with twice the top radius. `softness` increases the number of concentric shells and fades their alpha: 0 = two hard tubes, higher = many thin, faint shells (a smooth blurred column).
 
 ## Fields
 
@@ -13,7 +13,8 @@ A vertical glowing shaft of soft light descending onto each position. `top_scale
 | Field | Type | Default | Meaning |
 |---|---|---|---|
 | `radius` | float | 1.5 | Beam radius in blocks (0.1..16) |
-| `height` | float | 48 | Column height upward from the anchor (1..256) |
+| `height` | float | 48 | Column length along the direction, from the anchor (1..256) |
+| `dir_x` / `dir_y` / `dir_z` | float | 0 / 1 / 0 | Beam direction, normalised (the default points straight up). A zero vector falls back to up |
 | `top_scale` | float | 1 | Top radius multiplier (0.1..8): 1 = cylinder, >1 = flared cone |
 | `softness` | float | 0.6 | More concentric shells with lower alpha (0 = crisp, 2..4 = soft blurry column) |
 | `top_fade` | float | 0.4 | Alpha at the top relative to the base (0..1) |
@@ -23,6 +24,17 @@ A vertical glowing shaft of soft light descending onto each position. `top_scale
 | `intensity` | float | 1 (fades to 0) | Beam opacity |
 
 ## Example
+
+The direction is an ordinary animatable param, so it can be keyframed, driven by an expression or
+bound. Binding it to the camera look aims the beam wherever the viewer is looking:
+
+```json
+"params": {
+	"dir_x": { "bind": "look_x" },
+	"dir_y": { "bind": "look_y" },
+	"dir_z": { "bind": "look_z" }
+}
+```
 
 ```json
 {

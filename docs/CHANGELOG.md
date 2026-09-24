@@ -16,6 +16,12 @@ change.
 
 ### Added
 
+- **`light_beam` can point in any direction.** Three new params, `dir_x`/`dir_y`/`dir_z` (defaults
+  `0`/`1`/`0`), replace the fixed vertical axis, so a beam can be aimed at an angle — e.g. from a
+  point on the sky. They are ordinary animatable params, so they can be keyframed, driven by an
+  expression or bound, including to the camera look (`{"bind": "look_x"}` etc.). With the defaults the
+  beam renders exactly as before. No shader, pipeline, UBO or wire change.
+
 - **Sky masks.** Two new mask leaves address the sky instead of the world: `sky` (the whole visible
   sky, no parameters) and a 2D shape (`circle`/`ellipse`/`rect`/`polygon`) in the new
   `space: "dome"`, which places it on an equirectangular map of the sky with the centre authored as

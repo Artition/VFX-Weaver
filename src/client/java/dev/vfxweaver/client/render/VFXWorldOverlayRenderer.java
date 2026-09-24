@@ -31,6 +31,7 @@ import dev.vfxweaver.client.platform.VFXClientRenderHooks;
 import dev.vfxweaver.effect.VFXActiveEffect;
 import dev.vfxweaver.effect.VFXEffectType;
 import dev.vfxweaver.effect.VFXSparkSpec;
+import dev.vfxweaver.util.VFXBeamBasis;
 import dev.vfxweaver.util.VFXLog;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -1287,6 +1288,10 @@ public final class VFXWorldOverlayRenderer {
 		float topScale = Mth.clamp(effect.getParam("top_scale", 1.0F), 0.1F, 8.0F);
 		float softness = Mth.clamp(effect.getParam("softness", 0.6F), 0.0F, 4.0F);
 		int rgb = rgb(effect.getParam("red", 1.0F), effect.getParam("green", 0.95F), effect.getParam("blue", 0.75F));
+		// Beam axis: a unit direction plus a perpendicular (right, up) basis, computed once per beam.
+		// The default (0, 1, 0) reproduces the shipped vertical geometry; dir_* are ordinary animatable
+		// params, so {"bind": "look_x/y/z"} aims the beam along the camera look with no extra plumbing.
+		float[] basis = VFXBeamBasis.of(effect.getParam("dir_x", 0.0F), effect.getParam("dir_y", 1.0F), effect.getParam("dir_z", 0.0F));
 
 		List<Vec3> positions = effectPositions(effect, level);
 		if (positions.isEmpty()) {
@@ -1303,16 +1308,15 @@ public final class VFXWorldOverlayRenderer {
 		sink.emit(poseStack, renderType, (pose, buffer) -> {
 			for (Vec3 vec : positions) {
 				float cx = (float) vec.x;
+				float cy = (float) vec.y;
 				float cz = (float) vec.z;
-				float y0 = (float) vec.y;
-				float y1 = y0 + height;
 				for (int i = 0; i < layers; i++) {
 					float t = i / (float) (layers - 1);              // 0 = core .. 1 = outer edge
 					float shellR = radius * (0.25F + 0.85F * t);     // core at 0.25r, outermost ~1.1r
 					// Cubic alpha falloff: the outer shells fade much faster than the core, so the
 					// column keeps a strong centre and dissolves at the edge.
 					float shellA = intensity * (1.0F - t * t * t);
-					emitConeShell(buffer, pose, cx, cz, y0, y1, shellR, shellR * topScale, 8, topFade, bottomFade, shellA, rgb);
+					emitConeShell(buffer, pose, cx, cy, cz, basis, height, shellR, shellR * topScale, 8, topFade, bottomFade, shellA, rgb);
 				}
 			}
 		});
@@ -1755,8 +1759,9 @@ public final class VFXWorldOverlayRenderer {
 	private static final int FADE_SLICES = 32;
 
 	/**
-	 * Emits one vertical cylinder/cone shell: {@code segments} quads around the anchor circle,
-	 * alpha fading toward the top ({@code topFade}) and bottom ({@code bottomFade}) of the shell.
+	 * Emits one cylinder/cone shell along an arbitrary axis: {@code segments} quads around the ring
+	 * perpendicular to {@code basis[0..2]}, alpha fading toward the top ({@code topFade}) and bottom
+	 * ({@code bottomFade}) of the shell.
 	 *
 	 * <p>When either fade is active the shell is split into {@link #FADE_SLICES} stacked slices,
 	 * and every slice quad carries ONE uniform colour (the fade value at its midpoint). Shaderpacks
@@ -1769,10 +1774,11 @@ public final class VFXWorldOverlayRenderer {
 	private static void emitConeShell(
 		final VertexConsumer buffer,
 		final PoseStack.Pose pose,
-		final float cx,
-		final float cz,
-		final float y0,
-		final float y1,
+		final float bx,
+		final float by,
+		final float bz,
+		final float[] basis,
+		final float height,
 		final float radiusBot,
 		final float radiusTop,
 		final int segments,
@@ -1781,6 +1787,18 @@ public final class VFXWorldOverlayRenderer {
 		final float alpha,
 		final int rgb
 	) {
+		// basis = { axis, right, up }, each a unit vector. The axis is pre-scaled to the shell height,
+		// so the axial position at u is base + axisHeight * u and the ring offset at angle a is
+		// (cos(a) * right + sin(a) * up).
+		final float axX = basis[0] * height;
+		final float axY = basis[1] * height;
+		final float axZ = basis[2] * height;
+		final float rx = basis[3];
+		final float ry = basis[4];
+		final float rz = basis[5];
+		final float ux = basis[6];
+		final float uy = basis[7];
+		final float uz = basis[8];
 		int slices = (topFade > 0.0F || bottomFade > 0.0F) ? FADE_SLICES : 1;
 		for (int i = 0; i < segments; i++) {
 			float a0 = (float) (i * 6.2831853 / segments);
@@ -1789,18 +1807,28 @@ public final class VFXWorldOverlayRenderer {
 			float sin0 = (float) Math.sin(a0);
 			float cos1 = (float) Math.cos(a1);
 			float sin1 = (float) Math.sin(a1);
+			float ox0 = cos0 * rx + sin0 * ux;
+			float oy0 = cos0 * ry + sin0 * uy;
+			float oz0 = cos0 * rz + sin0 * uz;
+			float ox1 = cos1 * rx + sin1 * ux;
+			float oy1 = cos1 * ry + sin1 * uy;
+			float oz1 = cos1 * rz + sin1 * uz;
 			float uPrev = 0.0F;
 			for (int j = 1; j <= slices; j++) {
 				float u = j / (float) slices;
 				int a = alpha255(fadeAlpha(alpha, topFade, bottomFade, (uPrev + u) * 0.5F));
 				float r0 = radiusBot + (radiusTop - radiusBot) * uPrev;
 				float r1 = radiusBot + (radiusTop - radiusBot) * u;
-				float y0s = y0 + (y1 - y0) * uPrev;
-				float y1s = y0 + (y1 - y0) * u;
-				glowVertexA(buffer, pose, cx + cos0 * r0, y0s, cz + sin0 * r0, a, rgb);
-				glowVertexA(buffer, pose, cx + cos1 * r0, y0s, cz + sin1 * r0, a, rgb);
-				glowVertexA(buffer, pose, cx + cos1 * r1, y1s, cz + sin1 * r1, a, rgb);
-				glowVertexA(buffer, pose, cx + cos0 * r1, y1s, cz + sin0 * r1, a, rgb);
+				float x0 = bx + axX * uPrev;
+				float y0 = by + axY * uPrev;
+				float z0 = bz + axZ * uPrev;
+				float x1 = bx + axX * u;
+				float y1 = by + axY * u;
+				float z1 = bz + axZ * u;
+				glowVertexA(buffer, pose, x0 + ox0 * r0, y0 + oy0 * r0, z0 + oz0 * r0, a, rgb);
+				glowVertexA(buffer, pose, x0 + ox1 * r0, y0 + oy1 * r0, z0 + oz1 * r0, a, rgb);
+				glowVertexA(buffer, pose, x1 + ox1 * r1, y1 + oy1 * r1, z1 + oz1 * r1, a, rgb);
+				glowVertexA(buffer, pose, x1 + ox0 * r1, y1 + oy0 * r1, z1 + oz0 * r1, a, rgb);
 				uPrev = u;
 			}
 		}
