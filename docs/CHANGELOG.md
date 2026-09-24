@@ -85,18 +85,19 @@ change.
 
 ### Changed
 
-- **`sky_pattern` gains a `sky_mode` projection and no longer funnels at the zenith.** The single
-  global equirectangular chart had two topological defects for whole-sky content: `u` is undefined at
-  the poles (the pattern winds into a funnel at the zenith) and `u` wraps at ±180° yaw (a visible
-  seam / mirror axis). `sky_mode` replaces the addressing with an atlas of local charts plus a smooth
-  partition of unity: **`patch`** (default) is one gnomonic decal at the anchor (no pole, no seam,
-  clean discard past the decal horizon), **`fill`** covers the whole sphere with three orthographic
-  charts blended by a sharpened partition of unity (no pole convergence, no seam anywhere; the
-  charts' coverage and colour are blended, never their UVs), and **`dome`** is the legacy equirect
-  path kept byte-for-byte (inherent pole funnel and north seam — not for new content). `sky_mode` is
-  appended last to the Config UBO, so no existing shader's layout changes; no datapack field was
-  renamed and `PROTOCOL_VERSION` is unchanged. The effect is not in any release yet, so the new
-  default (`patch`) breaks nothing. A full skybox **cube** remains a separate future feature.
+- **`sky_pattern` addresses the sky with `patch` or `fill` — the legacy equirectangular `dome` mode
+  was removed before release.** A single global chart of a sphere is topologically unable to tile it
+  cleanly: `u` is undefined at the poles (a whole-sky pattern winds into a funnel at the zenith) and
+  `u` must wrap at ±180° yaw (a mandatory visible seam / mirror axis) — properties of the chart, not
+  formula bugs, so no formula fixes them. The effect therefore offers only local-chart modes:
+  **`patch`** (default, `0`) is one gnomonic decal at the anchor (no pole, no seam, clean discard
+  past the decal horizon) and **`fill`** (`1`) covers the whole sphere with three orthographic charts
+  blended by a sharpened partition of unity (no pole convergence, no seam anywhere; the charts'
+  coverage and colour are blended, never their UVs). `"dome"` and any other unknown value are now a
+  per-file parse error naming the accepted values. `sky_mode` is appended last to the Config UBO, so
+  no existing shader's layout changes; no datapack field was renamed and `PROTOCOL_VERSION` is
+  unchanged. The effect is not in any release yet, so removing `dome` breaks nothing. A full skybox
+  **cube** remains a separate future feature.
 
 - **A custom mask leaf in `surface` mode no longer tints the sky.** The surface path classifies only
   what the depth buffer contains, so a sky pixel contributes no coverage. Built-in shapes already

@@ -252,9 +252,9 @@ public final class VFXShaderPrograms {
 			"shape_present", "tex_u0", "tex_v0", "tex_u1", "tex_v1", "tex_aspect",
 			"tex_cols", "tex_rows", "tex_frame", "tex_flags", "tex_channel", "texture_tint",
 			"tex_px_w", "tex_px_h",
-			// sky_mode (atlas fix): 0 = dome (legacy equirect), 1 = patch (gnomonic decal),
-			// 2 = fill (three orthographic charts). Appended last so no earlier std140 offset
-			// shifts; the manager resolver defaults it to patch (1).
+			// sky_mode: 0 = patch (gnomonic decal, the default), 1 = fill (three orthographic
+			// charts). Appended last so no earlier std140 offset shifts; the manager resolver
+			// defaults it to patch (0).
 			"sky_mode");
 
 		copyPipeline = RenderPipelines.register(

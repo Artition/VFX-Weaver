@@ -578,7 +578,7 @@ public class VFXDefinition {
 			if (primitive.isNumber()) {
 				return ParamSpec.constant(primitive.getAsFloat());
 			}
-			// sky_mode sugar: the three projection modes are authored by name (the documented
+			// sky_mode sugar: the two projection modes are authored by name (the documented
 			// datapack surface), mapped to the float the shader reads. Only sky_mode accepts a
 			// string; every other string param stays an error.
 			if (primitive.isString() && "sky_mode".equals(name)) {
@@ -615,16 +615,17 @@ public class VFXDefinition {
 	}
 
 	/**
-	 * The numeric code of a {@code sky_mode} string, the documented datapack surface: {@code dome}
-	 * = 0 (legacy equirectangular), {@code patch} = 1 (gnomonic decal), {@code fill} = 2 (three
-	 * orthographic charts). Case-insensitive; an unknown name is a per-file parse error.
+	 * The numeric code of a {@code sky_mode} string, the documented datapack surface: {@code patch}
+	 * = 0 (gnomonic decal, the default) and {@code fill} = 1 (three orthographic charts). There is
+	 * no equirectangular mode - a single global chart of a sphere has a pole singularity and a
+	 * mandatory seam, so the legacy {@code dome} mode was removed before release. Case-insensitive;
+	 * an unknown name is a per-file parse error naming the accepted values.
 	 */
 	private static float skyModeCode(final String mode) {
 		return switch (mode.toLowerCase(java.util.Locale.ROOT)) {
-			case "dome" -> 0.0F;
-			case "patch" -> 1.0F;
-			case "fill" -> 2.0F;
-			default -> throw new IllegalArgumentException("Unknown sky_mode '" + mode + "' (expected dome, patch or fill)");
+			case "patch" -> 0.0F;
+			case "fill" -> 1.0F;
+			default -> throw new IllegalArgumentException("Unknown sky_mode '" + mode + "' (expected patch or fill)");
 		};
 	}
 

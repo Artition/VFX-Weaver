@@ -1,29 +1,28 @@
 #version 330
 
-// sky_pattern (spec §3.1, §3.2, §4.1, stage S3; sky_mode atlas fix): a datapack figure/texture
-// painted on the sky dome. It is surface_pattern's sibling — same structural `pattern` block, same
-// shared shape library (shape.glsl) and texture addressing (texture.glsl) — but the projection
-// target is the dome instead of a depth-reconstructed world surface. The pixel's view ray is
-// reconstructed with vfx_view_dir (include/dome.glsl) and optionally spun about world Y by
-// `dome_rotation`; how that ray addresses the pattern is chosen by the `sky_mode` param:
+// sky_pattern (spec §3.1, §3.2, §4.1, stage S3): a datapack figure/texture painted on the sky
+// dome. It is surface_pattern's sibling — same structural `pattern` block, same shared shape
+// library (shape.glsl) and texture addressing (texture.glsl) — but the projection target is the
+// dome instead of a depth-reconstructed world surface. The pixel's view ray is reconstructed with
+// vfx_view_dir (include/dome.glsl) and optionally spun about world Y by `dome_rotation`; how that
+// ray addresses the pattern is chosen by the `sky_mode` param:
 //
-//   dome  (0) — legacy equirectangular: vfx_dome_uv maps the ray to one global chart. A single
-//               global chart cannot tile a sphere cleanly: u is undefined at the poles (tiling
-//               there has infinite frequency, so the pattern winds into a funnel at the zenith)
-//               and u must wrap at ±180° yaw (a visible seam / mirror axis). Kept for existing
-//               content; do not author new whole-sky content in it.
-//   patch (1) — a gnomonic (tangent-plane) decal at the authored anchor. The ray is projected
-//               onto the tangent plane at the anchor (vfx_dome_patch_cell); `tile_scale` is the
-//               cell scale on that plane. The decal is a flat sign with **no built-in clip**: it
-//               runs out to the tangent-plane horizon, where a pixel behind the decal
-//               (`facing <= 0`) is discarded as a hard backstop. A developer who needs a clean edge
-//               adds a mask; `fill` is what wraps the whole sky. This is the default: a figure at a
-//               spot (a flat sign, not a whole-sky wrap).
-//   fill  (2) — the whole sphere by three orthographic charts blended with a sharpened partition
-//               of unity (vfx_dome_fill_cells). No pole convergence and no seam anywhere; the
-//               charts' coverage and colour are blended (never their UVs — they are incomparable
-//               frames), and the colour is renormalised by the blended coverage so texture texels
-//               stay saturated inside the crossfade ribbons.
+//   patch (0) — a gnomonic (tangent-plane) decal at the authored anchor. The ray is projected onto
+//               the tangent plane at the anchor (vfx_dome_patch_cell); `tile_scale` is the cell
+//               scale on that plane. The decal is a flat sign with **no built-in clip**: it runs
+//               out to the tangent-plane horizon, where a pixel behind the decal (`facing <= 0`)
+//               is discarded as a hard backstop. A developer who needs a clean edge adds a mask;
+//               `fill` is what wraps the whole sky. This is the default: a figure at a spot (a flat
+//               sign, not a whole-sky wrap).
+//   fill  (1) — the whole sphere by three orthographic charts blended with a sharpened partition of
+//               unity (vfx_dome_fill_cells). No pole convergence and no seam anywhere; the charts'
+//               coverage and colour are blended (never their UVs — they are incomparable frames),
+//               and the colour is renormalised by the blended coverage so texture texels stay
+//               saturated inside the crossfade ribbons.
+//
+// There is no equirectangular mode: a single global chart of a sphere has a pole singularity and a
+// mandatory seam — topological, not fixable — so the legacy `dome` addressing was removed before
+// release. A true skybox cube (six authored faces) is a separate future feature.
 //
 // The whole pass is gated on VFX_DEPTH_IS_SKY, so it can only ever paint far-depth sky pixels: it
 // never touches geometry, the first-person hand or the GUI (spec §3.1). There is no geometry
@@ -98,8 +97,8 @@ layout(std140) uniform Config {
     // The sprite/texture pixel size, for the half-texel sheet inset (0.5 / pixels).
     float tex_px_w;
     float tex_px_h;
-    // Projection mode (sky_mode atlas fix): 0 = dome (legacy equirect), 1 = patch (gnomonic decal),
-    // 2 = fill (three orthographic charts). Appended last so no earlier std140 offset shifts.
+    // Projection mode: 0 = patch (gnomonic decal, the default), 1 = fill (three orthographic
+    // charts). Appended last so no earlier std140 offset shifts.
     float sky_mode;
 };
 
@@ -116,8 +115,7 @@ float vfx_pattern_tile_coverage(vec2 uv, float softness) {
 
 // The shared pattern evaluation for one cell: the shape coverage and the texture addressing, both
 // consumer-owned (see vfx_pattern_tile_coverage). Returns (bodyCoverage, patternRGB) so the caller
-// applies `opacity` once and, in fill mode, blends several charts before compositing. Behaviour is
-// identical to the pre-sky_mode inline code, so the legacy `dome` path is unchanged.
+// applies `opacity` once and, in fill mode, blends several charts before compositing.
 vec4 vfx_sky_pattern_eval(vec2 cell) {
     // The shared shape library owns every figure's SDF, the fill, the rotation and the repeat
     // modifier.
@@ -159,8 +157,8 @@ vec4 vfx_sky_pattern_eval(vec2 cell) {
     return vec4(bodyCoverage, patternRGB);
 }
 
-// The cheap sine warp on a cell coordinate (patch/fill modes; the legacy `dome` path applies it to
-// the dome UV instead, so its look is unchanged). Same shape as surface_pattern's distort.
+// The cheap sine warp on a cell coordinate (patch/fill modes). Same shape as surface_pattern's
+// distort.
 vec2 vfx_sky_pattern_distort(vec2 cell) {
     if (distort == 0.0) {
         return cell;
@@ -193,21 +191,6 @@ void main() {
     vec3 patternRGB;
 
     if (mode == 1) {
-        // patch: a gnomonic decal at the anchor. w <= 0 is on or behind the decal horizon, so the
-        // pixel is cleanly discarded (no wrap, no built-in clip). `facing > 1.0e-3` is the only
-        // bound: the decal runs out to the tangent-plane horizon. Add a mask for a clean edge.
-        vec3 anchor = vfx_dome_anchor_dir(anchor_yaw, anchor_pitch);
-        float facing;
-        vec2 cell = vfx_dome_patch_cell(spun, anchor, anchor_yaw, tile_scale, facing);
-        if (facing > 1.0e-3) {
-            vec4 r = vfx_sky_pattern_eval(vfx_sky_pattern_distort(cell));
-            bodyCoverage = r.x;
-            patternRGB = r.yzw;
-        } else {
-            bodyCoverage = 0.0;
-            patternRGB = vec3(color_r, color_g, color_b);
-        }
-    } else if (mode == 2) {
         // fill: three orthographic charts. Blend coverage and colour (never the UVs — they are
         // incomparable frames), and renormalise the colour by the blended coverage so texels stay
         // saturated inside the crossfade ribbons. The anchor is a tiling phase shift in cell units
@@ -225,23 +208,21 @@ void main() {
         patternRGB = (w3.x * rX.x * rX.yzw + w3.y * rY.x * rY.yzw + w3.z * rZ.x * rZ.yzw)
             / max(bodyCoverage, 1.0e-4);
     } else {
-        // dome: the legacy equirectangular path, unchanged. u wraps at the north seam and a shape
-        // near a pole is stretched in u — inherent to a single global chart (spec §9).
-        vec2 domeUv = vfx_dome_uv(spun);
-        // Anchor: the authored [yaw, pitch] degrees mapped into the same UV space as the projection
-        // (the mask dome-center convention).
-        vec2 anchorUv = vec2((anchor_yaw + 180.0) / 360.0, (anchor_pitch + 90.0) / 180.0);
-        vec2 p = domeUv;
-        if (distort != 0.0) {
-            // ponytail: cheap sine warp, same shape as surface_pattern's distort.
-            float phase = p.x + p.y;
-            p += distort * vec2(sin(phase * 0.7 + time * 0.05), cos(phase * 0.7 - time * 0.05));
+        // patch (mode 0, the default): a gnomonic decal at the anchor. w <= 0 is on or behind the
+        // decal horizon, so the pixel is cleanly discarded (no wrap, no built-in clip).
+        // `facing > 1.0e-3` is the only bound: the decal runs out to the tangent-plane horizon.
+        // Add a mask for a clean edge.
+        vec3 anchor = vfx_dome_anchor_dir(anchor_yaw, anchor_pitch);
+        float facing;
+        vec2 cell = vfx_dome_patch_cell(spun, anchor, anchor_yaw, tile_scale, facing);
+        if (facing > 1.0e-3) {
+            vec4 r = vfx_sky_pattern_eval(vfx_sky_pattern_distort(cell));
+            bodyCoverage = r.x;
+            patternRGB = r.yzw;
+        } else {
+            bodyCoverage = 0.0;
+            patternRGB = vec3(color_r, color_g, color_b);
         }
-        // Cell-local coordinate: centre on the anchor, scale to a `tile_scale` cell.
-        vec2 cell = (p - anchorUv) / max(tile_scale, 1.0e-4);
-        vec4 r = vfx_sky_pattern_eval(cell);
-        bodyCoverage = r.x;
-        patternRGB = r.yzw;
     }
 
     float coverage = clamp(bodyCoverage * clamp(opacity, 0.0, 1.0), 0.0, 1.0);

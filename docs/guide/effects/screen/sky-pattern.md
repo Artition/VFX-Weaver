@@ -74,22 +74,22 @@ shipped because they would be **Iris no-ops** and would need a mixin or a frame-
 So a `sky_pattern` **always sits over** the sun and the moon, and the vanilla star colour cannot be
 changed. That is a design decision, not a bug.
 
-## `sky_mode` - how the dome is addressed
+## `sky_mode` - how the sky is addressed
 
-How a pixel's view ray is turned into a pattern coordinate is chosen by the **`sky_mode`** field:
+How a pixel's view ray is turned into a pattern coordinate is chosen by the **`sky_mode`** field.
+There are two modes:
 
 | `sky_mode` | Projection | Use it for |
 |---|---|---|
 | `patch` **(default)** | One **gnomonic** (tangent-plane) decal at the authored anchor - a local chart, no built-in clip | A figure or image at one spot in the sky |
 | `fill` | The **whole sphere** by three orthographic charts blended with a sharpened partition of unity ("triplanar on a sphere") | Content that must cover the whole sky (cracks, a full-sky fill) |
-| `dome` | The original single **equirectangular** chart (legacy) | Existing content only - **do not author new content in it** |
 
-The first release projected through one global equirectangular chart (`dome`). A single chart cannot
-cover a sphere cleanly: `u` is undefined at the poles, so tiling there has infinite frequency and
-the pattern winds into a **funnel at the zenith** - the worst place, because that is where players
-look - and `u` has to wrap somewhere (±180° yaw), leaving a visible **seam / mirror axis**. Those
-are properties of the chart, not formula bugs, so `patch` and `fill` replace the addressing with an
-**atlas of local charts plus a smooth partition of unity** instead of trying to patch equirect.
+**There is no equirectangular mode.** A single global chart of a sphere is topologically unable to
+tile it cleanly: `u` is undefined at the poles, so tiling there has infinite frequency and a
+whole-sky pattern winds into a **funnel at the zenith** - the worst place, because that is where
+players look - and `u` has to wrap somewhere (±180° yaw), leaving a mandatory visible **seam /
+mirror axis**. Those are properties of the chart, not formula bugs, and no formula fixes them. The
+two modes therefore differ in *which local chart* addresses the ray; neither wraps a global chart.
 
 - **`patch`** projects the ray onto the tangent plane at the anchor and evaluates the figure on the
   resulting cell; `tile_scale` is the cell scale on that plane. The decal is a **flat sign** and has
@@ -104,8 +104,6 @@ are properties of the chart, not formula bugs, so `patch` and `fill` replace the
   **coverage and colour** are blended (never their UVs - they are incomparable frames), and the
   colour is renormalised by the blended coverage so texture texels stay saturated inside the
   crossfade ribbons. `repeat` tiling lives inside each chart.
-- **`dome`** is the legacy path, kept byte-for-byte so existing definitions render exactly as
-  before. It still has the inherent pole funnel and the north seam.
 
 A full skybox **cube** (six authored faces, not a tiling) is a separate future feature; `fill` is
 the whole-sky tiling mode today.
@@ -123,7 +121,7 @@ figure or image at a spot; use `fill` for anything that must wrap the whole sky.
 |---|---|---|---|
 | `screen_layer` | float | 0 | Must be `0` (at layer 1+ the depth buffer no longer covers the scene) |
 | `anchor` | string | _(absent)_ | Which vanilla sky body the effect follows: `sun`, `moon`, `stars`, or `dome`/absent for the literal anchor. Structural (not animatable); an unknown value is a parse error, and it is only valid on a `sky_pattern`. See [`anchor`](#anchor-follow-the-sun-the-moon-or-the-stars) |
-| `sky_mode` | string | `patch` | Projection: `patch` (gnomonic decal), `fill` (three-chart whole sphere) or `dome` (legacy equirect). Case-insensitive; an unknown value is a parse error. Set it explicitly |
+| `sky_mode` | string | `patch` | Projection: `patch` (gnomonic decal) or `fill` (three-chart whole sphere). Case-insensitive; an unknown value - including the removed `dome` - is a parse error naming the accepted values. Set it explicitly |
 | `anchor_yaw` | float | 0 | Dome yaw of the pattern centre, in degrees (yaw `0` = south, `90` = west, `±180` = north). Animatable. In `fill` mode it is a tiling **phase shift**, not a position |
 | `anchor_pitch` | float | 0 | Dome pitch of the pattern centre, in degrees (pitch `-90` = straight up, `0` = horizon, `90` = straight down). Animatable. In `fill` mode a tiling **phase shift** |
 | `dome_rotation` | float | 0 | Rotates the whole image about the world Y axis, in degrees, before it is projected. In `patch` mode it **moves** the decal along its latitude - use it to lock a decal to the rotating star sphere, never as idle decoration; the in-plane `rotation` spins the figure in place. Animatable |
@@ -131,17 +129,16 @@ figure or image at a spot; use `fill` for anything that must wrap the whole sky.
 | `line_width` | float | — | Numeric override of the structural `pattern.stroke_width` (cell units) |
 | `color_r` / `color_g` / `color_b` | float | 1 / 1 / 1 | Pattern colour |
 | `opacity` | float | 1 (fades to 0) | Overall strength |
-| `distort` | float | 0 | Sine warp of the pattern coordinate (`0` = off). In `patch`/`fill` it warps the cell coordinate; in `dome` it warps the dome UV, as before |
+| `distort` | float | 0 | Sine warp of the pattern coordinate (`0` = off) |
 | `rotation` | float | — | Numeric override of the structural `pattern.rotation`, in degrees; spins the figure and a texture together |
 | `frame` | float | 0 | Sprite-sheet frame index when `pattern.texture.sheet` is set (rounded, wrapped into `0..cols*rows-1`); literal, keyframe, `expr` or graph-driven |
 | `texture_tint` | float | 0 | `0` = draw the texture's own RGB; `1` = multiply it by `color_r/g/b`. `opacity` always scales coverage |
 
-In `patch` and `fill` modes the mapping is **world-fixed**. Animating `dome_rotation` spins the
-sampled direction before it is projected, so in `patch` mode it **carries the decal along its
-latitude** - around the sky (use it to lock a decal to the rotating star sphere, never as idle
-decoration); the in-plane `rotation` spins the figure in place. The anchor frame matches the local
-equirect axes (`u`+ = increasing yaw, `v`+ = increasing pitch), so a figure keeps the orientation it
-had in legacy mode.
+The mapping is **world-fixed**. Animating `dome_rotation` spins the sampled direction before it is
+projected, so in `patch` mode it **carries the decal along its latitude** - around the sky (use it to
+lock a decal to the rotating star sphere, never as idle decoration); the in-plane `rotation` spins
+the figure in place. The anchor frame follows the authoring convention (`u`+ = increasing yaw, `v`+ =
+increasing pitch).
 
 ## `pattern` (structural)
 
@@ -237,8 +234,9 @@ pixels are a layer-0 post pass, the beam is world geometry.
   diagonal, and there are soft crossfade ribbons along the `|x|=|y|`, `|y|=|z|`, `|z|=|x|` great
   circles (roughly ±8°). For chaotic content such as cracks the ribbons read as slightly denser
   cracks, not as a cut or a seam.
-- **`dome` is legacy.** It has an inherent pole funnel and a north seam; keep existing content on it,
-  but author new content in `patch` or `fill`.
+- **No equirectangular mode.** A single global chart of a sphere has a pole singularity and a
+  mandatory seam - topological, not fixable - so it is not offered. Use `patch` for a figure at a
+  spot and `fill` for the whole sky.
 - **No depth reconstruction, no normals.** Unlike `surface_pattern` there is no surface selection:
   `normal_mask`, a `surface` block and `fade_radius` do not apply. Restrict the region with a
   [mask](../../datapack/masks.md) (`space: "dome"` or the `sky` leaf) if needed.
@@ -248,7 +246,8 @@ pixels are a layer-0 post pass, the beam is world geometry.
   pixel texture stays crisp. The texture is re-resolved every frame, so `/reload` takes effect.
 - **Parse errors.** The same `pattern`/`pattern.texture` validation as `surface_pattern` (unknown
   key, bad `source`/`channel`/`aspect`/`sheet`, blank or invalid `id`/`atlas`), plus an unknown
-  `sky_mode` string and an unknown `anchor` value (or `anchor` on a non-`sky_pattern` type).
+  `sky_mode` string (naming the accepted `patch`/`fill`) and an unknown `anchor` value (or `anchor`
+  on a non-`sky_pattern` type).
 
 ## Code
 
@@ -365,5 +364,3 @@ The same ring on the **moon** (`anchor: "moon"`), and a whole-sky texture locked
 		"source": "block", "sheet": [4, 4], "channel": "luminance", "aspect": "preserve" } }
 }
 ```
-
-To see the old look again, change `sky_mode` to `"dome"` in any of these.

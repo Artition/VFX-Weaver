@@ -9,12 +9,13 @@
 # the Config order all agree, and runnably that a sky_pattern definition parses with its pattern,
 # texture and dome params.
 #
-# The sky_mode fix replaces the single equirectangular chart with an atlas of local charts plus a
-# smooth partition of unity: `dome` (legacy equirect, 0), `patch` (gnomonic decal, 1) and `fill`
-# (three orthographic charts, 2). sky_mode is appended LAST to the shader Config and the
+# sky_mode selects between two local-chart projections: `patch` (gnomonic decal, 0, the default)
+# and `fill` (three orthographic charts, 1). The legacy single-chart `dome` (equirectangular) mode
+# was removed before release. sky_mode is appended LAST to the shader Config and the
 # registerDepthPost list (a std140 positional append is safe for every existing offset) and needs a
-# resolver case; this check asserts that order, the three dome.glsl helpers, the mode branch and the
-# legacy equirect path all stay in place.
+# resolver case; this check asserts that order, the three dome.glsl helpers and the two mode
+# branches, and that the equirect path is gone from sky_pattern (include/dome.glsl's vfx_dome_uv
+# stays for the dome mask path, asserted below).
 #
 # No built-in clip: a `patch` is a flat sign on the tangent plane with no cell-radius bound - the
 # owner rejected the unit-disc clip (it visibly cut the figure); a developer who needs a clean edge
@@ -34,6 +35,7 @@ $programsPath = Join-Path $repoRoot "src\client\java\dev\vfxweaver\client\postpr
 $managerPath = Join-Path $repoRoot "src\client\java\dev\vfxweaver\client\postprocessing\VFXPostProcessingManager.java"
 $shaderPath = Join-Path $repoRoot "src\client\resources\assets\vfxweaver\shaders\post\sky_pattern.fsh"
 $domePath = Join-Path $repoRoot "src\client\resources\assets\vfxweaver\shaders\include\dome.glsl"
+$maskCoveragePath = Join-Path $repoRoot "src\client\resources\assets\vfxweaver\shaders\post\mask_coverage.fsh"
 $builtinPath = Join-Path $repoRoot "src\main\resources\data\vfxweaver\vfx\sky_pattern.json"
 
 function Read-Source([string]$path) { return [System.IO.File]::ReadAllText($path) }
@@ -89,42 +91,57 @@ foreach ($fn in @('vfx_dome_anchor_dir', 'vfx_dome_patch_cell', 'vfx_dome_fill_c
 		$problems.Add("include/dome.glsl does not expose the sky_mode chart helper '$fn'")
 	}
 }
+# include/dome.glsl's vfx_dome_uv stays: the dome MASK path (post/mask_coverage.fsh) still needs it,
+# even though the sky_pattern equirect branch is gone.
+if (-not (Test-Path -LiteralPath $maskCoveragePath)) {
+	$problems.Add("post/mask_coverage.fsh does not exist")
+} else {
+	$maskCoverage = Read-Source $maskCoveragePath
+	if ($maskCoverage -notmatch 'vfx_dome_uv\s*\(') {
+		$problems.Add("post/mask_coverage.fsh no longer calls vfx_dome_uv - the dome mask path needs it")
+	}
+}
 if ($shader -ne "") {
 	if ($shader -notmatch '#moj_import\s*<vfxweaver:dome\.glsl>') {
 		$problems.Add("post/sky_pattern.fsh does not import <vfxweaver:dome.glsl>")
 	}
-	if ($shader -notmatch 'vfx_view_dir\s*\(texCoord, inv_view_proj, cam_pos\.xyz\)') {
-		$problems.Add("post/sky_pattern.fsh does not reconstruct the view ray with vfx_view_dir(texCoord, inv_view_proj, cam_pos.xyz)")
-	}
-	if ($shader -notmatch 'vfx_dome_uv\s*\(') {
-		$problems.Add("post/sky_pattern.fsh does not map the view ray with vfx_dome_uv")
-	}
-	# The legacy equirect path must survive as the `dome` branch (the mode default before the fix).
-	if ($shader -notmatch 'vfx_dome_uv\s*\(\s*spun\s*\)') {
-		$problems.Add("post/sky_pattern.fsh lost the legacy equirect path (vfx_dome_uv(spun))")
-	}
-	if ($shader -notmatch 'dome_rotation') {
-		$problems.Add("post/sky_pattern.fsh has no dome_rotation handling")
-	}
-	# The shared pattern evaluation factored out of main, and the three mode branches.
-	if ($shader -notmatch 'vec4\s+vfx_sky_pattern_eval\s*\(') {
-		$problems.Add("post/sky_pattern.fsh does not factor the pattern into vfx_sky_pattern_eval(cell)")
-	}
-	foreach ($fn in @('vfx_dome_anchor_dir', 'vfx_dome_patch_cell', 'vfx_dome_fill_cells')) {
-		if ($shader -notmatch ([regex]::Escape($fn) + '\s*\(')) {
-			$problems.Add("post/sky_pattern.fsh does not use the sky_mode chart helper '$fn'")
+		if ($shader -notmatch 'vfx_view_dir\s*\(texCoord, inv_view_proj, cam_pos\.xyz\)') {
+			$problems.Add("post/sky_pattern.fsh does not reconstruct the view ray with vfx_view_dir(texCoord, inv_view_proj, cam_pos.xyz)")
 		}
-	}
-	if ($shader -notmatch 'int\s+mode\s*=\s*int\(sky_mode') {
-		$problems.Add("post/sky_pattern.fsh does not branch on the sky_mode param")
-	}
-	# Both local-chart modes must stay reachable (patch = gnomonic decal, fill = three charts).
-	if ($shader -notmatch 'if\s*\(\s*mode\s*==\s*1\s*\)') {
-		$problems.Add("post/sky_pattern.fsh has no patch (mode == 1) branch")
-	}
-	if ($shader -notmatch 'else\s+if\s*\(\s*mode\s*==\s*2\s*\)') {
-		$problems.Add("post/sky_pattern.fsh has no fill (mode == 2) branch")
-	}
+		# The legacy equirectangular mode is gone: sky_pattern must not address the dome with the
+		# single global chart (vfx_dome_uv) or carry its anchorUv computation.
+		if ($shader -match 'vfx_dome_uv') {
+			$problems.Add("post/sky_pattern.fsh still calls vfx_dome_uv - the legacy equirect (dome) mode must be removed")
+		}
+		if ($shader -match 'anchorUv') {
+			$problems.Add("post/sky_pattern.fsh still computes anchorUv - the legacy equirect (dome) mode must be removed")
+		}
+		if ($shader -match 'mode\s*==\s*2' -or $shader -match 'mode\s*==\s*0') {
+			$problems.Add("post/sky_pattern.fsh still has a three-way mode branch (the modes are patch = 0 default, fill = 1)")
+		}
+		if ($shader -notmatch 'dome_rotation') {
+			$problems.Add("post/sky_pattern.fsh has no dome_rotation handling")
+		}
+		# The shared pattern evaluation factored out of main, and the two mode branches.
+		if ($shader -notmatch 'vec4\s+vfx_sky_pattern_eval\s*\(') {
+			$problems.Add("post/sky_pattern.fsh does not factor the pattern into vfx_sky_pattern_eval(cell)")
+		}
+		foreach ($fn in @('vfx_dome_anchor_dir', 'vfx_dome_patch_cell', 'vfx_dome_fill_cells')) {
+			if ($shader -notmatch ([regex]::Escape($fn) + '\s*\(')) {
+				$problems.Add("post/sky_pattern.fsh does not use the sky_mode chart helper '$fn'")
+			}
+		}
+		if ($shader -notmatch 'int\s+mode\s*=\s*int\(sky_mode') {
+			$problems.Add("post/sky_pattern.fsh does not branch on the sky_mode param")
+		}
+		# Two modes: fill (mode == 1) and the default patch (the else branch, mode 0). fill must use
+		# the three-chart partition; patch must use the gnomonic decal.
+		if ($shader -notmatch 'if\s*\(\s*mode\s*==\s*1\s*\)') {
+			$problems.Add("post/sky_pattern.fsh has no fill (mode == 1) branch")
+		}
+		if ($shader -notmatch 'else\s*\{[^}]*vfx_dome_patch_cell') {
+			$problems.Add("post/sky_pattern.fsh has no default patch (else) branch using vfx_dome_patch_cell")
+		}
 	if ($shader -notmatch 'VFX_DEPTH_IS_SKY\s*\(sceneDepth\)') {
 		$problems.Add("post/sky_pattern.fsh does not gate on VFX_DEPTH_IS_SKY(sceneDepth)")
 	}
@@ -243,9 +260,9 @@ foreach ($name in @('anchor_yaw', 'anchor_pitch', 'dome_rotation', 'sky_mode')) 
 		$problems.Add("resolveDepthValue has no case for the sky_pattern param '$name'")
 	}
 }
-# The default is `patch` (1), the owner's call for the common decal case.
-if ($switchBody -notmatch 'case\s+"sky_mode"\s*->\s*effect\.getParam\("sky_mode",\s*1\.0F\)') {
-	$problems.Add('resolveDepthValue does not default sky_mode to patch (effect.getParam("sky_mode", 1.0F))')
+# The default is `patch` (0), the owner's call for the common decal case.
+if ($switchBody -notmatch 'case\s+"sky_mode"\s*->\s*effect\.getParam\("sky_mode",\s*0\.0F\)') {
+	$problems.Add('resolveDepthValue does not default sky_mode to patch (effect.getParam("sky_mode", 0.0F))')
 }
 
 # --- 5. the shipped built-in exists -----------------------------------------------------------------
@@ -409,7 +426,7 @@ public final class SkyPatternCheck {
 		require(builtin.getPattern() != null, "the built-in has no pattern block");
 		require(builtin.getPattern().texture() == null, "the built-in unexpectedly references a texture");
 		require(builtin.getParams().containsKey("sky_mode"), "the built-in does not set sky_mode explicitly");
-		require(builtin.getParam("sky_mode", -1.0F) == 1.0F, "the built-in sky_mode is not patch (1)");
+		require(builtin.getParam("sky_mode", -1.0F) == 0.0F, "the built-in sky_mode is not patch (0)");
 		require(builtin.getParam("tile_scale", -1.0F) > 0.0F && builtin.getParam("tile_scale", -1.0F) <= 0.6F,
 			"the built-in tile_scale is not a small patch (0 < tile_scale <= 0.6)");
 
@@ -419,11 +436,18 @@ public final class SkyPatternCheck {
 			+ "\"pattern\":{\"figure\":\"circle\",\"radius\":0.5,\"texture\":{\"id\":\"minecraft:block/stone\","
 			+ "\"source\":\"block\",\"channel\":\"alpha\",\"sheet\":[4,4],\"aspect\":\"preserve\"}}}";
 		final VFXDefinition textured = parse("vfx_demos", "check_sky_pattern", json);
-		require(textured.getParam("sky_mode", -1.0F) == 2.0F, "the sky_mode string 'fill' did not map to 2");
+		require(textured.getParam("sky_mode", -1.0F) == 1.0F, "the sky_mode string 'fill' did not map to 1");
 
-		final VFXDefinition dome = parse("vfx_demos", "check_sky_mode_dome",
-			"{\"type\":\"sky_pattern\",\"params\":{\"sky_mode\":\"dome\"}}");
-		require(dome.getParam("sky_mode", -1.0F) == 0.0F, "the sky_mode string 'dome' did not map to 0");
+		// The legacy `dome` mode is removed before release: it is now a per-file parse error naming
+		// the accepted values (patch / fill).
+		boolean badMode = false;
+		try {
+			parse("vfx_demos", "check_sky_mode_dome",
+				"{\"type\":\"sky_pattern\",\"params\":{\"sky_mode\":\"dome\"}}");
+		} catch (final IllegalArgumentException e) {
+			badMode = e.getMessage() != null && e.getMessage().contains("patch") && e.getMessage().contains("fill");
+		}
+		require(badMode, "the sky_mode string 'dome' is not a parse error naming patch/fill");
 		require(textured.getType() == VFXEffectType.SKY_PATTERN, "the textured type is not SKY_PATTERN");
 		require(textured.getPattern() != null && textured.getPattern().texture() != null, "the textured pattern lost its texture");
 		final VFXTexture texture = textured.getPattern().texture();
@@ -439,7 +463,7 @@ public final class SkyPatternCheck {
 		final VFXDefinition ring = parse("vfx_demos", "show_sky_pattern",
 			Files.readString(demos.resolve("show_sky_pattern.json")));
 		require(ring.getType() == VFXEffectType.SKY_PATTERN, "show_sky_pattern is not a sky_pattern");
-		require(ring.getParam("sky_mode", -1.0F) == 1.0F, "show_sky_pattern (the ring) is not a patch");
+		require(ring.getParam("sky_mode", -1.0F) == 0.0F, "show_sky_pattern (the ring) is not a patch");
 		require(maxTile(ring) <= 0.6F, "show_sky_pattern (the ring) tile_scale is not small (max > 0.6)");
 		// dome_rotation moves a patch decal along its latitude (around the sky) - the ring must not
 		// animate it, or it circles the player instead of staying put.
@@ -449,18 +473,18 @@ public final class SkyPatternCheck {
 
 		final VFXDefinition dots = parse("vfx_demos", "nine_red_pixels",
 			Files.readString(demos.resolve("nine_red_pixels.json")));
-		require(dots.getParam("sky_mode", -1.0F) == 1.0F, "nine_red_pixels is not a patch");
+		require(dots.getParam("sky_mode", -1.0F) == 0.0F, "nine_red_pixels is not a patch");
 		final float dotScale = dots.getParam("tile_scale", -1.0F);
 		require(dotScale >= 0.25F && dotScale <= 0.35F,
 			"nine_red_pixels tile_scale is not a small patch (0.25..0.35), got " + dotScale);
 
 		final VFXDefinition cracks = parse("vfx_demos", "sky_cracks",
 			Files.readString(demos.resolve("sky_cracks.json")));
-		require(cracks.getParam("sky_mode", -1.0F) == 2.0F, "sky_cracks is not a fill");
+		require(cracks.getParam("sky_mode", -1.0F) == 1.0F, "sky_cracks is not a fill");
 
 		final VFXDefinition textureDemo = parse("vfx_demos", "show_sky_pattern_texture",
 			Files.readString(demos.resolve("show_sky_pattern_texture.json")));
-		require(textureDemo.getParam("sky_mode", -1.0F) == 2.0F, "show_sky_pattern_texture is not a fill");
+		require(textureDemo.getParam("sky_mode", -1.0F) == 1.0F, "show_sky_pattern_texture is not a fill");
 		require(textureDemo.getPattern() != null && textureDemo.getPattern().texture() != null,
 			"show_sky_pattern_texture lost its texture");
 
@@ -501,15 +525,15 @@ public final class SkyPatternCheck {
 		final VFXDefinition demoSun = parse("vfx_demos", "sky_anchor_sun",
 			Files.readString(demos.resolve("sky_anchor_sun.json")));
 		require(demoSun.getAnchor() == CelestialAnchor.SUN, "sky_anchor_sun is not anchored to the sun");
-		require(demoSun.getParam("sky_mode", -1.0F) == 1.0F, "sky_anchor_sun is not a patch");
+		require(demoSun.getParam("sky_mode", -1.0F) == 0.0F, "sky_anchor_sun is not a patch");
 		final VFXDefinition demoMoon = parse("vfx_demos", "sky_anchor_moon",
 			Files.readString(demos.resolve("sky_anchor_moon.json")));
 		require(demoMoon.getAnchor() == CelestialAnchor.MOON, "sky_anchor_moon is not anchored to the moon");
-		require(demoMoon.getParam("sky_mode", -1.0F) == 1.0F, "sky_anchor_moon is not a patch");
+		require(demoMoon.getParam("sky_mode", -1.0F) == 0.0F, "sky_anchor_moon is not a patch");
 		final VFXDefinition demoStars = parse("vfx_demos", "sky_anchor_stars",
 			Files.readString(demos.resolve("sky_anchor_stars.json")));
 		require(demoStars.getAnchor() == CelestialAnchor.STARS, "sky_anchor_stars is not anchored to the stars");
-		require(demoStars.getParam("sky_mode", -1.0F) == 2.0F, "sky_anchor_stars is not a fill");
+		require(demoStars.getParam("sky_mode", -1.0F) == 1.0F, "sky_anchor_stars is not a fill");
 
 		// --- S4: the angle -> [yaw, pitch] maths, runnable and MC-free ------------------------------
 		// Known directions in the authoring convention (yaw 0 = +Z south, 90 = -X west; pitch -90 = up).

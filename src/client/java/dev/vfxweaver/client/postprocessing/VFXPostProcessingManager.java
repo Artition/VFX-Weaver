@@ -1550,9 +1550,10 @@ public final class VFXPostProcessingManager {
 				case "anchor_yaw" -> effect.getParam("anchor_yaw", 0.0F);
 				case "anchor_pitch" -> effect.getParam("anchor_pitch", 0.0F);
 				case "dome_rotation" -> effect.getParam("dome_rotation", 0.0F);
-				// sky_mode (atlas fix): 0 = dome (legacy equirect), 1 = patch, 2 = fill. Default
-				// patch (1), the least surprising for the common case (a figure at a spot).
-				case "sky_mode" -> effect.getParam("sky_mode", 1.0F);
+				// sky_mode: 0 = patch (gnomonic decal, the default), 1 = fill (three orthographic
+				// charts). Default patch (0), the least surprising for the common case (a figure at
+				// a spot).
+				case "sky_mode" -> effect.getParam("sky_mode", 0.0F);
 				case "tile_scale" -> effect.getParam("tile_scale", 0.0F);
 				case "color_r" -> effect.getParam("color_r", 0.0F);
 				case "color_g" -> effect.getParam("color_g", 0.0F);
