@@ -253,6 +253,81 @@ if (-not (Test-Path -LiteralPath $builtinPath)) {
 	$problems.Add("data/vfxweaver/vfx/sky_pattern.json (the stable built-in) does not exist")
 }
 
+# --- 7. S4 celestial anchors: enum + parse + CPU resolver + fail-closed (spec §4.4 / §6.1-6.2) -----
+# A top-level `anchor` ("dome" default | "sun" | "moon" | "stars") makes the effect follow the
+# vanilla sky body. The pass is unchanged - the CPU resolves the body's [yaw, pitch] (and, for
+# `stars`, `dome_rotation`) from the client's SkyRenderState and writes the SAME uniforms, so no
+# shader and no mixin are added (this is what keeps it Iris-safe: a post pass composes over the
+# pack's sky). When the sky state is unavailable the effect must contribute NOTHING (opacity 0)
+# rather than paint at a guessed spot, reported once through VFXLog.warnOnce.
+$anchorEnumPath = Join-Path $repoRoot "src\main\java\dev\vfxweaver\effect\CelestialAnchor.java"
+$skyAnchorPath = Join-Path $repoRoot "src\main\java\dev\vfxweaver\util\VFXSkyAnchor.java"
+$bindingsPath = Join-Path $repoRoot "src\main\java\dev\vfxweaver\effect\VFXWorldBindings.java"
+$mixinPath = Join-Path $repoRoot "src\client\java\dev\vfxweaver\client\mixin\GameRendererMixin.java"
+$hooksPath = Join-Path $repoRoot "src\client\java\dev\vfxweaver\client\platform\VFXClientRenderHooks.java"
+$definitionPath = Join-Path $repoRoot "src\main\java\dev\vfxweaver\effect\VFXDefinition.java"
+$definitionSrc = Read-Source $definitionPath
+$bindingsSrc = Read-Source $bindingsPath
+
+if (-not (Test-Path -LiteralPath $anchorEnumPath)) {
+	$problems.Add("CelestialAnchor.java (the sun/moon/stars anchor enum) does not exist")
+} else {
+	$anchorEnum = Read-Source $anchorEnumPath
+	foreach ($value in @('SUN("sun")', 'MOON("moon")', 'STARS("stars")', 'DOME("dome")')) {
+		if (-not $anchorEnum.Contains($value)) { $problems.Add("CelestialAnchor does not declare the value $value") }
+	}
+	if ($anchorEnum -notmatch 'fromString') { $problems.Add("CelestialAnchor has no fromString resolver") }
+	if ($anchorEnum -notmatch 'dome, sun, moon or stars') { $problems.Add("CelestialAnchor's unknown-value error does not name the accepted values (dome, sun, moon or stars)") }
+	if ($anchorEnum -notmatch 'isCelestial') { $problems.Add("CelestialAnchor has no isCelestial() predicate") }
+}
+if (-not (Test-Path -LiteralPath $skyAnchorPath)) {
+	$problems.Add("util/VFXSkyAnchor.java (the MC-free angle -> [yaw, pitch] helper) does not exist")
+} else {
+	$skyAnchorSrc = Read-Source $skyAnchorPath
+	foreach ($fn in @('yawPitch', 'bodyAnchor', 'starRotationDegrees')) {
+		if ($skyAnchorSrc -notmatch ([regex]::Escape($fn) + '\s*\(')) { $problems.Add("VFXSkyAnchor does not expose '$fn'") }
+	}
+}
+# parse: the top-level `anchor` field is accepted (and rejected on a non-sky type)
+if ($definitionSrc -notmatch 'json\.has\("anchor"\)') { $problems.Add("VFXDefinition.parse does not read the top-level 'anchor' field") }
+if ($definitionSrc -notmatch 'CelestialAnchor\.fromString') { $problems.Add("VFXDefinition.parse does not resolve 'anchor' through CelestialAnchor.fromString") }
+if ($definitionSrc -notmatch 'only supported by sky_pattern') { $problems.Add("VFXDefinition.parse does not reject 'anchor' on a non-sky_pattern type") }
+if ($definitionSrc -notmatch 'getAnchor') { $problems.Add("VFXDefinition has no getAnchor() accessor") }
+# state: the per-frame sky-angle snapshot the client publishes
+if ($bindingsSrc -notmatch 'updateSkyState') { $problems.Add("VFXWorldBindings has no updateSkyState(...) snapshot") }
+if ($bindingsSrc -notmatch 'skyReady') { $problems.Add("VFXWorldBindings has no skyReady() readiness flag") }
+foreach ($fn in @('skySunAngle', 'skyMoonAngle', 'skyStarAngle')) {
+	if ($bindingsSrc -notmatch [regex]::Escape($fn)) { $problems.Add("VFXWorldBindings does not expose $fn()") }
+}
+# resolver: the celestial anchor drives the EXISTING uniforms, from the sky state
+if ($manager -notmatch 'VFXSkyAnchor\.bodyAnchor\(') { $problems.Add("resolveDepthValue does not write anchor_yaw/anchor_pitch from VFXSkyAnchor.bodyAnchor") }
+if ($manager -notmatch '"anchor_yaw"\s*->\s*yp\[0\]') { $problems.Add("resolveDepthValue does not map a sun/moon anchor's yaw into the anchor_yaw uniform") }
+if ($manager -notmatch '"anchor_pitch"\s*->\s*yp\[1\]') { $problems.Add("resolveDepthValue does not map a sun/moon anchor's pitch into the anchor_pitch uniform") }
+if ($manager -notmatch 'VFXSkyAnchor\.starRotationDegrees\(') { $problems.Add("resolveDepthValue does not drive dome_rotation from VFXSkyAnchor.starRotationDegrees for a stars anchor") }
+# fail-closed: not-ready sky -> no contribution, warned once
+if ($manager -notmatch 'skyReady\(\)') { $problems.Add("VFXPostProcessingManager does not consult skyReady() (the fail-closed path)") }
+if ($manager -notmatch 'VFXLog\.warnOnce\(LOGGER, "celestial') { $problems.Add("VFXPostProcessingManager has no warnOnce report for a non-ready celestial anchor") }
+# per-node sky state: the public render-state chain on >=26.1, the render-context accessor on <26.1
+if (-not (Test-Path -LiteralPath $mixinPath)) {
+	$problems.Add("GameRendererMixin.java is missing")
+} else {
+	$mixinSrc = Read-Source $mixinPath
+	if ($mixinSrc -notmatch 'getGameRenderState\(\)') { $problems.Add("GameRendererMixin does not read getGameRenderState() (the 26.1.2 sky state)") }
+	if ($mixinSrc -notmatch 'gameRenderState\(\)') { $problems.Add("GameRendererMixin does not read gameRenderState() (the 26.2 sky state)") }
+	if ($mixinSrc -notmatch 'SkyRenderState') { $problems.Add("GameRendererMixin does not read SkyRenderState") }
+	if ($mixinSrc -notmatch 'updateSkyState') { $problems.Add("GameRendererMixin does not publish the sky state to VFXWorldBindings") }
+}
+if (-not (Test-Path -LiteralPath $hooksPath)) {
+	$problems.Add("VFXClientRenderHooks.java is missing")
+} else {
+	$hooksSrc = Read-Source $hooksPath
+	if ($hooksSrc -notmatch 'worldState\(\)\.skyRenderState') { $problems.Add("VFXClientRenderHooks (Fabric <26.1) does not read context.worldState().skyRenderState") }
+	if ($hooksSrc -notmatch 'getLevelRenderState\(\)\.skyRenderState') { $problems.Add("VFXClientRenderHooks (NeoForge <26.1) does not read event.getLevelRenderState().skyRenderState") }
+}
+# the pass must stay shader-free: no new Config field for the anchor (the CPU reuses the three
+# existing uniforms). The Config float count and the sky_pattern.fsh tail are asserted above.
+if ($shaderNames -contains 'anchor_present') { $problems.Add("post/sky_pattern.fsh gained an S4 Config field; the anchor is resolved on the CPU and must reuse anchor_yaw/anchor_pitch/dome_rotation only") }
+
 Write-Host "sky_pattern check (static)"
 if ($problems.Count -gt 0) {
 	$problems | ForEach-Object { Write-Host "  - $_" }
@@ -315,10 +390,12 @@ if (-not $demoDir) {
 
 $checkJava = @'
 import com.google.gson.JsonParser;
+import dev.vfxweaver.effect.CelestialAnchor;
 import dev.vfxweaver.effect.Keyframe;
 import dev.vfxweaver.effect.VFXDefinition;
 import dev.vfxweaver.effect.VFXEffectType;
 import dev.vfxweaver.field.VFXTexture;
+import dev.vfxweaver.util.VFXSkyAnchor;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import net.minecraft.resources.Identifier;
@@ -387,7 +464,116 @@ public final class SkyPatternCheck {
 		require(textureDemo.getPattern() != null && textureDemo.getPattern().texture() != null,
 			"show_sky_pattern_texture lost its texture");
 
-		System.out.println("sky_pattern check OK: built-in + demos parse; no patch clip, demo sky_mode + ring spin asserted");
+		// --- S4: the `anchor` field, one definition per value, and a bad value is a parse error -----
+		require(parse("vfx_demos", "a_sun", "{\"type\":\"sky_pattern\",\"anchor\":\"sun\"}").getAnchor() == CelestialAnchor.SUN,
+			"anchor 'sun' did not resolve to CelestialAnchor.SUN");
+		require(parse("vfx_demos", "a_moon", "{\"type\":\"sky_pattern\",\"anchor\":\"moon\"}").getAnchor() == CelestialAnchor.MOON,
+			"anchor 'moon' did not resolve to CelestialAnchor.MOON");
+		require(parse("vfx_demos", "a_stars", "{\"type\":\"sky_pattern\",\"anchor\":\"stars\"}").getAnchor() == CelestialAnchor.STARS,
+			"anchor 'stars' did not resolve to CelestialAnchor.STARS");
+		require(parse("vfx_demos", "a_dome", "{\"type\":\"sky_pattern\",\"anchor\":\"dome\"}").getAnchor() == CelestialAnchor.DOME,
+			"anchor 'dome' did not resolve to CelestialAnchor.DOME");
+		final CelestialAnchor absent = parse("vfx_demos", "a_dome2", "{\"type\":\"sky_pattern\"}").getAnchor();
+		require(absent == null || !absent.isCelestial(),
+			"an absent anchor is not the world-fixed default (null / DOME)");
+		require(builtin.getAnchor() == null || !builtin.getAnchor().isCelestial(),
+			"the built-in unexpectedly carries a celestial anchor");
+
+		boolean badAnchor = false;
+		try {
+			parse("vfx_demos", "a_bad", "{\"type\":\"sky_pattern\",\"anchor\":\"pluto\"}");
+		} catch (final IllegalArgumentException e) {
+			// The per-file parse error must name the accepted values, so a typo is actionable.
+			badAnchor = e.getMessage() != null && e.getMessage().contains("sun")
+				&& e.getMessage().contains("moon") && e.getMessage().contains("stars");
+		}
+		require(badAnchor, "an unknown anchor value is not a parse error naming sun/moon/stars");
+
+		boolean anchorOnWrongType = false;
+		try {
+			parse("vfx_demos", "a_wrong", "{\"type\":\"color_grade\",\"anchor\":\"sun\"}");
+		} catch (final IllegalArgumentException e) {
+			anchorOnWrongType = true;
+		}
+		require(anchorOnWrongType, "'anchor' on a non-sky_pattern type is not a parse error");
+
+		// --- S4: the demo pack carries one definition per anchor value ------------------------------
+		final VFXDefinition demoSun = parse("vfx_demos", "sky_anchor_sun",
+			Files.readString(demos.resolve("sky_anchor_sun.json")));
+		require(demoSun.getAnchor() == CelestialAnchor.SUN, "sky_anchor_sun is not anchored to the sun");
+		require(demoSun.getParam("sky_mode", -1.0F) == 1.0F, "sky_anchor_sun is not a patch");
+		final VFXDefinition demoMoon = parse("vfx_demos", "sky_anchor_moon",
+			Files.readString(demos.resolve("sky_anchor_moon.json")));
+		require(demoMoon.getAnchor() == CelestialAnchor.MOON, "sky_anchor_moon is not anchored to the moon");
+		require(demoMoon.getParam("sky_mode", -1.0F) == 1.0F, "sky_anchor_moon is not a patch");
+		final VFXDefinition demoStars = parse("vfx_demos", "sky_anchor_stars",
+			Files.readString(demos.resolve("sky_anchor_stars.json")));
+		require(demoStars.getAnchor() == CelestialAnchor.STARS, "sky_anchor_stars is not anchored to the stars");
+		require(demoStars.getParam("sky_mode", -1.0F) == 2.0F, "sky_anchor_stars is not a fill");
+
+		// --- S4: the angle -> [yaw, pitch] maths, runnable and MC-free ------------------------------
+		// Known directions in the authoring convention (yaw 0 = +Z south, 90 = -X west; pitch -90 = up).
+		assertYawPitch(0.0F, 0.0F, 1.0F, 0.0F, 0.0F, "due south at the horizon");
+		near(VFXSkyAnchor.yawPitch(0.0F, 1.0F, 0.0F)[1], -90.0F, "the zenith pitch");
+		assertYawPitch(-1.0F, 0.0F, 0.0F, 90.0F, 0.0F, "due west");
+		// Round-trip: anchor_dir(yawPitch(d)) must reproduce the direction the shader's
+		// vfx_dome_anchor_dir builds, for the fixed and for a tilted direction alike.
+		roundTrip(0.0F, 0.0F, 1.0F);
+		roundTrip(0.0F, 1.0F, 0.0F);
+		roundTrip(-1.0F, 0.0F, 0.0F);
+		roundTrip(0.3F, 0.5F, -0.8F);
+		// The sun/moon body direction from the celestial angle (radians) is (-sin, cos, 0): at angle
+		// 0 the body is at the zenith, at -pi/2 it is due east, at +pi/2 due west.
+		final float[] zenith = VFXSkyAnchor.bodyAnchor(0.0F);
+		near(zenith[1], -90.0F, "the angle-0 body is not at the zenith");
+		final float[] east = VFXSkyAnchor.bodyAnchor(-(float) (Math.PI / 2.0));
+		near(east[0], -90.0F, "the -pi/2 body is not due east");
+		near(east[1], 0.0F, "the -pi/2 body is not on the horizon");
+		final float[] west = VFXSkyAnchor.bodyAnchor((float) (Math.PI / 2.0));
+		near(west[0], 90.0F, "the +pi/2 body is not due west");
+		// Tilted body position: still round-trips to the (-sin, cos, 0) direction.
+		final float tilt = 0.7F;
+		final float[] tilted = VFXSkyAnchor.bodyAnchor(tilt);
+		final float[] tiltedDir = anchorDir(tilted[0], tilted[1]);
+		near(tiltedDir[0], -(float) Math.sin(tilt), "tilted body dir x");
+		near(tiltedDir[1], (float) Math.cos(tilt), "tilted body dir y");
+		near(tiltedDir[2], 0.0F, "tilted body dir z");
+		// The star-angle -> dome_rotation mapping is a documented offset: the raw angle in degrees.
+		near(VFXSkyAnchor.starRotationDegrees((float) (Math.PI / 2.0)), 90.0F, "star rotation at pi/2");
+		near(VFXSkyAnchor.starRotationDegrees(0.0F), 0.0F, "star rotation at 0");
+
+		System.out.println("sky_pattern check OK: built-in + demos parse; no patch clip, demo sky_mode + ring spin asserted; celestial anchors + angle maths asserted");
+	}
+
+	/** near-assert for a yaw/pitch pair against the known convention. */
+	private static void assertYawPitch(final float dx, final float dy, final float dz, final float yaw, final float pitch, final String what) {
+		final float[] yp = VFXSkyAnchor.yawPitch(dx, dy, dz);
+		near(yp[0], yaw, what + " yaw");
+		near(yp[1], pitch, what + " pitch");
+	}
+
+	/** Assert anchor_dir(yawPitch(d)) == normalize(d), the exact convention vfx_dome_anchor_dir uses. */
+	private static void roundTrip(final float dx, final float dy, final float dz) {
+		final float[] yp = VFXSkyAnchor.yawPitch(dx, dy, dz);
+		final float[] back = anchorDir(yp[0], yp[1]);
+		final float len = (float) Math.sqrt(dx * dx + dy * dy + dz * dz);
+		near(back[0], dx / len, "round-trip x of (" + dx + "," + dy + "," + dz + ")");
+		near(back[1], dy / len, "round-trip y of (" + dx + "," + dy + "," + dz + ")");
+		near(back[2], dz / len, "round-trip z of (" + dx + "," + dy + "," + dz + ")");
+	}
+
+	/** The Java mirror of include/dome.glsl's vfx_dome_anchor_dir. */
+	private static float[] anchorDir(final float yawDeg, final float pitchDeg) {
+		final double y = Math.toRadians(yawDeg);
+		final double p = Math.toRadians(pitchDeg);
+		final double cp = Math.cos(p);
+		return new float[]{(float) (-Math.sin(y) * cp), (float) (-Math.sin(p)), (float) (Math.cos(y) * cp)};
+	}
+
+	private static void near(final float actual, final float want, final String what) {
+		if (Math.abs(actual - want) > 1.0e-4F) {
+			throw new AssertionError(what + " = " + actual + ", want " + want);
+		}
 	}
 
 	/** The largest `tile_scale` value a definition reaches (a constant, or the top of its keyframes). */

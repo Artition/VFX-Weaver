@@ -27,6 +27,11 @@ public final class VFXWorldBindings {
 	private static final Vector4f PROJECTION_SCRATCH = new Vector4f();
 	private static volatile @Nullable Frame frame;
 	private static volatile @Nullable PlayerState playerState;
+	/** The vanilla sky-body angles published for the current frame (celestial anchors, stage S4). */
+	private static volatile boolean skyReady;
+	private static volatile float skySunAngle;
+	private static volatile float skyMoonAngle;
+	private static volatile float skyStarAngle;
 	private static volatile @Nullable ScoreboardReader scoreboardReader;
 	private static volatile @Nullable EntityReader entityReader;
 	private static float lastYaw;
@@ -265,6 +270,7 @@ public final class VFXWorldBindings {
 	public static void clear() {
 		frame = null;
 		playerState = null;
+		skyReady = false;
 		lastYaw = 0.0F;
 		lastPitch = 0.0F;
 		smoothedYawDelta = 0.0F;
@@ -337,6 +343,44 @@ public final class VFXWorldBindings {
 	 */
 	public static @Nullable PlayerState playerState() {
 		return playerState;
+	}
+
+	/**
+	 * Publishes the vanilla sky-body angles for the current frame (client only). {@code ready} is
+	 * false when the render state exposes no overworld sky this frame (no level, the End, or a
+	 * dimension without a sky), so a celestial anchor fails closed instead of painting at a
+	 * stale/guessed angle.
+	 *
+	 * @param sunAngle  {@code SkyRenderState.sunAngle} (radians)
+	 * @param moonAngle {@code SkyRenderState.moonAngle} (radians)
+	 * @param starAngle {@code SkyRenderState.starAngle} (radians)
+	 * @param ready     true when the angles describe a live overworld sky
+	 */
+	public static void updateSkyState(final float sunAngle, final float moonAngle, final float starAngle, final boolean ready) {
+		skySunAngle = sunAngle;
+		skyMoonAngle = moonAngle;
+		skyStarAngle = starAngle;
+		skyReady = ready;
+	}
+
+	/** True when the sky angles published this frame describe a live overworld sky. */
+	public static boolean skyReady() {
+		return skyReady;
+	}
+
+	/** The sun angle (radians) published this frame. */
+	public static float skySunAngle() {
+		return skySunAngle;
+	}
+
+	/** The moon angle (radians) published this frame. */
+	public static float skyMoonAngle() {
+		return skyMoonAngle;
+	}
+
+	/** The star angle (radians) published this frame. */
+	public static float skyStarAngle() {
+		return skyStarAngle;
 	}
 
 	/**

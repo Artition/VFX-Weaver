@@ -53,6 +53,7 @@ public class VFXDefinition {
 	private final @Nullable VFXMask mask;
 	private final @Nullable VFXShape pattern;
 	private final @Nullable VFXSurfaceSelection surface;
+	private final @Nullable CelestialAnchor anchor;
 
 	private VFXDefinition(
 		final Identifier id,
@@ -77,7 +78,8 @@ public class VFXDefinition {
 		final Map<String, VFXField> fields,
 		final @Nullable VFXMask mask,
 		final @Nullable VFXShape pattern,
-		final @Nullable VFXSurfaceSelection surface
+		final @Nullable VFXSurfaceSelection surface,
+		final @Nullable CelestialAnchor anchor
 	) {
 		this.id = id;
 		this.type = type;
@@ -102,6 +104,7 @@ public class VFXDefinition {
 		this.mask = mask;
 		this.pattern = pattern;
 		this.surface = surface;
+		this.anchor = anchor;
 	}
 
 	/**
@@ -170,7 +173,7 @@ public class VFXDefinition {
 		final @Nullable Identifier sound,
 		final @Nullable String entitySelector
 	) {
-		return new VFXDefinition(id, type, defaultDuration, defaultEasing, params, persistent, loop, fadeTicks, children, positions, List.of(), sound, entitySelector, null, null, null, null, null, Map.of(), Map.of(), null, null, null);
+		return new VFXDefinition(id, type, defaultDuration, defaultEasing, params, persistent, loop, fadeTicks, children, positions, List.of(), sound, entitySelector, null, null, null, null, null, Map.of(), Map.of(), null, null, null, null);
 	}
 
 	/**
@@ -348,6 +351,18 @@ public class VFXDefinition {
 			? VFXSurfaceSelection.parse(GsonHelper.getAsJsonObject(json, "surface"))
 			: null;
 
+		// Optional celestial anchor (spec §4.4, stage S4). A structural top-level string enum, like
+		// `pattern`/`surface`: only `sky_pattern` understands it and an absent field is today's
+		// literal anchor_yaw/anchor_pitch. The CPU resolves the body angle at render time, so this
+		// stays invisible to an older mod and adds no field to the pass's UBO.
+		CelestialAnchor anchor = null;
+		if (json.has("anchor") && !json.get("anchor").isJsonNull()) {
+			if (type != VFXEffectType.SKY_PATTERN) {
+				throw new IllegalArgumentException("'anchor' is only supported by sky_pattern (got " + type.getName() + ")");
+			}
+			anchor = CelestialAnchor.fromString(GsonHelper.getAsString(json, "anchor"));
+		}
+
 		// A surface_pattern is anchored at a world point, never at a live entity: resolveAnchor
 		// deliberately skips entity-anchored position slots, which would silently fall back to the
 		// player. Reject the combination instead of rendering at the wrong place.
@@ -355,7 +370,7 @@ public class VFXDefinition {
 			throw new IllegalArgumentException("surface_pattern: entity-anchored 'positions' entries are not supported; the anchor is a world point (use a literal [x,y,z] position, pattern.center, or the pos_x/pos_y/pos_z params)");
 		}
 
-		return new VFXDefinition(id, type, duration, easing, params, persistent, loop, fadeTicks, children, positions, entityAnchors, sound, entitySelector, particleId, shape, blockId, itemId, graph, graphInputs, fields, mask, pattern, surface);
+		return new VFXDefinition(id, type, duration, easing, params, persistent, loop, fadeTicks, children, positions, entityAnchors, sound, entitySelector, particleId, shape, blockId, itemId, graph, graphInputs, fields, mask, pattern, surface, anchor);
 	}
 
 	/**
@@ -642,7 +657,7 @@ public class VFXDefinition {
 		}
 		Map<String, ParamSpec> merged = new LinkedHashMap<>(this.params);
 		merged.putAll(overrides);
-		return new VFXDefinition(this.id, this.type, this.defaultDuration, this.defaultEasing, merged, this.persistent, this.loop, this.fadeTicks, this.children, this.positions, this.entityAnchors, this.sound, this.entitySelector, this.particleId, this.shape, this.blockId, this.itemId, this.graph, this.graphInputs, this.fields, this.mask, this.pattern, this.surface);
+		return new VFXDefinition(this.id, this.type, this.defaultDuration, this.defaultEasing, merged, this.persistent, this.loop, this.fadeTicks, this.children, this.positions, this.entityAnchors, this.sound, this.entitySelector, this.particleId, this.shape, this.blockId, this.itemId, this.graph, this.graphInputs, this.fields, this.mask, this.pattern, this.surface, this.anchor);
 	}
 
 	/**
@@ -880,6 +895,16 @@ public class VFXDefinition {
 	 */
 	public @Nullable VFXSurfaceSelection getSurface() {
 		return this.surface;
+	}
+
+	/**
+	 * The optional celestial anchor of a {@code sky_pattern} definition (the top-level
+	 * {@code anchor} field; spec §4.4, stage S4), or {@code null} when the field is absent — in
+	 * which case the pattern uses the literal {@code anchor_yaw}/{@code anchor_pitch}. The manager
+	 * resolves a celestial anchor on the CPU from the client's sky render state.
+	 */
+	public @Nullable CelestialAnchor getAnchor() {
+		return this.anchor;
 	}
 
 	/**

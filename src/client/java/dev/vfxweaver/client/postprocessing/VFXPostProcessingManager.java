@@ -24,6 +24,7 @@ import com.mojang.blaze3d.textures.FilterMode;
 import com.mojang.blaze3d.textures.GpuTextureView;
 import dev.vfxweaver.client.effect.VFXEffectManager;
 import dev.vfxweaver.client.flashback.FlashbackCompat;
+import dev.vfxweaver.effect.CelestialAnchor;
 import dev.vfxweaver.effect.VFXActiveEffect;
 import dev.vfxweaver.effect.VFXDefinition;
 import dev.vfxweaver.effect.VFXEffectType;
@@ -38,6 +39,7 @@ import dev.vfxweaver.mask.VFXShapeRegistry;
 import dev.vfxweaver.resource.VFXDefinitionManager;
 import dev.vfxweaver.util.VFXLog;
 import dev.vfxweaver.util.VFXReloadSafeCache;
+import dev.vfxweaver.util.VFXSkyAnchor;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -1471,6 +1473,69 @@ public final class VFXPostProcessingManager {
 		 * @return the value to upload for this name
 		 */
 		private float resolveDepthValue(
+			final String param,
+			final VFXActiveEffect effect,
+			final float weight,
+			final @Nullable VFXShape shape,
+			final @Nullable VFXSurfaceSelection surface,
+			final PatternTexture patternTexture
+		) {
+			// Celestial anchor (spec §4.4, stage S4): the definition's top-level `anchor` decides
+			// whether the three dome uniforms come from the timeline (DOME) or from the vanilla sky
+			// body resolved on the CPU. A celestial anchor whose sky state is not ready this frame
+			// contributes nothing (opacity 0) instead of painting at a guessed spot; it is reported
+			// once through VFXLog.warnOnce, never per frame.
+			final CelestialAnchor anchor = anchorOf(effect, param);
+			if (anchor != null && anchor.isCelestial()) {
+				if (!VFXWorldBindings.skyReady()) {
+					VFXLog.warnOnce(LOGGER, "celestial:nosky:" + effect.getId(),
+						"sky_pattern '{}': anchor '{}' has no sky state this frame (no overworld sky or the render state is not ready); the effect contributes nothing",
+						effect.getId(), anchor.key());
+					return "opacity".equals(param) ? 0.0F : 0.0F;
+				}
+				if (anchor.isSunOrMoon()) {
+					final float[] yp = VFXSkyAnchor.bodyAnchor(anchor == CelestialAnchor.SUN
+						? VFXWorldBindings.skySunAngle() : VFXWorldBindings.skyMoonAngle());
+					return switch (param) {
+						case "anchor_yaw" -> yp[0];
+						case "anchor_pitch" -> yp[1];
+						case "dome_rotation" -> 0.0F;
+						default -> this.resolveTimelineDepthValue(param, effect, weight, shape, surface, patternTexture);
+					};
+				}
+				return switch (param) {
+					// The star sphere rotates with starAngle; the closest world-Y spin the shader
+					// offers is mapped straight through (see VFXSkyAnchor.starRotationDegrees).
+					case "dome_rotation" -> VFXSkyAnchor.starRotationDegrees(VFXWorldBindings.skyStarAngle());
+					// The star anchor has no single dome spot - the whole rotating sphere; a spot
+					// anchor (anchor_yaw/anchor_pitch) is not meaningful for it and stays authored.
+					default -> this.resolveTimelineDepthValue(param, effect, weight, shape, surface, patternTexture);
+				};
+			}
+			return this.resolveTimelineDepthValue(param, effect, weight, shape, surface, patternTexture);
+		}
+
+		/**
+		 * The definition's celestial anchor when {@code param} is one of the three dome uniforms it
+		 * overrides, else {@code null}. Only {@code anchor_yaw}/{@code anchor_pitch}/{@code dome_rotation}
+		 * are re-routed; every other Config name keeps its timeline resolution.
+		 */
+		private static @Nullable CelestialAnchor anchorOf(final VFXActiveEffect effect, final String param) {
+			if (!"anchor_yaw".equals(param) && !"anchor_pitch".equals(param) && !"dome_rotation".equals(param)) {
+				return null;
+			}
+			final VFXDefinition definition = VFXDefinitionManager.get().get(effect.getId());
+			return definition == null ? null : definition.getAnchor();
+		}
+
+		/**
+		 * The ordinary (non-celestial) resolution of a depth {@code Config} name. The switch is
+		 * exhaustive: a registered name without a case is a contract violation and throws instead of
+		 * falling back to a timeline value of zero. A reserved name (the world anchor, the structural
+		 * figure/surface, the resolved texture) is written as resolved; every other name is a
+		 * timeline parameter, weight-blended against its neutral.
+		 */
+		private float resolveTimelineDepthValue(
 			final String param,
 			final VFXActiveEffect effect,
 			final float weight,

@@ -9,6 +9,13 @@ import net.minecraft.client.Camera;
 import net.minecraft.client.DeltaTracker;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.GameRenderer;
+//? if <26.1 {
+/*import net.minecraft.client.renderer.state.SkyRenderState;
+import net.minecraft.world.level.dimension.DimensionType;
+*///?} else {
+import net.minecraft.client.renderer.state.level.SkyRenderState;
+import net.minecraft.world.level.dimension.DimensionType;
+//?}
 import net.minecraft.util.Mth;
 import net.minecraft.world.phys.Vec3;
 import org.joml.Matrix4f;
@@ -150,6 +157,13 @@ public abstract class GameRendererMixin {
 				(float) Mth.lerp(partialTick, player.zo, player.getZ())
 			);
 		}
+		// Celestial anchors (stage S4): publish the vanilla sun/moon/star angles for this frame.
+		// The 26.x render state is a public chain (gameRenderer -> gameRenderState -> levelRenderState
+		// -> skyRenderState); on 1.21.11 it is captured from the render context instead, because
+		// LevelRenderer.levelRenderState is package-private (see VFXClientRenderHooks).
+		//? if >=26.1 {
+		readSkyState(minecraft);
+		//?}
 		// While a Flashback replay is open the effect clock is the replay's own time position, so
 		// pausing and seeking the replay pause and move the effects with it. Outside a replay the
 		// wall clock is used exactly as before.
@@ -162,6 +176,33 @@ public abstract class GameRendererMixin {
 		}
 		VFXEffectManager.get().update();
 	}
+
+	/**
+	 * Publishes the vanilla sky-body angles for this frame (26.x). The chain is all public
+	 * ({@code GameRenderer.getGameRenderState()} / {@code gameRenderState()}, then
+	 * {@code GameRenderState.levelRenderState}, then {@code LevelRenderState.skyRenderState}), so no
+	 * access widening is needed on 26.1.2/26.2. The angles describe the sky {@code
+	 * LevelRenderer.extractRenderState} filled before this frame's entries, i.e. the frame being
+	 * drawn. {@code ready} is false when there is no overworld sky (the End / a dimension with
+	 * {@code Skybox.NONE}), so a celestial anchor fails closed rather than tracking a stale angle.
+	 *
+	 * <p>1.21.11 reads the same state through the render context instead
+	 * ({@link dev.vfxweaver.client.platform.VFXClientRenderHooks}), because its
+	 * {@code LevelRenderer.levelRenderState} is package-private; this method does not exist there.
+	 *
+	 * @param minecraft the client (a level is guaranteed to be loaded)
+	 */
+	//? if >=26.1 {
+	private static void readSkyState(final Minecraft minecraft) {
+		//? if <26.2 {
+		final SkyRenderState sky = minecraft.gameRenderer.getGameRenderState().levelRenderState.skyRenderState;
+		//?} else {
+		/*final SkyRenderState sky = minecraft.gameRenderer.gameRenderState().levelRenderState.skyRenderState;
+		*///?}
+		final boolean ready = sky.skybox == DimensionType.Skybox.OVERWORLD;
+		VFXWorldBindings.updateSkyState(sky.sunAngle, sky.moonAngle, sky.starAngle, ready);
+	}
+	//?}
 
 	/**
 	 * Layer 2 screen effects run at the very end of the frame, after the GUI, so they cover

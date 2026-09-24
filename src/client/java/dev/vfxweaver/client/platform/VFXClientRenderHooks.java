@@ -4,7 +4,12 @@ import dev.vfxweaver.client.VFXScoreboardCache;
 import dev.vfxweaver.client.flashback.FlashbackCompat;
 import dev.vfxweaver.client.postprocessing.VFXPostProcessingManager;
 import dev.vfxweaver.client.render.VFXWorldOverlayRenderer;
+import dev.vfxweaver.effect.VFXWorldBindings;
 import net.minecraft.client.Minecraft;
+//? if <26.1 {
+/*import net.minecraft.client.renderer.state.SkyRenderState;
+import net.minecraft.world.level.dimension.DimensionType;
+*///?}
 //? if <26.2 {
 import net.minecraft.client.renderer.MultiBufferSource;
 //?}
@@ -125,6 +130,10 @@ public final class VFXClientRenderHooks {
 		//? if <26.1 {
 		/*WorldRenderEvents.END_MAIN.register(context -> {
 			currentCamera = context.worldState().cameraRenderState;
+			// 1.21.11: the render state is only reachable through the render context here
+			// (LevelRenderer.levelRenderState is package-private), so the sky angles are published
+			// from the context's state. This is before the layer-0 post pass on every node.
+			publishSkyState(context.worldState().skyRenderState);
 			currentBuffers = context.consumers() instanceof MultiBufferSource.BufferSource buffers ? buffers : null;
 			try {
 				onRender.run();
@@ -166,12 +175,13 @@ public final class VFXClientRenderHooks {
 		});
 		//?}
 		//?} else {
-		/*//? if <26.1 {
+		/*		//? if <26.1 {
 		// 1.21.11 NeoForge: the classic world-overlay API, one nested event per level-render stage.
 		// The translucent-block stage captures the vanilla per-frame sources directly (main camera,
 		// render buffers, the level renderer's submit storage) and runs both callbacks.
 		NeoForge.EVENT_BUS.addListener((RenderLevelStageEvent.AfterTranslucentBlocks event) -> {
 			currentCamera = event.getLevelRenderState().cameraRenderState;
+			publishSkyState(event.getLevelRenderState().skyRenderState);
 			currentBuffers = Minecraft.getInstance().renderBuffers().bufferSource();
 			currentCollector = event.getLevelRenderer().submitNodeStorage;
 			try {
@@ -223,6 +233,16 @@ public final class VFXClientRenderHooks {
 		//?}
 		currentCollector = null;
 	}
+
+	//? if <26.1 {
+	/*// 1.21.11 only (see {@link #registerWorldOverlays}): the render state is reached through the
+	// render context because LevelRenderer.levelRenderState is package-private there. On 26.x the
+	// public GameRenderer.gameRenderState() chain in GameRendererMixin reads it directly.
+	private static void publishSkyState(final SkyRenderState sky) {
+		final boolean ready = sky.skybox == DimensionType.Skybox.OVERWORLD;
+		VFXWorldBindings.updateSkyState(sky.sunAngle, sky.moonAngle, sky.starAngle, ready);
+	}
+	*///?}
 
 	/** @return the camera of the render event being dispatched, or {@code null} outside one */
 	public static @Nullable CameraRenderState camera() {

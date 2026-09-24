@@ -16,6 +16,22 @@ change.
 
 ### Added
 
+- **`sky_pattern` — follow the sun, the moon or the stars (`anchor`).** The overnight sky body is a
+  new optional top-level `anchor` string: omitted (or `"dome"`) is the world-fixed
+  `anchor_yaw`/`anchor_pitch` authoring; `"sun"` and `"moon"` make the pattern track the vanilla
+  body; `"stars"` locks the pattern to the rotating star sphere via `dome_rotation`. The body angles
+  are read from the client's own sky render state **on the CPU** and fed to the existing
+  `anchor_yaw`/`anchor_pitch`/`dome_rotation` uniforms, so there is **no shader change and no mixin**
+  — which is what keeps it working under an Iris shaderpack (the world time, hence the angles, is
+  still computed by the game). When the sky state is unavailable (no overworld sky, or the render
+  state is not ready) the effect **contributes nothing** instead of painting at a guessed spot, and
+  warns once. Additive: a new top-level field only, no existing effect changed, no datapack field
+  renamed, `PROTOCOL_VERSION` unchanged, and no UBO/Config change. Honest limits: the effect is an
+  **overlay**, so the vanilla sun/moon are still drawn underneath (size the pattern to cover them:
+  sun ≈33° apparent width, moon ≈24°), and because the vanilla star colour is not reached without a
+  `SkyRenderer` mixin, `"stars"` positions a pattern at the star sphere rather than recolouring the
+  vanilla stars. The rendering is not verified in game by the author (the owner tests visually).
+
 - **`sky_pattern` — a datapack figure or texture drawn on the sky dome.** A new screen post effect
   and the sky sibling of `surface_pattern`: the same structural `pattern` block, shared shape
   library and `pattern.texture` addressing, but the pixel's view ray is projected onto the dome

@@ -8,6 +8,72 @@ texture addressing - but it only ever touches **far-depth sky pixels**, so it ca
 terrain, the first-person hand or the GUI. It renders on all supported lines (Fabric and NeoForge)
 and **must run at `screen_layer: 0`**, the layer where the scene depth buffer is intact.
 
+## `anchor` - follow the sun, the moon or the stars
+
+By default the pattern sits at the world-fixed dome position you author with
+`anchor_yaw`/`anchor_pitch`. The optional top-level **`anchor`** field makes it follow a vanilla sky
+body instead:
+
+| `anchor` | The pattern follows | How |
+|---|---|---|
+| (absent) / `"dome"` | nothing - the literal `anchor_yaw`/`anchor_pitch` (default) | today's behaviour, unchanged |
+| `"sun"` | the vanilla **sun** | `anchor_yaw`/`anchor_pitch` are written from the sun's live dome direction |
+| `"moon"` | the vanilla **moon** | `anchor_yaw`/`anchor_pitch` are written from the moon's live dome direction |
+| `"stars"` | the rotating **star sphere** | `dome_rotation` is written from the star angle |
+
+The body angles are read from the client's own sky render state and converted to the same
+`[yaw, pitch]` degrees the `anchor_yaw`/`anchor_pitch` params use, **entirely on the CPU**. The pass
+itself is unchanged: it still reads the same three uniforms, so there is **no shader change and no
+mixin**. `anchor` is structural (a string, like `pattern`/`sky_mode`), so it cannot be keyframed; an
+unknown value is a parse error naming the accepted ones, and `anchor` on a non-`sky_pattern` type is
+also a parse error.
+
+**Why it is Iris-safe.** A shaderpack may draw the sky (and the sun/moon/stars) itself, but the
+**world time** - and therefore the body angles - is still computed by the game. Because the anchor is
+resolved on the CPU from that state and only writes the existing uniforms, the pattern tracks the
+same body the pack shows. Like every post effect it composes **over** the composited frame, so it is
+an **overlay**.
+
+**Fail-closed.** If the sky state cannot be read (no overworld sky - the End or a sky-less
+dimension - or the render state is not ready this frame), the effect **contributes nothing** rather
+than painting at a guessed spot, and warns once through the logger. It never falls back to the
+literal anchor, which could be wrong.
+
+```json
+{
+	"type": "sky_pattern",
+	"duration": -1, "persistent": true, "loop": true,
+	"anchor": "sun",
+	"params": { "screen_layer": 0, "sky_mode": "patch", "tile_scale": 0.55, "opacity": 0.9,
+		"color_r": 1.0, "color_g": 0.85, "color_b": 0.35 },
+	"pattern": { "figure": "circle", "fill": "stroke", "radius": 0.42, "stroke_width": 0.05, "softness": 0.02 }
+}
+```
+
+**Honest limits.**
+
+- **Overlay, not replacement.** The vanilla sun/moon are still drawn underneath, so size the pattern
+  to cover them: the vanilla sun is ≈33° apparent width, the moon ≈24°. To have the vanilla body
+  cover *your* effect instead, you would need an effect drawn *under* the celestial draws - a
+  `SkyRenderer` mixin, deliberately not implemented here (below).
+- **`"stars"` positions, it does not recolour.** The vanilla star colour cannot be changed without a
+  `SkyRenderer` mixin (the stars are a baked vertex buffer drawn with a brightness uniform). `"stars"`
+  locks a pattern to the rotating star sphere; it does not make the vanilla stars red.
+- **`"stars"` rotation is an approximation.** `dome_rotation` spins about world **Y**, while vanilla
+  rotates the star sphere about world **X**. The star angle is mapped straight through - the pattern
+  turns at the star rate, in the closest axis the shader offers, not in the exact vanilla axis.
+
+**Compatibility note (deliberately not implemented).** Two parts of the sky design are **not**
+shipped because they would be **Iris no-ops** and would need a mixin or a frame-graph change:
+
+- drawing an effect **under** the vanilla sun/moon/stars (the "sky-layer selector", S4b) - a
+  `SkyRenderer` mixin; under a pack the vanilla body is not drawn by the game's `SkyRenderer`, so the
+  injection would silently do nothing; and
+- recolouring the vanilla stars (S6) - the same `SkyRenderer` mixin and the same no-op under a pack.
+
+So a `sky_pattern` **always sits over** the sun and the moon, and the vanilla star colour cannot be
+changed. That is a design decision, not a bug.
+
 ## `sky_mode` - how the dome is addressed
 
 How a pixel's view ray is turned into a pattern coordinate is chosen by the **`sky_mode`** field:
@@ -56,6 +122,7 @@ figure or image at a spot; use `fill` for anything that must wrap the whole sky.
 | Field | Type | Default | Meaning |
 |---|---|---|---|
 | `screen_layer` | float | 0 | Must be `0` (at layer 1+ the depth buffer no longer covers the scene) |
+| `anchor` | string | _(absent)_ | Which vanilla sky body the effect follows: `sun`, `moon`, `stars`, or `dome`/absent for the literal anchor. Structural (not animatable); an unknown value is a parse error, and it is only valid on a `sky_pattern`. See [`anchor`](#anchor-follow-the-sun-the-moon-or-the-stars) |
 | `sky_mode` | string | `patch` | Projection: `patch` (gnomonic decal), `fill` (three-chart whole sphere) or `dome` (legacy equirect). Case-insensitive; an unknown value is a parse error. Set it explicitly |
 | `anchor_yaw` | float | 0 | Dome yaw of the pattern centre, in degrees (yaw `0` = south, `90` = west, `±180` = north). Animatable. In `fill` mode it is a tiling **phase shift**, not a position |
 | `anchor_pitch` | float | 0 | Dome pitch of the pattern centre, in degrees (pitch `-90` = straight up, `0` = horizon, `90` = straight down). Animatable. In `fill` mode a tiling **phase shift** |
@@ -181,7 +248,7 @@ pixels are a layer-0 post pass, the beam is world geometry.
   pixel texture stays crisp. The texture is re-resolved every frame, so `/reload` takes effect.
 - **Parse errors.** The same `pattern`/`pattern.texture` validation as `surface_pattern` (unknown
   key, bad `source`/`channel`/`aspect`/`sheet`, blank or invalid `id`/`atlas`), plus an unknown
-  `sky_mode` string.
+  `sky_mode` string and an unknown `anchor` value (or `anchor` on a non-`sky_pattern` type).
 
 ## Code
 
@@ -260,6 +327,42 @@ cover the entire sky with no pole funnel:
 		"repeat": [6, 3],
 		"texture": { "id": "minecraft:block/cracked_stone_bricks", "source": "block", "sheet": [4, 4], "channel": "luminance", "aspect": "preserve" }
 	}
+}
+```
+
+### `sky_anchor_sun`, `sky_anchor_moon`, `sky_anchor_stars`
+
+```
+/vfx play vfx_demos:sky_anchor_sun
+/vfx play vfx_demos:sky_anchor_moon
+/vfx play vfx_demos:sky_anchor_stars
+```
+
+A glowing ring that tracks the **sun** through the day (`anchor: "sun"`, a `patch`):
+
+```json
+{
+	"type": "sky_pattern",
+	"duration": -1, "persistent": true, "loop": true, "fade_ticks": 12,
+	"anchor": "sun",
+	"params": { "screen_layer": 0, "sky_mode": "patch", "tile_scale": 0.55, "opacity": 0.9,
+		"color_r": 1.0, "color_g": 0.85, "color_b": 0.35 },
+	"pattern": { "figure": "circle", "fill": "stroke", "radius": 0.42, "stroke_width": 0.05, "softness": 0.02 }
+}
+```
+
+The same ring on the **moon** (`anchor: "moon"`), and a whole-sky texture locked to the **stars**
+(`anchor: "stars"`, a `fill` whose `dome_rotation` follows the star angle):
+
+```json
+{
+	"type": "sky_pattern",
+	"duration": -1, "persistent": true, "loop": true, "fade_ticks": 12,
+	"anchor": "stars",
+	"params": { "screen_layer": 0, "sky_mode": "fill", "tile_scale": 1.6, "opacity": 0.55,
+		"color_r": 0.5, "color_g": 0.7, "color_b": 1.0, "texture_tint": 1.0 },
+	"pattern": { "repeat": [6, 3], "texture": { "id": "minecraft:block/cracked_stone_bricks",
+		"source": "block", "sheet": [4, 4], "channel": "luminance", "aspect": "preserve" } }
 }
 ```
 
