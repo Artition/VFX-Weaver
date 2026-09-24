@@ -7,12 +7,14 @@ import java.util.Locale;
  *
  * <p>{@link #WORLD} reconstructs the world position behind a pixel from the scene depth buffer,
  * which is only valid in the coverage prepass at screen layer 0 (see the depth findings note);
+ * {@link #DOME} maps that direction to an equirectangular sky-dome UV and is also depth-dependent;
  * {@link #SCREEN} classifies in normalized UV and needs no depth. A mask may mix spaces across
  * leaves; the composition is in coverage space and is space-agnostic.
  */
 public enum VFXMaskSpace {
 	SCREEN("screen"),
-	WORLD("world");
+	WORLD("world"),
+	DOME("dome");
 
 	private final String id;
 

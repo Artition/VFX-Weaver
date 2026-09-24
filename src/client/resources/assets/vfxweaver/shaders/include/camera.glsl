@@ -23,10 +23,12 @@
 #define VFX_DEPTH_TO_NDC(rawDepth) (rawDepth)
 #define VFX_DEPTH_IS_SKY(rawDepth) ((rawDepth) <= 1.0e-6)
 #define VFX_DEPTH_NEAR_RAW 1.0
+#define VFX_DEPTH_FAR_RAW 0.0
 #else
 #define VFX_DEPTH_TO_NDC(rawDepth) ((rawDepth) * 2.0 - 1.0)
 #define VFX_DEPTH_IS_SKY(rawDepth) ((rawDepth) >= 1.0 - 1.0e-6)
 #define VFX_DEPTH_NEAR_RAW 0.0
+#define VFX_DEPTH_FAR_RAW 1.0
 #endif
 
 // Reconstructs the world position of the visible surface at screen uv for the given *raw* sampled

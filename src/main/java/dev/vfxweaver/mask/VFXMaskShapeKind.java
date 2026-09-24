@@ -7,7 +7,8 @@ import java.util.Locale;
  * A mask leaf shape (shared shape contract). The {@link #ordinal()} is uploaded to the coverage
  * prepass and is the shared shape library's dispatch id; it must stay stable: CIRCLE=0, ELLIPSE=1,
  * RECT=2, POLYGON=3, SPHERE=4, BOX=5. The two 3D kinds are world-only and are ordinary 3D distance
- * functions against the position reconstructed from depth.
+ * functions against the position reconstructed from depth. {@link #SKY} is the depth-gated
+ * far-depth leaf and is dome-only; the 2D kinds may also be authored in dome space.
  *
  * <p>The signed-distance implementation of every kind lives in the shared shape/field library
  * ({@code shaders/include/field.glsl}); this enum only mirrors the JSON names, the default space,
@@ -21,7 +22,8 @@ public enum VFXMaskShapeKind {
 	RECT("rect", VFXMaskSpace.SCREEN, false, List.of("half_width", "half_height", "corner_radius"), new float[]{0.5F, 0.5F, 0.0F}),
 	POLYGON("polygon", VFXMaskSpace.SCREEN, false, List.of("radius", "sides"), new float[]{0.5F, 6.0F}),
 	SPHERE("sphere", VFXMaskSpace.WORLD, true, List.of("radius"), new float[]{8.0F}),
-	BOX("box", VFXMaskSpace.WORLD, true, List.of("half_width", "half_height", "half_depth"), new float[]{4.0F, 4.0F, 4.0F});
+	BOX("box", VFXMaskSpace.WORLD, true, List.of("half_width", "half_height", "half_depth"), new float[]{4.0F, 4.0F, 4.0F}),
+	SKY("sky", VFXMaskSpace.DOME, true, List.of(), new float[]{});
 
 	private final String id;
 	private final VFXMaskSpace space;
