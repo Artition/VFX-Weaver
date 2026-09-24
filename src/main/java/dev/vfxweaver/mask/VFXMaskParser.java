@@ -148,7 +148,8 @@ public final class VFXMaskParser {
 		// Three families: a built-in kind, the block-geometry sentinel, or a registered custom id.
 		final boolean blockLeaf = "block".equalsIgnoreCase(shapeName.trim());
 		final VFXMaskShapeKind shape = blockLeaf ? null : VFXMaskShapeKind.fromString(shapeName);
-		if (!blockLeaf && shape == null && VFXShapeRegistry.get().get(shapeName) == null) {
+		final VFXCustomShape customDefinition = !blockLeaf && shape == null ? VFXShapeRegistry.get().get(shapeName) : null;
+		if (!blockLeaf && shape == null && customDefinition == null) {
 			throw new IllegalArgumentException("mask: unknown shape '" + shapeName + "'");
 		}
 		final VFXMaskSpace space;
@@ -159,7 +160,7 @@ public final class VFXMaskParser {
 		} else if (shape != null) {
 			space = topSpace != null ? topSpace : shape.space();
 		} else {
-			space = topSpace != null ? topSpace : VFXShapeRegistry.get().get(shapeName).space();
+			space = topSpace != null ? topSpace : customDefinition.space();
 		}
 		if (space == null) {
 			throw new IllegalArgumentException("mask: 'space' must be 'screen' or 'world'");
@@ -305,15 +306,26 @@ public final class VFXMaskParser {
 			slots.put(softnessSlot, new VFXMask.MaskSlot(softnessSlot, softnessDefault, null, null));
 		}
 
-		// The world-volume evaluation mode: only a world sphere/box is a volume to cast a ray at.
+		// The world-volume evaluation mode: built-in sphere/box volumes and world GLSL plugins can
+		// cast a ray at their raw distance field. Composed shapes have no raw SDF to march.
 		final VFXMaskVolumeMode volumeMode;
 		if (json.has("volume") && !json.get("volume").isJsonNull()) {
-			if (shape != VFXMaskShapeKind.SPHERE && shape != VFXMaskShapeKind.BOX) {
-				throw new IllegalArgumentException("mask: 'volume' is only valid on a world 'sphere' or 'box' leaf");
-			}
-			volumeMode = VFXMaskVolumeMode.fromString(json.get("volume").getAsString());
-			if (volumeMode == null) {
-				throw new IllegalArgumentException("mask: 'volume' must be 'surface' or 'aura'");
+			final VFXMaskVolumeMode requested = VFXMaskVolumeMode.fromString(json.get("volume").getAsString());
+			if (requested == VFXMaskVolumeMode.AURA && customDefinition != null) {
+				if (space == VFXMaskSpace.WORLD && customDefinition.family() == VFXCustomShape.Family.GLSL_PLUGIN) {
+					volumeMode = requested;
+				} else if (customDefinition.family() == VFXCustomShape.Family.COMPOSED) {
+					throw new IllegalArgumentException("mask: 'volume': 'aura' is not supported on a composed custom leaf ('" + shapeName + "' has no raw SDF to march); use a single-primitive custom shape.");
+				} else {
+					throw new IllegalArgumentException("mask: 'volume' is only valid on a world 'sphere'/'box' leaf, or on a world GLSL-plugin custom leaf with 'aura'");
+				}
+			} else if (shape == VFXMaskShapeKind.SPHERE || shape == VFXMaskShapeKind.BOX) {
+				if (requested == null) {
+					throw new IllegalArgumentException("mask: 'volume' must be 'surface' or 'aura'");
+				}
+				volumeMode = requested;
+			} else {
+				throw new IllegalArgumentException("mask: 'volume' is only valid on a world 'sphere'/'box' leaf, or on a world GLSL-plugin custom leaf with 'aura'");
 			}
 		} else {
 			volumeMode = VFXMaskVolumeMode.SURFACE;

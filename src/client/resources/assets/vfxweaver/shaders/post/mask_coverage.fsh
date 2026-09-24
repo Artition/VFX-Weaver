@@ -41,6 +41,12 @@ layout(std140) uniform SamplerInfo {
 #define MASK_MAX_CUSTOM_PARTS 3
 #define MASK_MAX_CUSTOM_LEAVES 2
 #define MASK_MAX_LEAF_DATA_VEC4 8
+#define VFX_PLUGIN_AURA_MAX_RANGE 1024.0
+#define VFX_PLUGIN_AURA_ENTRY_STEPS 40
+#define VFX_PLUGIN_AURA_EXIT_STEPS 16
+#define VFX_PLUGIN_AURA_REFINE_STEPS 4
+#define VFX_PLUGIN_AURA_MIN_STEP 0.5
+#define VFX_PLUGIN_AURA_MAX_STEP 64.0
 
 layout(std140) uniform Config {
     mat4 invViewProj;
@@ -125,6 +131,17 @@ float vfx_shape_custom(vec3 world, vec2 uv, vec4 p0, vec4 p1) {
 }
 // <<< vfx_mask_custom_inject:end
 
+// Optional broad phase declared by the injected plugin. Keeping the fallback outside the marked
+// region means an older plugin source remains byte-for-byte unchanged; the variant prelude defines
+// VFX_CUSTOM_HAS_BOUNDS only after finding the real function signature.
+vec4 vfx_custom_bounds() {
+#ifdef VFX_CUSTOM_HAS_BOUNDS
+    return vfx_shape_custom_bounds();
+#else
+    return vec4(0.0, 0.0, 0.0, -1.0);
+#endif
+}
+
 // A composed custom shape (registered through VFXAPI): its fixed parts are packed per custom leaf
 // row. Parts use the shared 2D/3D SDF; ops 0/1/2 are union/intersection/difference. The parts are
 // literal-only (the leaf's animatable p0..p7 are not threaded into a composed shape); the leaf's
@@ -165,17 +182,35 @@ float vfx_composed_leaf(int row, vec3 world, vec2 uv, float softness) {
     return acc;
 }
 
+float vfx_aura_cover(float d, float tEnter, float tExit, float chordEps, float softness, float sceneDist) {
+    if (tExit <= chordEps) {
+        return 0.0;
+    }
+    float silhouette = clamp(0.5 - d / softness, 0.0, 1.0);
+    // A vanishing chord fades in over the same world-space softness as the silhouette.
+    float horizonFade = clamp((tExit - chordEps) / softness, 0.0, 1.0);
+    // Depth is reconstructed, so entry occlusion uses a relative rather than fixed slack.
+    float occluded = 1.0;
+    if (tEnter > 0.0) {
+        float depthSlack = sceneDist * 2.0e-3;
+        occluded = clamp(0.5 - (tEnter - sceneDist - depthSlack) / softness, 0.0, 1.0);
+    }
+    return silhouette * occluded * horizonFade;
+}
+
 void main() {
     vec3 world = vec3(0.0);
     // Distance to the visible surface, used by the aura mode's occlusion test. Sky/far reconstructs
     // at the far plane but must not occlude anything - it is treated as "nothing nearer" and the
     // aura still fills the volume. VFX_DEPTH_IS_SKY follows the per-node convention.
     float sceneDist = 1.0e9;
+    bool isSky = false;
     if (mask_needs_depth > 0.5) {
         // Shared recipe (include/camera.glsl): the raw depth is converted to NDC z per node.
         float depthRaw = texture(DepthSampler, texCoord).r;
         world = vfx_world_from_depth(texCoord, depthRaw, invViewProj);
-        if (!VFX_DEPTH_IS_SKY(depthRaw)) {
+        isSky = VFX_DEPTH_IS_SKY(depthRaw);
+        if (!isSky) {
             sceneDist = length(world - camPos.xyz);
         }
     }
@@ -200,19 +235,125 @@ void main() {
             // hard; softness/field are ignored for the block family by design.
             cov = texture(GeometryCoverageSampler, texCoord).r;
         } else if (kind == 7) {
+            vfx_shape_data_base = i * (MASK_MAX_LEAF_DATA_VEC4 * 4);
             int row = int(shape_misc[i].w + 0.5);
             if (row < 0 || row >= MASK_MAX_CUSTOM_LEAVES) {
                 // A malformed/over-cap custom row must contribute nothing, never alias row 0
                 // (int(-0.5) == 0 would silently render the first custom shape).
                 cov = 0.0;
+            } else if (shape_volume[i].x <= 0.5 && isSky) {
+                // Surface masks classify only what the depth buffer contains. A far-plane/sky point
+                // carries no real surface and an unbounded plugin SDF would otherwise paint it.
+                cov = 0.0;
             } else if (int(custom_op[row].x + 0.5) == 1) {
-                // GLSL plugin: a distance like any built-in, so field/softness apply. Point the
-                // plugin's data slice at this leaf before the call (i * 32), so the shared plugin
-                // source reads its own leaf's values via vfx_mask_data(vfx_shape_data_base + j).
-                vfx_shape_data_base = i * (MASK_MAX_LEAF_DATA_VEC4 * 4);
-                float d = vfx_shape_custom(world, texCoord, shape_params0[i], shape_params1[i]);
-                d += fieldValue(int(so.w + 0.5), (leafSpace == 1) ? world : vec3(texCoord, mask_time), field_params[i].y, field_params[i].z) * field_params[i].x;
-                cov = clamp(0.5 - d / max(so.z, 1.0e-4), 0.0, 1.0);
+                float softness = max(so.z, 1.0e-4);
+                if (shape_volume[i].x > 0.5) {
+                    // Aura: march the plugin's raw world-space SDF and reuse the built-in aura maths.
+                    vec3 viewDir = normalize(world - camPos.xyz);
+                    float tLimit = min(sceneDist + sceneDist * 2.0e-3 + 0.5 * softness, VFX_PLUGIN_AURA_MAX_RANGE);
+                    float tStart = 0.0;
+                    vec4 bounds = vfx_custom_bounds();
+                    bool boundsHit = true;
+                    if (bounds.w >= 0.0) {
+                        vec3 boundOffset = camPos.xyz - bounds.xyz;
+                        float boundB = dot(boundOffset, viewDir);
+                        float boundC = dot(boundOffset, boundOffset) - bounds.w * bounds.w;
+                        float boundDisc = boundB * boundB - boundC;
+                        if (boundDisc < 0.0) {
+                            boundsHit = false;
+                        } else {
+                            float boundRoot = sqrt(boundDisc);
+                            float tNear = -boundB - boundRoot;
+                            float tFar = -boundB + boundRoot;
+                            if (tFar < 0.0) {
+                                boundsHit = false;
+                            } else {
+                                tStart = max(tNear, 0.0);
+                            }
+                        }
+                    }
+                    if (!boundsHit || tStart >= tLimit) {
+                        cov = 0.0;
+                    } else {
+                        float t = tStart;
+                        float tEnter = -1.0;
+                        float tExit = 0.0;
+                        float dMin = 0.0;
+                        float tMin = tStart;
+                        float chordEps = 1.0e-4;
+                        // ponytail: MIN_STEP = 0.5 gives the roughly 60-step budget only ~30 units of
+                        // conservative traversal; use more steps or a larger minimum if that matters.
+                        for (int s = 0; s < VFX_PLUGIN_AURA_ENTRY_STEPS; s++) {
+                            float d = vfx_shape_custom(camPos.xyz + viewDir * t, texCoord, shape_params0[i], shape_params1[i]);
+                            if (d <= 0.0) {
+                                tEnter = t;
+                                dMin = d;
+                                tMin = t;
+                                break;
+                            }
+                            t += clamp(d, VFX_PLUGIN_AURA_MIN_STEP, VFX_PLUGIN_AURA_MAX_STEP);
+                            if (t >= tLimit) {
+                                break;
+                            }
+                        }
+                        if (tEnter < 0.0) {
+                            cov = 0.0;
+                        } else {
+                            t = tEnter;
+                            float tInside = tEnter;
+                            bool exitFound = false;
+                            bool saturated = false;
+                            for (int s = 0; s < VFX_PLUGIN_AURA_EXIT_STEPS; s++) {
+                                float d = vfx_shape_custom(camPos.xyz + viewDir * t, texCoord, shape_params0[i], shape_params1[i]);
+                                if (d > 0.0) {
+                                    tExit = t;
+                                    exitFound = true;
+                                    break;
+                                }
+                                if (d < dMin) {
+                                    dMin = d;
+                                    tMin = t;
+                                }
+                                tInside = t;
+                                if (dMin <= -0.5 * softness) {
+                                    tExit = tLimit;
+                                    saturated = true;
+                                    break;
+                                }
+                                t += clamp(-d, VFX_PLUGIN_AURA_MIN_STEP, VFX_PLUGIN_AURA_MAX_STEP);
+                                if (t >= tLimit) {
+                                    break;
+                                }
+                            }
+                            if (saturated) {
+                                tExit = tLimit;
+                            } else if (exitFound) {
+                                for (int s = 0; s < VFX_PLUGIN_AURA_REFINE_STEPS; s++) {
+                                    float tMid = 0.5 * (tInside + tExit);
+                                    float dMid = vfx_shape_custom(camPos.xyz + viewDir * tMid, texCoord, shape_params0[i], shape_params1[i]);
+                                    if (dMid <= 0.0) {
+                                        tInside = tMid;
+                                    } else {
+                                        tExit = tMid;
+                                    }
+                                }
+                            } else {
+                                tExit = tLimit;
+                            }
+                            if (shape_misc[i].x > 0.5) {
+                                dMin = abs(dMin) - 0.5 * shape_misc[i].y;
+                            }
+                            vec3 auraFieldPos = (leafSpace == 1) ? camPos.xyz + viewDir * tMin : vec3(texCoord, mask_time);
+                            dMin += fieldValue(int(so.w + 0.5), auraFieldPos, field_params[i].y, field_params[i].z) * field_params[i].x;
+                            cov = vfx_aura_cover(dMin, tEnter, tExit, chordEps, softness, sceneDist);
+                        }
+                    }
+                } else {
+                    // Surface plugin: classify the depth-reconstructed point, with fill and field.
+                    float d = vfx_shape_custom(world, texCoord, shape_params0[i], shape_params1[i]);
+                    d += fieldValue(int(so.w + 0.5), (leafSpace == 1) ? world : vec3(texCoord, mask_time), field_params[i].y, field_params[i].z) * field_params[i].x;
+                    cov = clamp(0.5 - d / softness, 0.0, 1.0);
+                }
             } else {
                 // Composed SDF: its parts already apply their own falloff, scaled by the leaf's softness.
                 cov = vfx_composed_leaf(row, world, texCoord, so.z);
@@ -248,28 +389,9 @@ void main() {
                 }
                 vec3 auraFieldPos = (leafSpace == 1) ? volumePoint : vec3(texCoord, mask_time);
                 d += fieldValue(int(so.w + 0.5), auraFieldPos, field_params[i].y, field_params[i].z) * field_params[i].x;
-				float softness = max(so.z, 1.0e-4);
-				float silhouette = clamp(0.5 - d / softness, 0.0, 1.0);
-				// Grazing fade: when the camera sits on (or near) the volume surface the visible edge
-				// is the horizon, where the chord collapses (tExit -> 0) while the midpoint SDF still
-				// reads ~0 - the binary reject above would step from a half tint straight to nothing.
-				// Ramp coverage in over a world-space width set by softness instead, so a small
-				// softness keeps a tight (but still smooth) edge and a large one gives a wide ramp.
-				// At tExit == chordEps the fade is 0, matching the reject, so the border is continuous.
-				float horizonFade = clamp((tExit - chordEps) / softness, 0.0, 1.0);
-				// Occlusion: a visible surface nearer than the volume entry hides the aura. The entry
-                // is compared against a distance reconstructed from the depth buffer, so the
-                // threshold carries a slack proportional to that distance (a fixed world bias cannot
-                // survive large distances); the relative slack keeps depth error from banding the
-                // edge, and stays well below softness at close range. A camera inside the volume
-                // (tEnter <= 0) is never occluded - the volume surrounds it.
-                float occluded = 1.0;
-                if (tEnter > 0.0) {
-                    float depthSlack = sceneDist * 2.0e-3;
-                    occluded = clamp(0.5 - (tEnter - sceneDist - depthSlack) / softness, 0.0, 1.0);
-                }
-				cov = silhouette * occluded * horizonFade;
-			}
+                float softness = max(so.z, 1.0e-4);
+                cov = vfx_aura_cover(d, tEnter, tExit, chordEps, softness, sceneDist);
+            }
         } else {
             // The shared library's 2D/3D dispatcher: (kind, space, uv, world, centre, rotation, p0, p1).
             float d = vfx_shape_sdf_dispatch(kind, leafSpace, texCoord, world, shape_center[i].xyz, shape_center[i].w, shape_params0[i], shape_params1[i]);

@@ -7,6 +7,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeSet;
+import java.util.regex.Pattern;
 import net.minecraft.resources.Identifier;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
@@ -57,6 +58,7 @@ public final class VFXMaskShaderVariants {
 	// the marked region is replaced (only the stub between them is swapped for the plugin source).
 	private static final String INJECT_BEGIN = "// >>> vfx_mask_custom_inject:begin";
 	private static final String INJECT_END = "// <<< vfx_mask_custom_inject:end";
+	private static final Pattern CUSTOM_BOUNDS_PATTERN = Pattern.compile("(?m)^\\s*vec4\\s+vfx_shape_custom_bounds\\s*\\(");
 
 	private static final Map<String, VFXShaderPrograms.@Nullable ProgramInfo> VARIANTS = new HashMap<>();
 	/** The injected fragment source per variant key, so the device cache can be re-seeded after a reload. */
@@ -191,7 +193,8 @@ public final class VFXMaskShaderVariants {
 			}
 			plugin.append("\n// mask custom shape '").append(id).append("'\n").append(shape.glsl()).append('\n');
 		}
-		return base.substring(0, begin + INJECT_BEGIN.length()) + plugin + base.substring(end);
+		final String boundsDefine = CUSTOM_BOUNDS_PATTERN.matcher(plugin).find() ? "\n#define VFX_CUSTOM_HAS_BOUNDS 1" : "";
+		return base.substring(0, begin + INJECT_BEGIN.length()) + boundsDefine + plugin + base.substring(end);
 		//?}
 	}
 
