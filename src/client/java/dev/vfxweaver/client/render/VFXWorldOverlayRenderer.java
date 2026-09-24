@@ -1292,8 +1292,19 @@ public final class VFXWorldOverlayRenderer {
 		// The default (0, 1, 0) reproduces the shipped vertical geometry; dir_* are ordinary animatable
 		// params, so {"bind": "look_x/y/z"} aims the beam along the camera look with no extra plumbing.
 		float[] basis = VFXBeamBasis.of(effect.getParam("dir_x", 0.0F), effect.getParam("dir_y", 1.0F), effect.getParam("dir_z", 0.0F));
+		// An optional tip: end_at_x/y/z names a world point the FAR end of the beam must land on. The
+		// anchor is then derived as end - axis * height, so the geometry ends exactly at the point
+		// instead of starting there. With the default axis the beam hangs straight down from `height`
+		// above the point, which is how a beam comes out of the sky. `positions` is ignored then - the
+		// tip defines the beam. Absent (NaN fallback) leaves the shipped behaviour untouched.
+		final float endX = effect.getParam("end_at_x", Float.NaN);
+		final float endY = effect.getParam("end_at_y", Float.NaN);
+		final float endZ = effect.getParam("end_at_z", Float.NaN);
+		final boolean hasEnd = !Float.isNaN(endX) || !Float.isNaN(endY) || !Float.isNaN(endZ);
 
-		List<Vec3> positions = effectPositions(effect, level);
+		List<Vec3> positions = hasEnd
+			? List.of(new Vec3(endX - basis[0] * height, endY - basis[1] * height, endZ - basis[2] * height))
+			: effectPositions(effect, level);
 		if (positions.isEmpty()) {
 			return false;
 		}

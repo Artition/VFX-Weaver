@@ -16,6 +16,14 @@ change.
 
 ### Added
 
+- **`light_beam` can end on a chosen point.** Three optional params, `end_at_x`/`end_at_y`/`end_at_z`,
+  name a world point the **far end** of the beam lands on: the anchor is derived from it
+  (`end − axis × height`), so the geometry finishes exactly there — with the default axis the beam
+  hangs straight down from `height` above the point, which is how a beam comes out of the sky. They
+  are ordinary animatable params, so the landing point can be keyframed, driven by an expression or
+  bound, and a beam from A to B is `end_at = B` with the axis and length computed between the two
+  points. Unset, the beam behaves exactly as before. No shader, pipeline, UBO or wire change.
+
 - **`light_beam` can point in any direction.** Three new params, `dir_x`/`dir_y`/`dir_z` (defaults
   `0`/`1`/`0`), replace the fixed vertical axis, so a beam can be aimed at an angle — e.g. from a
   point on the sky. They are ordinary animatable params, so they can be keyframed, driven by an

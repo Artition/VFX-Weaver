@@ -12,6 +12,8 @@ if ($renderer -notmatch 'effect\.getParam\("dir_z", 0\.0F\)') { $problems.Add("V
 if ($renderer -notmatch 'VFXBeamBasis\.of\(') { $problems.Add("VFXWorldOverlayRenderer: the beam basis is not built through VFXBeamBasis") }
 if ($renderer -notmatch 'emitConeShell\(buffer, pose, cx, cy, cz, basis,') { $problems.Add("VFXWorldOverlayRenderer: emitConeShell does not take the base point and the basis") }
 if ($renderer -match 'cx \+ cos0 \* r0, y0s, cz \+ sin0 \* r0') { $problems.Add("VFXWorldOverlayRenderer: the old Y-axis-only ring emission is still present") }
+if ($renderer -notmatch 'effect\.getParam\("end_at_x", Float\.NaN\)') { $problems.Add("VFXWorldOverlayRenderer: the end_at_x/y/z tip params are missing") }
+if ($renderer -notmatch 'endX - basis\[0\] \* height') { $problems.Add("VFXWorldOverlayRenderer: the anchor is not derived from the tip (end - axis * height)") }
 if ($basis -notmatch '1\.0F, 0\.0F, 0\.0F, 0\.0F, 0\.0F, 1\.0F\}') { $problems.Add("VFXBeamBasis: the pinned vertical (right +X, up +Z) basis is missing") }
 
 Write-Host "Beam basis check (static)"

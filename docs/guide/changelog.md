@@ -5,8 +5,11 @@ documentation changed. A guide revision is not a mod version — the two numbers
 released mod versions are recorded on the **[mod Changelog](../CHANGELOG.md)** instead. Where a guide
 revision shipped with a release, the entry says so (for example `v47 — released as 2.0.0`).
 
-Current guide revision: **v56**. Mod version it documents: **2.0.2**. Which jar to download is in the
+Current guide revision: **v57**. Mod version it documents: **2.0.2**. Which jar to download is in the
 [download table](../index.md#download).
+
+### v57
+- **`light_beam` can end on a chosen point.** Three optional params — `end_at_x`/`end_at_y`/`end_at_z` — name the world point the **far end** of the beam lands on. The anchor is then derived as `end − axis × height`, so the geometry finishes exactly at the point (with the default axis it hangs straight down from `height` above it — a beam falling out of the sky). They are ordinary animatable params (keyframes, `expr`, graph, bind), and a beam **from A to B** is `end_at = B` plus the axis and length computed between the two points. Unset, the beam is unchanged. No shader, pipeline, UBO or wire change. See [light_beam](effects/world/light-beam.md).
 
 ### v56
 - **The sky mask confirmed in game, plus two things it does and does not cover.** The far-depth assumption behind `sky`/`space: "dome"` is now **verified in game on all three lines** (26.2, 26.1.2 and 1.21.11), not just built from the convention. Two clarifications from that testing: the **sun, the moon and the clouds are drawn without writing depth**, so a `sky`/`dome` leaf covers them exactly like the empty sky — a recoloured sky recolours the sun and moon with it (to sit *under* the celestial bodies, the planned `sky_layer` selector is needed); and the **horizon fog is baked into the terrain pixels**, so a sky mask does not recolour it and a strong tint can leave a seam at the horizon. See [Masks](datapack/masks.md).

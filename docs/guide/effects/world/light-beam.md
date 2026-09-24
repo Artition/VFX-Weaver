@@ -15,6 +15,7 @@ A glowing shaft of soft light emitted from each position along a direction (stra
 | `radius` | float | 1.5 | Beam radius in blocks (0.1..16) |
 | `height` | float | 48 | Column length along the direction, from the anchor (1..256) |
 | `dir_x` / `dir_y` / `dir_z` | float | 0 / 1 / 0 | Beam direction, normalised (the default points straight up). A zero vector falls back to up |
+| `end_at_x` / `end_at_y` / `end_at_z` | float | unset | A world point the **far end** of the beam must land on. When set, the anchor is derived (`end − axis × height`), so the beam finishes exactly there and `positions` is ignored |
 | `top_scale` | float | 1 | Top radius multiplier (0.1..8): 1 = cylinder, >1 = flared cone |
 | `softness` | float | 0.6 | More concentric shells with lower alpha (0 = crisp, 2..4 = soft blurry column) |
 | `top_fade` | float | 0.4 | Alpha at the top relative to the base (0..1) |
@@ -43,6 +44,32 @@ bound. Binding it to the camera look aims the beam wherever the viewer is lookin
 	"params": { "radius": 1.5, "height": 48, "top_scale": 1, "softness": 0.6, "top_fade": 0.4, "bottom_fade": 0 }
 }
 ```
+
+**A beam that ends on a chosen point.** `end_at_x`/`end_at_y`/`end_at_z` name the world point the
+far end of the beam must land on. The anchor is derived from it (`end − axis × height`), so the
+geometry finishes exactly at the point. With the default axis the beam hangs straight down from
+`height` blocks above it — a beam falling out of the sky onto the spot:
+
+```json
+{
+	"type": "light_beam",
+	"duration": 80,
+	"params": {
+		"dir_y": -1.0,
+		"height": 60.0,
+		"radius": 1.0,
+		"end_at_x": 120.5,
+		"end_at_y": 64.0,
+		"end_at_z": -340.25
+	}
+}
+```
+
+They are ordinary animatable params, so the landing point can be keyframed, driven by an expression
+or bound. To run a beam **from A to B**, set `end_at_*` to B and give the axis and length between the
+two points (`dir_* = normalize(B − A)`, `height = |B − A|`) — `positions` is not used in that form.
+Mind the sign: the beam travels *toward* `end_at`, so a beam coming down from the sky has
+`dir_y = -1`.
 
 ```
 /vfx playat vfxweaver:light_beam 8 70 8 {[radius:2],[top_scale:2],[softness:3]}
