@@ -9,6 +9,7 @@ import dev.vfxweaver.effect.VFXEffectType;
 import dev.vfxweaver.effect.VFXReplayClock;
 import dev.vfxweaver.effect.VFXTimeline;
 import dev.vfxweaver.resource.VFXDefinitionManager;
+import dev.vfxweaver.util.VFXFogModifier;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -698,6 +699,28 @@ public class VFXEffectManager {
 			}
 		}
 		return delta;
+	}
+
+	/**
+	 * The active {@code fog_modifier} instances as per-frame contributions, each already scaled by
+	 * its fade weight. The client fog mixin combines them with {@link VFXFogModifier#combine} and
+	 * writes the result into the vanilla fog. Absent params keep their neutral value (scales
+	 * {@code 1.0}, colour {@code NaN} = "not authored"), so an empty list leaves the fog untouched.
+	 */
+	public List<VFXFogModifier.Contribution> getActiveFogContributions() {
+		List<VFXFogModifier.Contribution> contributions = new ArrayList<>();
+		for (VFXActiveEffect effect : this.active) {
+			if (effect.getType() == VFXEffectType.FOG_MODIFIER) {
+				contributions.add(new VFXFogModifier.Contribution(
+					effect.getParam("fog_start_scale", 1.0F),
+					effect.getParam("fog_end_scale", 1.0F),
+					effect.getParam("fog_r", Float.NaN),
+					effect.getParam("fog_g", Float.NaN),
+					effect.getParam("fog_b", Float.NaN),
+					effect.getWeight()));
+			}
+		}
+		return contributions;
 	}
 
 	public float getClock() {

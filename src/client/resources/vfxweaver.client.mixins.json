@@ -5,6 +5,7 @@
 	"client": [
 		"GameRendererMixin",
 		"CameraMixin",
+		"FogRendererMixin",
 		"ItemInHandRendererMixin",
 		"AvatarRendererMixin",
 		"ItemFrameRendererMixin",

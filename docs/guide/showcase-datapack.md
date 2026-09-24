@@ -52,6 +52,7 @@ effect pages were recorded from these definitions.
 | `show_eyelids` | `/vfx play vfx_demos:show_eyelids` |
 | `show_film_grain` | `/vfx play vfx_demos:show_film_grain` |
 | `show_fov_modifier` | `/vfx play vfx_demos:show_fov_modifier` |
+| `show_fog_modifier` | `/vfx play vfx_demos:show_fog_modifier` |
 | `show_gradient_map` | `/vfx play vfx_demos:show_gradient_map` |
 | `show_graph_demo` | `/vfx play vfx_demos:show_graph_demo` |
 | `show_graph_logic_demo` | `/vfx play vfx_demos:show_graph_logic_demo` |

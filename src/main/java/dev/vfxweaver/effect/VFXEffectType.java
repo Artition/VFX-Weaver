@@ -49,6 +49,8 @@ public enum VFXEffectType {
 	VORTEX("vortex"),
 	/** Modifies the camera field of view. */
 	FOV_MODIFIER("fov_modifier"),
+	/** Scales the vanilla fog start/end distances and optionally recolours it, at its source (not a post pass). */
+	FOG_MODIFIER("fog_modifier"),
 	/** Camera shake driven by simplex noise. */
 	CAMERA_SHAKE("camera_shake"),
 	/** Fixed camera roll around the view axis with an optional sinusoidal wobble. */
@@ -122,7 +124,7 @@ public enum VFXEffectType {
 	 * True for the effect types that render a fullscreen post-processing pass.
 	 */
 	public boolean isPostProcessing() {
-		return this != CAMERA_SHAKE && this != CAMERA_ROLL && this != BLOCK_OUTLINE && this != BLOCK_TINT && this != ENTITY_TINT && this != ENTITY_OUTLINE && this != ENTITY_DISPLACE && this != FOV_MODIFIER && this != COLLECTION;
+		return this != CAMERA_SHAKE && this != CAMERA_ROLL && this != BLOCK_OUTLINE && this != BLOCK_TINT && this != ENTITY_TINT && this != ENTITY_OUTLINE && this != ENTITY_DISPLACE && this != FOV_MODIFIER && this != FOG_MODIFIER && this != COLLECTION;
 	}
 
 	/**
@@ -169,6 +171,10 @@ public enum VFXEffectType {
 		case VORTEX -> "strength".equals(parameter) ? 0.0F : Float.NaN;
 		case SPEED_LINES -> "intensity".equals(parameter) ? 0.0F : Float.NaN;
 		case FOV_MODIFIER -> "fov_delta".equals(parameter) ? 0.0F : Float.NaN;
+		case FOG_MODIFIER -> switch (parameter) {
+			case "fog_start_scale", "fog_end_scale" -> 1.0F;
+			default -> Float.NaN;
+		};
 		case SLICE_SHIFT -> "shift".equals(parameter) ? 0.0F : Float.NaN;
 		case NOISE_WARP -> "amplitude".equals(parameter) ? 0.0F : Float.NaN;
 		case SOLARIZE -> "intensity".equals(parameter) ? 0.0F : Float.NaN;

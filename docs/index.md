@@ -26,7 +26,7 @@ will play and the loader you already have installed:
 | 1.21.11 | NeoForge | `vfxweaver-2.0.2+1.21.11-neoforge.jar` |
 
 **Version scheme.** `2.0.2` in the file name is the **mod version** (the value released on GitHub and
-Modrinth). The documentation also carries a **guide revision** (`Guide v63`); that number tracks the
+Modrinth). The documentation also carries a **guide revision** (`Guide v64`); that number tracks the
 guide itself and never appears in a jar name. So `vfxweaver-2.0.2+26.2.jar` = mod 2.0.2, Minecraft
 26.2, Fabric; the 26.1.2 jar covers the whole 26.1.x line. Fabric jars need Fabric API; NeoForge jars
 use the `-neoforge` suffix and are installed with [NeoForge](https://neoforged.net/).
@@ -40,7 +40,7 @@ use the `-neoforge` suffix and are installed with [NeoForge](https://neoforged.n
   `solarize`, `double_vision`, `eyelids`, `iris_wipe`, `digital_glitch`, `vhs`, `shockwave`,
   `afterimage`, `stop_motion`, `surface_pattern`, `sky_pattern`.
 - **Camera effects** — simplex-noise camera shake (`camera_shake`), dutch angle with wobble
-  (`camera_roll`) and an FOV modifier (`fov_modifier`).
+  (`camera_roll`), an FOV modifier (`fov_modifier`) and a vanilla-fog modifier (`fog_modifier`).
 - **World overlays** — `block_tint`, `block_outline`, `light_beam`, `pulse_ring`, `guide_line`,
   `particles` (vanilla, block/item-model and glowing spark modes) and `block_chain` (real block-model
   links, optional rope physics), drawn as world-space geometry.

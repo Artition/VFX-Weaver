@@ -1,0 +1,12 @@
+{
+  "type": "fog_modifier",
+  "duration": 40,
+  "easing": "ease_in_out_cubic",
+  "persistent": false,
+  "loop": false,
+  "fade_ticks": 0,
+  "params": {
+    "fog_start_scale": { "start": 1.6, "end": 1.0 },
+    "fog_end_scale": { "start": 1.6, "end": 1.0 }
+  }
+}

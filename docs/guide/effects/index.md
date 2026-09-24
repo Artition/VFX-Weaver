@@ -116,6 +116,7 @@ Camera-space effects act on the camera transform; they do not accept `screen_lay
 - [camera_shake](misc/camera-shake.md) - simplex-noise shake
 - [camera_roll](misc/camera-roll.md) - fixed dutch angle with optional wobble
 - [fov_modifier](misc/fov-modifier.md) - field-of-view change
+- [fog_modifier](misc/fog-modifier.md) - vanilla fog distance and colour
 
 ### Collections
 
@@ -136,7 +137,7 @@ its JSON out of the jar into your own datapack under a new id.
 - **World overlays:** `block_tint`, `block_outline`, `light_beam`, `pulse_ring`, `guide_line`,
   `particles`, `block_chain`.
 - **Entity effects:** `entity_tint`, `entity_outline`, `entity_displace`.
-- **Camera:** `camera_shake`, `camera_roll`, `fov_modifier`.
+- **Camera:** `camera_shake`, `camera_roll`, `fov_modifier`, `fog_modifier`.
 
 Built-in ids need their namespace (`vfxweaver:<name>`); there is no `minecraft:` fallback.
 

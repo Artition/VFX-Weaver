@@ -106,6 +106,7 @@ nav:
           - camera_shake: guide/effects/misc/camera-shake.md
           - camera_roll: guide/effects/misc/camera-roll.md
           - fov_modifier: guide/effects/misc/fov-modifier.md
+          - fog_modifier: guide/effects/misc/fog-modifier.md
       - Collections:
           - collection: guide/effects/collection.md
   - Commands: guide/commands.md
