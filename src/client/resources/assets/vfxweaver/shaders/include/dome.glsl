@@ -22,11 +22,13 @@ vec3 vfx_dome_anchor_dir(float yawDeg, float pitchDeg) {
 
 // PATCH mode: gnomonic (tangent-plane) decal cell at the anchor. The frame matches the local
 // equirect axes of vfx_dome_uv (u+ = increasing yaw, v+ = increasing pitch), so a figure keeps
-// the orientation it had in legacy mode. tileScale = tan(half angular size of the tile):
-// 0.50 = ~26.6 deg, 0.577 = 30 deg, 1.0 = 45 deg, 1.73 = 60 deg. In-plane distortion is
-// 1/cos(angle from the anchor): ~1.41 at 45 deg, ~2 at 60 deg - keep tileScale <= 1.0 for clean
-// decals. w = dot(dir, anchor); w <= 0 is on or behind the decal horizon (a tangent plane covers
-// one hemisphere), so the caller discards the pixel.
+// the orientation it had in legacy mode. tileScale = tan(half the decal's angular size):
+// 0.27 = 15 deg, 0.577 = 30 deg, 1.0 = 45 deg. In-plane distortion is 1/cos(angle from the anchor):
+// ~1.41 at 45 deg, ~2 at 60 deg - keep tileScale <= 1.0 for clean decals. This is a flat sign, not
+// a whole-sky wrap (use fill for content that must cover the sphere); the caller bounds the decal
+// to the unit disc (radius 1 = the patch edge, nothing evaluated past it). w = dot(dir, anchor);
+// w <= 0 is on or behind the decal horizon (a tangent plane covers one hemisphere), so the caller
+// discards the pixel as a backstop.
 vec2 vfx_dome_patch_cell(vec3 dir, vec3 anchor, float yawDeg, float tileScale, out float w) {
     float y = radians(yawDeg);
     vec3 uAxis = vec3(-cos(y), 0.0, -sin(y));   // toward increasing yaw

@@ -16,6 +16,13 @@
 # resolver case; this check asserts that order, the three dome.glsl helpers, the mode branch and the
 # legacy equirect path all stay in place.
 #
+# The patch-bound fix: the gnomonic decal must be bounded to its unit disc (tile_scale = tan(half
+# the patch's angular size)), so the patch branch applies a cell-radius falloff to the coverage and
+# never evaluates the pattern past radius 1 - the singular tangent-plane rim is never visible and the
+# old hard straight `facing` cut is gone. The runnable phase parses the built-in and the demo pack
+# and asserts each uses the mode it is authored for (patch for the ring and nine dots, fill for the
+# cracks and the whole-sky texture).
+#
 # Usage: powershell -ExecutionPolicy Bypass -File scripts/check-sky-pattern.ps1
 # Exits 1 (after listing the problem) on a regression; 0 when the contract holds.
 $ErrorActionPreference = "Stop"
@@ -110,6 +117,13 @@ if ($shader -ne "") {
 	if ($shader -notmatch 'int\s+mode\s*=\s*int\(sky_mode') {
 		$problems.Add("post/sky_pattern.fsh does not branch on the sky_mode param")
 	}
+	# Both local-chart modes must stay reachable (patch = gnomonic decal, fill = three charts).
+	if ($shader -notmatch 'if\s*\(\s*mode\s*==\s*1\s*\)') {
+		$problems.Add("post/sky_pattern.fsh has no patch (mode == 1) branch")
+	}
+	if ($shader -notmatch 'else\s+if\s*\(\s*mode\s*==\s*2\s*\)') {
+		$problems.Add("post/sky_pattern.fsh has no fill (mode == 2) branch")
+	}
 	if ($shader -notmatch 'VFX_DEPTH_IS_SKY\s*\(sceneDepth\)') {
 		$problems.Add("post/sky_pattern.fsh does not gate on VFX_DEPTH_IS_SKY(sceneDepth)")
 	}
@@ -120,6 +134,39 @@ if ($shader -ne "") {
 	# the sky test must not be hard-coded per convention
 	if ($shader -match 'sceneDepth <= 1\.0e-6' -or $shader -match 'sceneDepth >= 1\.0 - 1\.0e-6') {
 		$problems.Add("post/sky_pattern.fsh hard-codes a depth convention instead of using VFX_DEPTH_IS_SKY")
+	}
+}
+
+# --- 3c. patch mode bounds the decal to its unit disc --------------------------------------------
+# The gnomonic cell grows without bound as the ray approaches the tangent-plane horizon (in-plane
+# stretch 1/cos), so the raw `facing` gate used to cut the decal off with a hard straight edge.
+# The patch branch must instead fade the coverage to 0 at radius 1 in cell space - `tile_scale` is
+# tan(half the patch's angular size), so the unit disc IS the patch - and must not evaluate the
+# pattern past radius 1. The `facing` gate stays only as the hard backstop.
+if ($shader -ne "") {
+	if ($shader -notmatch 'float\s+vfx_sky_pattern_patch_falloff\s*\(\s*vec2\s+cell\s*,\s*float\s+softness\s*\)') {
+		$problems.Add("post/sky_pattern.fsh has no vfx_sky_pattern_patch_falloff(cell, softness) cell-radius bound")
+	}
+	if ($shader -notmatch 'float\s+r\s*=\s*length\(cell\)') {
+		$problems.Add("post/sky_pattern.fsh patch bound does not measure the cell radius with length(cell)")
+	}
+	if ($shader -notmatch 'if\s*\(r\s*>=\s*1\.0\)\s*\{\s*return\s+0\.0;\s*\}') {
+		$problems.Add("post/sky_pattern.fsh patch bound does not return 0 at/after radius 1 (the patch edge)")
+	}
+	if ($shader -notmatch 'smoothstep\(1\.0\s*-\s*fade,\s*1\.0,\s*r\)') {
+		$problems.Add("post/sky_pattern.fsh patch bound has no soft falloff that reaches 0 at radius 1")
+	}
+	if ($shader -notmatch 'vfx_sky_pattern_patch_falloff\(\s*warped,\s*softness\s*\)') {
+		$problems.Add("post/sky_pattern.fsh patch branch does not apply the cell-radius falloff after distort")
+	}
+	if ($shader -notmatch 'float\s+patchCov\s*=\s*vfx_sky_pattern_patch_falloff\(') {
+		$problems.Add("post/sky_pattern.fsh patch branch does not capture the patch coverage")
+	}
+	if ($shader -notmatch 'if\s*\(patchCov\s*>\s*0\.0\)') {
+		$problems.Add("post/sky_pattern.fsh patch branch evaluates the pattern past radius 1 (no patchCov > 0 guard)")
+	}
+	if ($shader -notmatch 'bodyCoverage\s*=\s*r\.x\s*\*\s*patchCov') {
+		$problems.Add("post/sky_pattern.fsh patch branch does not multiply the coverage by the patch falloff")
 	}
 }
 
@@ -258,8 +305,24 @@ $cpFile = Join-Path $checkDir "cp.txt"
 $cp = "versions/26.1.2/build/classes/java/main;$($checkDir.Replace('\', '/'));$($mcJar.FullName.Replace('\', '/'));$jars"
 [System.IO.File]::WriteAllText($cpFile, "-cp `"$cp`"", [System.Text.UTF8Encoding]::new($false))
 
+# The demo pack the runnable phase parses: the sky demos live in a datapack, not in the repo (AGENTS.md),
+# so locate the vfx_demos pack under the Prism instances (the six test instances share the same files).
+# Prefer the canonical 26.2fabric pack; fall back to any matching pack on the box.
+$instancesRoot = Join-Path $env:APPDATA "PrismLauncher\instances"
+$demoDir = Join-Path $instancesRoot "26.2fabric\minecraft\saves\New World\datapacks\vfx_demos\data\vfx_demos\vfx"
+if (-not (Test-Path (Join-Path $demoDir "show_sky_pattern_texture.json"))) {
+	$demoDir = Get-ChildItem -Path $instancesRoot -Recurse -File -Filter "show_sky_pattern_texture.json" -ErrorAction SilentlyContinue |
+		Where-Object { $_.DirectoryName -match '\\vfx_demos\\data\\vfx_demos\\vfx$' } |
+		Select-Object -First 1 -ExpandProperty DirectoryName
+}
+if (-not $demoDir) {
+	Write-Error "sky_pattern check: no vfx_demos pack with the sky demos found under $instancesRoot."
+	exit 1
+}
+
 $checkJava = @'
 import com.google.gson.JsonParser;
+import dev.vfxweaver.effect.Keyframe;
 import dev.vfxweaver.effect.VFXDefinition;
 import dev.vfxweaver.effect.VFXEffectType;
 import dev.vfxweaver.field.VFXTexture;
@@ -267,7 +330,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import net.minecraft.resources.Identifier;
 
-/** Standalone assertions for the sky_pattern effect type (stage S3). */
+/** Standalone assertions for the sky_pattern effect type (stage S3 + the patch-bound fix). */
 public final class SkyPatternCheck {
 	public static void main(final String[] args) throws Exception {
 		final VFXDefinition builtin = parse("vfxweaver", "sky_pattern", Files.readString(Path.of(args[0])));
@@ -277,6 +340,8 @@ public final class SkyPatternCheck {
 		require(builtin.getPattern().texture() == null, "the built-in unexpectedly references a texture");
 		require(builtin.getParams().containsKey("sky_mode"), "the built-in does not set sky_mode explicitly");
 		require(builtin.getParam("sky_mode", -1.0F) == 1.0F, "the built-in sky_mode is not patch (1)");
+		require(builtin.getParam("tile_scale", -1.0F) > 0.0F && builtin.getParam("tile_scale", -1.0F) <= 0.6F,
+			"the built-in tile_scale is not a small patch (0 < tile_scale <= 0.6)");
 
 		final String json = "{\"type\":\"sky_pattern\",\"params\":{\"screen_layer\":0,\"anchor_yaw\":12.0,"
 			+ "\"anchor_pitch\":-30.0,\"dome_rotation\":15.0,\"tile_scale\":0.5,\"opacity\":0.9,\"frame\":3,"
@@ -299,7 +364,46 @@ public final class SkyPatternCheck {
 		require(textured.getParams().containsKey("dome_rotation"), "the dome_rotation param is missing");
 		require(textured.getParams().containsKey("frame"), "the animatable frame param is missing");
 
-		System.out.println("sky_pattern check OK: built-in and textured sheet parse; type/pattern/params asserted");
+		// --- the demo pack: every sky demo parses and uses the mode it is authored for -------------
+		final Path demos = Path.of(args[1]);
+		final VFXDefinition ring = parse("vfx_demos", "show_sky_pattern",
+			Files.readString(demos.resolve("show_sky_pattern.json")));
+		require(ring.getType() == VFXEffectType.SKY_PATTERN, "show_sky_pattern is not a sky_pattern");
+		require(ring.getParam("sky_mode", -1.0F) == 1.0F, "show_sky_pattern (the ring) is not a patch");
+		require(maxTile(ring) <= 0.6F, "show_sky_pattern (the ring) tile_scale is not small (max > 0.6)");
+
+		final VFXDefinition dots = parse("vfx_demos", "nine_red_pixels",
+			Files.readString(demos.resolve("nine_red_pixels.json")));
+		require(dots.getParam("sky_mode", -1.0F) == 1.0F, "nine_red_pixels is not a patch");
+		final float dotScale = dots.getParam("tile_scale", -1.0F);
+		require(dotScale >= 0.25F && dotScale <= 0.35F,
+			"nine_red_pixels tile_scale is not a small patch (0.25..0.35), got " + dotScale);
+
+		final VFXDefinition cracks = parse("vfx_demos", "sky_cracks",
+			Files.readString(demos.resolve("sky_cracks.json")));
+		require(cracks.getParam("sky_mode", -1.0F) == 2.0F, "sky_cracks is not a fill");
+
+		final VFXDefinition textureDemo = parse("vfx_demos", "show_sky_pattern_texture",
+			Files.readString(demos.resolve("show_sky_pattern_texture.json")));
+		require(textureDemo.getParam("sky_mode", -1.0F) == 2.0F, "show_sky_pattern_texture is not a fill");
+		require(textureDemo.getPattern() != null && textureDemo.getPattern().texture() != null,
+			"show_sky_pattern_texture lost its texture");
+
+		System.out.println("sky_pattern check OK: built-in + demos parse; patch bound and demo sky_mode asserted");
+	}
+
+	/** The largest `tile_scale` value a definition reaches (a constant, or the top of its keyframes). */
+	private static float maxTile(final VFXDefinition definition) {
+		final VFXDefinition.ParamSpec spec = definition.getParams().get("tile_scale");
+		require(spec != null, "no tile_scale param");
+		if (spec.keyframes().isEmpty()) {
+			return spec.constant();
+		}
+		float max = 0.0F;
+		for (final Keyframe keyframe : spec.keyframes()) {
+			max = Math.max(max, keyframe.value());
+		}
+		return max;
 	}
 
 	private static VFXDefinition parse(final String namespace, final String name, final String json) {
@@ -320,7 +424,7 @@ Push-Location $repoRoot
 try {
 	& $javac "@$cpFile" -d $checkDir $checkSrc
 	if ($LASTEXITCODE -ne 0) { throw "javac failed" }
-	& $java "@$cpFile" SkyPatternCheck $builtinPath
+	& $java "@$cpFile" SkyPatternCheck $builtinPath $demoDir
 	if ($LASTEXITCODE -ne 0) { throw "SkyPatternCheck failed" }
 } finally {
 	Pop-Location

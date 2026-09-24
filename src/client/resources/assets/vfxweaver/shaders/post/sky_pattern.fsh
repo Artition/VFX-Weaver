@@ -12,10 +12,14 @@
 //               there has infinite frequency, so the pattern winds into a funnel at the zenith)
 //               and u must wrap at ±180° yaw (a visible seam / mirror axis). Kept for existing
 //               content; do not author new whole-sky content in it.
-//   patch (1) — a gnomonic (tangent-plane) decal at the authored anchor. The ray is projected
-//               onto the tangent plane at the anchor (vfx_dome_patch_cell); behind the decal
-//               horizon (w <= 0) the pixel is discarded, so there is no wrap, no smear and no
-//               pole convergence. This is the default: a figure at a spot.
+//   patch (1) — a gnomonic (tangent-plane) decal at the authored anchor, bounded to its unit disc.
+//               The ray is projected onto the tangent plane at the anchor (vfx_dome_patch_cell);
+//               `tile_scale` is tan(half the patch's angular size), so radius 1 in cell space is
+//               the patch edge. The gnomonic 1/cos stretch grows toward the tangent-plane horizon,
+//               so the decal is bounded by a soft cell-radius falloff (vfx_sky_pattern_patch_falloff)
+//               and nothing is evaluated past radius 1: a clean circular edge, never the old hard
+//               straight cut at the raw `facing` horizon. `facing > 0` stays the hard backstop.
+//               This is the default: a figure at a spot (a flat sign, not a whole-sky wrap).
 //   fill  (2) — the whole sphere by three orthographic charts blended with a sharpened partition
 //               of unity (vfx_dome_fill_cells). No pole convergence and no seam anywhere; the
 //               charts' coverage and colour are blended (never their UVs — they are incomparable
@@ -166,6 +170,20 @@ vec2 vfx_sky_pattern_distort(vec2 cell) {
     return cell + distort * vec2(sin(phase * 0.7 + time * 0.05), cos(phase * 0.7 - time * 0.05));
 }
 
+// PATCH mode: bound the gnomonic decal to its unit disc. `cell` is in units where `tile_scale` is
+// tan(half the patch's angular size), so radius 1 is the patch edge; the tangent-plane horizon (and
+// its unbounded 1/cos tiling frequency) is never reached. `softness` (cell units, with a small floor
+// so a sharp figure still gets a clean edge) fades the coverage to exactly 0 at radius 1; a cell
+// outside the disc returns 0 so the caller never evaluates the pattern there.
+float vfx_sky_pattern_patch_falloff(vec2 cell, float softness) {
+    float r = length(cell);
+    if (r >= 1.0) {
+        return 0.0;
+    }
+    float fade = clamp(max(softness, 0.05), 1.0e-3, 1.0);
+    return 1.0 - smoothstep(1.0 - fade, 1.0, r);
+}
+
 void main() {
     vec4 base = texture(InSampler, texCoord);
 
@@ -190,15 +208,23 @@ void main() {
     vec3 patternRGB;
 
     if (mode == 1) {
-        // patch: a gnomonic decal at the anchor. w <= 0 is on or behind the decal horizon, so the
-        // pixel is cleanly discarded (no wrap, no edge-texel smear, no pole convergence).
+        // patch: a gnomonic decal at the anchor, bounded to its unit disc. `facing > 0` stays the
+        // hard backstop; the visible edge is the cell-radius falloff (a clean circle), so the
+        // singular tangent-plane rim is never reached.
         vec3 anchor = vfx_dome_anchor_dir(anchor_yaw, anchor_pitch);
         float facing;
         vec2 cell = vfx_dome_patch_cell(spun, anchor, anchor_yaw, tile_scale, facing);
         if (facing > 1.0e-3) {
-            vec4 r = vfx_sky_pattern_eval(vfx_sky_pattern_distort(cell));
-            bodyCoverage = r.x;
-            patternRGB = r.yzw;
+            vec2 warped = vfx_sky_pattern_distort(cell);
+            float patchCov = vfx_sky_pattern_patch_falloff(warped, softness);
+            if (patchCov > 0.0) {
+                vec4 r = vfx_sky_pattern_eval(warped);
+                bodyCoverage = r.x * patchCov;
+                patternRGB = r.yzw;
+            } else {
+                bodyCoverage = 0.0;
+                patternRGB = vec3(color_r, color_g, color_b);
+            }
         } else {
             bodyCoverage = 0.0;
             patternRGB = vec3(color_r, color_g, color_b);
