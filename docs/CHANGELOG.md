@@ -29,9 +29,10 @@ change.
   dome direction is never tinted — and both fail closed (zero coverage) when no trustworthy depth is
   available. This is what lets any existing screen effect be restricted to the sky, e.g. a green or
   glitching sky. Additive: no datapack field was renamed, the wire format and `PROTOCOL_VERSION` are
-  unchanged and the coverage UBO layout did not change. The far-depth test is verified on 26.2 and
-  built from the same proven per-node convention on 26.1.2/1.21.11, where it still needs an in-game
-  confirmation.
+  unchanged and the coverage UBO layout did not change. The far-depth test is verified in game on all
+  three lines (26.2, 26.1.2, 1.21.11). The sun, the moon and the clouds are drawn without depth, so a
+  `sky`/`dome` leaf covers them too (a green sky turns the sun green); the horizon fog is baked into
+  the terrain, so it is not recoloured and a strong tint can leave a seam there.
 
 - **`volume: "aura"` on a world GLSL-plugin mask leaf.** A custom mask leaf registered with
   `VFXAPI.registerMaskShapeGlsl` can now be a real volume instead of a surface-only shape: the pixel's

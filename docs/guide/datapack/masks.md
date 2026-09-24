@@ -279,8 +279,19 @@ position) is not supported yet and is a parse error. A `sky` leaf may not be `sc
 > **Fail-closed.** A `sky`/`dome` leaf reads the same depth as every other depth-needing mask and
 > contributes **zero** coverage whenever there is no trustworthy depth, so a pack that leaves no usable
 > far depth simply never matches and the leaf can never flood the screen. The far-depth test is
-> verified on 26.2; on 26.1.2 and 1.21.11 it is built from the same proven per-node convention but has
-> **not** been confirmed in game yet.
+> **verified in game on all three lines** (26.2, 26.1.2 and 1.21.11).
+
+> **What "sky" includes — the sun, the moon and the clouds.** They are drawn in the sky pass
+> **without writing depth**, so a `sky` or `dome` leaf covers them exactly like the empty sky: a
+> recoloured sky recolours the sun and the moon with it, and the clouds too wherever a depth-writing
+> surface is not in front of them. That is the point of a whole-sky effect. To sit *under* the
+> celestial bodies instead (the vanilla sun and moon drawn on top of the effect), the `sky_layer`
+> selector is planned but not built yet.
+
+> **Fog is not part of the sky.** The horizon fog band is baked into the terrain pixels during world
+> rendering, so a sky mask does not recolour it: a strong sky recolour can leave a visible seam where
+> the fog meets the sky. Blend the mask into a screen-space gradient near the horizon, or keep the
+> tint soft, if that seam matters.
 
 #### Block masks: `occlude`
 

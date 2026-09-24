@@ -5,8 +5,11 @@ documentation changed. A guide revision is not a mod version — the two numbers
 released mod versions are recorded on the **[mod Changelog](../CHANGELOG.md)** instead. Where a guide
 revision shipped with a release, the entry says so (for example `v47 — released as 2.0.0`).
 
-Current guide revision: **v55**. Mod version it documents: **2.0.2**. Which jar to download is in the
+Current guide revision: **v56**. Mod version it documents: **2.0.2**. Which jar to download is in the
 [download table](../index.md#download).
+
+### v56
+- **The sky mask confirmed in game, plus two things it does and does not cover.** The far-depth assumption behind `sky`/`space: "dome"` is now **verified in game on all three lines** (26.2, 26.1.2 and 1.21.11), not just built from the convention. Two clarifications from that testing: the **sun, the moon and the clouds are drawn without writing depth**, so a `sky`/`dome` leaf covers them exactly like the empty sky — a recoloured sky recolours the sun and moon with it (to sit *under* the celestial bodies, the planned `sky_layer` selector is needed); and the **horizon fog is baked into the terrain pixels**, so a sky mask does not recolour it and a strong tint can leave a seam at the horizon. See [Masks](datapack/masks.md).
 
 ### v55
 - **`light_beam` points in any direction.** Three new params — `dir_x`/`dir_y`/`dir_z`, defaults `0`/`1`/`0` — set the beam axis, replacing the fixed vertical one, so a beam can be aimed at an angle (e.g. from a point on the sky). They are ordinary animatable params (keyframes, `expr`, graph, bind), including to the camera look via `{"bind": "look_x"}`/`look_y`/`look_z`. With the defaults the emitted geometry is unchanged, and a zero direction falls back to straight up. No shader, pipeline, UBO or wire change. See [light_beam](effects/world/light-beam.md).
