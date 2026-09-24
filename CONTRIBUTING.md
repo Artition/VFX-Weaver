@@ -79,3 +79,7 @@ refactor(client): extract CameraShakeManager from VFXEffectManager
 - The PR must build: `./gradlew build` green.
 - If effect/command/Java API behavior changes, update `docs/GUIDE.md` (add a changelog entry at the bottom of the file) in the same PR.
 - For formatting/code style fixes, see `AGENTS.md`.
+
+## Issues and ideas
+
+Use the GitHub issue templates: **Feature request** for an idea (`.github/ISSUE_TEMPLATE/feature_request.md`), **Bug report** for a defect.

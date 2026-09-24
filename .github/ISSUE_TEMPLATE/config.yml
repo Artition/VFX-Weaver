@@ -1,7 +1,7 @@
 blank_issues_enabled: false
 contact_links:
   - name: Usage guide
-    url: https://github.com/Artition/VFX-Weaver/blob/main/docs/GUIDE.md
+    url: https://artition.github.io/VFX-Weaver/guide/
     about: Commands, effect types, datapack format — check the docs before opening an issue.
   - name: Questions & discussion
     url: https://github.com/Artition/VFX-Weaver/discussions
