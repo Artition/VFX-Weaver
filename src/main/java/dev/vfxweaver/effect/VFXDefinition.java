@@ -196,7 +196,7 @@ public class VFXDefinition {
 		if (json.has("params")) {
 			JsonObject paramsJson = GsonHelper.getAsJsonObject(json, "params");
 			for (Map.Entry<String, JsonElement> entry : paramsJson.entrySet()) {
-				params.put(entry.getKey(), parseParam(entry.getValue()));
+				params.put(entry.getKey(), parseParam(entry.getKey(), entry.getValue()));
 			}
 		}
 
@@ -518,7 +518,7 @@ public class VFXDefinition {
 		if (object.has("params")) {
 			JsonObject paramsJson = GsonHelper.getAsJsonObject(object, "params");
 			for (Map.Entry<String, JsonElement> entry : paramsJson.entrySet()) {
-				overrides.put(entry.getKey(), parseParam(entry.getValue()));
+				overrides.put(entry.getKey(), parseParam(entry.getKey(), entry.getValue()));
 			}
 		}
 		return new ChildEffect(effectId, delay, duration, overrides, easing);
@@ -557,11 +557,17 @@ public class VFXDefinition {
 	public record EntityAnchor(int slot, String selector, String point, String dir, double distance, double ox, double oy, double oz) {
 	}
 
-	private static ParamSpec parseParam(final JsonElement element) {
+	private static ParamSpec parseParam(final String name, final JsonElement element) {
 		if (element.isJsonPrimitive()) {
 			JsonPrimitive primitive = element.getAsJsonPrimitive();
 			if (primitive.isNumber()) {
 				return ParamSpec.constant(primitive.getAsFloat());
+			}
+			// sky_mode sugar: the three projection modes are authored by name (the documented
+			// datapack surface), mapped to the float the shader reads. Only sky_mode accepts a
+			// string; every other string param stays an error.
+			if (primitive.isString() && "sky_mode".equals(name)) {
+				return ParamSpec.constant(skyModeCode(primitive.getAsString()));
 			}
 			throw new IllegalArgumentException("Parameter must be a number or an object: " + element);
 		}
@@ -591,6 +597,20 @@ public class VFXDefinition {
 		}
 
 		throw new IllegalArgumentException("Unsupported parameter value: " + element);
+	}
+
+	/**
+	 * The numeric code of a {@code sky_mode} string, the documented datapack surface: {@code dome}
+	 * = 0 (legacy equirectangular), {@code patch} = 1 (gnomonic decal), {@code fill} = 2 (three
+	 * orthographic charts). Case-insensitive; an unknown name is a per-file parse error.
+	 */
+	private static float skyModeCode(final String mode) {
+		return switch (mode.toLowerCase(java.util.Locale.ROOT)) {
+			case "dome" -> 0.0F;
+			case "patch" -> 1.0F;
+			case "fill" -> 2.0F;
+			default -> throw new IllegalArgumentException("Unknown sky_mode '" + mode + "' (expected dome, patch or fill)");
+		};
 	}
 
 	private static List<Keyframe> parseKeyframes(final JsonObject object) {

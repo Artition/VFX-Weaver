@@ -11,4 +11,47 @@ vec2 vfx_dome_uv(vec3 direction) {
     return vec2((yaw + 180.0) / 360.0, (pitch + 90.0) / 180.0);
 }
 
+// Anchor direction authored [yaw, pitch] degrees, same convention as vfx_dome_uv
+// (yaw 0 = +Z, yaw 90 = -X; pitch -90 = zenith, +90 = nadir).
+vec3 vfx_dome_anchor_dir(float yawDeg, float pitchDeg) {
+    float y = radians(yawDeg);
+    float p = radians(pitchDeg);
+    float cp = cos(p);
+    return vec3(-sin(y) * cp, -sin(p), cos(y) * cp);
+}
+
+// PATCH mode: gnomonic (tangent-plane) decal cell at the anchor. The frame matches the local
+// equirect axes of vfx_dome_uv (u+ = increasing yaw, v+ = increasing pitch), so a figure keeps
+// the orientation it had in legacy mode. tileScale = tan(half angular size of the tile):
+// 0.50 = ~26.6 deg, 0.577 = 30 deg, 1.0 = 45 deg, 1.73 = 60 deg. In-plane distortion is
+// 1/cos(angle from the anchor): ~1.41 at 45 deg, ~2 at 60 deg - keep tileScale <= 1.0 for clean
+// decals. w = dot(dir, anchor); w <= 0 is on or behind the decal horizon (a tangent plane covers
+// one hemisphere), so the caller discards the pixel.
+vec2 vfx_dome_patch_cell(vec3 dir, vec3 anchor, float yawDeg, float tileScale, out float w) {
+    float y = radians(yawDeg);
+    vec3 uAxis = vec3(-cos(y), 0.0, -sin(y));   // toward increasing yaw
+    vec3 vAxis = cross(anchor, uAxis);          // toward increasing pitch (down)
+    w = dot(dir, anchor);
+    float wSafe = max(w, 1.0e-4);
+    return vec2(dot(dir, uAxis), dot(dir, vAxis)) / (wSafe * clamp(tileScale, 0.01, 4.0));
+}
+
+// FILL mode: whole-sphere tiling by three orthographic charts blended with a sharpened partition
+// of unity ("triplanar on a sphere"). No pole convergence and no seam anywhere; `repeat` tiling
+// lives inside each chart. `sharp` trades the blend-ribbon width against crossfade ghosting:
+// 8.0 gives roughly +/-8 deg ribbons along the |x|=|y|, |y|=|z|, |z|=|x| great circles, and within
+// about 40 deg of a chart pole (the zenith included) the own-chart weight is > 0.9, i.e. a single
+// chart with no blending. uv units: 1.0 = 90 deg from the chart pole; near a pole the chart is
+// isometric (uv radius = sin(angle)), so tileScale is the tile half-size in those units.
+void vfx_dome_fill_cells(vec3 dir, float tileScale, float sharp,
+                         out vec2 cellX, out vec2 cellY, out vec2 cellZ, out vec3 w) {
+    vec3 a = abs(dir);
+    w = pow(a, vec3(sharp));
+    w /= (w.x + w.y + w.z);
+    float inv = 1.0 / clamp(tileScale, 0.01, 4.0);
+    cellX = vec2(dir.z, dir.y) * inv;   // chart along X
+    cellY = vec2(dir.x, dir.z) * inv;   // chart along Y (zenith/nadir at its centre)
+    cellZ = vec2(dir.x, dir.y) * inv;   // chart along Z
+}
+
 

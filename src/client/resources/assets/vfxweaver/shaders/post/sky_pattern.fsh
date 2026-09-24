@@ -1,14 +1,31 @@
 #version 330
 
-// sky_pattern (spec §3.1, §3.2, §4.1, stage S3): a datapack figure/texture painted on the sky
-// dome. It is surface_pattern's sibling — same structural `pattern` block, same shared shape
-// library (shape.glsl) and texture addressing (texture.glsl) — but the projection target is the
-// dome instead of a depth-reconstructed world surface: the pixel's view ray is reconstructed with
-// vfx_view_dir (include/dome.glsl), optionally spun about world Y by `dome_rotation`, and mapped
-// to an equirectangular dome UV with vfx_dome_uv. The whole pass is gated on VFX_DEPTH_IS_SKY, so
-// it can only ever paint far-depth sky pixels: it never touches geometry, the first-person hand or
-// the GUI (spec §3.1). There is no geometry reconstruction, no normal and no face logic here —
-// that is the entire difference from surface_pattern.
+// sky_pattern (spec §3.1, §3.2, §4.1, stage S3; sky_mode atlas fix): a datapack figure/texture
+// painted on the sky dome. It is surface_pattern's sibling — same structural `pattern` block, same
+// shared shape library (shape.glsl) and texture addressing (texture.glsl) — but the projection
+// target is the dome instead of a depth-reconstructed world surface. The pixel's view ray is
+// reconstructed with vfx_view_dir (include/dome.glsl) and optionally spun about world Y by
+// `dome_rotation`; how that ray addresses the pattern is chosen by the `sky_mode` param:
+//
+//   dome  (0) — legacy equirectangular: vfx_dome_uv maps the ray to one global chart. A single
+//               global chart cannot tile a sphere cleanly: u is undefined at the poles (tiling
+//               there has infinite frequency, so the pattern winds into a funnel at the zenith)
+//               and u must wrap at ±180° yaw (a visible seam / mirror axis). Kept for existing
+//               content; do not author new whole-sky content in it.
+//   patch (1) — a gnomonic (tangent-plane) decal at the authored anchor. The ray is projected
+//               onto the tangent plane at the anchor (vfx_dome_patch_cell); behind the decal
+//               horizon (w <= 0) the pixel is discarded, so there is no wrap, no smear and no
+//               pole convergence. This is the default: a figure at a spot.
+//   fill  (2) — the whole sphere by three orthographic charts blended with a sharpened partition
+//               of unity (vfx_dome_fill_cells). No pole convergence and no seam anywhere; the
+//               charts' coverage and colour are blended (never their UVs — they are incomparable
+//               frames), and the colour is renormalised by the blended coverage so texture texels
+//               stay saturated inside the crossfade ribbons.
+//
+// The whole pass is gated on VFX_DEPTH_IS_SKY, so it can only ever paint far-depth sky pixels: it
+// never touches geometry, the first-person hand or the GUI (spec §3.1). There is no geometry
+// reconstruction, no normal and no face logic here — that is the entire difference from
+// surface_pattern.
 //
 // Registered on every node through VFXShaderPrograms.registerDepthPost, which injects the per-node
 // VFX_DEPTH_REVERSED define (26.2 reversed, 26.1.2/1.21.11 standard) so the same source serves all
@@ -78,6 +95,9 @@ layout(std140) uniform Config {
     // The sprite/texture pixel size, for the half-texel sheet inset (0.5 / pixels).
     float tex_px_w;
     float tex_px_h;
+    // Projection mode (sky_mode atlas fix): 0 = dome (legacy equirect), 1 = patch (gnomonic decal),
+    // 2 = fill (three orthographic charts). Appended last so no earlier std140 offset shifts.
+    float sky_mode;
 };
 
 out vec4 fragColor;
@@ -91,40 +111,13 @@ float vfx_pattern_tile_coverage(vec2 uv, float softness) {
 	return 1.0 - clamp(max(outside.x, outside.y) / max(softness, 1.0e-4), 0.0, 1.0);
 }
 
-void main() {
-    vec4 base = texture(InSampler, texCoord);
-
-    // Sky only. A real surface, the hand or the GUI is not sky and passes through untouched, so a
-    // sky_pattern can never paint over them (spec §3.1).
-    float sceneDepth = texture(DepthSampler, texCoord).r;
-    if (!VFX_DEPTH_IS_SKY(sceneDepth)) {
-        fragColor = base;
-        return;
-    }
-
-    // View direction -> dome UV. dome_rotation spins the direction about world Y so an image can be
-    // locked to the rotating star sphere (spec §3.2); the default 0 is world-fixed. u wraps at the
-    // north seam and a shape near a pole is stretched in u — inherent to equirectangular (spec §9).
-    vec3 dir = vfx_view_dir(texCoord, inv_view_proj, cam_pos.xyz);
-    float rot = radians(dome_rotation);
-    float cr = cos(rot);
-    float sr = sin(rot);
-    vec3 spun = vec3(cr * dir.x - sr * dir.z, dir.y, sr * dir.x + cr * dir.z);
-    vec2 domeUv = vfx_dome_uv(spun);
-
-    // Anchor: the authored [yaw, pitch] degrees mapped into the same UV space as the projection
-    // (the mask dome-center convention).
-    vec2 anchorUv = vec2((anchor_yaw + 180.0) / 360.0, (anchor_pitch + 90.0) / 180.0);
-    vec2 p = domeUv;
-    if (distort != 0.0) {
-        // ponytail: cheap sine warp, same shape as surface_pattern's distort.
-        float phase = p.x + p.y;
-        p += distort * vec2(sin(phase * 0.7 + time * 0.05), cos(phase * 0.7 - time * 0.05));
-    }
-
-    // Cell-local coordinate: centre on the anchor, scale to a `tile_scale` cell. The shared shape
-    // library owns every figure's SDF, the fill, the rotation and the repeat modifier.
-    vec2 cell = (p - anchorUv) / max(tile_scale, 1.0e-4);
+// The shared pattern evaluation for one cell: the shape coverage and the texture addressing, both
+// consumer-owned (see vfx_pattern_tile_coverage). Returns (bodyCoverage, patternRGB) so the caller
+// applies `opacity` once and, in fill mode, blends several charts before compositing. Behaviour is
+// identical to the pre-sky_mode inline code, so the legacy `dome` path is unchanged.
+vec4 vfx_sky_pattern_eval(vec2 cell) {
+    // The shared shape library owns every figure's SDF, the fill, the rotation and the repeat
+    // modifier.
     vec4 shape0 = vec4(radius, radius_x, radius_y, half_width);
     vec4 shape1 = vec4(half_height, corner_radius, sides, rotation);
     float shapeCoverage = vfx_shape_pattern_coverage(int(shape + 0.5), int(fill + 0.5), cell,
@@ -159,6 +152,92 @@ void main() {
             texCoverage *= shapeCoverage;
         }
         bodyCoverage = texCoverage;
+    }
+    return vec4(bodyCoverage, patternRGB);
+}
+
+// The cheap sine warp on a cell coordinate (patch/fill modes; the legacy `dome` path applies it to
+// the dome UV instead, so its look is unchanged). Same shape as surface_pattern's distort.
+vec2 vfx_sky_pattern_distort(vec2 cell) {
+    if (distort == 0.0) {
+        return cell;
+    }
+    float phase = cell.x + cell.y;
+    return cell + distort * vec2(sin(phase * 0.7 + time * 0.05), cos(phase * 0.7 - time * 0.05));
+}
+
+void main() {
+    vec4 base = texture(InSampler, texCoord);
+
+    // Sky only. A real surface, the hand or the GUI is not sky and passes through untouched, so a
+    // sky_pattern can never paint over them (spec §3.1).
+    float sceneDepth = texture(DepthSampler, texCoord).r;
+    if (!VFX_DEPTH_IS_SKY(sceneDepth)) {
+        fragColor = base;
+        return;
+    }
+
+    // View direction, spun about world Y by dome_rotation so an image can be locked to the rotating
+    // star sphere (spec §3.2); the default 0 is world-fixed.
+    vec3 dir = vfx_view_dir(texCoord, inv_view_proj, cam_pos.xyz);
+    float rot = radians(dome_rotation);
+    float cr = cos(rot);
+    float sr = sin(rot);
+    vec3 spun = vec3(cr * dir.x - sr * dir.z, dir.y, sr * dir.x + cr * dir.z);
+
+    int mode = int(sky_mode + 0.5);
+    float bodyCoverage;
+    vec3 patternRGB;
+
+    if (mode == 1) {
+        // patch: a gnomonic decal at the anchor. w <= 0 is on or behind the decal horizon, so the
+        // pixel is cleanly discarded (no wrap, no edge-texel smear, no pole convergence).
+        vec3 anchor = vfx_dome_anchor_dir(anchor_yaw, anchor_pitch);
+        float facing;
+        vec2 cell = vfx_dome_patch_cell(spun, anchor, anchor_yaw, tile_scale, facing);
+        if (facing > 1.0e-3) {
+            vec4 r = vfx_sky_pattern_eval(vfx_sky_pattern_distort(cell));
+            bodyCoverage = r.x;
+            patternRGB = r.yzw;
+        } else {
+            bodyCoverage = 0.0;
+            patternRGB = vec3(color_r, color_g, color_b);
+        }
+    } else if (mode == 2) {
+        // fill: three orthographic charts. Blend coverage and colour (never the UVs — they are
+        // incomparable frames), and renormalise the colour by the blended coverage so texels stay
+        // saturated inside the crossfade ribbons. The anchor is a tiling phase shift in cell units
+        // (a knob, not a position); dome_rotation already spins the whole field via `spun`.
+        vec2 cellX;
+        vec2 cellY;
+        vec2 cellZ;
+        vec3 w3;
+        vfx_dome_fill_cells(spun, tile_scale, 8.0, cellX, cellY, cellZ, w3);
+        vec2 phase = vec2(anchor_yaw, anchor_pitch) * (1.0 / 90.0);
+        vec4 rX = vfx_sky_pattern_eval(vfx_sky_pattern_distort(cellX + phase));
+        vec4 rY = vfx_sky_pattern_eval(vfx_sky_pattern_distort(cellY + phase));
+        vec4 rZ = vfx_sky_pattern_eval(vfx_sky_pattern_distort(cellZ + phase));
+        bodyCoverage = w3.x * rX.x + w3.y * rY.x + w3.z * rZ.x;
+        patternRGB = (w3.x * rX.x * rX.yzw + w3.y * rY.x * rY.yzw + w3.z * rZ.x * rZ.yzw)
+            / max(bodyCoverage, 1.0e-4);
+    } else {
+        // dome: the legacy equirectangular path, unchanged. u wraps at the north seam and a shape
+        // near a pole is stretched in u — inherent to a single global chart (spec §9).
+        vec2 domeUv = vfx_dome_uv(spun);
+        // Anchor: the authored [yaw, pitch] degrees mapped into the same UV space as the projection
+        // (the mask dome-center convention).
+        vec2 anchorUv = vec2((anchor_yaw + 180.0) / 360.0, (anchor_pitch + 90.0) / 180.0);
+        vec2 p = domeUv;
+        if (distort != 0.0) {
+            // ponytail: cheap sine warp, same shape as surface_pattern's distort.
+            float phase = p.x + p.y;
+            p += distort * vec2(sin(phase * 0.7 + time * 0.05), cos(phase * 0.7 - time * 0.05));
+        }
+        // Cell-local coordinate: centre on the anchor, scale to a `tile_scale` cell.
+        vec2 cell = (p - anchorUv) / max(tile_scale, 1.0e-4);
+        vec4 r = vfx_sky_pattern_eval(cell);
+        bodyCoverage = r.x;
+        patternRGB = r.yzw;
     }
 
     float coverage = clamp(bodyCoverage * clamp(opacity, 0.0, 1.0), 0.0, 1.0);

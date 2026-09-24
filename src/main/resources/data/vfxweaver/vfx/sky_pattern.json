@@ -9,6 +9,7 @@
     "anchor_yaw": 0.0,
     "anchor_pitch": -35.0,
     "dome_rotation": 0.0,
+    "sky_mode": "patch",
     "tile_scale": 0.6,
     "color_r": 0.4,
     "color_g": 0.8,
