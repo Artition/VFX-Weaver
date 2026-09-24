@@ -18,8 +18,9 @@ change.
 
 - **`sky_pattern` — a datapack figure or texture drawn on the sky dome.** A new screen post effect
   and the sky sibling of `surface_pattern`: the same structural `pattern` block, shared shape
-  library and `pattern.texture` addressing, but the pixel's view ray is mapped to an equirectangular
-  dome coordinate instead of a depth-reconstructed world surface. The dome anchor is authored as
+  library and `pattern.texture` addressing, but the pixel's view ray is projected onto the dome
+  instead of a depth-reconstructed world surface (the projection is chosen by `sky_mode` — see the
+  `sky_mode` entry below). The dome anchor is authored as
   `anchor_yaw`/`anchor_pitch` (degrees) and the image can be spun about world Y with `dome_rotation`;
   `repeat: [3, 3]` draws nine dots with no texture, and a `pattern.texture` with a `sheet` plus the
   animatable `frame` param draws an animated sky. The pass is gated on the depth sky test, so it
@@ -67,6 +68,19 @@ change.
   `PROTOCOL_VERSION` and the coverage UBO layout are unchanged.
 
 ### Changed
+
+- **`sky_pattern` gains a `sky_mode` projection and no longer funnels at the zenith.** The single
+  global equirectangular chart had two topological defects for whole-sky content: `u` is undefined at
+  the poles (the pattern winds into a funnel at the zenith) and `u` wraps at ±180° yaw (a visible
+  seam / mirror axis). `sky_mode` replaces the addressing with an atlas of local charts plus a smooth
+  partition of unity: **`patch`** (default) is one gnomonic decal at the anchor (no pole, no seam,
+  clean discard past the decal horizon), **`fill`** covers the whole sphere with three orthographic
+  charts blended by a sharpened partition of unity (no pole convergence, no seam anywhere; the
+  charts' coverage and colour are blended, never their UVs), and **`dome`** is the legacy equirect
+  path kept byte-for-byte (inherent pole funnel and north seam — not for new content). `sky_mode` is
+  appended last to the Config UBO, so no existing shader's layout changes; no datapack field was
+  renamed and `PROTOCOL_VERSION` is unchanged. The effect is not in any release yet, so the new
+  default (`patch`) breaks nothing. A full skybox **cube** remains a separate future feature.
 
 - **A custom mask leaf in `surface` mode no longer tints the sky.** The surface path classifies only
   what the depth buffer contains, so a sky pixel contributes no coverage. Built-in shapes already
