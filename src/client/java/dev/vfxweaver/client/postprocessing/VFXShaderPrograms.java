@@ -53,15 +53,23 @@ public final class VFXShaderPrograms {
 	 * {@code Config} uniform block and its std140-aligned byte size. {@code mask} marks the shared
 	 * coverage-read consumer. {@code depthConfig} marks a pass whose {@code Config} starts with
 	 * {@code mat4 inv_view_proj} (written by the manager, not by the per-param loop) and which
-	 * binds {@code DepthSampler}: {@code surface_pattern}.
+	 * binds {@code DepthSampler}: {@code surface_pattern} and {@code sky_pattern}. {@code
+	 * depthHasCamPos} marks the subset whose {@code Config} then declares {@code vec4 cam_pos}
+	 * before the float params (the camera world position the dome view ray starts from); a
+	 * non-camPos depth pass keeps the original 64-byte prefix so its layout is unchanged.
 	 */
-	public record ProgramInfo(RenderPipeline pipeline, String[] configParams, int configUboSize, PassRole role, boolean usesDepth, @Nullable String fieldInput, boolean mask, boolean depthConfig) {
+	public record ProgramInfo(RenderPipeline pipeline, String[] configParams, int configUboSize, PassRole role, boolean usesDepth, @Nullable String fieldInput, boolean mask, boolean depthConfig, boolean depthHasCamPos) {
+		/** The 8-component form for every depth pass whose Config has no {@code cam_pos} prefix. */
+		public ProgramInfo(final RenderPipeline pipeline, final String[] configParams, final int configUboSize, final PassRole role, final boolean usesDepth, final @Nullable String fieldInput, final boolean mask, final boolean depthConfig) {
+			this(pipeline, configParams, configUboSize, role, usesDepth, fieldInput, mask, depthConfig, false);
+		}
+
 		public ProgramInfo(final RenderPipeline pipeline, final String[] configParams, final int configUboSize, final PassRole role) {
-			this(pipeline, configParams, configUboSize, role, false, null, false, false);
+			this(pipeline, configParams, configUboSize, role, false, null, false, false, false);
 		}
 
 		public ProgramInfo(final RenderPipeline pipeline, final String[] configParams, final int configUboSize) {
-			this(pipeline, configParams, configUboSize, PassRole.NORMAL, false, null, false, false);
+			this(pipeline, configParams, configUboSize, PassRole.NORMAL, false, null, false, false, false);
 		}
 
 		/** True when this pipeline declares the {@code FieldConfig} uniform block. */
@@ -227,6 +235,23 @@ public final class VFXShaderPrograms {
 			// stitch: 1 = unfold a vertical wall into the floor plane (surface.stitch flag), appended
 			// last so no earlier std140 offset shifts, 0 = today's hard floor/wall switch.
 			"stitch");
+
+		// sky_pattern is surface_pattern's sibling: the same pattern/texture machinery, but the
+		// projection target is the sky dome (spec §3.1/§3.2/§4.1). It registers through the same
+		// depth-post builder so the per-node VFX_DEPTH_REVERSED define is injected, and adds a
+		// vec4 cam_pos after inv_view_proj (the camera world position vfx_view_dir subtracts from
+		// the far-plane point). The float tail is the figure + resolved texture surface; the
+		// surface-only names (normal_mask, faces, band, stitch) do not exist here.
+		registerDepthPost(VFXEffectType.SKY_PATTERN, true,
+			"anchor_yaw", "anchor_pitch", "dome_rotation",
+			"tile_scale", "color_r", "color_g", "color_b", "opacity", "distort",
+			"shape", "fill", "rotation", "stroke_width", "softness",
+			"repeat_x", "repeat_y",
+			"radius", "radius_x", "radius_y", "half_width", "half_height",
+			"corner_radius", "sides", "time",
+			"shape_present", "tex_u0", "tex_v0", "tex_u1", "tex_v1", "tex_aspect",
+			"tex_cols", "tex_rows", "tex_frame", "tex_flags", "tex_channel", "texture_tint",
+			"tex_px_w", "tex_px_h");
 
 		copyPipeline = RenderPipelines.register(
 			RenderPipeline.builder(RenderPipelines.POST_PROCESSING_SNIPPET)
@@ -415,8 +440,23 @@ public final class VFXShaderPrograms {
 	 * The shader's {@code Config} block must declare {@code mat4 inv_view_proj;} first, then the
 	 * {@code params} floats in the exact order given here (std140 offsets are positional). The
 	 * shape itself is evaluated by the shared shape library; this pass supplies its numbers.
+	 * The Config has no {@code cam_pos} prefix, so an existing depth pass's layout is unchanged.
 	 */
 	private static void registerDepthPost(final VFXEffectType type, final String... params) {
+		registerDepthPost(type, false, params);
+	}
+
+	/**
+	 * The camPos-aware depth post. With {@code hasCamPos} the shader's {@code Config} declares
+	 * {@code vec4 cam_pos} between {@code inv_view_proj} and the float params, so the Config is
+	 * 16 bytes longer and every float sits 16 bytes further in (std140 positional contract);
+	 * the manager writes the vec4 and the layout guard checks the same prefix.
+	 *
+	 * @param type      the effect type
+	 * @param hasCamPos true when the shader's Config declares {@code vec4 cam_pos} after the matrix
+	 * @param params    the float Config names, in shader order
+	 */
+	private static void registerDepthPost(final VFXEffectType type, final boolean hasCamPos, final String... params) {
 		Identifier location = Identifier.fromNamespaceAndPath("vfxweaver", "post/" + type.getName());
 		RenderPipeline pipeline = RenderPipeline.builder(RenderPipelines.POST_PROCESSING_SNIPPET)
 			.withLocation(location)
@@ -437,21 +477,35 @@ public final class VFXShaderPrograms {
 			*///?}
 			.build();
 		RenderPipelines.register(pipeline);
-		PROGRAMS.put(type, List.of(new ProgramInfo(pipeline, params, depthConfigSize(params.length), PassRole.NORMAL, true, null, false, true)));
+		final int uboSize = hasCamPos ? depthConfigSize(params.length, true) : depthConfigSize(params.length);
+		PROGRAMS.put(type, List.of(new ProgramInfo(pipeline, params, uboSize, PassRole.NORMAL, true, null, false, true, hasCamPos)));
 	}
 
 	/**
 	 * The std140 byte size of a depth pass's {@code Config} block: a leading {@code mat4}
-	 * {@code inv_view_proj} (64 bytes) followed by one {@code float} per registered name. The
-	 * size is derived from the name list, never a hand-written constant, so appending a name to
-	 * {@link #registerDepthPost} sizes the block and the arena slice with it. The trailing
-	 * {@code align16} is the std140 rule that rounds the block up to the 16-byte struct alignment.
+	 * {@code inv_view_proj} (64 bytes), an optional {@code vec4} {@code cam_pos} (16 bytes) and
+	 * one {@code float} per registered name. The size is derived from the name list, never a
+	 * hand-written constant, so appending a name to {@link #registerDepthPost} sizes the block
+	 * and the arena slice with it. The trailing {@code align16} is the std140 rule that rounds
+	 * the block up to the 16-byte struct alignment.
 	 *
 	 * @param nameCount the number of registered {@code Config} float names
 	 * @return the std140 size in bytes
 	 */
 	static int depthConfigSize(final int nameCount) {
-		return 64 + align16(nameCount * 4);
+		return depthConfigSize(nameCount, false);
+	}
+
+	/**
+	 * The std140 byte size of a depth pass's {@code Config} block with an explicit {@code cam_pos}
+	 * prefix (see {@link #registerDepthPost(VFXEffectType, boolean, String...)}).
+	 *
+	 * @param nameCount the number of registered {@code Config} float names
+	 * @param hasCamPos true when the block declares {@code vec4 cam_pos} after the matrix
+	 * @return the std140 size in bytes
+	 */
+	static int depthConfigSize(final int nameCount, final boolean hasCamPos) {
+		return (hasCamPos ? 80 : 64) + align16(nameCount * 4);
 	}
 
 	/**

@@ -1,0 +1,27 @@
+{
+  "type": "sky_pattern",
+  "duration": 200,
+  "persistent": true,
+  "loop": true,
+  "fade_ticks": 10,
+  "params": {
+    "screen_layer": 0,
+    "anchor_yaw": 0.0,
+    "anchor_pitch": -35.0,
+    "dome_rotation": 0.0,
+    "tile_scale": 0.6,
+    "color_r": 0.4,
+    "color_g": 0.8,
+    "color_b": 1.0,
+    "opacity": 0.6,
+    "distort": 0.0
+  },
+  "pattern": {
+    "figure": "circle",
+    "fill": "stroke",
+    "radius": 0.4,
+    "stroke_width": 0.04,
+    "softness": 0.02,
+    "repeat": [1, 1]
+  }
+}

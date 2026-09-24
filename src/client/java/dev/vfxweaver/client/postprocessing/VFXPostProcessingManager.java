@@ -516,26 +516,29 @@ public final class VFXPostProcessingManager {
 	/**
 	 * Verifies, once per program link, that the driver's real std140 layout of the depth pass's
 	 * {@code Config} block matches the positional contract: {@code inv_view_proj} at offset 0
-	 * (64 bytes), {@code names[i]} at {@code 64 + 4*i}, and the block size
-	 * {@code 64 + align16(4 * names.length)}. This is the guard that makes a drifted tail fail
-	 * loudly instead of reading as zeros; it would have caught a short range, a stale size or a
-	 * reordered/renamed field.
+	 * (64 bytes), an optional {@code vec4 cam_pos} (16 bytes, sky_pattern only), {@code names[i]}
+	 * at {@code prefixBytes + 4*i}, and the block size
+	 * {@code prefixBytes + align16(4 * names.length)}. This is the guard that makes a drifted tail
+	 * fail loudly instead of reading as zeros; it would have caught a short range, a stale size or
+	 * a reordered/renamed field.
 	 *
-		 * <p>The member names are queried bare (the spec form returned by {@code glGetActiveUniform})
-		 * with a block-qualified fallback, and a member the driver does not list is skipped rather
-		 * than fed to {@code glGetActiveUniformsiv} as {@code -1} (which is {@code GL_INVALID_VALUE}).
-		 *
-		 * <p>An infrastructure miss (a non-GL backend, a shader that has not compiled yet, an LWJGL
-		 * failure) only warns once — the game must not die because a debug query was unavailable. An
-		 * actual layout mismatch logs at ERROR and marks the pipeline failed; it never throws, so a
-		 * false positive cannot turn one frame into a dropped post layer. The set keeps this to one
-		 * query per pipeline per process, never per frame.
+	 * <p>The member names are queried bare (the spec form returned by {@code glGetActiveUniform})
+	 * with a block-qualified fallback, and a member the driver does not list is skipped rather
+	 * than fed to {@code glGetActiveUniformsiv} as {@code -1} (which is {@code GL_INVALID_VALUE}).
 	 *
-	 * @param pipeline the compiled depth pass pipeline
-	 * @param names    the registered {@code Config} float names, in positional order
+	 * <p>An infrastructure miss (a non-GL backend, a shader that has not compiled yet, an LWJGL
+	 * failure) only warns once — the game must not die because a debug query was unavailable. An
+	 * actual layout mismatch logs at ERROR and marks the pipeline failed; it never throws, so a
+	 * false positive cannot turn one frame into a dropped post layer. The set keeps this to one
+	 * query per pipeline per process, never per frame.
+	 *
+	 * @param pipeline  the compiled depth pass pipeline
+	 * @param names     the registered {@code Config} float names, in positional order
+	 * @param hasCamPos true when the block declares {@code vec4 cam_pos} after the matrix
 	 */
-	private static void verifyDepthConfigLayout(final RenderPipeline pipeline, final String[] names) {
+	private static void verifyDepthConfigLayout(final RenderPipeline pipeline, final String[] names, final boolean hasCamPos) {
 		final String key = pipeline.getLocation().toString();
+		final int prefixBytes = hasCamPos ? 80 : 64;
 		if (VERIFIED_DEPTH_CONFIGS.contains(key) || FAILED_DEPTH_CONFIGS.contains(key)) {
 			return;
 		}
@@ -601,13 +604,15 @@ public final class VFXPostProcessingManager {
 			GL31.glGetActiveUniformsiv(programId, activeIndices, GL31.GL_UNIFORM_OFFSET, offsets);
 			for (int a = 0; a < active; a++) {
 				final int i = activeSlots[a];
-				final int expected = 64 + 4 * i;
+				final int expected = prefixBytes + 4 * i;
 				if (offsets[a] != expected) {
 					throw new IllegalStateException("std140 offset drift: '" + names[i] + "' is at " + offsets[a] + ", expected " + expected);
 				}
 			}
-			final int expectedSize = VFXShaderPrograms.depthConfigSize(names.length);
-			final int usedBytes = 64 + 4 * names.length;
+			final int expectedSize = hasCamPos
+				? VFXShaderPrograms.depthConfigSize(names.length, true)
+				: VFXShaderPrograms.depthConfigSize(names.length);
+			final int usedBytes = prefixBytes + 4 * names.length;
 			// The bound range (the arena slot, an over-aligned multiple of expectedSize) must cover
 			// the driver's block; the block must in turn cover every field. A driver that reports the
 			// un-rounded 244 rather than 256 is fine — the bound range is longer either way.
@@ -787,6 +792,8 @@ public final class VFXPostProcessingManager {
 		private final boolean mask;
 		/** True when this pass's {@code Config} starts with {@code mat4 inv_view_proj} and it binds {@code DepthSampler}. */
 		private final boolean depthConfig;
+		/** True when this pass's {@code Config} also declares {@code vec4 cam_pos} after the matrix (sky_pattern). */
+		private final boolean depthHasCamPos;
 		/** The depth pass's resolved anchor (the shape centre / effect world position / player), reused every frame. */
 		private final Vector3f scratchAnchor = new Vector3f();
 		/**
@@ -816,6 +823,7 @@ public final class VFXPostProcessingManager {
 			this.fieldInput = info.fieldInput();
 			this.mask = info.mask();
 			this.depthConfig = info.depthConfig();
+			this.depthHasCamPos = info.depthHasCamPos();
 		}
 
 		VFXShaderPrograms.PassRole role() {
@@ -852,7 +860,7 @@ public final class VFXPostProcessingManager {
 			if (this.depthConfig) {
 				// Once per program link: assert the driver's real std140 offsets match the positional
 				// contract, so a drifted tail fails loudly rather than reading as zeros.
-				verifyDepthConfigLayout(this.pipeline, this.configParams);
+				verifyDepthConfigLayout(this.pipeline, this.configParams, this.depthHasCamPos);
 			}
 			//?}
 			final GpuBufferSlice samplerInfo = this.arena.write(encoder, builder ->
@@ -882,6 +890,12 @@ public final class VFXPostProcessingManager {
 						// spec §5 / depth findings: viewRotProj has no translation; the matrix was
 						// already built translate(-camPos) then inverted, so write it as-is.
 						builder.putMat4f(VFXFieldEnv.invViewProj());
+						// sky_pattern's Config declares vec4 cam_pos after the matrix: the camera
+						// world position vfx_view_dir subtracts from the far-plane point. Only a
+						// camPos depth post pays for it; surface_pattern's 64-byte prefix is intact.
+						if (this.depthHasCamPos) {
+							builder.putVec4(VFXFieldEnv.cameraX(), VFXFieldEnv.cameraY(), VFXFieldEnv.cameraZ(), 0.0F);
+						}
 						// One full-range write per frame, in registered-name order, sized by the name
 						// list: resolveDepthConfig writes every name or throws, so the tail can never
 						// silently upload as zero.
@@ -1466,6 +1480,11 @@ public final class VFXPostProcessingManager {
 		) {
 			final float raw = switch (param) {
 				case "time" -> effect.getAge();
+				// sky_pattern's dome anchor (yaw/pitch degrees) and the star-sphere lock, ordinary
+				// animatable params with no neutral (never fade-blended).
+				case "anchor_yaw" -> effect.getParam("anchor_yaw", 0.0F);
+				case "anchor_pitch" -> effect.getParam("anchor_pitch", 0.0F);
+				case "dome_rotation" -> effect.getParam("dome_rotation", 0.0F);
 				case "tile_scale" -> effect.getParam("tile_scale", 0.0F);
 				case "color_r" -> effect.getParam("color_r", 0.0F);
 				case "color_g" -> effect.getParam("color_g", 0.0F);
