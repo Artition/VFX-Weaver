@@ -89,6 +89,7 @@ nav:
           - afterimage: guide/effects/screen/afterimage.md
           - stop_motion: guide/effects/screen/stop-motion.md
           - surface_pattern: guide/effects/screen/surface-pattern.md
+          - sky_pattern: guide/effects/screen/sky-pattern.md
       - World overlays:
           - block_tint: guide/effects/world/block-tint.md
           - block_outline: guide/effects/world/block-outline.md

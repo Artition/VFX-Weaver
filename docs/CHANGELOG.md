@@ -16,6 +16,18 @@ change.
 
 ### Added
 
+- **`sky_pattern` — a datapack figure or texture drawn on the sky dome.** A new screen post effect
+  and the sky sibling of `surface_pattern`: the same structural `pattern` block, shared shape
+  library and `pattern.texture` addressing, but the pixel's view ray is mapped to an equirectangular
+  dome coordinate instead of a depth-reconstructed world surface. The dome anchor is authored as
+  `anchor_yaw`/`anchor_pitch` (degrees) and the image can be spun about world Y with `dome_rotation`;
+  `repeat: [3, 3]` draws nine dots with no texture, and a `pattern.texture` with a `sheet` plus the
+  animatable `frame` param draws an animated sky. The pass is gated on the depth sky test, so it
+  never touches terrain, the hand or the GUI. Additive: a new effect type only, no existing effect
+  changed, no datapack field renamed, `PROTOCOL_VERSION` unchanged, and no existing shader's UBO
+  layout touched. The rendering is not verified in game by the author (the owner tests visually);
+  like every post effect it composes over an Iris shaderpack's sky.
+
 - **`light_beam` can end on a chosen point.** Three optional params, `end_at_x`/`end_at_y`/`end_at_z`,
   name a world point the **far end** of the beam lands on: the anchor is derived from it
   (`end − axis × height`), so the geometry finishes exactly there — with the default axis the beam
