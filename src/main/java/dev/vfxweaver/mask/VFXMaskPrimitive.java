@@ -93,7 +93,7 @@ public record VFXMaskPrimitive(
 		if (this.customShape != null) {
 			return 7;
 		}
-		return this.shape().ordinal();
+		return this.shape() == VFXMaskShapeKind.SKY ? 8 : this.shape().ordinal();
 	}
 
 	/** Which of the three mask families this leaf belongs to. */

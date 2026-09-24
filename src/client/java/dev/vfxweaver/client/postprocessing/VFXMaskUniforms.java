@@ -243,7 +243,7 @@ public final class VFXMaskUniforms {
 				slotValue(mask, effect, primitive.fieldAmountSlot(), primitive.fieldAmountDefault()),
 				slotValue(mask, effect, primitive.fieldScaleSlot(), primitive.fieldScaleDefault()),
 				primitive.fieldSeed(),
-				primitive.space() == VFXMaskSpace.WORLD ? 1.0F : 0.0F
+				primitive.space() == VFXMaskSpace.WORLD ? 1.0F : (primitive.space() == VFXMaskSpace.DOME ? 2.0F : 0.0F)
 			};
 			// A bound centre overrides the literal/graph centre; a derived screen rectangle overrides
 			// the centre AND the half-extents. Resolution is cached per frame by VFXWorldBindings.

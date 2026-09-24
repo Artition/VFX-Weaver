@@ -82,10 +82,10 @@ public final class VFXMask {
 		return this.slots;
 	}
 
-	/** True when at least one leaf is classified in world space (the prepass then needs depth). */
+	/** True when at least one leaf needs trustworthy scene depth in the coverage prepass. */
 	public boolean needsDepth() {
 		for (final VFXMaskPrimitive primitive : this.primitives) {
-			if (primitive.space() == VFXMaskSpace.WORLD) {
+			if (primitive.space() == VFXMaskSpace.WORLD || primitive.space() == VFXMaskSpace.DOME) {
 				return true;
 			}
 		}

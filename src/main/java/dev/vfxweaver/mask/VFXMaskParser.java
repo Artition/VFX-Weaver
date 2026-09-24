@@ -27,6 +27,7 @@ public final class VFXMaskParser {
 	private static final float SCREEN_CENTER_X = 0.5F;
 	private static final float SCREEN_CENTER_Y = 0.5F;
 	private static final float WORLD_CENTER = 0.0F;
+	private static final float DOME_CENTER = 0.0F;
 
 	private VFXMaskParser() {
 	}
@@ -49,7 +50,7 @@ public final class VFXMaskParser {
 		if (json.has("space") && !json.get("space").isJsonNull()) {
 			topSpace = VFXMaskSpace.fromString(json.get("space").getAsString());
 			if (topSpace == null) {
-				throw new IllegalArgumentException("mask: 'space' must be 'screen' or 'world'");
+				throw new IllegalArgumentException("mask: 'space' must be 'screen', 'world' or 'dome'");
 			}
 		} else {
 			topSpace = null;
@@ -163,13 +164,21 @@ public final class VFXMaskParser {
 			space = topSpace != null ? topSpace : customDefinition.space();
 		}
 		if (space == null) {
-			throw new IllegalArgumentException("mask: 'space' must be 'screen' or 'world'");
+			throw new IllegalArgumentException("mask: 'space' must be 'screen', 'world' or 'dome'");
 		}
 		if (blockLeaf && space != VFXMaskSpace.WORLD) {
 			throw new IllegalArgumentException("mask: block masks are world-only");
 		}
 		if (shape != null && shape.worldOnly() && space != VFXMaskSpace.WORLD) {
 			throw new IllegalArgumentException("mask: shape '" + shape.id() + "' is world-only ('sphere'/'box' classify a 3D world volume)");
+		}
+		if (shape == VFXMaskShapeKind.SKY && space != VFXMaskSpace.DOME) {
+			throw new IllegalArgumentException("mask: shape 'sky' is dome-only");
+		}
+		// Dome space is the equirectangular sky: only the 2D kinds and the `sky` leaf address it. A
+		// custom (plugin/composed) SDF is evaluated in screen or world units, so it has no dome meaning.
+		if (space == VFXMaskSpace.DOME && shape == null) {
+			throw new IllegalArgumentException("mask: 'space': 'dome' is only valid on the 2D shapes or the 'sky' leaf");
 		}
 		final String customShape = (!blockLeaf && shape == null) ? shapeName : null;
 		final int i = counter[0]++;
@@ -179,7 +188,9 @@ public final class VFXMaskParser {
 		final String[] axes = {"x", "y", "z"};
 		final float[] fallback = space == VFXMaskSpace.WORLD
 			? new float[]{WORLD_CENTER, WORLD_CENTER, WORLD_CENTER}
-			: new float[]{SCREEN_CENTER_X, SCREEN_CENTER_Y};
+			: space == VFXMaskSpace.DOME
+				? new float[]{DOME_CENTER, DOME_CENTER}
+				: new float[]{SCREEN_CENTER_X, SCREEN_CENTER_Y};
 		// A centre may be a fixed/animatable array, or one world-point binding object
 		// ({ "bind": "camera"|"player"|"entity"|"point"|"block", ... }): the binding drives every
 		// centre axis. A screen `rect` may instead carry a derived `screen_rect` binding (below),
@@ -198,9 +209,19 @@ public final class VFXMaskParser {
 		} else if (centerElement == null && hasScreenRect) {
 			centerBinding = null;
 			center = null;
+		} else if (centerElement == null && shape == VFXMaskShapeKind.SKY) {
+			// A whole-sky leaf has no position: it covers the entire dome, so its centre is the
+			// fallback and the shader ignores it.
+			centerBinding = null;
+			center = null;
 		} else {
 			centerBinding = null;
 			center = array(json, "center", centerArity);
+		}
+		// A dome leaf addresses the equirectangular sky by a literal [yaw, pitch] in degrees. A bound
+		// `center` yields a world position, whose dome conversion is a later stage (celestial anchors).
+		if (space == VFXMaskSpace.DOME && centerBinding != null) {
+			throw new IllegalArgumentException("mask: a 'dome' leaf takes a literal [yaw, pitch] centre in degrees; a bound 'center' is not supported yet");
 		}
 		for (int j = 0; j < centerArity; j++) {
 			centerSlots[j] = VFXMaskSlots.center(i, axes[j]);

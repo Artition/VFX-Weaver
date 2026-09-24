@@ -23,7 +23,8 @@ public enum VFXMaskShapeKind {
 	POLYGON("polygon", VFXMaskSpace.SCREEN, false, List.of("radius", "sides"), new float[]{0.5F, 6.0F}),
 	SPHERE("sphere", VFXMaskSpace.WORLD, true, List.of("radius"), new float[]{8.0F}),
 	BOX("box", VFXMaskSpace.WORLD, true, List.of("half_width", "half_height", "half_depth"), new float[]{4.0F, 4.0F, 4.0F}),
-	SKY("sky", VFXMaskSpace.DOME, true, List.of(), new float[]{});
+	// The whole sky dome: dome-only, no parameters, and it needs depth for the sky test.
+	SKY("sky", VFXMaskSpace.DOME, false, List.of(), new float[]{});
 
 	private final String id;
 	private final VFXMaskSpace space;

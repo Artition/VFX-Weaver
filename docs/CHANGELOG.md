@@ -16,6 +16,17 @@ change.
 
 ### Added
 
+- **Sky masks.** Two new mask leaves address the sky instead of the world: `sky` (the whole visible
+  sky, no parameters) and a 2D shape (`circle`/`ellipse`/`rect`/`polygon`) in the new
+  `space: "dome"`, which places it on an equirectangular map of the sky with the centre authored as
+  `[yaw, pitch]` degrees. A dome leaf is sky-occluded by construction — a hill or a wall occupying a
+  dome direction is never tinted — and both fail closed (zero coverage) when no trustworthy depth is
+  available. This is what lets any existing screen effect be restricted to the sky, e.g. a green or
+  glitching sky. Additive: no datapack field was renamed, the wire format and `PROTOCOL_VERSION` are
+  unchanged and the coverage UBO layout did not change. The far-depth test is verified on 26.2 and
+  built from the same proven per-node convention on 26.1.2/1.21.11, where it still needs an in-game
+  confirmation.
+
 - **`volume: "aura"` on a world GLSL-plugin mask leaf.** A custom mask leaf registered with
   `VFXAPI.registerMaskShapeGlsl` can now be a real volume instead of a surface-only shape: the pixel's
   view ray is sphere-traced through the plugin's own distance field and the effect fills the volume —

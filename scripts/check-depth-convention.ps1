@@ -20,12 +20,14 @@ $cameraPath = Join-Path $shaderRoot "include\camera.glsl"
 $patternPath = Join-Path $shaderRoot "post\surface_pattern.fsh"
 $coveragePath = Join-Path $shaderRoot "post\mask_coverage.fsh"
 $geometryPath = Join-Path $shaderRoot "post\mask_block_geometry.fsh"
+$domePath = Join-Path $shaderRoot "include\dome.glsl"
 
 $programs = [System.IO.File]::ReadAllText($programsPath)
 $camera = [System.IO.File]::ReadAllText($cameraPath)
 $pattern = [System.IO.File]::ReadAllText($patternPath)
 $coverage = [System.IO.File]::ReadAllText($coveragePath)
 $geometry = [System.IO.File]::ReadAllText($geometryPath)
+$dome = [System.IO.File]::ReadAllText($domePath)
 
 $problems = New-Object System.Collections.Generic.List[string]
 
@@ -90,6 +92,11 @@ if ($camera -notmatch '#define VFX_DEPTH_IS_SKY\(rawDepth\) \(\(rawDepth\) >= 1\
 if ($camera -notmatch '#define VFX_DEPTH_NEAR_RAW 1\.0' -or $camera -notmatch '#define VFX_DEPTH_NEAR_RAW 0\.0') {
 	$problems.Add("include/camera.glsl does not define VFX_DEPTH_NEAR_RAW per convention")
 }
+# VFX_DEPTH_FAR_RAW is the exact complement of the sky test and the far-plane reconstruction source
+# for the dome view ray: 0.0 reversed (far = 0) / 1.0 standard (far = 1).
+if ($camera -notmatch '#define VFX_DEPTH_FAR_RAW 0\.0' -or $camera -notmatch '#define VFX_DEPTH_FAR_RAW 1\.0') {
+	$problems.Add("include/camera.glsl does not define VFX_DEPTH_FAR_RAW per convention")
+}
 
 # --- 3. consumers use the flag, not a hard-coded convention ---------------------------------------
 if ($pattern -notmatch 'VFX_DEPTH_IS_SKY\(sceneDepth\)') {
@@ -118,6 +125,9 @@ if ($geometry -notmatch 'gl_FragCoord\.z < sceneDepth - 1\.0e-4') {
 }
 if ($geometry -notmatch 'gl_FragCoord\.z > sceneDepth \+ 1\.0e-4') {
 	$problems.Add("post/mask_block_geometry.fsh is missing the standard occlusion comparison")
+}
+if ($dome -notmatch 'VFX_DEPTH_FAR_RAW') {
+	$problems.Add("include/dome.glsl does not reconstruct the view ray from VFX_DEPTH_FAR_RAW")
 }
 
 # --- 4. every depth-reading pipeline injects the define ------------------------------------------

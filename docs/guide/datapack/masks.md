@@ -8,6 +8,7 @@ composition (`"op": "union" | "intersection" | "difference"`) of leaves; every l
 
 - a **screen shape** — `circle`, `ellipse`, `rect`, `polygon` — classified in UV, no depth needed;
 - a **world volume** — `sphere` or `box` — classified against the depth-reconstructed world position;
+- a **sky** leaf (the whole sky) or a 2D shape in `space: "dome"` (addressed on the sky dome);
 - a **block** leaf (the selected blocks' model geometry) or a **custom** shape (a registered composed SDF or GLSL plugin).
 
 Composition **nests on the left only**: the right operand of an `op` must be a leaf, so write
@@ -64,8 +65,8 @@ drive a mask from data the client does not have, set its centre from the **serve
 
 > **Depth note.** The scene depth is read on every supported node. Each node's convention is proven
 > from the client jars and injected into the shader as a per-node flag: 26.2 is reversed (near = 1),
-> 26.1.2 and 1.21.11 are standard (near = 0). A mask that needs depth (a `world` leaf, an `aura`
-> volume, or a block leaf) still **fails closed** — it contributes zero coverage and its depth-tested
+> 26.1.2 and 1.21.11 are standard (near = 0). A mask that needs depth (a `world` leaf, a `dome`/`sky`
+> leaf, an `aura` volume, or a block leaf) still **fails closed** — it contributes zero coverage and its depth-tested
 > block pass is disabled — when no trustworthy depth is available (no depth attachment, or the camera
 > snapshot is not ready on the first frame), never a wrong sample. A purely `screen` mask needs no
 > depth and works on every node and every layer.
@@ -234,6 +235,52 @@ what the depth buffer contains, so a sky pixel contributes no coverage. Built-in
 that implicitly (their bounded SDF puts a far-plane point outside the shape); for a custom leaf the
 gate is explicit, because its SDF may be intentionally unbounded. A plugin that used to paint the sky
 from a `surface` leaf no longer does — that is the point of the gate.
+
+#### Sky masks: the `sky` leaf and `space: "dome"`
+
+Two leaves address the **sky** rather than the world. Both need scene depth, because the only thing
+that tells the sky apart from geometry is the depth test.
+
+- **`sky`** — the whole sky. Its coverage is exactly "this pixel is sky", so it covers every visible
+  part of the sky and nothing else; it takes no parameters and no `center`.
+
+  ```json
+  {
+  	"type": "color_grade",
+  	"duration": 400,
+  	"params": { "screen_layer": 1, "tint_g": 0.2, "tint_r": 0.1, "tint_b": 0.1 },
+  	"mask": { "a": { "shape": "sky" } }
+  }
+  ```
+
+  `{"shape": "sky"}` is enough: a `sky` leaf defaults to dome space and ignores a centre.
+- **`space: "dome"` on a 2D shape** — `circle`, `ellipse`, `rect` or `polygon` addressed on the sky
+  dome. The dome is an equirectangular map of the sky (the familiar "world map" projection): the
+  fragment's view direction is converted to a position on that map, and the shape is drawn there.
+  `center` is `[yaw, pitch]` in **degrees** (yaw `0` = south, `90` = west, `180`/`-180` = north;
+  pitch `-90` = straight up, `0` = horizon, `90` = straight down); `radius`/`half_width` are in dome
+  units, where `0.5` spans half the dome; `rotation` rotates the shape in the dome plane.
+
+  ```json
+  { "shape": "circle", "space": "dome", "center": [0.0, -45.0], "radius": 0.08, "softness": 0.02 }
+  ```
+
+A dome leaf is **sky-occluded by construction**: a pixel that is not sky contributes zero, so a hill or
+a wall occupying a dome direction is never tinted. That is the deliberate difference from a `world`
+leaf (which classifies geometry) and a `screen` leaf (which can cover anything). A shape authored near
+a pole is stretched horizontally by the projection — expected for an equirectangular map.
+
+A dome leaf's `center` must be a literal `[yaw, pitch]`; a bound `center` (an entity or world
+position) is not supported yet and is a parse error. A `sky` leaf may not be `screen` or `world`
+(`mask: shape 'sky' is dome-only`), and dome space accepts only the 2D shapes and `sky` — a custom
+(plugin or composed) shape has no dome meaning
+(`mask: 'space': 'dome' is only valid on the 2D shapes or the 'sky' leaf`).
+
+> **Fail-closed.** A `sky`/`dome` leaf reads the same depth as every other depth-needing mask and
+> contributes **zero** coverage whenever there is no trustworthy depth, so a pack that leaves no usable
+> far depth simply never matches and the leaf can never flood the screen. The far-depth test is
+> verified on 26.2; on 26.1.2 and 1.21.11 it is built from the same proven per-node convention but has
+> **not** been confirmed in game yet.
 
 #### Block masks: `occlude`
 

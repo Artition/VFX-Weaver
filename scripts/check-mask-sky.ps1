@@ -17,12 +17,12 @@ $coverage = Read-Source (Join-Path $shaders "post\mask_coverage.fsh")
 $problems = New-Object System.Collections.Generic.List[string]
 
 if ($space -notmatch 'DOME\("dome"\)') { $problems.Add('VFXMaskSpace: DOME("dome") is missing') }
-if ($kind -notmatch 'SKY\("sky",\s*VFXMaskSpace\.DOME,\s*true') { $problems.Add("VFXMaskShapeKind: SKY must be dome-only and depth-needing") }
+if ($kind -notmatch 'SKY\("sky",\s*VFXMaskSpace\.DOME,\s*false,\s*List\.of\(\)') { $problems.Add("VFXMaskShapeKind: SKY must be dome-only with no parameters") }
 if ($mask -notmatch 'public boolean needsDepth\(\)') { $problems.Add("VFXMask: needsDepth() is missing") }
 if ($parser -notmatch 'must be .screen., .world. or .dome.') { $problems.Add("VFXMaskParser: dome space validation is missing") }
 if ($parser -notmatch 'sky.*dome') { $problems.Add("VFXMaskParser: sky dome-only validation is missing") }
-if ($parser -notmatch 'worldOnly.*DOME|DOME.*worldOnly') { $problems.Add("VFXMaskParser: dome world-only validation is missing") }
-if ($uniforms -notmatch 'depth_valid') { $problems.Add("VFXMaskUniforms: appended depth_valid field is missing") }
+if ($parser -notmatch "'dome' is only valid on the 2D shapes") { $problems.Add("VFXMaskParser: dome-only-2D validation is missing") }
+if ($uniforms -notmatch 'VFXMaskSpace\.DOME \? 2\.0F') { $problems.Add("VFXMaskUniforms: the dome space code 2 is missing") }
 if ($camera -notmatch '#define VFX_DEPTH_FAR_RAW 0\.0') { $problems.Add("camera.glsl: reversed VFX_DEPTH_FAR_RAW is missing") }
 if ($camera -notmatch '#define VFX_DEPTH_FAR_RAW 1\.0') { $problems.Add("camera.glsl: standard VFX_DEPTH_FAR_RAW is missing") }
 if (-not (Test-Path (Join-Path $shaders "include\dome.glsl"))) { $problems.Add("include/dome.glsl is missing") }
@@ -31,7 +31,8 @@ if ($coverage -notmatch 'vfx_view_dir\(') { $problems.Add("mask_coverage.fsh: vf
 if ($coverage -notmatch 'vfx_dome_uv\(') { $problems.Add("mask_coverage.fsh: vfx_dome_uv dispatch is missing") }
 if ($coverage -notmatch 'VFX_DEPTH_IS_SKY\(depthRaw\)') { $problems.Add("mask_coverage.fsh: sky test is missing") }
 if ($coverage -notmatch 'leafSpace == 2') { $problems.Add("mask_coverage.fsh: dome space code 2 is missing") }
-if ($coverage -notmatch 'depth_valid') { $problems.Add("mask_coverage.fsh: fail-closed depth gate is missing") }
+if ($coverage -notmatch 'isSky \? 1\.0 : 0\.0') { $problems.Add("mask_coverage.fsh: the sky leaf is not gated by the sky test") }
+if ($coverage -notmatch 'isSky \? clamp\(') { $problems.Add("mask_coverage.fsh: the dome leaf is not gated by the sky test") }
 
 Write-Host "Mask sky check (static)"
 if ($problems.Count -gt 0) {
@@ -70,7 +71,7 @@ public final class MaskSkyCheck {
         require(sky.primitives().get(0).space() == dev.vfxweaver.mask.VFXMaskSpace.DOME, "sky space");
         require(sky.primitives().get(0).shape() == dev.vfxweaver.mask.VFXMaskShapeKind.SKY, "sky shape");
         require(sky.needsDepth(), "sky needsDepth");
-        rejected("mask: shape 'sky' is dome-only", "{\"shape\":\"sky\"}");
+        rejected("mask: shape 'sky' is dome-only", "{\"shape\":\"sky\",\"space\":\"world\",\"center\":[0.0,0.0,0.0]}");
         rejected("mask: shape 'sphere' is world-only ('sphere'/'box' classify a 3D world volume)", "{\"shape\":\"sphere\",\"space\":\"dome\",\"center\":[0.0,0.0,0.0]}");
         System.out.println("mask sky check OK: dome sky parses and needs depth; invalid space combinations are rejected");
     }

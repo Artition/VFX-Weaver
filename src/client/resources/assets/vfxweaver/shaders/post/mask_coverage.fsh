@@ -26,6 +26,7 @@
 
 #moj_import <vfxweaver:shapes.glsl>
 #moj_import <vfxweaver:camera.glsl>
+#moj_import <vfxweaver:dome.glsl>
 
 uniform sampler2D DepthSampler;
 uniform sampler2D GeometryCoverageSampler;
@@ -73,7 +74,7 @@ out vec4 fragColor;
 
 // Screen/3D kinds: CIRCLE=0, ELLIPSE=1, RECT=2, POLYGON=3, SPHERE=4, BOX=5; block leaf=6,
 // custom leaf=7 (the last two are kind codes, not VFXMaskShapeKind ordinals). Ops: UNION=0,
-// INTERSECTION=1, DIFFERENCE=2. Fields: NONE=0, NOISE=1. Spaces: screen=0, world=1. Fills:
+// INTERSECTION=1, DIFFERENCE=2. Fields: NONE=0, NOISE=1. Spaces: screen=0, world=1, dome=2. Fills:
 // solid=0, stroke=1.
 
 float hash31(vec3 p) {
@@ -358,6 +359,25 @@ void main() {
                 // Composed SDF: its parts already apply their own falloff, scaled by the leaf's softness.
                 cov = vfx_composed_leaf(row, world, texCoord, so.z);
             }
+        } else if (kind == 8) {
+            // Sky leaf: the whole sky dome and nothing else. The depth sky test IS the coverage, so a
+            // pixel that is not sky contributes zero - a pack that leaves no trustworthy far depth
+            // simply never matches, which is the fail-closed behaviour.
+            cov = isSky ? 1.0 : 0.0;
+        } else if (leafSpace == 2) {
+            // Dome space: a 2D shape addressed in equirectangular dome UV, sky-occluded by construction
+            // (geometry occupying a dome direction is not sky, so it is never covered). The leaf centre
+            // is authored as [yaw, pitch] degrees and mapped into the same UV space as the projection;
+            // `rotation` stays the shape's own in-plane rotation.
+            vec2 domeUv = vfx_dome_uv(vfx_view_dir(texCoord, invViewProj, camPos.xyz));
+            vec2 domeCenter = vec2((shape_center[i].x + 180.0) / 360.0, (shape_center[i].y + 90.0) / 180.0);
+            float d = vfx_shape_sdf_dispatch(kind, 0, domeUv, world, vec3(domeCenter, 0.0), shape_center[i].w, shape_params0[i], shape_params1[i]);
+            if (shape_misc[i].x > 0.5) {
+                d = abs(d) - 0.5 * shape_misc[i].y;
+            }
+            d += fieldValue(int(so.w + 0.5), vec3(domeUv, mask_time), field_params[i].y, field_params[i].z) * field_params[i].x;
+            float softness = max(so.z, 1.0e-4);
+            cov = isSky ? clamp(0.5 - d / softness, 0.0, 1.0) : 0.0;
         } else if ((kind == 4 || kind == 5) && shape_volume[i].x > 0.5) {
             // Aura: cast the pixel's view ray at the volume. Coverage is the volume's own silhouette,
             // sampled at the deepest point of the chord, masked by scene occlusion. The reconstructed
