@@ -14,6 +14,28 @@ change.
 
 ## Unreleased
 
+### Added
+
+- **`volume: "aura"` on a world GLSL-plugin mask leaf.** A custom mask leaf registered with
+  `VFXAPI.registerMaskShapeGlsl` can now be a real volume instead of a surface-only shape: the pixel's
+  view ray is sphere-traced through the plugin's own distance field and the effect fills the volume —
+  air and sky included — wherever the scene does not occlude it, with the same silhouette, edge fade
+  and occlusion maths as a built-in `sphere`/`box` aura. A composed custom leaf (no raw SDF to march)
+  and a screen-space plugin leaf are per-file parse errors naming the reason rather than silent
+  fallbacks. An optional `vec4 vfx_shape_custom_bounds()` in the plugin source (world centre and
+  radius) acts as an analytic broad phase: a ray that misses it is rejected without evaluating the SDF,
+  which makes the average cost proportional to the volume's screen area instead of the whole frame. A
+  plugin that declares neither function compiles and behaves exactly as before; the wire format,
+  `PROTOCOL_VERSION` and the coverage UBO layout are unchanged.
+
+### Changed
+
+- **A custom mask leaf in `surface` mode no longer tints the sky.** The surface path classifies only
+  what the depth buffer contains, so a sky pixel contributes no coverage. Built-in shapes already
+  behaved this way (their bounded distance field puts a far-plane point outside the shape); the gate is
+  now explicit for custom leaves, whose SDF may be intentionally unbounded. A plugin that relied on
+  painting the sky from a `surface` leaf will no longer do so.
+
 ## 2.0.2 — 2026-09-23
 
 2.0.2 lets a GLSL mask plugin shape read live per-leaf float data, so its geometry can move every

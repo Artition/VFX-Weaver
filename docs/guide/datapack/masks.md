@@ -175,6 +175,66 @@ aura still fills the volume's silhouette instead of vanishing against the sky.
 }
 ```
 
+#### `volume` on a custom GLSL-plugin leaf
+
+A `world` GLSL-plugin leaf accepts the same `"volume": "aura"` field. An arbitrary distance field has
+no analytic ray, so the pixel's view ray is **sphere-traced** through the plugin's own SDF: entry and
+exit are found by marching, and the coverage is sampled at the deepest point of the **first** chord the
+ray enters (a further region along the same ray is not counted). Silhouette, edge fade and scene
+occlusion are then exactly the built-in `aura` maths, so a wall-shaped aura is hidden by a hill in
+front of it and fills air and sky.
+
+```json
+{
+	"type": "color_grade",
+	"duration": 800,
+	"loop": true,
+	"persistent": true,
+	"params": { "screen_layer": 1, "tint_r": 1.0, "tint_g": 1.0, "tint_b": 1.0 },
+	"mask": {
+		"a": {
+			"shape": "mymod:zone_sdf",
+			"space": "world",
+			"volume": "aura",
+			"center": [0, 64, 0],
+			"softness": 0.5
+		}
+	}
+}
+```
+
+A `composed` custom leaf has no raw SDF to march, so `"volume": "aura"` on one is a per-file parse
+error naming the shape — it does not silently fall back. A screen-space plugin leaf is rejected for
+the same reason: a uv-space distance cannot be marched in world units.
+
+**Cost.** The march evaluates the plugin up to 40 entry + 16 exit + 4 refine steps, against the single
+analytic evaluation a built-in `sphere`/`box` costs. Two things cut it:
+
+- **The optional broad phase.** A plugin may declare `vec4 vfx_shape_custom_bounds()` returning a world
+  `(centre.xyz, radius)`, a negative radius meaning "no bound". The ray is tested against that sphere
+  first: a miss rejects the pixel with no SDF call at all, and a hit starts the march at the sphere's
+  near point, so the average cost follows the volume's screen area instead of the whole frame. A plugin
+  that omits the function is unchanged (the wrapper falls back to the unbounded march), and a bound
+  that is too small clips the aura — it has to enclose the geometry.
+  ```glsl
+  vec4 vfx_shape_custom_bounds() {
+  	// Follows the same moving circles the SDF reads.
+  	return vec4(0.0, 64.0, 0.0, vfx_mask_data(vfx_shape_data_base + 9) + 2.0);
+  }
+  ```
+- **An early exit** once the deepest sample already reached full coverage.
+
+Deliberate ceiling: with a 0.5-block minimum step the step budget only traverses roughly 30 blocks, so
+a volume further away than that degrades to "still inside at the march limit" — a safe answer, and
+scene occlusion usually removes such a pixel anyway. Raise the step budget or the minimum step if a
+scene ever needs more.
+
+**`surface` mode never tints the sky.** A `custom` leaf in the default `surface` mode classifies only
+what the depth buffer contains, so a sky pixel contributes no coverage. Built-in shapes already did
+that implicitly (their bounded SDF puts a far-plane point outside the shape); for a custom leaf the
+gate is explicit, because its SDF may be intentionally unbounded. A plugin that used to paint the sky
+from a `surface` leaf no longer does — that is the point of the gate.
+
 #### Block masks: `occlude`
 
 A `block` leaf carries an optional `"occlude"` boolean controlling whether its rasterised model

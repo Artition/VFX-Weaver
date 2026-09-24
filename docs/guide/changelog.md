@@ -5,8 +5,11 @@ documentation changed. A guide revision is not a mod version — the two numbers
 released mod versions are recorded on the **[mod Changelog](../CHANGELOG.md)** instead. Where a guide
 revision shipped with a release, the entry says so (for example `v47 — released as 2.0.0`).
 
-Current guide revision: **v52**. Mod version it documents: **2.0.2**. Which jar to download is in the
+Current guide revision: **v53**. Mod version it documents: **2.0.2**. Which jar to download is in the
 [download table](../index.md#download).
+
+### v53
+- **A GLSL mask plugin leaf can be a volume, and a surface custom leaf no longer paints the sky.** A `world` custom leaf registered through `VFXAPI.registerMaskShapeGlsl` now accepts `"volume": "aura"`: the pixel's view ray is sphere-traced through the plugin's own SDF and the volume is filled — air and sky included — wherever the scene does not occlude it, using the same silhouette, edge fade and occlusion maths as a built-in `sphere`/`box` aura. A composed custom leaf (no raw SDF to march) and a screen-space plugin leaf are per-file parse errors that name the reason, never a silent fallback. A plugin may declare an optional `vec4 vfx_shape_custom_bounds()` (world centre and radius) as an analytic broad phase, so a ray that misses the volume is rejected without evaluating the SDF and the cost follows the volume's screen area; the march covers the first chord only, and a 0.5-block minimum step caps its reach at roughly 30 blocks. In the other direction, the default `surface` mode now gates the sky for custom leaves: a sky pixel contributes no coverage, so an intentionally unbounded plugin SDF no longer paints it (built-in shapes already behaved that way). An existing plugin that declares neither function compiles and behaves exactly as before; no wire, UBO or Java API change. See [Masks](datapack/masks.md) and the [Java API](../API.md).
 
 ### v52 — released as 2.0.2
 - **Mod version 2.0.2.** The dynamic mask float-data feature documented in v51 ships as **2.0.2**, together with the raised network parameter cap and the coverage UBO growth it required (see v51). No guide behaviour changed in this entry; only `mod_version` and the version wording moved. The full list is in the [mod changelog](../CHANGELOG.md).

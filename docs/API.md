@@ -262,6 +262,28 @@ them), and must not name a uniform or variable after a GLSL built-in. A plugin t
 helper compiles and behaves exactly as before. A data update is an ordinary param edit — the shader
 variant is keyed only by the set of plugin ids, so it never triggers a recompile.
 
+**Aura, and the optional broad phase.** A `world` plugin leaf may take `"volume": "aura"`: the pixel's
+view ray is sphere-traced through the plugin's SDF (up to 40 entry + 16 exit + 4 refine steps, minimum
+step 0.5, maximum step 64, range capped at 1024) and the coverage is the volume's silhouette at the
+deepest point of the first chord, occluded by nearer scene geometry exactly like a built-in
+`sphere`/`box` aura. A plugin may declare a second, optional function to keep that cheap:
+
+```glsl
+vec4 vfx_shape_custom_bounds();   // world (centre.xyz, radius); a negative radius means "no bound"
+```
+
+The wrapper only honours it when the source declares that exact signature, so a plugin that omits it
+compiles unchanged and gets the unbounded march. With a bound, a ray that misses the sphere costs zero
+SDF calls, and a hit starts the march at the sphere's near point. The bound may read the leaf's own
+values through `vfx_mask_data`, so it can follow moving geometry; a bound that is too small clips the
+aura.
+
+A composed custom leaf has no raw SDF to march, so `"volume": "aura"` on one is a per-file parse error
+naming the shape (no silent fallback), and a screen-space plugin leaf is rejected the same way (a
+uv-space distance cannot be marched in world units). The march covers the **first** chord only. In
+`aura` mode a sky pixel is covered like any other; in `surface` mode a sky pixel contributes no
+coverage, so a plugin SDF that is intentionally unbounded no longer paints the sky.
+
 Limits and failure behaviour, all of them deliberate:
 
 - A mask may hold at most **2 custom leaves**; a third is a per-file parse error (it would alias

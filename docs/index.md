@@ -26,7 +26,7 @@ will play and the loader you already have installed:
 | 1.21.11 | NeoForge | `vfxweaver-2.0.2+1.21.11-neoforge.jar` |
 
 **Version scheme.** `2.0.2` in the file name is the **mod version** (the value released on GitHub and
-Modrinth). The documentation also carries a **guide revision** (`Guide v52`); that number tracks the
+Modrinth). The documentation also carries a **guide revision** (`Guide v53`); that number tracks the
 guide itself and never appears in a jar name. So `vfxweaver-2.0.2+26.2.jar` = mod 2.0.2, Minecraft
 26.2, Fabric; the 26.1.2 jar covers the whole 26.1.x line. Fabric jars need Fabric API; NeoForge jars
 use the `-neoforge` suffix and are installed with [NeoForge](https://neoforged.net/).
