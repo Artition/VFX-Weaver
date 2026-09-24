@@ -14,7 +14,7 @@ How a pixel's view ray is turned into a pattern coordinate is chosen by the **`s
 
 | `sky_mode` | Projection | Use it for |
 |---|---|---|
-| `patch` **(default)** | One **gnomonic** (tangent-plane) decal at the authored anchor, bounded to its unit disc - a local chart | A figure or image at one spot in the sky |
+| `patch` **(default)** | One **gnomonic** (tangent-plane) decal at the authored anchor - a local chart, no built-in clip | A figure or image at one spot in the sky |
 | `fill` | The **whole sphere** by three orthographic charts blended with a sharpened partition of unity ("triplanar on a sphere") | Content that must cover the whole sky (cracks, a full-sky fill) |
 | `dome` | The original single **equirectangular** chart (legacy) | Existing content only - **do not author new content in it** |
 
@@ -25,15 +25,13 @@ look - and `u` has to wrap somewhere (±180° yaw), leaving a visible **seam / m
 are properties of the chart, not formula bugs, so `patch` and `fill` replace the addressing with an
 **atlas of local charts plus a smooth partition of unity** instead of trying to patch equirect.
 
-- **`patch`** projects the ray onto the tangent plane at the anchor and **bounds the decal to its
-  unit disc**: `tile_scale` is `tan(half the patch's angular size)`, so radius 1 in cell space is
-  the patch edge. The coverage fades to zero over `softness` (with a small floor) as it approaches
-  radius 1, and nothing is evaluated past radius 1, so the gnomonic `1/cos` stretch that grows
-  toward the tangent-plane horizon is **never seen** - the decal ends in a clean circular edge, not
-  the old hard straight cut at the horizon. A pixel exactly behind the decal horizon
-  (`dot(dir, anchor) <= 0`) is still discarded as a backstop. In-plane distortion is still
-  `1/cos(angle from the anchor)` (~1.41 at 45°, ~2 at 60°), so keep `tile_scale <= 1.0` for clean
-  decals.
+- **`patch`** projects the ray onto the tangent plane at the anchor and evaluates the figure on the
+  resulting cell; `tile_scale` is the cell scale on that plane. The decal is a **flat sign** and has
+  **no built-in clip** - it runs out to the tangent-plane horizon, and a pixel behind the decal
+  (`dot(dir, anchor) <= 0`) is discarded as a hard backstop. That horizon can read as a straight cut
+  across a large patch; if you want a clean edge, restrict the effect with a
+  [mask](../../datapack/masks.md). In-plane distortion is `1/cos(angle from the anchor)` (~1.41 at
+  45°, ~2 at 60°), so keep `tile_scale <= 1.0` for clean decals.
 - **`fill`** tiles each of the three orthographic charts and blends them with a sharpened partition
   of unity (fixed sharpness 8). Within about 40° of a chart pole - the zenith included - a single
   chart has weight > 0.9, so there is **no pole convergence and no seam anywhere**. The charts'
@@ -48,7 +46,8 @@ the whole-sky tiling mode today.
 
 The `patch` decal is a **flat sign**, not a whole-sky fill: it is one tangent plane projected onto
 the dome, so it does not follow the dome's curvature and its in-plane scale grows toward the rim.
-Use it for a figure or image at a spot; use `fill` for anything that must wrap the whole sky.
+It has **no built-in clip** - add a [mask](../../datapack/masks.md) for a clean edge. Use it for a
+figure or image at a spot; use `fill` for anything that must wrap the whole sky.
 
 ## Fields
 
@@ -60,8 +59,8 @@ Use it for a figure or image at a spot; use `fill` for anything that must wrap t
 | `sky_mode` | string | `patch` | Projection: `patch` (gnomonic decal), `fill` (three-chart whole sphere) or `dome` (legacy equirect). Case-insensitive; an unknown value is a parse error. Set it explicitly |
 | `anchor_yaw` | float | 0 | Dome yaw of the pattern centre, in degrees (yaw `0` = south, `90` = west, `±180` = north). Animatable. In `fill` mode it is a tiling **phase shift**, not a position |
 | `anchor_pitch` | float | 0 | Dome pitch of the pattern centre, in degrees (pitch `-90` = straight up, `0` = horizon, `90` = straight down). Animatable. In `fill` mode a tiling **phase shift** |
-| `dome_rotation` | float | 0 | Rotates the whole image about the world Y axis, in degrees, before it is projected (lock an image to the rotating star sphere). Animatable |
-| `tile_scale` | float | 1 | Size of one cell. In `patch` mode it is the patch's **angular half-size**, `tan(half angle)`: 0.27 ≈ 15°, 0.45 ≈ 24°, 0.577 = 30°, 1.0 = 45° (the decal is a **flat sign**, so keep it modest); in `fill` mode it is the tile half-size in units where 1.0 = 90° from the chart pole. Larger = bigger cell |
+| `dome_rotation` | float | 0 | Rotates the whole image about the world Y axis, in degrees, before it is projected. In `patch` mode it **moves** the decal along its latitude - use it to lock a decal to the rotating star sphere, never as idle decoration; the in-plane `rotation` spins the figure in place. Animatable |
+| `tile_scale` | float | 1 | Size of one cell. In `patch` mode it is the cell scale on the tangent plane (the decal is a **flat sign** with no built-in clip, so keep it modest - `<= 1.0` for clean decals); in `fill` mode it is the tile half-size in units where 1.0 = 90° from the chart pole. Larger = bigger cell |
 | `line_width` | float | — | Numeric override of the structural `pattern.stroke_width` (cell units) |
 | `color_r` / `color_g` / `color_b` | float | 1 / 1 / 1 | Pattern colour |
 | `opacity` | float | 1 (fades to 0) | Overall strength |
@@ -70,9 +69,12 @@ Use it for a figure or image at a spot; use `fill` for anything that must wrap t
 | `frame` | float | 0 | Sprite-sheet frame index when `pattern.texture.sheet` is set (rounded, wrapped into `0..cols*rows-1`); literal, keyframe, `expr` or graph-driven |
 | `texture_tint` | float | 0 | `0` = draw the texture's own RGB; `1` = multiply it by `color_r/g/b`. `opacity` always scales coverage |
 
-In `patch` and `fill` modes the mapping is **world-fixed**; use `dome_rotation` to follow the sky's
-own rotation. The anchor frame matches the local equirect axes (`u`+ = increasing yaw, `v`+ =
-increasing pitch), so a figure keeps the orientation it had in legacy mode.
+In `patch` and `fill` modes the mapping is **world-fixed**. Animating `dome_rotation` spins the
+sampled direction before it is projected, so in `patch` mode it **carries the decal along its
+latitude** - around the sky (use it to lock a decal to the rotating star sphere, never as idle
+decoration); the in-plane `rotation` spins the figure in place. The anchor frame matches the local
+equirect axes (`u`+ = increasing yaw, `v`+ = increasing pitch), so a figure keeps the orientation it
+had in legacy mode.
 
 ## `pattern` (structural)
 
@@ -96,7 +98,7 @@ samples the sprite's own sub-rect, a `standalone` source samples a resource-pack
 
 ## Examples
 
-Nine red dots in one small spot - a bounded `patch` decal (`tile_scale` ~0.3, a ~33° disc) with a
+Nine red dots in one small spot - a `patch` decal (`tile_scale` ~0.3) with a
 `circle` figure and `repeat: [3, 3]` (the `repeat` tiles inside the one decal, so the dots stay
 together; no texture needed):
 
@@ -159,10 +161,11 @@ pixels are a layer-0 post pass, the beam is world geometry.
   untouched, so a `sky_pattern` can never tint terrain, the hand or the GUI. A pack that leaves no
   trustworthy far depth makes the gate never match - the effect no-ops (fail-closed), never a
   full-screen fill.
-- **`patch` limits.** Keep `tile_scale <= 1.0` for clean decals. The decal is a bounded disc: the
-  coverage fades to zero at its rim (over `softness`, min 0.05 cell units), so there is a soft
-  circular edge and the gnomonic rim stretch is never drawn; the raw horizon test remains only as a
-  hard backstop. It is a **flat sign**, so use `fill` for content that must cover the whole sky.
+- **`patch` limits.** Keep `tile_scale <= 1.0` for clean decals. The decal has **no built-in clip**:
+  it is a **flat sign** (one tangent plane), so it does not follow the dome's curvature and its
+  in-plane scale grows toward the rim, ending at the tangent-plane horizon (a pixel behind the decal
+  horizon is discarded). For a clean edge, restrict the effect with a
+  [mask](../../datapack/masks.md). Use `fill` for content that must cover the whole sky.
 - **`fill` limits.** The per-chart density varies by up to ~1.7x between a chart pole and a chart
   diagonal, and there are soft crossfade ribbons along the `|x|=|y|`, `|y|=|z|`, `|z|=|x|` great
   circles (roughly ±8°). For chaotic content such as cracks the ribbons read as slightly denser
@@ -186,7 +189,9 @@ pixels are a layer-0 post pass, the beam is world geometry.
 /vfx play vfx_demos:show_sky_pattern
 ```
 
-A soft stroked ring at a spot in the sky (`patch`), gently animated. Its datapack definition:
+A soft stroked ring at a spot in the sky (`patch`), pulsing in size and brightness. It **stays at
+its spot**: the animation is `tile_scale` and `opacity` only - animating `dome_rotation` would carry
+the decal along its latitude, around the sky. Its datapack definition:
 
 ```json
 {
@@ -197,8 +202,7 @@ A soft stroked ring at a spot in the sky (`patch`), gently animated. Its datapac
 		"sky_mode": "patch", "anchor_yaw": 0.0, "anchor_pitch": -30.0,
 		"tile_scale": { "keyframes": [ { "time": 0, "value": 0.4 }, { "time": 100, "value": 0.55 }, { "time": 200, "value": 0.4 } ] },
 		"color_r": 0.35, "color_g": 0.85, "color_b": 1.0,
-		"opacity": { "keyframes": [ { "time": 0, "value": 0.4 }, { "time": 100, "value": 0.9 }, { "time": 200, "value": 0.4 } ] },
-		"dome_rotation": { "keyframes": [ { "time": 0, "value": 0.0 }, { "time": 200, "value": 360.0, "easing": "linear" } ] }
+		"opacity": { "keyframes": [ { "time": 0, "value": 0.4 }, { "time": 100, "value": 0.9 }, { "time": 200, "value": 0.4 } ] }
 	},
 	"pattern": {
 		"figure": "ellipse", "fill": "stroke", "radius_x": 0.42, "radius_y": 0.42,

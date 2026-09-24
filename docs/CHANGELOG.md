@@ -90,19 +90,17 @@ change.
 
 ### Fixed
 
-- **`sky_pattern` `patch` mode now ends in a clean circular edge instead of a straight cut and a
-  smear at its rim.** The gnomonic decal divides by `dot(dir, anchor)`, so as the ray approached the
-  tangent plane's horizon its cell coordinate (and therefore the tiling frequency) grew without
-  bound and the pattern smeared/converged into a point; the caller's `facing` gate then cut it off
-  along a hard straight line, which made a large patch read as a flat plane lying over the sky. The
-  patch branch now bounds the decal to its **unit disc** (`tile_scale` = `tan(half the patch's
-  angular size)`, so radius 1 is the patch edge): the coverage fades to zero over `softness` (with a
-  0.05 cell-unit floor) and nothing is evaluated past radius 1, so the singular rim is never
-  visible; the `facing` gate remains only as a hard backstop. The demos were reassigned to match
-  what each projection is for: `show_sky_pattern_texture` (a whole-sky texture) and `sky_cracks`
-  are `fill`, while `show_sky_pattern` (the ring) and `nine_red_pixels` are small bounded `patch`
-  decals (`tile_scale` 0.4–0.55 and 0.3). The effect is not in any release yet; no datapack field
-  was renamed and `PROTOCOL_VERSION` is unchanged.
+- **`sky_pattern` `patch` decals have no built-in clip, and the ring demo no longer circles the
+  player.** A `patch` is a flat sign on the tangent plane: it is evaluated out to the tangent-plane
+  horizon, where a pixel behind the decal (`dot(dir, anchor) <= 0`) is discarded - no wrapping, no
+  pole convergence and no built-in clip. A large patch can therefore show that horizon as a straight
+  cut; restrict the effect with a mask if you need a clean edge. (An earlier unit-disc bound was
+  removed: it visibly cut the figure.) The demos use each projection for what it is for:
+  `show_sky_pattern_texture` (a whole-sky texture) and `sky_cracks` are `fill`, while
+  `show_sky_pattern` (the ring) and `nine_red_pixels` are small `patch` decals. The ring demo no
+  longer animates `dome_rotation` - in `patch` mode that moves the decal along its latitude, around
+  the sky, so it now animates only `tile_scale` and `opacity` and stays at its spot. The effect is
+  not in any release yet; no datapack field was renamed and `PROTOCOL_VERSION` is unchanged.
 
 ## 2.0.2 — 2026-09-23
 

@@ -16,12 +16,13 @@
 # resolver case; this check asserts that order, the three dome.glsl helpers, the mode branch and the
 # legacy equirect path all stay in place.
 #
-# The patch-bound fix: the gnomonic decal must be bounded to its unit disc (tile_scale = tan(half
-# the patch's angular size)), so the patch branch applies a cell-radius falloff to the coverage and
-# never evaluates the pattern past radius 1 - the singular tangent-plane rim is never visible and the
-# old hard straight `facing` cut is gone. The runnable phase parses the built-in and the demo pack
-# and asserts each uses the mode it is authored for (patch for the ring and nine dots, fill for the
-# cracks and the whole-sky texture).
+# No built-in clip: a `patch` is a flat sign on the tangent plane with no cell-radius bound - the
+# owner rejected the unit-disc clip (it visibly cut the figure); a developer who needs a clean edge
+# adds a mask. The patch branch evaluates the pattern on the distorted cell, bounded only by the
+# `facing > 1.0e-3` horizon gate, and this check rejects a re-added cell-radius bound. The runnable
+# phase parses the built-in and the demo pack, asserts each uses the mode it is authored for (patch
+# for the ring and nine dots, fill for the cracks and the whole-sky texture), and asserts the ring
+# demo does not animate dome_rotation (which would move the decal around the sky).
 #
 # Usage: powershell -ExecutionPolicy Bypass -File scripts/check-sky-pattern.ps1
 # Exits 1 (after listing the problem) on a regression; 0 when the contract holds.
@@ -137,36 +138,28 @@ if ($shader -ne "") {
 	}
 }
 
-# --- 3c. patch mode bounds the decal to its unit disc --------------------------------------------
-# The gnomonic cell grows without bound as the ray approaches the tangent-plane horizon (in-plane
-# stretch 1/cos), so the raw `facing` gate used to cut the decal off with a hard straight edge.
-# The patch branch must instead fade the coverage to 0 at radius 1 in cell space - `tile_scale` is
-# tan(half the patch's angular size), so the unit disc IS the patch - and must not evaluate the
-# pattern past radius 1. The `facing` gate stays only as the hard backstop.
+# --- 3c. patch mode has NO cell-radius bound: the `facing` gate is the only bound ----------------
+# The owner rejected the unit-disc clip (it visibly cut the figure): a `patch` is a flat sign on the
+# tangent plane with no built-in clip - a developer who needs a clean edge adds a mask. The patch
+# branch must evaluate the pattern on the distorted cell, bounded only by the `facing > 1.0e-3`
+# horizon gate (the hard backstop that keeps the tangent-plane horizon out). This asserts the
+# negative: a re-added cell-radius bound is caught here.
 if ($shader -ne "") {
-	if ($shader -notmatch 'float\s+vfx_sky_pattern_patch_falloff\s*\(\s*vec2\s+cell\s*,\s*float\s+softness\s*\)') {
-		$problems.Add("post/sky_pattern.fsh has no vfx_sky_pattern_patch_falloff(cell, softness) cell-radius bound")
+	if ($shader -match 'vfx_sky_pattern_patch_falloff') {
+		$problems.Add("post/sky_pattern.fsh re-introduced the vfx_sky_pattern_patch_falloff cell-radius bound (the owner rejected it; a mask is how you clip)")
 	}
-	if ($shader -notmatch 'float\s+r\s*=\s*length\(cell\)') {
-		$problems.Add("post/sky_pattern.fsh patch bound does not measure the cell radius with length(cell)")
+	if ($shader -match 'length\(\s*cell\s*\)' -or $shader -match 'length\(\s*warped\s*\)') {
+		$problems.Add("post/sky_pattern.fsh measures a cell radius (length(cell)) - the patch branch must have no cell-radius bound")
 	}
-	if ($shader -notmatch 'if\s*\(r\s*>=\s*1\.0\)\s*\{\s*return\s+0\.0;\s*\}') {
-		$problems.Add("post/sky_pattern.fsh patch bound does not return 0 at/after radius 1 (the patch edge)")
+	if ($shader -match 'smoothstep\(1\.0\s*-\s*fade') {
+		$problems.Add("post/sky_pattern.fsh has a radius-1 soft falloff - the patch must have no built-in clip")
 	}
-	if ($shader -notmatch 'smoothstep\(1\.0\s*-\s*fade,\s*1\.0,\s*r\)') {
-		$problems.Add("post/sky_pattern.fsh patch bound has no soft falloff that reaches 0 at radius 1")
+	# The facing gate is the only bound; the pattern is evaluated directly on the distorted cell.
+	if ($shader -notmatch 'if\s*\(\s*facing\s*>\s*1\.0e-3\s*\)') {
+		$problems.Add("post/sky_pattern.fsh lost the `facing > 1.0e-3` horizon gate (the only patch bound)")
 	}
-	if ($shader -notmatch 'vfx_sky_pattern_patch_falloff\(\s*warped,\s*softness\s*\)') {
-		$problems.Add("post/sky_pattern.fsh patch branch does not apply the cell-radius falloff after distort")
-	}
-	if ($shader -notmatch 'float\s+patchCov\s*=\s*vfx_sky_pattern_patch_falloff\(') {
-		$problems.Add("post/sky_pattern.fsh patch branch does not capture the patch coverage")
-	}
-	if ($shader -notmatch 'if\s*\(patchCov\s*>\s*0\.0\)') {
-		$problems.Add("post/sky_pattern.fsh patch branch evaluates the pattern past radius 1 (no patchCov > 0 guard)")
-	}
-	if ($shader -notmatch 'bodyCoverage\s*=\s*r\.x\s*\*\s*patchCov') {
-		$problems.Add("post/sky_pattern.fsh patch branch does not multiply the coverage by the patch falloff")
+	if ($shader -notmatch 'vfx_sky_pattern_eval\(\s*vfx_sky_pattern_distort\(\s*cell\s*\)\s*\)') {
+		$problems.Add("post/sky_pattern.fsh patch branch does not evaluate the pattern on the distorted cell")
 	}
 }
 
@@ -330,7 +323,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import net.minecraft.resources.Identifier;
 
-/** Standalone assertions for the sky_pattern effect type (stage S3 + the patch-bound fix). */
+/** Standalone assertions for the sky_pattern effect type (stage S3, the sky_mode atlas + the no-clip patch). */
 public final class SkyPatternCheck {
 	public static void main(final String[] args) throws Exception {
 		final VFXDefinition builtin = parse("vfxweaver", "sky_pattern", Files.readString(Path.of(args[0])));
@@ -371,6 +364,11 @@ public final class SkyPatternCheck {
 		require(ring.getType() == VFXEffectType.SKY_PATTERN, "show_sky_pattern is not a sky_pattern");
 		require(ring.getParam("sky_mode", -1.0F) == 1.0F, "show_sky_pattern (the ring) is not a patch");
 		require(maxTile(ring) <= 0.6F, "show_sky_pattern (the ring) tile_scale is not small (max > 0.6)");
+		// dome_rotation moves a patch decal along its latitude (around the sky) - the ring must not
+		// animate it, or it circles the player instead of staying put.
+		final VFXDefinition.ParamSpec ringSpin = ring.getParams().get("dome_rotation");
+		require(ringSpin == null || ringSpin.keyframes().isEmpty(),
+			"show_sky_pattern (the ring) animates dome_rotation, which moves the decal around the sky");
 
 		final VFXDefinition dots = parse("vfx_demos", "nine_red_pixels",
 			Files.readString(demos.resolve("nine_red_pixels.json")));
@@ -389,7 +387,7 @@ public final class SkyPatternCheck {
 		require(textureDemo.getPattern() != null && textureDemo.getPattern().texture() != null,
 			"show_sky_pattern_texture lost its texture");
 
-		System.out.println("sky_pattern check OK: built-in + demos parse; patch bound and demo sky_mode asserted");
+		System.out.println("sky_pattern check OK: built-in + demos parse; no patch clip, demo sky_mode + ring spin asserted");
 	}
 
 	/** The largest `tile_scale` value a definition reaches (a constant, or the top of its keyframes). */
