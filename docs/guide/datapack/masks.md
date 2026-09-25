@@ -11,6 +11,16 @@ composition (`"op": "union" | "intersection" | "difference"`) of leaves; every l
 - a **sky** leaf (the whole sky) or a 2D shape in `space: "dome"` (addressed on the sky dome);
 - a **block** leaf (the selected blocks' model geometry) or a **custom** shape (a registered composed SDF or GLSL plugin).
 
+> **Post effects only.** A `mask` gates a **fullscreen post-processing** pass: its coverage is a
+> screen-space texture built from scene depth, and the post chain blends it into the frame. The
+> **world overlays** — `pulse_ring`, `light_beam`, `guide_line`, `particles`, `block_chain`,
+> `block_tint`, `block_outline` and the entity effects — draw world-space geometry and have no post
+> pass, so a `mask` on one of them is **parsed and then does nothing**: it neither restricts that
+> geometry nor reports an error (for `pulse_ring`, `light_beam`, `guide_line`, `particles` and
+> `block_chain` the coverage is even computed and then never read). To confine a world overlay, drive
+> its own spatial params — `radius`, `thickness`, `intensity`, `region` or `pos_x/y/z` — for example
+> from an `expr` or a [field](fields.md).
+
 Composition **nests on the left only**: the right operand of an `op` must be a leaf, so write
 `intersection(union(A, B), C)` (which flattens to `min(max(A, B), C)`), not
 `union(A, intersection(B, C))` — the latter would flatten to `min(max(A, B), C)` and is a parse

@@ -44,7 +44,7 @@ Structural blocks used next to `params` (never inside it):
 |---|---|
 | [`pattern` / `surface`](../effects/screen/surface-pattern.md) | `surface_pattern` figure, texture, faces and band |
 | [`graph` + `inputs`](graph.md) | Drive inputs from a node graph; `inputs` may also hold a per-pixel [`field`](fields.md) |
-| [`mask`](masks.md) | Restrict where a post-processing effect applies |
+| [`mask`](masks.md) | Restrict where a post-processing effect applies (a world overlay ignores it) |
 
 ## `positions` and entity anchors
 

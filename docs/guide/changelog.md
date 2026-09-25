@@ -5,8 +5,11 @@ documentation changed. A guide revision is not a mod version — the two numbers
 released mod versions are recorded on the **[mod Changelog](../CHANGELOG.md)** instead. Where a guide
 revision shipped with a release, the entry says so (for example `v47 — released as 2.0.0`).
 
-Current guide revision: **v68**. Mod version it documents: **2.1.0**. Which jar to download is in the
+Current guide revision: **v69**. Mod version it documents: **2.1.0**. Which jar to download is in the
 [download table](../index.md#download).
+
+### v69
+- **A mask applies to post effects only, and the page now says so plainly.** The mask coverage is a screen-space texture consumed by the post chain, so the **world overlays** — `pulse_ring`, `light_beam`, `guide_line`, `particles`, `block_chain`, `block_tint`, `block_outline` and the entity effects — never read it: a `mask` on one of them parses and then does nothing, with no error and no effect on the geometry (for the five geometry-only overlays the coverage prepass even runs and is never read). [masks](datapack/masks.md) states this up front and points to the overlays' own spatial params (`radius`, `thickness`, `intensity`, `region`, `pos_x/y/z`) as the way to confine one, and the [format](datapack/format.md) block table mirrors it. Documentation only — no datapack field, UBO or wire change. Also corrected: the guide revision shown on the [docs home](../index.md) and in [this guide's index](index.md) was still `v67` after the v68 bump.
 
 ### v68 — released as 2.1.0
 - **The showcase media set is complete.** The clips recorded for the release are embedded on the pages that previously described their demos in text only: the sky/dome masks and the three plugin-mask demos on [masks](datapack/masks.md), the texture variant and the three sky anchors in **Variants** on [sky_pattern](effects/screen/sky-pattern.md), and a new **Variants** section for the two aim forms on [light_beam](effects/world/light-beam.md). The showcase datapack zip was also rebuilt: the published one stored its entries with backslash separators, which a Java consumer cannot resolve, so the downloaded pack resolved to a single oddly named entry and every effect in it was silently missing.
