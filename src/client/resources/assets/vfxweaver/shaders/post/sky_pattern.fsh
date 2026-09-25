@@ -98,8 +98,13 @@ layout(std140) uniform Config {
     float tex_px_w;
     float tex_px_h;
     // Projection mode: 0 = patch (gnomonic decal, the default), 1 = fill (three orthographic
-    // charts). Appended last so no earlier std140 offset shifts.
+    // charts). Appended after the original surface so no earlier std140 offset shifts.
     float sky_mode;
+    // The real star lock: `anchor_stars` is 1 when the definition's `anchor` is "stars" (the CPU
+    // wrote `star_angle` = SkyRenderState.starAngle in degrees), else 0; the sampled direction is
+    // then taken into the vanilla star sphere's local frame. Appended last.
+    float anchor_stars;
+    float star_angle;
 };
 
 out vec4 fragColor;
@@ -185,6 +190,12 @@ void main() {
     float cr = cos(rot);
     float sr = sin(rot);
     vec3 spun = vec3(cr * dir.x - sr * dir.z, dir.y, sr * dir.x + cr * dir.z);
+    // The real star lock: take the sampled direction into the vanilla star sphere's local frame so
+    // an `anchor: "stars"` figure is rigidly attached to the star material. dome_rotation above
+    // stays a world-Y spin of the authored pattern; this is the only extra coupling.
+    if (anchor_stars > 0.5) {
+        spun = vfx_star_local_dir(spun, star_angle);
+    }
 
     int mode = int(sky_mode + 0.5);
     float bodyCoverage;

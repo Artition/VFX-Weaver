@@ -48,11 +48,11 @@ change.
 - **`sky_pattern` — follow the sun, the moon or the stars (`anchor`).** The overnight sky body is a
   new optional top-level `anchor` string: omitted (or `"dome"`) is the world-fixed
   `anchor_yaw`/`anchor_pitch` authoring; `"sun"` and `"moon"` make the pattern track the vanilla
-  body; `"stars"` locks the pattern to the rotating star sphere via `dome_rotation`. The body angles
-  are read from the client's own sky render state **on the CPU** and fed to the existing
-  `anchor_yaw`/`anchor_pitch`/`dome_rotation` uniforms, so there is **no shader change and no mixin**
-  — which is what keeps it working under an Iris shaderpack (the world time, hence the angles, is
-  still computed by the game). When the sky state is unavailable (no overworld sky, or the render
+  body; `"stars"` locks the pattern to the rotating star sphere (the shader inverts vanilla's star
+  pose exactly — see Fixed below). The body angles are read from the client's own sky render state
+  **on the CPU** and fed to the existing `anchor_yaw`/`anchor_pitch` uniforms (plus two internal
+  star fields), so there is **no mixin** — which is what keeps it working under an Iris shaderpack
+  (the world time, hence the angles, is still computed by the game). When the sky state is unavailable (no overworld sky, or the render
   state is not ready) the effect **contributes nothing** instead of painting at a guessed spot, and
   warns once. Additive: a new top-level field only, no existing effect changed, no datapack field
   renamed, `PROTOCOL_VERSION` unchanged, and no UBO/Config change. Honest limits: the effect is an
@@ -134,7 +134,29 @@ change.
   now explicit for custom leaves, whose SDF may be intentionally unbounded. A plugin that relied on
   painting the sky from a `surface` leaf will no longer do so.
 
+- **A built-in world GLSL mask plugin, `vfxweaver:blobs_glsl`.** The only shipped GLSL plugin was
+  `vfxweaver:ringed_glsl`, a screen-space 2D figure, so `space: "world"` plugin leaves had no volume
+  to march and the dynamic-data demo could not show the data driving anything. `vfxweaver:blobs_glsl`
+  is a genuine world-space SDF — a union of up to eight spheres, negative inside — whose sphere
+  centres/radii come from the leaf's dynamic data (`mask.p<N>.d0..d31`, four floats per sphere) and
+  whose `p0..p7` are global controls (offset, radius scale/bias, count). It also declares the optional
+  `vfx_shape_custom_bounds()` broad phase over the same data+params extent, so `volume: "aura"` with
+  it is cheap. It works for both `surface` and `aura`; the three mask demos use it. The plugin leaf
+  shape is inert on the `1.21.11` node (no shader-source hook). Additive: `vfxweaver:ringed_glsl`
+  stays the screen reference, no existing pass's UBO/wire layout changes, `PROTOCOL_VERSION` unchanged.
+  See [masks](guide/datapack/masks.md).
+
 ### Fixed
+
+- **`sky_pattern` `anchor: "stars"` really tracks the star field.** The anchor previously drove
+  `dome_rotation`, a world-**Y** spin, while vanilla rotates the star sphere about a different axis
+  (its pose is `Ry(-90°) · Rx(starAngle)`), so a `stars` pattern was only an approximation and turned
+  about the wrong axis. The sky shader now takes the sampled direction into the star sphere's own
+  frame with the exact inverse, so the pattern is locked to the star material. `dome_rotation` is not
+  hijacked — it stays the author's world-Y spin, applied first. Two internal Config fields are
+  appended after `sky_mode`; no datapack field was renamed and `PROTOCOL_VERSION` is unchanged. See
+  [sky_pattern](guide/effects/screen/sky-pattern.md).
+
 
 - **`sky_pattern` `patch` decals have no built-in clip, and the ring demo no longer circles the
   player.** A `patch` is a flat sign on the tangent plane: it is evaluated out to the tangent-plane

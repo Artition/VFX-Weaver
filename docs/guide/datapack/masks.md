@@ -216,11 +216,16 @@ analytic evaluation a built-in `sphere`/`box` costs. Two things cut it:
   first: a miss rejects the pixel with no SDF call at all, and a hit starts the march at the sphere's
   near point, so the average cost follows the volume's screen area instead of the whole frame. A plugin
   that omits the function is unchanged (the wrapper falls back to the unbounded march), and a bound
-  that is too small clips the aura — it has to enclose the geometry.
+  that is too small clips the aura — it has to enclose the geometry. The bound may read the same data
+  **and** the calling leaf's params: the coverage shader publishes the leaf's `p0`/`p1` (the same
+  values passed to `vfx_shape_custom`) as the wrapper globals `vfx_shape_params0` /
+  `vfx_shape_params1`, so a bound that scales or offsets from the params stays conservative. A plugin
+  must not declare any of `vfx_mask_data`, `vfx_shape_data_base`, `vfx_shape_params0` or
+  `vfx_shape_params1`.
   ```glsl
   vec4 vfx_shape_custom_bounds() {
-  	// Follows the same moving circles the SDF reads.
-  	return vec4(0.0, 64.0, 0.0, vfx_mask_data(vfx_shape_data_base + 9) + 2.0);
+  	// Follows the same moving circles the SDF reads (and the leaf's p1.x bias).
+  	return vec4(0.0, 64.0, 0.0, vfx_mask_data(vfx_shape_data_base + 9) + vfx_shape_params1.x + 2.0);
   }
   ```
 - **An early exit** once the deepest sample already reached full coverage.
@@ -229,6 +234,45 @@ Deliberate ceiling: with a 0.5-block minimum step the step budget only traverses
 a volume further away than that degrades to "still inside at the march limit" — a safe answer, and
 scene occlusion usually removes such a pixel anyway. Raise the step budget or the minimum step if a
 scene ever needs more.
+
+**Built-in reference: `vfxweaver:blobs_glsl`.** The mod ships one **world** plugin to use as the
+template (the screen-space reference stays `vfxweaver:ringed_glsl`). It is the union of up to eight
+world-space spheres, and it exercises the whole contract — the SDF and its broad phase read the same
+slots:
+
+| Slot | Meaning |
+|---|---|
+| `d[4k+0..2]` | sphere `k`'s centre `(x, y, z)` in world coordinates (`k` = 0..7) |
+| `d[4k+3]` | sphere `k`'s radius; `<= 0` skips the sphere |
+| `p0.xyz` | global centre offset added to every sphere |
+| `p0.w` | global radius scale (`0` behaves as `1`) |
+| `p1.x` | global radius bias, added after the scale |
+| `p1.y` | sphere-count override (`0` = every data sphere with radius `> 0`) |
+| `p1.zw` | reserved |
+
+The SDF is negative inside the union (a conservative world SDF), so it works for both `surface` and
+`volume: "aura"`; `vfx_shape_custom_bounds()` returns the enclosing sphere of the same offset/scaled
+spheres, so an aura march with it is cheap. Animate `mask.p0.d<J>` to move the spheres live (the
+dynamic-data demo does exactly that).
+
+```json
+{
+	"type": "color_grade",
+	"duration": 200, "loop": true, "persistent": true, "easing": "ease_in_out_cubic",
+	"params": { "screen_layer": 1, "tint_r": 1.0, "tint_g": 0.75, "tint_b": 0.25, "saturation": 0.4 },
+	"mask": {
+		"a": {
+			"shape": "vfxweaver:blobs_glsl",
+			"space": "world",
+			"volume": "aura",
+			"center": [0.0, 0.0, 0.0],
+			"params": [0.0, 0.0, 0.0, 1.0, 0.0, 0.0],
+			"softness": 0.4,
+			"data": [2000.0, 101.0, 2000.0, 2.0, 2001.4, 101.6, 1999.6, 1.4]
+		}
+	}
+}
+```
 
 **`surface` mode never tints the sky.** A `custom` leaf in the default `surface` mode classifies only
 what the depth buffer contains, so a sky pixel contributes no coverage. Built-in shapes already did
@@ -337,9 +381,12 @@ fixed-radius sphere in the default `surface` mode — play one, then the other, 
 looks. `vfxweaver:mask_pulse_demo` keeps the entity-following sphere but binds its `radius` with
 `"derive": "distance"`, so the sphere grows with the viewer's distance from the villager (a
 proximity pulse). `vfxweaver:mask_screen_demo` is a screen-only mask and works at any layer.
-`vfxweaver:mask_custom_demo` is a registered composed SDF (a ringed volume); the built-in GLSL
-plugin demo `vfxweaver:mask_custom_glsl_demo` uses `vfxweaver:ringed_glsl` — a screen ring with 8
-petal-modulated lobes — to prove the injected plugin source runs.
+`vfxweaver:mask_custom_demo` is a registered composed SDF (a ringed volume). The built-in GLSL
+plugins are the two references: `vfxweaver:ringed_glsl` (a **screen** ring with 8 petal-modulated
+lobes, used by `vfxweaver:mask_custom_glsl_demo`) and `vfxweaver:blobs_glsl` (a **world** union of
+spheres, used by `vfxweaver:mask_custom_glsl_aura_demo`, `vfxweaver:mask_custom_glsl_surface_demo`
+and `vfxweaver:mask_custom_data_demo`). The plugin leaf shape is a 26.x feature; on the `1.21.11`
+node there is no shader-source hook, so a plugin leaf renders nothing there.
 
 ## Showcase
 
@@ -506,6 +553,46 @@ Its datapack definition:
 }
 ```
 
+
+### `show_mask_custom_glsl_aura_demo`, `show_mask_custom_glsl_surface_demo`, `show_mask_custom_data_demo`
+
+```
+/vfx play vfx_demos:show_mask_custom_glsl_aura_demo
+/vfx play vfx_demos:show_mask_custom_glsl_surface_demo
+/vfx play vfx_demos:show_mask_custom_data_demo
+```
+
+The three **world** plugin demos, all built on `vfxweaver:blobs_glsl`:
+
+- **aura** — three amber blobs around the scene's villager with `volume: "aura"`, so the whole
+  region fills (air and all) with a real 3D silhouette; the viewer stands outside it. `mask.p0.p1`
+  animates the global radius bias, so the volume breathes.
+- **surface** — the same plugin with no `volume` (surface mode): only the *geometry* inside the
+  blobs is tinted, and the sky is never painted (the surface gate drops sky pixels for a custom
+  leaf). The blobs sit on the wall and floor ahead.
+- **data** — the same plugin driven by animated `mask.p0.d<J>` slots, so the spheres themselves
+  **move** frame to frame (the honest dynamic-data clip: the data is what moves the geometry).
+
+```json
+{
+	"type": "color_grade",
+	"duration": 240, "easing": "ease_in_out_cubic", "persistent": true, "loop": true, "fade_ticks": 16,
+	"params": {
+		"screen_layer": 1, "tint_r": 0.4, "tint_g": 0.9, "tint_b": 1.0,
+		"mask.p0.d0": { "keyframes": [ { "time": 0, "value": 1997.0 }, { "time": 120, "value": 2003.0 }, { "time": 240, "value": 1997.0 } ] }
+	},
+	"mask": {
+		"a": {
+			"shape": "vfxweaver:blobs_glsl",
+			"space": "world",
+			"center": [0.0, 0.0, 0.0],
+			"params": [0.0, 0.0, 0.0, 1.0, 0.0, 0.0],
+			"softness": 0.25,
+			"data": [1997.0, 101.5, 2000.0, 1.8, 2003.0, 102.0, 2000.0, 1.5]
+		}
+	}
+}
+```
 
 ### `show_mask_block_demo`
 

@@ -253,9 +253,12 @@ public final class VFXShaderPrograms {
 			"tex_cols", "tex_rows", "tex_frame", "tex_flags", "tex_channel", "texture_tint",
 			"tex_px_w", "tex_px_h",
 			// sky_mode: 0 = patch (gnomonic decal, the default), 1 = fill (three orthographic
-			// charts). Appended last so no earlier std140 offset shifts; the manager resolver
-			// defaults it to patch (0).
-			"sky_mode");
+			// charts). The manager resolver defaults it to patch (0).
+			"sky_mode",
+			// The real star lock, appended after sky_mode so no earlier std140 offset shifts:
+			// anchor_stars = 1 for an `anchor: "stars"` definition, star_angle =
+			// SkyRenderState.starAngle in degrees. Both are 0 for every other anchor.
+			"anchor_stars", "star_angle");
 
 		copyPipeline = RenderPipelines.register(
 			RenderPipeline.builder(RenderPipelines.POST_PROCESSING_SNIPPET)

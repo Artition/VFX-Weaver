@@ -2,7 +2,7 @@ package dev.vfxweaver.util;
 
 /**
  * The pure maths that turns a vanilla sky-body angle into the {@code [yaw, pitch]} degrees the
- * {@code sky_pattern} dome anchor uses, and the star angle into a {@code dome_rotation}.
+ * {@code sky_pattern} dome anchor uses, and the star angle into the shader's {@code star_angle}.
  *
  * <p>This mirrors {@code include/dome.glsl}: {@code vfx_dome_anchor_dir} maps an authored
  * {@code [yaw, pitch]} to a world direction as {@code (-sin(yaw)cos(pitch), -sin(pitch),
@@ -51,18 +51,19 @@ public final class VFXSkyAnchor {
 	}
 
 	/**
-	 * The {@code dome_rotation} that spins a {@code stars} pattern at the star sphere's rate.
+	 * The star angle a {@code stars} anchor passes to the sky shader, in degrees.
 	 *
-	 * <p>Documented offset, not an exact lock: the shader's {@code dome_rotation} is a spin about
-	 * world Y, while vanilla rotates the star sphere about world X (its rig is Y(-90) then
-	 * X(starAngle)). No single world-Y spin reproduces an X rotation, so the angle is mapped
-	 * straight through - the pattern rotates at the star rate in the closest axis the shader
-	 * offers.
+	 * <p>This is a <b>real</b> lock, not an offset: vanilla draws the star sphere with the pose
+	 * {@code Ry(-90°)·Rx(starAngle)} (verified with {@code javap} in
+	 * {@code SkyRenderer.renderSunMoonAndStars} on 26.2, 26.1.2 and 1.21.11), and the sky shader
+	 * takes the sampled direction into that pose's local frame with the exact inverse
+	 * ({@code include/dome.glsl: vfx_star_local_dir}). The {@code dome_rotation} uniform stays the
+	 * author's world-Y spin and is no longer hijacked by the anchor.
 	 *
 	 * @param starAngleRadians {@code SkyRenderState.starAngle} (radians)
-	 * @return the {@code dome_rotation} in degrees
+	 * @return the star angle in degrees, as the shader's {@code star_angle}
 	 */
-	public static float starRotationDegrees(final float starAngleRadians) {
+	public static float starAngleDegrees(final float starAngleRadians) {
 		return (float) Math.toDegrees(starAngleRadians);
 	}
 }

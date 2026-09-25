@@ -18,7 +18,7 @@ public enum CelestialAnchor {
 	SUN("sun"),
 	/** Follow the moon; the CPU writes {@code anchor_yaw}/{@code anchor_pitch} from {@code moonAngle}. */
 	MOON("moon"),
-	/** Lock to the rotating star sphere; the CPU writes {@code dome_rotation} from {@code starAngle}. */
+	/** Lock to the rotating star sphere; the CPU writes {@code anchor_stars}/{@code star_angle}. */
 	STARS("stars");
 
 	private final String key;

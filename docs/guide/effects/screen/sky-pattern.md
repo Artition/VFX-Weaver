@@ -19,20 +19,24 @@ body instead:
 | (absent) / `"dome"` | nothing - the literal `anchor_yaw`/`anchor_pitch` (default) | today's behaviour, unchanged |
 | `"sun"` | the vanilla **sun** | `anchor_yaw`/`anchor_pitch` are written from the sun's live dome direction |
 | `"moon"` | the vanilla **moon** | `anchor_yaw`/`anchor_pitch` are written from the moon's live dome direction |
-| `"stars"` | the rotating **star sphere** | `dome_rotation` is written from the star angle |
+| `"stars"` | the rotating **star sphere** | the sampled direction is taken into the star sphere's own frame (`star_angle` is the live star angle), so the pattern is a **real** lock, not an axis approximation |
 
-The body angles are read from the client's own sky render state and converted to the same
-`[yaw, pitch]` degrees the `anchor_yaw`/`anchor_pitch` params use, **entirely on the CPU**. The pass
-itself is unchanged: it still reads the same three uniforms, so there is **no shader change and no
-mixin**. `anchor` is structural (a string, like `pattern`/`sky_mode`), so it cannot be keyframed; an
-unknown value is a parse error naming the accepted ones, and `anchor` on a non-`sky_pattern` type is
-also a parse error.
+The sun/moon angles are read from the client's own sky render state and converted to the same
+`[yaw, pitch]` degrees the `anchor_yaw`/`anchor_pitch` params use, **entirely on the CPU**; the sun
+and moon therefore keep writing only the three existing uniforms. The `stars` anchor needs one small
+extra step: vanilla draws the star sphere with the pose `Ry(-90°) · Rx(starAngle)` (verified with
+`javap` in `SkyRenderer.renderSunMoonAndStars` on 26.2, 26.1.2 and 1.21.11), and the shader takes the
+sampled direction into that pose's local frame with the exact inverse, so the pattern is rigidly
+attached to the star material as the field rotates. This is the **only** shader path the anchor adds,
+and it is gated on the `stars` anchor - `sun`/`moon`/`dome` do not touch it. `anchor` is structural (a
+string, like `pattern`/`sky_mode`), so it cannot be keyframed; an unknown value is a parse error
+naming the accepted ones, and `anchor` on a non-`sky_pattern` type is also a parse error.
 
 **Why it is Iris-safe.** A shaderpack may draw the sky (and the sun/moon/stars) itself, but the
 **world time** - and therefore the body angles - is still computed by the game. Because the anchor is
-resolved on the CPU from that state and only writes the existing uniforms, the pattern tracks the
-same body the pack shows. Like every post effect it composes **over** the composited frame, so it is
-an **overlay**.
+resolved on the CPU from that state and only writes the existing uniforms (plus the two internal
+`stars` fields), the pattern tracks the same body the pack shows. Like every post effect it composes
+**over** the composited frame, so it is an **overlay**.
 
 **Fail-closed.** If the sky state cannot be read (no overworld sky - the End or a sky-less
 dimension - or the render state is not ready this frame), the effect **contributes nothing** rather
@@ -59,9 +63,10 @@ literal anchor, which could be wrong.
 - **`"stars"` positions, it does not recolour.** The vanilla star colour cannot be changed without a
   `SkyRenderer` mixin (the stars are a baked vertex buffer drawn with a brightness uniform). `"stars"`
   locks a pattern to the rotating star sphere; it does not make the vanilla stars red.
-- **`"stars"` rotation is an approximation.** `dome_rotation` spins about world **Y**, while vanilla
-  rotates the star sphere about world **X**. The star angle is mapped straight through - the pattern
-  turns at the star rate, in the closest axis the shader offers, not in the exact vanilla axis.
+- **`"stars"` is a real lock.** Vanilla rotates the star sphere with a fixed pose
+  (`Ry(-90°) · Rx(starAngle)`); the shader inverts it exactly, so a `stars` pattern stays put
+  relative to the star material as the field turns. This does **not** hijack `dome_rotation`, which
+  stays the world-Y author spin described below.
 
 **Compatibility note (deliberately not implemented).** Two parts of the sky design are **not**
 shipped because they would be **Iris no-ops** and would need a mixin or a frame-graph change:
@@ -124,7 +129,7 @@ figure or image at a spot; use `fill` for anything that must wrap the whole sky.
 | `sky_mode` | string | `patch` | Projection: `patch` (gnomonic decal) or `fill` (three-chart whole sphere). Case-insensitive; an unknown value - including the removed `dome` - is a parse error naming the accepted values. Set it explicitly |
 | `anchor_yaw` | float | 0 | Dome yaw of the pattern centre, in degrees (yaw `0` = south, `90` = west, `±180` = north). Animatable. In `fill` mode it is a tiling **phase shift**, not a position |
 | `anchor_pitch` | float | 0 | Dome pitch of the pattern centre, in degrees (pitch `-90` = straight up, `0` = horizon, `90` = straight down). Animatable. In `fill` mode a tiling **phase shift** |
-| `dome_rotation` | float | 0 | Rotates the whole image about the world Y axis, in degrees, before it is projected. In `patch` mode it **moves** the decal along its latitude - use it to lock a decal to the rotating star sphere, never as idle decoration; the in-plane `rotation` spins the figure in place. Animatable |
+| `dome_rotation` | float | 0 | Rotates the whole image about the world **Y** axis, in degrees, before it is projected. In `patch` mode it **moves** the decal along its latitude; the in-plane `rotation` spins the figure in place. Animatable. To lock a pattern to the rotating star sphere use `anchor: "stars"`, not this |
 | `tile_scale` | float | 1 | Size of one cell. In `patch` mode it is the cell scale on the tangent plane (the decal is a **flat sign** with no built-in clip, so keep it modest - `<= 1.0` for clean decals); in `fill` mode it is the tile half-size in units where 1.0 = 90° from the chart pole. Larger = bigger cell |
 | `line_width` | float | — | Numeric override of the structural `pattern.stroke_width` (cell units) |
 | `color_r` / `color_g` / `color_b` | float | 1 / 1 / 1 | Pattern colour |
@@ -134,11 +139,11 @@ figure or image at a spot; use `fill` for anything that must wrap the whole sky.
 | `frame` | float | 0 | Sprite-sheet frame index when `pattern.texture.sheet` is set (rounded, wrapped into `0..cols*rows-1`); literal, keyframe, `expr` or graph-driven |
 | `texture_tint` | float | 0 | `0` = draw the texture's own RGB; `1` = multiply it by `color_r/g/b`. `opacity` always scales coverage |
 
-The mapping is **world-fixed**. Animating `dome_rotation` spins the sampled direction before it is
-projected, so in `patch` mode it **carries the decal along its latitude** - around the sky (use it to
-lock a decal to the rotating star sphere, never as idle decoration); the in-plane `rotation` spins
-the figure in place. The anchor frame follows the authoring convention (`u`+ = increasing yaw, `v`+ =
-increasing pitch).
+The mapping is **world-fixed**. Animating `dome_rotation` spins the sampled direction about world
+**Y** before it is projected, so in `patch` mode it **carries the decal along its latitude** - around
+the sky. For a true sky-lock use `anchor: "stars"`, which takes the sampled direction into the star
+sphere's own frame instead of spinning about Y; the in-plane `rotation` spins the figure in place.
+The anchor frame follows the authoring convention (`u`+ = increasing yaw, `v`+ = increasing pitch).
 
 ## `pattern` (structural)
 
@@ -351,7 +356,7 @@ A glowing ring that tracks the **sun** through the day (`anchor: "sun"`, a `patc
 ```
 
 The same ring on the **moon** (`anchor: "moon"`), and a whole-sky texture locked to the **stars**
-(`anchor: "stars"`, a `fill` whose `dome_rotation` follows the star angle):
+(`anchor: "stars"`, a `fill` whose sampled direction is taken into the star sphere's own frame):
 
 ```json
 {

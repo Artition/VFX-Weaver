@@ -65,7 +65,10 @@ effect pages were recorded from these definitions.
 | `show_mask_block_demo` | `/vfx play vfx_demos:show_mask_block_demo` |
 | `show_mask_block_xray_demo` | `/vfx play vfx_demos:show_mask_block_xray_demo` |
 | `show_mask_custom_demo` | `/vfx play vfx_demos:show_mask_custom_demo` |
+| `show_mask_custom_data_demo` | `/vfx play vfx_demos:show_mask_custom_data_demo` |
 | `show_mask_custom_glsl_demo` | `/vfx play vfx_demos:show_mask_custom_glsl_demo` |
+| `show_mask_custom_glsl_aura_demo` | `/vfx play vfx_demos:show_mask_custom_glsl_aura_demo` |
+| `show_mask_custom_glsl_surface_demo` | `/vfx play vfx_demos:show_mask_custom_glsl_surface_demo` |
 | `show_mask_entity_demo` | `/vfx play vfx_demos:show_mask_entity_demo` |
 | `show_mask_pulse_demo` | `/vfx play vfx_demos:show_mask_pulse_demo` |
 | `show_mask_screen_demo` | `/vfx play vfx_demos:show_mask_screen_demo` |

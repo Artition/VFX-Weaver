@@ -91,6 +91,11 @@ foreach ($fn in @('vfx_dome_anchor_dir', 'vfx_dome_patch_cell', 'vfx_dome_fill_c
 		$problems.Add("include/dome.glsl does not expose the sky_mode chart helper '$fn'")
 	}
 }
+# The real star lock: include/dome.glsl must expose the vanilla star sphere's local-frame transform
+# (the inverse of SkyRenderer's Ry(-90)*Rx(starAngle)), used only for the stars coupling.
+if ($dome -notmatch 'vec3\s+vfx_star_local_dir\s*\(') {
+	$problems.Add("include/dome.glsl does not expose vfx_star_local_dir(dir, starAngleDegrees)")
+}
 # include/dome.glsl's vfx_dome_uv stays: the dome MASK path (post/mask_coverage.fsh) still needs it,
 # even though the sky_pattern equirect branch is gone.
 if (-not (Test-Path -LiteralPath $maskCoveragePath)) {
@@ -121,6 +126,14 @@ if ($shader -ne "") {
 		}
 		if ($shader -notmatch 'dome_rotation') {
 			$problems.Add("post/sky_pattern.fsh has no dome_rotation handling")
+		}
+		# The stars coupling must spin the sampled direction into the star sphere's own frame, and
+		# only for the stars anchor (dome_rotation stays a world-Y spin, applied first).
+		if ($shader -notmatch 'vfx_star_local_dir\s*\(\s*spun\s*,\s*star_angle\s*\)') {
+			$problems.Add("post/sky_pattern.fsh does not apply vfx_star_local_dir(spun, star_angle) for the stars anchor")
+		}
+		if ($shader -notmatch 'anchor_stars\s*>\s*0\.5') {
+			$problems.Add("post/sky_pattern.fsh does not gate the star lock on anchor_stars")
 		}
 		# The shared pattern evaluation factored out of main, and the two mode branches.
 		if ($shader -notmatch 'vec4\s+vfx_sky_pattern_eval\s*\(') {
@@ -200,8 +213,8 @@ if ($shader -ne "") {
 	}
 	if (-not $hasMat4) { $problems.Add("post/sky_pattern.fsh Config block lacks the leading 'mat4 inv_view_proj;'") }
 	if (-not $hasCamPos) { $problems.Add("post/sky_pattern.fsh Config block lacks the 'vec4 cam_pos;' the view ray starts from") }
-	if ($shaderNames.Count -gt 0 -and $shaderNames[$shaderNames.Count - 1] -ne 'sky_mode') {
-		$problems.Add("post/sky_pattern.fsh Config does not declare 'sky_mode' last (appended field)")
+	if ($shaderNames.Count -gt 0 -and $shaderNames[$shaderNames.Count - 1] -ne 'star_angle') {
+		$problems.Add("post/sky_pattern.fsh Config does not declare 'star_angle' last (appended field)")
 	}
 }
 $call = [regex]::Match($programs, 'registerDepthPost\(VFXEffectType\.SKY_PATTERN,\s*true\s*,(?<body>.*?)\);', 'Singleline')
@@ -212,17 +225,17 @@ if (-not $call.Success) {
 	$javaNames = New-Object System.Collections.Generic.List[string]
 	$body = $call.Groups['body'].Value -replace '//[^\r\n]*', ''
 	foreach ($m in [regex]::Matches($body, '"([^"]+)"')) { $javaNames.Add($m.Groups[1].Value) }
-	if ($javaNames.Count -gt 0 -and $javaNames[$javaNames.Count - 1] -ne 'sky_mode') {
-		$problems.Add("registerDepthPost(SKY_PATTERN, ...) does not append 'sky_mode' last")
+	if ($javaNames.Count -gt 0 -and $javaNames[$javaNames.Count - 1] -ne 'star_angle') {
+		$problems.Add("registerDepthPost(SKY_PATTERN, ...) does not append 'star_angle' last")
 	}
 }
 if ($shaderNames.Count -ne $javaNames.Count) {
 	$problems.Add("Config float count: shader $($shaderNames.Count) vs registerDepthPost $($javaNames.Count)")
 }
-# The sky_pattern Config is the figure + texture surface: 39 floats after mat4 + vec4 cam_pos
-# (38 before the sky_mode fix + the appended sky_mode).
+# The sky_pattern Config is the figure + texture surface: 41 floats after mat4 + vec4 cam_pos
+# (39 before the real star lock + the appended anchor_stars/star_angle).
 # Bump this when a real field is appended to both sides.
-$expectedFloatCount = 39
+$expectedFloatCount = 41
 if ($shaderNames.Count -ne $expectedFloatCount) {
 	$problems.Add("Config float count: shader $($shaderNames.Count) vs expected $expectedFloatCount")
 }
@@ -233,7 +246,7 @@ for ($i = 0; $i -lt $count; $i++) {
 	}
 }
 # the texture tail must be present and the surface-only concepts absent
-foreach ($name in @('shape_present', 'tex_u0', 'tex_v0', 'tex_u1', 'tex_v1', 'tex_aspect', 'tex_cols', 'tex_rows', 'tex_frame', 'tex_flags', 'tex_channel', 'texture_tint', 'tex_px_w', 'tex_px_h', 'anchor_yaw', 'anchor_pitch', 'dome_rotation', 'sky_mode')) {
+foreach ($name in @('shape_present', 'tex_u0', 'tex_v0', 'tex_u1', 'tex_v1', 'tex_aspect', 'tex_cols', 'tex_rows', 'tex_frame', 'tex_flags', 'tex_channel', 'texture_tint', 'tex_px_w', 'tex_px_h', 'anchor_yaw', 'anchor_pitch', 'dome_rotation', 'sky_mode', 'anchor_stars', 'star_angle')) {
 	if ($shaderNames -notcontains $name) { $problems.Add("post/sky_pattern.fsh Config is missing '$name'") }
 }
 foreach ($name in @('normal_mask', 'face_mask', 'band_min', 'band_max', 'band_softness', 'stitch', 'center_x', 'center_y', 'center_z')) {
@@ -255,7 +268,7 @@ $switchBody = if ($resolver.Success) { $resolver.Groups['body'].Value } else { "
 if ($switchBody -eq "") {
 	$problems.Add("VFXPostProcessingManager has no resolveDepthValue switch to enumerate")
 }
-foreach ($name in @('anchor_yaw', 'anchor_pitch', 'dome_rotation', 'sky_mode')) {
+foreach ($name in @('anchor_yaw', 'anchor_pitch', 'dome_rotation', 'sky_mode', 'anchor_stars', 'star_angle')) {
 	if ($switchBody -notmatch ('case\s+"' + [regex]::Escape($name) + '"')) {
 		$problems.Add("resolveDepthValue has no case for the sky_pattern param '$name'")
 	}
@@ -301,7 +314,7 @@ if (-not (Test-Path -LiteralPath $skyAnchorPath)) {
 	$problems.Add("util/VFXSkyAnchor.java (the MC-free angle -> [yaw, pitch] helper) does not exist")
 } else {
 	$skyAnchorSrc = Read-Source $skyAnchorPath
-	foreach ($fn in @('yawPitch', 'bodyAnchor', 'starRotationDegrees')) {
+	foreach ($fn in @('yawPitch', 'bodyAnchor', 'starAngleDegrees')) {
 		if ($skyAnchorSrc -notmatch ([regex]::Escape($fn) + '\s*\(')) { $problems.Add("VFXSkyAnchor does not expose '$fn'") }
 	}
 }
@@ -320,7 +333,9 @@ foreach ($fn in @('skySunAngle', 'skyMoonAngle', 'skyStarAngle')) {
 if ($manager -notmatch 'VFXSkyAnchor\.bodyAnchor\(') { $problems.Add("resolveDepthValue does not write anchor_yaw/anchor_pitch from VFXSkyAnchor.bodyAnchor") }
 if ($manager -notmatch '"anchor_yaw"\s*->\s*yp\[0\]') { $problems.Add("resolveDepthValue does not map a sun/moon anchor's yaw into the anchor_yaw uniform") }
 if ($manager -notmatch '"anchor_pitch"\s*->\s*yp\[1\]') { $problems.Add("resolveDepthValue does not map a sun/moon anchor's pitch into the anchor_pitch uniform") }
-if ($manager -notmatch 'VFXSkyAnchor\.starRotationDegrees\(') { $problems.Add("resolveDepthValue does not drive dome_rotation from VFXSkyAnchor.starRotationDegrees for a stars anchor") }
+if ($manager -notmatch 'VFXSkyAnchor\.starAngleDegrees\(') { $problems.Add("resolveDepthValue does not pass the star angle through VFXSkyAnchor.starAngleDegrees for a stars anchor") }
+if ($manager -notmatch '"anchor_stars"\s*->\s*1\.0F') { $problems.Add("resolveDepthValue does not set anchor_stars to 1 for a stars anchor") }
+if ($manager -notmatch '"star_angle"\s*->\s*VFXSkyAnchor\.starAngleDegrees\(') { $problems.Add("resolveDepthValue does not write star_angle from VFXSkyAnchor.starAngleDegrees for a stars anchor") }
 # fail-closed: not-ready sky -> no contribution, warned once
 if ($manager -notmatch 'skyReady\(\)') { $problems.Add("VFXPostProcessingManager does not consult skyReady() (the fail-closed path)") }
 if ($manager -notmatch 'VFXLog\.warnOnce\(LOGGER, "celestial') { $problems.Add("VFXPostProcessingManager has no warnOnce report for a non-ready celestial anchor") }
@@ -341,9 +356,13 @@ if (-not (Test-Path -LiteralPath $hooksPath)) {
 	if ($hooksSrc -notmatch 'worldState\(\)\.skyRenderState') { $problems.Add("VFXClientRenderHooks (Fabric <26.1) does not read context.worldState().skyRenderState") }
 	if ($hooksSrc -notmatch 'getLevelRenderState\(\)\.skyRenderState') { $problems.Add("VFXClientRenderHooks (NeoForge <26.1) does not read event.getLevelRenderState().skyRenderState") }
 }
-# the pass must stay shader-free: no new Config field for the anchor (the CPU reuses the three
-# existing uniforms). The Config float count and the sky_pattern.fsh tail are asserted above.
-if ($shaderNames -contains 'anchor_present') { $problems.Add("post/sky_pattern.fsh gained an S4 Config field; the anchor is resolved on the CPU and must reuse anchor_yaw/anchor_pitch/dome_rotation only") }
+# The anchor is resolved on the CPU: sun/moon reuse anchor_yaw/anchor_pitch; the real stars lock
+# appends anchor_stars + star_angle (the only S4 fields). The Config float count and the shader
+# tail are asserted above.
+if ($shaderNames -contains 'anchor_present') { $problems.Add("post/sky_pattern.fsh has a stray 'anchor_present' field") }
+foreach ($name in @('anchor_stars', 'star_angle')) {
+	if ($shaderNames -notcontains $name) { $problems.Add("post/sky_pattern.fsh Config is missing the stars-lock field '$name'") }
+}
 
 Write-Host "sky_pattern check (static)"
 if ($problems.Count -gt 0) {
@@ -562,9 +581,21 @@ public final class SkyPatternCheck {
 		near(tiltedDir[0], -(float) Math.sin(tilt), "tilted body dir x");
 		near(tiltedDir[1], (float) Math.cos(tilt), "tilted body dir y");
 		near(tiltedDir[2], 0.0F, "tilted body dir z");
-		// The star-angle -> dome_rotation mapping is a documented offset: the raw angle in degrees.
-		near(VFXSkyAnchor.starRotationDegrees((float) (Math.PI / 2.0)), 90.0F, "star rotation at pi/2");
-		near(VFXSkyAnchor.starRotationDegrees(0.0F), 0.0F, "star rotation at 0");
+		// The real star lock: the star angle is the vanilla SkyRenderState.starAngle in degrees.
+		near(VFXSkyAnchor.starAngleDegrees((float) (Math.PI / 2.0)), 90.0F, "star angle at pi/2");
+		near(VFXSkyAnchor.starAngleDegrees(0.0F), 0.0F, "star angle at 0");
+		// The shader's star-local transform must be the exact inverse of the vanilla star sphere's
+		// pose, verified with javap in SkyRenderer.renderSunMoonAndStars on all three lines:
+		// world = Ry(-90) * Rx(starAngle), so local = Rx(-starAngle) * Ry(90).
+		for (final float angle : new float[]{0.0F, 0.7F, -(float) (Math.PI / 3.0), (float) Math.PI}) {
+			for (final float[] v : new float[][]{{0.0F, 0.0F, 1.0F}, {1.0F, 0.0F, 0.0F}, {0.0F, 1.0F, 0.0F}, {0.3F, -0.5F, 0.8F}}) {
+				final float[] w = vanillaStarWorld(v, angle);
+				final float[] l = shaderStarLocal(w, angle);
+				near(l[0], v[0], "star lock round-trip x at angle " + angle);
+				near(l[1], v[1], "star lock round-trip y at angle " + angle);
+				near(l[2], v[2], "star lock round-trip z at angle " + angle);
+			}
+		}
 
 		System.out.println("sky_pattern check OK: built-in + demos parse; no patch clip, demo sky_mode + ring spin asserted; celestial anchors + angle maths asserted");
 	}
@@ -592,6 +623,28 @@ public final class SkyPatternCheck {
 		final double p = Math.toRadians(pitchDeg);
 		final double cp = Math.cos(p);
 		return new float[]{(float) (-Math.sin(y) * cp), (float) (-Math.sin(p)), (float) (Math.cos(y) * cp)};
+	}
+
+	/** The vanilla star sphere's pose (SkyRenderer.renderSunMoonAndStars): world = Ry(-90)*Rx(angle). */
+	private static float[] vanillaStarWorld(final float[] v, final float angle) {
+		final double c = Math.cos(angle);
+		final double s = Math.sin(angle);
+		final double ax = v[0];
+		final double ay = c * v[1] - s * v[2];
+		final double az = s * v[1] + c * v[2];
+		final double yc = Math.cos(-Math.PI / 2.0);
+		final double ys = Math.sin(-Math.PI / 2.0);
+		return new float[]{(float) (yc * ax + ys * az), (float) ay, (float) (-ys * ax + yc * az)};
+	}
+
+	/** The shader's star-local transform (include/dome.glsl: vfx_star_local_dir), the exact inverse. */
+	private static float[] shaderStarLocal(final float[] d, final float angle) {
+		final double c = Math.cos(angle);
+		final double s = Math.sin(angle);
+		final double y90x = d[2];
+		final double y90y = d[1];
+		final double y90z = -d[0];
+		return new float[]{(float) y90x, (float) (c * y90y + s * y90z), (float) (-s * y90y + c * y90z)};
 	}
 
 	private static void near(final float actual, final float want, final String what) {

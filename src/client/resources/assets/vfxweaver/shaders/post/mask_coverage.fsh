@@ -122,6 +122,12 @@ float vfx_mask_data(int index) {
     return shape_data[index >> 2][index & 3];
 }
 
+// The calling leaf's eight animatable params, published with the data base just before the plugin
+// call so an injected plugin (and its optional vfx_shape_custom_bounds broad phase) can read the
+// same p0/p1 the call site passes to vfx_shape_custom. A plugin that ignores them is unchanged.
+vec4 vfx_shape_params0 = vec4(0.0);
+vec4 vfx_shape_params1 = vec4(0.0);
+
 // A neutral GLSL-plugin stub. VFXMaskShaderVariants replaces the marked region below with the
 // registered `float vfx_shape_custom(vec3 world, vec2 uv, vec4 p0, vec4 p1)` in the variant
 // compiled for a mask that references plugin shapes; the base shader (no plugin leaf) never calls
@@ -237,6 +243,8 @@ void main() {
             cov = texture(GeometryCoverageSampler, texCoord).r;
         } else if (kind == 7) {
             vfx_shape_data_base = i * (MASK_MAX_LEAF_DATA_VEC4 * 4);
+            vfx_shape_params0 = shape_params0[i];
+            vfx_shape_params1 = shape_params1[i];
             int row = int(shape_misc[i].w + 0.5);
             if (row < 0 || row >= MASK_MAX_CUSTOM_LEAVES) {
                 // A malformed/over-cap custom row must contribute nothing, never alias row 0

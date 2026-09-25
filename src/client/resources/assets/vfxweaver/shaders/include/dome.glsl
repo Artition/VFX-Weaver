@@ -37,6 +37,21 @@ vec2 vfx_dome_patch_cell(vec3 dir, vec3 anchor, float yawDeg, float tileScale, o
     return vec2(dot(dir, uAxis), dot(dir, vAxis)) / (wSafe * clamp(tileScale, 0.01, 4.0));
 }
 
+// The vanilla star sphere is drawn with the pose Ry(-90 deg) * Rx(starAngle)
+// (SkyRenderer.renderSunMoonAndStars, verified with javap on 26.2 / 26.1.2 / 1.21.11). To lock a
+// pattern to the star material, take a WORLD view direction into that pose's local frame with the
+// inverse Rx(-starAngle) * Ry(+90 deg): the pattern is then addressed in the star's own frame and
+// rotates with the field. `starAngleDegrees` is SkyRenderState.starAngle in degrees.
+// Derivation: Ry(90) maps (x, y, z) -> (z, y, -x); Rx(-a) then maps (X, Y, Z) ->
+// (X, cos a * Y + sin a * Z, -sin a * Y + cos a * Z).
+vec3 vfx_star_local_dir(vec3 dir, float starAngleDegrees) {
+    float a = radians(starAngleDegrees);
+    float c = cos(a);
+    float s = sin(a);
+    vec3 y90 = vec3(dir.z, dir.y, -dir.x);
+    return vec3(y90.x, c * y90.y + s * y90.z, -s * y90.y + c * y90.z);
+}
+
 // FILL mode: whole-sphere tiling by three orthographic charts blended with a sharpened partition
 // of unity ("triplanar on a sphere"). No pole convergence and no seam anywhere; `repeat` tiling
 // lives inside each chart. `sharp` trades the blend-ribbon width against crossfade ghosting:

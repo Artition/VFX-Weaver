@@ -33,6 +33,22 @@ package dev.vfxweaver.mask;
  * declares them). A plugin that never calls the helper compiles and behaves exactly as before; a
  * {@code mask.p<N>.d<J>} update is an ordinary param edit and never recompiles the shader variant
  * (the variant is keyed only by the set of plugin ids).
+ *
+ * <p><b>World plugins and the optional broad phase.</b> A plugin whose shape has a real 3D extent
+ * (a {@code space: "world"} plugin, e.g. used with {@code volume: "aura"}) should also define:
+ *
+ * <pre>{@code
+ * // World centre (xyz) plus an enclosing radius; a negative w means "unbounded" (never cull).
+ * vec4 vfx_shape_custom_bounds();
+ * }</pre>
+ *
+ * <p>The coverage shader calls it before an aura march and skips the march where the view ray
+ * misses the sphere, which is what keeps the march cheap. It may read {@code vfx_mask_data(...)}
+ * and the calling leaf's params through the wrapper-declared globals {@code vfx_shape_params0} /
+ * {@code vfx_shape_params1} (the same values the call site passes to {@code vfx_shape_custom}), and
+ * it must not declare any of those four symbols. The function is optional: a plugin that omits it
+ * is treated as unbounded. The built-in reference is {@code vfxweaver:blobs_glsl} (a union of world
+ * spheres): the SDF and its bounds both read the same data, so the broad phase is conservative.
  */
 @FunctionalInterface
 public interface VFXMaskShapeGlsl {

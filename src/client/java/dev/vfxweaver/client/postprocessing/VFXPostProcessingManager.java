@@ -1500,13 +1500,18 @@ public final class VFXPostProcessingManager {
 						case "anchor_yaw" -> yp[0];
 						case "anchor_pitch" -> yp[1];
 						case "dome_rotation" -> 0.0F;
+						case "anchor_stars" -> 0.0F;
+						case "star_angle" -> 0.0F;
 						default -> this.resolveTimelineDepthValue(param, effect, weight, shape, surface, patternTexture);
 					};
 				}
 				return switch (param) {
-					// The star sphere rotates with starAngle; the closest world-Y spin the shader
-					// offers is mapped straight through (see VFXSkyAnchor.starRotationDegrees).
-					case "dome_rotation" -> VFXSkyAnchor.starRotationDegrees(VFXWorldBindings.skyStarAngle());
+					// The real stars lock: the shader takes the sampled direction into the star
+					// sphere's local frame (include/dome.glsl: vfx_star_local_dir), so the CPU only
+					// flags the anchor and passes SkyRenderState.starAngle in degrees.
+					// dome_rotation stays the authored world-Y spin (see VFXSkyAnchor.starAngleDegrees).
+					case "anchor_stars" -> 1.0F;
+					case "star_angle" -> VFXSkyAnchor.starAngleDegrees(VFXWorldBindings.skyStarAngle());
 					// The star anchor has no single dome spot - the whole rotating sphere; a spot
 					// anchor (anchor_yaw/anchor_pitch) is not meaningful for it and stays authored.
 					default -> this.resolveTimelineDepthValue(param, effect, weight, shape, surface, patternTexture);
@@ -1516,12 +1521,14 @@ public final class VFXPostProcessingManager {
 		}
 
 		/**
-		 * The definition's celestial anchor when {@code param} is one of the three dome uniforms it
-		 * overrides, else {@code null}. Only {@code anchor_yaw}/{@code anchor_pitch}/{@code dome_rotation}
-		 * are re-routed; every other Config name keeps its timeline resolution.
+		 * The definition's celestial anchor when {@code param} is one of the dome uniforms it
+		 * overrides, else {@code null}. Only {@code anchor_yaw}/{@code anchor_pitch}/{@code
+		 * dome_rotation}/{@code anchor_stars}/{@code star_angle} are re-routed; every other Config
+		 * name keeps its timeline resolution.
 		 */
 		private static @Nullable CelestialAnchor anchorOf(final VFXActiveEffect effect, final String param) {
-			if (!"anchor_yaw".equals(param) && !"anchor_pitch".equals(param) && !"dome_rotation".equals(param)) {
+			if (!"anchor_yaw".equals(param) && !"anchor_pitch".equals(param) && !"dome_rotation".equals(param)
+				&& !"anchor_stars".equals(param) && !"star_angle".equals(param)) {
 				return null;
 			}
 			final VFXDefinition definition = VFXDefinitionManager.get().get(effect.getId());
@@ -1546,10 +1553,13 @@ public final class VFXPostProcessingManager {
 			final float raw = switch (param) {
 				case "time" -> effect.getAge();
 				// sky_pattern's dome anchor (yaw/pitch degrees) and the star-sphere lock, ordinary
-				// animatable params with no neutral (never fade-blended).
+				// animatable params with no neutral (never fade-blended). anchor_stars/star_angle
+				// are written by the celestial resolver and stay 0 for a non-stars anchor.
 				case "anchor_yaw" -> effect.getParam("anchor_yaw", 0.0F);
 				case "anchor_pitch" -> effect.getParam("anchor_pitch", 0.0F);
 				case "dome_rotation" -> effect.getParam("dome_rotation", 0.0F);
+				case "anchor_stars" -> 0.0F;
+				case "star_angle" -> 0.0F;
 				// sky_mode: 0 = patch (gnomonic decal, the default), 1 = fill (three orthographic
 				// charts). Default patch (0), the least surprising for the common case (a figure at
 				// a spot).

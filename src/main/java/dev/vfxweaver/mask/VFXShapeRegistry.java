@@ -47,6 +47,73 @@ public final class VFXShapeRegistry {
 				+ "    return abs(length(rel) - radius * (1.0 + wave)) - halfWidth;\n"
 				+ "}\n");
 		this.shapes.put("vfxweaver:ringed_glsl", new VFXCustomShape("vfxweaver:ringed_glsl", VFXMaskSpace.SCREEN, VFXCustomShape.Family.GLSL_PLUGIN, java.util.List.of(), java.util.List.of()));
+		// The built-in WORLD GLSL plugin (the reference for a genuine 3D plugin): a union of up to
+		// VFX_BLOBS_MAX world-space spheres whose centres/radii come from the leaf's dynamic data
+		// slots (d[4k..4k+3] = sphere k's centre.xyz + radius; radius <= 0 skips the sphere) and
+		// whose global controls come from the leaf's p0..p7 (p0.xyz = centre offset, p0.w = radius
+		// scale (0 -> 1), p1.x = radius bias, p1.y = sphere count override (0 -> all data spheres)).
+		// The SDF reads `vfx_mask_data` and `vfx_shape_params0/1` (declared by the coverage shader),
+		// so it must not declare them. The optional `vfx_shape_custom_bounds()` broad phase returns
+		// the enclosing sphere of the same (data + params) extent so an aura march is cheap;
+		// w < 0 = unbounded (no active sphere). Because the params move/scale the extent, the bounds
+		// reads them too (the coverage shader publishes the calling leaf's p0/p1).
+		this.plugins.put("vfxweaver:blobs_glsl", () ->
+			"#define VFX_BLOBS_MAX 8\n"
+				+ "float vfx_shape_custom(vec3 world, vec2 uv, vec4 p0, vec4 p1) {\n"
+				+ "    float scale = (abs(p0.w) < 1.0e-6) ? 1.0 : p0.w;\n"
+				+ "    float bias = p1.x;\n"
+				+ "    vec3 offset = p0.xyz;\n"
+				+ "    int count = int(floor(p1.y + 0.5));\n"
+				+ "    if (count <= 0 || count > VFX_BLOBS_MAX) {\n"
+				+ "        count = VFX_BLOBS_MAX;\n"
+				+ "    }\n"
+				+ "    float d = 1.0e6;\n"
+				+ "    for (int k = 0; k < VFX_BLOBS_MAX; k++) {\n"
+				+ "        if (k >= count) {\n"
+				+ "            break;\n"
+				+ "        }\n"
+				+ "        int b = vfx_shape_data_base + k * 4;\n"
+				+ "        vec3 c = vec3(vfx_mask_data(b), vfx_mask_data(b + 1), vfx_mask_data(b + 2)) + offset;\n"
+				+ "        float r = vfx_mask_data(b + 3) * scale + bias;\n"
+				+ "        if (r <= 0.0) {\n"
+				+ "            continue;\n"
+				+ "        }\n"
+				+ "        d = min(d, length(world - c) - r);\n"
+				+ "    }\n"
+				+ "    return d;\n"
+				+ "}\n"
+				+ "vec4 vfx_shape_custom_bounds() {\n"
+				+ "    float scale = (abs(vfx_shape_params0.w) < 1.0e-6) ? 1.0 : vfx_shape_params0.w;\n"
+				+ "    float bias = vfx_shape_params1.x;\n"
+				+ "    vec3 offset = vfx_shape_params0.xyz;\n"
+				+ "    int count = int(floor(vfx_shape_params1.y + 0.5));\n"
+				+ "    if (count <= 0 || count > VFX_BLOBS_MAX) {\n"
+				+ "        count = VFX_BLOBS_MAX;\n"
+				+ "    }\n"
+				+ "    vec3 lo = vec3(1.0e9);\n"
+				+ "    vec3 hi = vec3(-1.0e9);\n"
+				+ "    bool hasBlob = false;\n"
+				+ "    for (int k = 0; k < VFX_BLOBS_MAX; k++) {\n"
+				+ "        if (k >= count) {\n"
+				+ "            break;\n"
+				+ "        }\n"
+				+ "        int b = vfx_shape_data_base + k * 4;\n"
+				+ "        vec3 c = vec3(vfx_mask_data(b), vfx_mask_data(b + 1), vfx_mask_data(b + 2)) + offset;\n"
+				+ "        float r = vfx_mask_data(b + 3) * scale + bias;\n"
+				+ "        if (r <= 0.0) {\n"
+				+ "            continue;\n"
+				+ "        }\n"
+				+ "        lo = min(lo, c - vec3(r));\n"
+				+ "        hi = max(hi, c + vec3(r));\n"
+				+ "        hasBlob = true;\n"
+				+ "    }\n"
+				+ "    if (!hasBlob) {\n"
+				+ "        return vec4(0.0, 0.0, 0.0, -1.0);\n"
+				+ "    }\n"
+				+ "    vec3 centre = 0.5 * (lo + hi);\n"
+				+ "    return vec4(centre, length(hi - centre));\n"
+				+ "}\n");
+		this.shapes.put("vfxweaver:blobs_glsl", new VFXCustomShape("vfxweaver:blobs_glsl", VFXMaskSpace.WORLD, VFXCustomShape.Family.GLSL_PLUGIN, java.util.List.of(), java.util.List.of()));
 	}
 
 	/** The singleton registry. */
