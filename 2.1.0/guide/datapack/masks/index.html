@@ -3085,6 +3085,17 @@ composition (<code>"op": "union" | "intersection" | "difference"</code>) of leav
 <li>a <strong>sky</strong> leaf (the whole sky) or a 2D shape in <code>space: "dome"</code> (addressed on the sky dome);</li>
 <li>a <strong>block</strong> leaf (the selected blocks' model geometry) or a <strong>custom</strong> shape (a registered composed SDF or GLSL plugin).</li>
 </ul>
+<blockquote>
+<p><strong>Post effects only.</strong> A <code>mask</code> gates a <strong>fullscreen post-processing</strong> pass: its coverage is a
+screen-space texture built from scene depth, and the post chain blends it into the frame. The
+<strong>world overlays</strong> — <code>pulse_ring</code>, <code>light_beam</code>, <code>guide_line</code>, <code>particles</code>, <code>block_chain</code>,
+<code>block_tint</code>, <code>block_outline</code> and the entity effects — draw world-space geometry and have no post
+pass, so a <code>mask</code> on one of them is <strong>parsed and then does nothing</strong>: it neither restricts that
+geometry nor reports an error (for <code>pulse_ring</code>, <code>light_beam</code>, <code>guide_line</code>, <code>particles</code> and
+<code>block_chain</code> the coverage is even computed and then never read). To confine a world overlay, drive
+its own spatial params — <code>radius</code>, <code>thickness</code>, <code>intensity</code>, <code>region</code> or <code>pos_x/y/z</code> — for example
+from an <code>expr</code> or a <a href="../fields/">field</a>.</p>
+</blockquote>
 <p>Composition <strong>nests on the left only</strong>: the right operand of an <code>op</code> must be a leaf, so write
 <code>intersection(union(A, B), C)</code> (which flattens to <code>min(max(A, B), C)</code>), not
 <code>union(A, intersection(B, C))</code> — the latter would flatten to <code>min(max(A, B), C)</code> and is a parse

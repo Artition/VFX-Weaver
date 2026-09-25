@@ -2552,6 +2552,17 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#v69" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v69
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#v68-released-as-210" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3272,6 +3283,17 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#v69" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v69
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#v68-released-as-210" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3901,8 +3923,12 @@
 documentation changed. A guide revision is not a mod version — the two numbers are independent, and
 released mod versions are recorded on the <strong><a href="../../CHANGELOG/">mod Changelog</a></strong> instead. Where a guide
 revision shipped with a release, the entry says so (for example <code>v47 — released as 2.0.0</code>).</p>
-<p>Current guide revision: <strong>v68</strong>. Mod version it documents: <strong>2.1.0</strong>. Which jar to download is in the
+<p>Current guide revision: <strong>v69</strong>. Mod version it documents: <strong>2.1.0</strong>. Which jar to download is in the
 <a href="../../#download">download table</a>.</p>
+<h3 id="v69">v69<a class="headerlink" href="#v69" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>A mask applies to post effects only, and the page now says so plainly.</strong> The mask coverage is a screen-space texture consumed by the post chain, so the <strong>world overlays</strong> — <code>pulse_ring</code>, <code>light_beam</code>, <code>guide_line</code>, <code>particles</code>, <code>block_chain</code>, <code>block_tint</code>, <code>block_outline</code> and the entity effects — never read it: a <code>mask</code> on one of them parses and then does nothing, with no error and no effect on the geometry (for the five geometry-only overlays the coverage prepass even runs and is never read). <a href="../datapack/masks/">masks</a> states this up front and points to the overlays' own spatial params (<code>radius</code>, <code>thickness</code>, <code>intensity</code>, <code>region</code>, <code>pos_x/y/z</code>) as the way to confine one, and the <a href="../datapack/format/">format</a> block table mirrors it. Documentation only — no datapack field, UBO or wire change. Also corrected: the guide revision shown on the <a href="../../">docs home</a> and in <a href="../">this guide's index</a> was still <code>v67</code> after the v68 bump.</li>
+</ul>
 <h3 id="v68-released-as-210">v68 — released as 2.1.0<a class="headerlink" href="#v68-released-as-210" title="Permanent link">&para;</a></h3>
 <ul>
 <li><strong>The showcase media set is complete.</strong> The clips recorded for the release are embedded on the pages that previously described their demos in text only: the sky/dome masks and the three plugin-mask demos on <a href="../datapack/masks/">masks</a>, the texture variant and the three sky anchors in <strong>Variants</strong> on <a href="../effects/screen/sky-pattern/">sky_pattern</a>, and a new <strong>Variants</strong> section for the two aim forms on <a href="../effects/world/light-beam/">light_beam</a>. The showcase datapack zip was also rebuilt: the published one stored its entries with backslash separators, which a Java consumer cannot resolve, so the downloaded pack resolved to a single oddly named entry and every effect in it was silently missing.</li>
