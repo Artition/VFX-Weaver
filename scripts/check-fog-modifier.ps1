@@ -1,17 +1,22 @@
-# Dev-only guard for the fog_modifier effect (2026-09-24).
+# Dev-only guard for the fog_modifier effect (2026-09-24, corrected 2026-09-25).
 #
 # fog_modifier mirrors fov_modifier: it is a value modifier at the SOURCE of the vanilla fog, not a
-# post pass. The one write point that all three nodes share is the private
-# FogRenderer.updateBuffer(ByteBuffer, int, Vector4f, float x6) that serialises the fog UBO the
-# shaders (and our own entity pipelines) read. The mixin modifies the arguments of that call:
-#   26.x     : the call sits in FogRenderer.updateBuffer(FogData)
-#   1.21.11  : setupFog returns the colour and writes the UBO inline, so the call sits in setupFog
+# post pass. The vanilla fog's six distances + colour reach the shaders through the Fog UBO written
+# by the private FogRenderer.updateBuffer(ByteBuffer, int, Vector4f, float x6). How the modifier
+# reaches that write differs per node:
+#   26.x     : setupFog assembles a FogData, then the public updateBuffer(FogData) serialises it ->
+#              the mixin @ModifyVariable's that entry (arg 0) and returns a NEW FogData with every
+#              start/end scaled (including skyEnd/cloudEnd) and the colour replaced.
+#   1.21.11  : there is no public FogData entry - setupFog builds a local FogData and calls the
+#              private write inline - so the mixin @ModifyArgs' the private call's six float slots.
 # This check asserts:
 #   * the effect type exists with its neutral values and is excluded from isPostProcessing();
 #   * the manager walks the active effects and reads the five params;
-#   * the mixin is registered and names the REAL descriptor on each node;
-#   * `javap -s` on each node's REAL jar proves the target and the enclosing method exist (a stale
-#     target fails here, not at game start - the build does not validate mixin targets);
+#   * the mixin is registered, the 26.x hook is @ModifyVariable on updateBuffer(FogData) returning a
+#     new instance (no in-place mutation) and the 1.21.11 hook is @ModifyArgs on the private write;
+#   * every scaled end including skyEnd/cloudEnd is present, and the degenerate-range guard exists;
+#   * `javap -s` on each node's REAL jar proves the target entries/fields exist (the build does not
+#     validate mixin targets, so a stale target fails here, not at game start);
 #   * the MC-free combination helper (dev.vfxweaver.util.VFXFogModifier) behaves runnably.
 #
 # Usage: powershell -ExecutionPolicy Bypass -File scripts/check-fog-modifier.ps1
@@ -66,21 +71,61 @@ foreach ($param in @('fog_start_scale', 'fog_end_scale', 'fog_r', 'fog_g', 'fog_
 	}
 }
 
-# --- 3. mixin registered + source declares the per-node targets ------------------------------------
+# --- 3. mixin registered + the per-node hooks + the corrected semantics ----------------------------
 if ($mixinsJson -notmatch '"FogRendererMixin"') {
 	$problems.Add("vfxweaver.client.mixins.json does not register FogRendererMixin")
 }
-if ($mixin -notmatch [regex]::Escape($targetDescriptor)) {
-	$problems.Add("FogRendererMixin does not target the real '$targetDescriptor' descriptor")
+# Split the one guarded file into the 1.21.11 (<26.1) branch and the 26.x (else) branch. The file
+# guards the imports too (an earlier if/else), so take the LAST match: the method-level guard.
+$legacyMatches = [regex]::Matches($mixin, '(?s)//\? if <26\.1 \{(.*?)//\?\} else \{')
+$modernMatches = [regex]::Matches($mixin, '(?s)//\?\} else \{(.*?)//\?\}')
+$legacyBranch = if ($legacyMatches.Count -gt 0) { $legacyMatches[$legacyMatches.Count - 1].Groups[1].Value } else { '' }
+$modernBranch = if ($modernMatches.Count -gt 0) { $modernMatches[$modernMatches.Count - 1].Groups[1].Value } else { '' }
+if (-not $legacyBranch) { $problems.Add("FogRendererMixin has no '//? if <26.1' guarded branch (1.21.11)") }
+if (-not $modernBranch) { $problems.Add("FogRendererMixin has no '//?} else {' guarded branch (26.x)") }
+
+# 26.x: @ModifyVariable at HEAD of the public updateBuffer(FogData) entry, returning a NEW FogData.
+if ($modernBranch -notmatch '@ModifyVariable') {
+	$problems.Add("26.x fog hook is not @ModifyVariable (must modify the FogData entry, not the private transport)")
 }
-if ($mixin -notmatch [regex]::Escape($enclosing26)) {
-	$problems.Add("FogRendererMixin does not wrap the 26.x '$enclosing26' caller")
+if ($modernBranch -notmatch [regex]::Escape($enclosing26)) {
+	$problems.Add("26.x fog hook does not target the public '$enclosing26' entry")
 }
-if ($mixin -notmatch [regex]::Escape($enclosing12111)) {
-	$problems.Add("FogRendererMixin does not wrap the 1.21.11 '$enclosing12111' caller")
+if ($modernBranch -match '@ModifyArgs') {
+	$problems.Add("26.x fog hook still uses @ModifyArgs on the private transport")
 }
-if ($mixin -notmatch '@ModifyArgs') {
-	$problems.Add("FogRendererMixin does not use @ModifyArgs on the fog UBO write")
+if ($modernBranch -notmatch 'new FogData\(\)') {
+	$problems.Add("26.x fog hook does not construct a new FogData (must not mutate the incoming instance)")
+}
+if ($modernBranch -match 'data\.[A-Za-z]+\s*=') {
+	$problems.Add("26.x fog hook mutates the incoming FogData in place")
+}
+foreach ($band in @('environmentalStart', 'environmentalEnd', 'renderDistanceStart', 'renderDistanceEnd', 'skyEnd', 'cloudEnd')) {
+	if ($modernBranch -notmatch [regex]::Escape($band)) {
+		$problems.Add("26.x fog hook does not scale '$band' (all four distances + skyEnd + cloudEnd)")
+	}
+}
+
+# 1.21.11: @ModifyArgs on the private transport call inside setupFog, corrected semantics.
+if ($legacyBranch -notmatch '@ModifyArgs') {
+	$problems.Add("1.21.11 fog hook is not @ModifyArgs on the private transport")
+}
+if ($legacyBranch -notmatch [regex]::Escape($targetDescriptor)) {
+	$problems.Add("1.21.11 fog hook does not target the real private '$targetDescriptor'")
+}
+if ($legacyBranch -notmatch [regex]::Escape($enclosing12111)) {
+	$problems.Add("1.21.11 fog hook does not wrap '$enclosing12111'")
+}
+if ($legacyBranch -notmatch 'args\.set\(7' -or $legacyBranch -notmatch 'args\.set\(8') {
+	$problems.Add("1.21.11 fog hook does not scale the private slots 7/8 (skyEnd/cloudEnd)")
+}
+
+# The degenerate-range guard must exist (shared, runnable) - never mutate the incoming FogData.
+if ($mixin -notmatch 'pullBelow') {
+	$problems.Add("fog hook has no degenerate-range guard (pullBelow: start >= end -> just below end)")
+}
+if ($helper -notmatch 'pullBelow' -or $helper -notmatch 'nextDown') {
+	$problems.Add("VFXFogModifier has no runnable pullBelow degenerate-range guard")
 }
 
 # --- 4. javap -s: each node's REAL jar carries the target and the enclosing method -----------------
@@ -102,9 +147,9 @@ if (-not $javap) {
 	# 26.x is unobfuscated (deobf jar); 1.21.11 is remapped and verified against the named jar.
 	$named12111 = Get-ChildItem (Join-Path $mcCache "minecraft-clientonly") -Recurse -Filter "minecraft-clientonly-1.21.11-*.jar" -ErrorAction SilentlyContinue | Select-Object -First 1
 	$targets = [ordered]@{
-		"26.2"    = @{ Jar = (Get-ChildItem (Join-Path $mcCache "minecraft-clientonly-deobf\26.2") -Filter "*.jar" -ErrorAction SilentlyContinue | Where-Object { $_.Name -notmatch '\.backup$' } | Select-Object -First 1); Enclosing = $enclosing26 }
-		"26.1.2"  = @{ Jar = (Get-ChildItem (Join-Path $mcCache "minecraft-clientonly-deobf\26.1.2") -Filter "*.jar" -ErrorAction SilentlyContinue | Where-Object { $_.Name -notmatch '\.backup$' } | Select-Object -First 1); Enclosing = $enclosing26 }
-		"1.21.11" = @{ Jar = $named12111; Enclosing = $enclosing12111 }
+		"26.2"    = @{ Jar = (Get-ChildItem (Join-Path $mcCache "minecraft-clientonly-deobf\26.2") -Filter "*.jar" -ErrorAction SilentlyContinue | Where-Object { $_.Name -notmatch '\.backup$' } | Select-Object -First 1); Kind = 'Modern' }
+		"26.1.2"  = @{ Jar = (Get-ChildItem (Join-Path $mcCache "minecraft-clientonly-deobf\26.1.2") -Filter "*.jar" -ErrorAction SilentlyContinue | Where-Object { $_.Name -notmatch '\.backup$' } | Select-Object -First 1); Kind = 'Modern' }
+		"1.21.11" = @{ Jar = $named12111; Kind = 'Legacy' }
 	}
 	foreach ($node in $targets.Keys) {
 		$t = $targets[$node]
@@ -114,17 +159,36 @@ if (-not $javap) {
 		}
 		# javap wraps long descriptor lines, so strip all whitespace and match the descriptor alone.
 		$out = ((& $javap -classpath $t.Jar.FullName -s -p net.minecraft.client.renderer.fog.FogRenderer 2>&1 | Out-String) -replace '\s', '')
-		$targetOnly = $targetDescriptor.Substring($targetDescriptor.IndexOf('('))
-		if ($out -notmatch [regex]::Escape($targetOnly)) {
-			$problems.Add("${node}: FogRenderer has no private '$targetDescriptor' (mixin target is stale)")
+		if ($t.Kind -eq 'Modern') {
+			# 26.x: the hook is @ModifyVariable on the public updateBuffer(FogData) entry.
+			$entryOnly = $enclosing26.Substring($enclosing26.IndexOf('('))
+			if ($out -notmatch [regex]::Escape($entryOnly)) {
+				$problems.Add("${node}: FogRenderer has no public '$enclosing26' (mixin entry is stale)")
+			} else {
+				Write-Host "  $node : FogRenderer carries $enclosing26"
+			}
+			# ...and the FogData instance fields the new record is rebuilt from.
+			$data = ((& $javap -classpath $t.Jar.FullName -s -p net.minecraft.client.renderer.fog.FogData 2>&1 | Out-String) -replace '\s', '')
+			foreach ($field in @('environmentalStart', 'renderDistanceStart', 'environmentalEnd', 'renderDistanceEnd', 'skyEnd', 'cloudEnd', 'color')) {
+				if ($data -notmatch [regex]::Escape($field)) {
+					$problems.Add("${node}: FogData has no '$field' field")
+				}
+			}
+			Write-Host "  $node : FogData carries environmentalStart/renderDistanceStart/environmentalEnd/renderDistanceEnd/skyEnd/cloudEnd/color"
 		} else {
-			Write-Host "  $node : FogRenderer carries $targetDescriptor"
-		}
-		$enclosingOnly = $t.Enclosing.Substring($t.Enclosing.IndexOf('('))
-		if ($out -notmatch [regex]::Escape($enclosingOnly)) {
-			$problems.Add("${node}: FogRenderer has no '$($t.Enclosing)' (mixin caller is stale)")
-		} else {
-			Write-Host "  $node : FogRenderer carries $($t.Enclosing)"
+			# 1.21.11: setupFog builds the FogData and calls the private write inline.
+			$targetOnly = $targetDescriptor.Substring($targetDescriptor.IndexOf('('))
+			if ($out -notmatch [regex]::Escape($targetOnly)) {
+				$problems.Add("${node}: FogRenderer has no private '$targetDescriptor' (mixin target is stale)")
+			} else {
+				Write-Host "  $node : FogRenderer carries $targetDescriptor"
+			}
+			$enclosingOnly = $enclosing12111.Substring($enclosing12111.IndexOf('('))
+			if ($out -notmatch [regex]::Escape($enclosingOnly)) {
+				$problems.Add("${node}: FogRenderer has no '$enclosing12111' (mixin caller is stale)")
+			} else {
+				Write-Host "  $node : FogRenderer carries $enclosing12111"
+			}
 		}
 	}
 }
@@ -237,6 +301,11 @@ public final class FogModifierCheck {
 		expect("faded no colour", !faded.hasColor());
 		expectEq("faded r unchanged", faded.r(), 0.4F);
 
+		// degenerate-range guard: an inverted scaled pair is pulled just below the end.
+		expectEq("pullBelow healthy", VFXFogModifier.pullBelow(1.0F, 3.0F), 1.0F);
+		expectEq("pullBelow inverted", VFXFogModifier.pullBelow(5.0F, 3.0F), Math.nextDown(3.0F));
+		expectEq("pullBelow equal", VFXFogModifier.pullBelow(3.0F, 3.0F), Math.nextDown(3.0F));
+
 		System.out.println("fog_modifier combination checks OK");
 	}
 }
@@ -253,5 +322,5 @@ try {
 	Pop-Location
 }
 
-Write-Host "fog_modifier OK: type + neutral values + isPostProcessing exclusion, manager accumulation, per-node mixin targets (javap -s), helper maths."
+Write-Host "fog_modifier OK: type + neutral values + isPostProcessing exclusion, manager accumulation, per-node hooks (26.x @ModifyVariable on FogData returning a new instance incl. skyEnd/cloudEnd + degenerate guard; 1.21.11 @ModifyArgs slots), real-jar targets (javap -s), helper maths."
 exit 0

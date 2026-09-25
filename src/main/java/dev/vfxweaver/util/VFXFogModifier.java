@@ -98,4 +98,17 @@ public final class VFXFogModifier {
 		final float factor = Math.min(1.0F, weight);
 		return Math.min(1.0F, Math.max(0.0F, vanilla + (target - vanilla) * factor));
 	}
+
+	/**
+	 * Pulls a scaled fog <b>start</b> just below its <b>end</b> when scaling inverted the pair.
+	 * Vanilla thick fog may legitimately start negative, so only the inverted case
+	 * ({@code start >= end}) is corrected — a GLSL fog range with {@code start > end} is undefined.
+	 *
+	 * @param start the scaled fog start distance
+	 * @param end the scaled fog end distance
+	 * @return {@code start} unchanged when healthy, otherwise the float just below {@code end}
+	 */
+	public static float pullBelow(final float start, final float end) {
+		return start >= end ? Math.nextDown(end) : start;
+	}
 }
