@@ -36,8 +36,12 @@ void main() {
     vec4 base = texture(InSampler, texCoord);
     // Animated per-frame noise: the grain cell pattern is offset every tick via `time`
     // (the effect's age in ticks), so the grain flickers instead of standing still.
-    vec2 cell = texCoord * OutSize / max(size, 1.0);
-    uvec2 id = uvec2(cell) + uvec2(uint(time * 0.7317) * 9781u, uint(time * 0.3943) * 6151u);
+    // The cell grid is centred on the screen, so a changing `size` grows the cells
+    // outwards from the middle instead of pushing them out of the corner; the fixed
+    // offset is only there to keep the cell index positive.
+    vec2 grid = (texCoord - 0.5) * OutSize / max(size, 1.0);
+    uvec2 id = uvec2(ivec2(floor(grid)) + 1048576)
+             + uvec2(uint(time * 0.7317) * 9781u, uint(time * 0.3943) * 6151u);
     float mono = hash(id);
     // `chroma` gives each channel its own grain instead of one shared value:
     // 0.0 is monochrome, 1.0 fully coloured.
