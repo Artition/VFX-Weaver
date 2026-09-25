@@ -1,0 +1,3592 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="A client-side VFX library/API for Minecraft on Fabric and NeoForge: screen post-processing, camera shake, world overlays, entity effects, datapack-defined effects, network triggers and a public Java API.">
+      
+      
+      
+        <link rel="canonical" href="https://artition.github.io/VFX-Weaver/2.1.0/API/">
+      
+      
+        <link rel="prev" href="../guide/changelog/">
+      
+      
+        <link rel="next" href="../ARCHITECTURE/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Java API - VFX Weaver</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#java-api" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="VFX Weaver" class="md-header__button md-logo" aria-label="VFX Weaver" data-md-component="logo">
+      
+  <img src="../assets/images/logo.png" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            VFX Weaver
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Java API
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m14.3 16-.7-2h-3.2l-.7 2H7.8L11 7h2l3.2 9zM20 8.69V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12zm-9.15 3.96h2.3L12 9z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_2" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to system preference"  type="radio" name="__palette" id="__palette_2">
+    
+      <label class="md-header__button md-icon" title="Switch to system preference" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/Artition/VFX-Weaver" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    Artition/VFX-Weaver
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="VFX Weaver" class="md-nav__button md-logo" aria-label="VFX Weaver" data-md-component="logo">
+      
+  <img src="../assets/images/logo.png" alt="logo">
+
+    </a>
+    VFX Weaver
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/Artition/VFX-Weaver" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    Artition/VFX-Weaver
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guide/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting started
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guide/showcase-datapack/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Showcase datapack
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guide/first-datapack/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Your first datapack
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Effects
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Effects
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guide/effects/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_5_2" id="__nav_5_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Screen post-processing
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_5_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Screen post-processing
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guide/effects/screen/chromatic-aberration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    chromatic_aberration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guide/effects/screen/color-grade/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    color_grade
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guide/effects/screen/distortion/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    distortion
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guide/effects/screen/dent/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    dent
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guide/effects/screen/gradient-map/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    gradient_map
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guide/effects/screen/posterize/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    posterize
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guide/effects/screen/blur/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    blur
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guide/effects/screen/pixelate/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    pixelate
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guide/effects/screen/hue-isolation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    hue_isolation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guide/effects/screen/vignette/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    vignette
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guide/effects/screen/screen-flash/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    screen_flash
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guide/effects/screen/motion-blur/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    motion_blur
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guide/effects/screen/bloom/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    bloom
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guide/effects/screen/film-grain/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    film_grain
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guide/effects/screen/scanlines/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    scanlines
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guide/effects/screen/depth-of-field/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    depth_of_field
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guide/effects/screen/letterbox/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    letterbox
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guide/effects/screen/invert/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    invert
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guide/effects/screen/vortex/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    vortex
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guide/effects/screen/speed-lines/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    speed_lines
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guide/effects/screen/slice-shift/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    slice_shift
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guide/effects/screen/noise-warp/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    noise_warp
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guide/effects/screen/solarize/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    solarize
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guide/effects/screen/double-vision/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    double_vision
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guide/effects/screen/eyelids/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    eyelids
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guide/effects/screen/iris-wipe/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    iris_wipe
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guide/effects/screen/digital-glitch/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    digital_glitch
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guide/effects/screen/vhs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    vhs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guide/effects/screen/shockwave/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    shockwave
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guide/effects/screen/afterimage/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    afterimage
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guide/effects/screen/stop-motion/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    stop_motion
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guide/effects/screen/surface-pattern/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    surface_pattern
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guide/effects/screen/sky-pattern/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sky_pattern
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_5_3" id="__nav_5_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    World overlays
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_5_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    World overlays
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guide/effects/world/block-tint/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    block_tint
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guide/effects/world/block-outline/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    block_outline
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guide/effects/world/light-beam/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    light_beam
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guide/effects/world/pulse-ring/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    pulse_ring
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guide/effects/world/guide-line/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    guide_line
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guide/effects/world/particles/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    particles
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guide/effects/world/block-chain/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    block_chain
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_5_4" id="__nav_5_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Entity effects
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_5_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Entity effects
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guide/effects/entity/entity-tint/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    entity_tint
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guide/effects/entity/entity-outline/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    entity_outline
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guide/effects/entity/entity-displace/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    entity_displace
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5_5" id="__nav_5_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Camera and misc
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_5_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Camera and misc
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guide/effects/misc/camera-shake/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    camera_shake
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guide/effects/misc/camera-roll/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    camera_roll
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guide/effects/misc/fov-modifier/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    fov_modifier
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guide/effects/misc/fog-modifier/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    fog_modifier
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_5_6" id="__nav_5_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Collections
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_5_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Collections
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guide/effects/collection/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    collection
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guide/commands/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Commands
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guide/recipes/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Triggering effects
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_8" >
+        
+          
+          <label class="md-nav__link" for="__nav_8" id="__nav_8_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Datapack
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Datapack
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guide/datapack/format/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Format
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guide/datapack/params/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Animating a param
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guide/datapack/expr/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Expressions (expr)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guide/datapack/graph/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Value graphs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guide/datapack/fields/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Per-pixel fields
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guide/datapack/masks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Masks
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_8_7" >
+        
+          
+          <label class="md-nav__link" for="__nav_8_7" id="__nav_8_7_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Custom particles
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_8_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Custom particles
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guide/datapack/particles/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Block and item particles
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guide/datapack/sparks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Spark presets
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guide/changelog/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Guide changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Java API
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Java API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#devvfxweaverapivfxapi" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        dev.vfxweaver.api.VFXAPI
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="dev.vfxweaver.api.VFXAPI">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#server-client-over-the-network" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Server → client (over the network)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#client-locally-without-the-network" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Client (locally, without the network)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Client (locally, without the network)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#anchored-local-playback" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Anchored local playback
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#live-control-client-local" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Live control (client-local)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#mask-leaf-params-reserved-names" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Mask leaf params (reserved names)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#custom-mask-shapes-client-local" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Custom mask shapes (client-local)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#blockitem-particle-presets-client-local" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Block/item-particle presets (client-local)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#vfxapieffectrequest-fluent-builder" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        VFXAPI.EffectRequest (fluent builder)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#vfxlocaldispatcher" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        VFXLocalDispatcher
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#definition-registry-vfxdefinitionmanager" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Definition registry — VFXDefinitionManager
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Definition registry — VFXDefinitionManager">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#registering-definitions-from-code" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Registering definitions from code
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#network-protocol" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Network protocol
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Network protocol">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#clientbound-vfxweavervfx_trigger-vfxtriggerpayload" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Clientbound: vfxweaver:vfx_trigger (VFXTriggerPayload)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#serverbound-vfxweavervfx_request-vfxrequestpayload" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Serverbound: vfxweaver:vfx_request (VFXRequestPayload)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ARCHITECTURE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../CHANGELOG/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#devvfxweaverapivfxapi" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        dev.vfxweaver.api.VFXAPI
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="dev.vfxweaver.api.VFXAPI">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#server-client-over-the-network" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Server → client (over the network)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#client-locally-without-the-network" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Client (locally, without the network)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Client (locally, without the network)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#anchored-local-playback" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Anchored local playback
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#live-control-client-local" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Live control (client-local)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#mask-leaf-params-reserved-names" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Mask leaf params (reserved names)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#custom-mask-shapes-client-local" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Custom mask shapes (client-local)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#blockitem-particle-presets-client-local" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Block/item-particle presets (client-local)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#vfxapieffectrequest-fluent-builder" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        VFXAPI.EffectRequest (fluent builder)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#vfxlocaldispatcher" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        VFXLocalDispatcher
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#definition-registry-vfxdefinitionmanager" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Definition registry — VFXDefinitionManager
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Definition registry — VFXDefinitionManager">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#registering-definitions-from-code" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Registering definitions from code
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#network-protocol" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Network protocol
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Network protocol">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#clientbound-vfxweavervfx_trigger-vfxtriggerpayload" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Clientbound: vfxweaver:vfx_trigger (VFXTriggerPayload)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#serverbound-vfxweavervfx_request-vfxrequestpayload" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Serverbound: vfxweaver:vfx_request (VFXRequestPayload)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="java-api">Java API<a class="headerlink" href="#java-api" title="Permanent link">&para;</a></h1>
+<p>The public API for other mods interacting with vfxweaver. Backward compatibility matters, so signatures are only broken for a good reason and with a version bump.</p>
+<h2 id="devvfxweaverapivfxapi"><code>dev.vfxweaver.api.VFXAPI</code><a class="headerlink" href="#devvfxweaverapivfxapi" title="Permanent link">&para;</a></h2>
+<p>A stateless class (all methods static), the entry point for other mods.</p>
+<h3 id="server-client-over-the-network">Server → client (over the network)<a class="headerlink" href="#server-client-over-the-network" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="c1">// Resolves the datapack/built-in effectId, merges its default constant params with overrides,</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="c1">// takes the duration/easing from the definition (if not given explicitly), and sends a</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="c1">// VFXTriggerPayload to the player. Returns false if effectId is unknown.</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="kt">boolean</span><span class="w"> </span><span class="nf">sendEffect</span><span class="p">(</span><span class="n">ServerPlayer</span><span class="w"> </span><span class="n">player</span><span class="p">,</span><span class="w"> </span><span class="n">Identifier</span><span class="w"> </span><span class="n">effectId</span><span class="p">,</span><span class="w"> </span><span class="n">Map</span><span class="o">&lt;</span><span class="n">String</span><span class="p">,</span><span class="w"> </span><span class="n">Float</span><span class="o">&gt;</span><span class="w"> </span><span class="n">overrides</span><span class="p">,</span><span class="w"> </span><span class="nd">@Nullable</span><span class="w"> </span><span class="n">EasingType</span><span class="w"> </span><span class="n">easing</span><span class="p">);</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="c1">// Same, but with an explicit world position: the client immediately re-anchors spatial</span>
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="c1">// bindings (screen_x/screen_y/proximity) to that point and uses it for the effect's positions —</span>
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="c1">// no pos_x/pos_y/pos_z hack.</span>
+<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="kt">boolean</span><span class="w"> </span><span class="nf">sendEffect</span><span class="p">(</span><span class="n">ServerPlayer</span><span class="w"> </span><span class="n">player</span><span class="p">,</span><span class="w"> </span><span class="n">Identifier</span><span class="w"> </span><span class="n">effectId</span><span class="p">,</span><span class="w"> </span><span class="n">Vec3</span><span class="w"> </span><span class="n">worldPos</span><span class="p">,</span><span class="w"> </span><span class="n">Map</span><span class="o">&lt;</span><span class="n">String</span><span class="p">,</span><span class="w"> </span><span class="n">Float</span><span class="o">&gt;</span><span class="w"> </span><span class="n">overrides</span><span class="p">,</span><span class="w"> </span><span class="nd">@Nullable</span><span class="w"> </span><span class="n">EasingType</span><span class="w"> </span><span class="n">easing</span><span class="p">);</span>
+<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>
+<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a><span class="c1">// Same with an explicit instance id (0 = the client assigns one). Lets you later stop exactly</span>
+<a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a><span class="c1">// this instance via sendStop(player, effectId, instanceId) instead of every instance of the effect.</span>
+<a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a><span class="c1">// The id is a unique handle: playing it again restarts that instance in place instead of adding a</span>
+<a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a><span class="c1">// duplicate, so sendStop/sendMove always address the instance you played.</span>
+<a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a><span class="kt">boolean</span><span class="w"> </span><span class="nf">sendEffect</span><span class="p">(</span><span class="n">ServerPlayer</span><span class="w"> </span><span class="n">player</span><span class="p">,</span><span class="w"> </span><span class="n">Identifier</span><span class="w"> </span><span class="n">effectId</span><span class="p">,</span><span class="w"> </span><span class="kt">long</span><span class="w"> </span><span class="n">instanceId</span><span class="p">,</span><span class="w"> </span><span class="nd">@Nullable</span><span class="w"> </span><span class="n">Vec3</span><span class="w"> </span><span class="n">worldPos</span><span class="p">,</span><span class="w"> </span><span class="n">Map</span><span class="o">&lt;</span><span class="n">String</span><span class="p">,</span><span class="w"> </span><span class="n">Float</span><span class="o">&gt;</span><span class="w"> </span><span class="n">overrides</span><span class="p">,</span><span class="w"> </span><span class="nd">@Nullable</span><span class="w"> </span><span class="n">EasingType</span><span class="w"> </span><span class="n">easing</span><span class="p">);</span>
+<a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a>
+<a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a><span class="c1">// Explicit variant without consulting the definition registry — all packet fields are set manually.</span>
+<a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a><span class="kt">void</span><span class="w"> </span><span class="nf">sendEffect</span><span class="p">(</span><span class="n">ServerPlayer</span><span class="w"> </span><span class="n">player</span><span class="p">,</span><span class="w"> </span><span class="n">Identifier</span><span class="w"> </span><span class="n">effectId</span><span class="p">,</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">durationTicks</span><span class="p">,</span><span class="w"> </span><span class="n">Map</span><span class="o">&lt;</span><span class="n">String</span><span class="p">,</span><span class="w"> </span><span class="n">Float</span><span class="o">&gt;</span><span class="w"> </span><span class="n">params</span><span class="p">,</span><span class="w"> </span><span class="n">EasingType</span><span class="w"> </span><span class="n">easing</span><span class="p">);</span>
+<a id="__codelineno-0-19" name="__codelineno-0-19" href="#__codelineno-0-19"></a>
+<a id="__codelineno-0-20" name="__codelineno-0-20" href="#__codelineno-0-20"></a><span class="c1">// Full variant: duration, instance id, world position, entity UUID targets for entity effects</span>
+<a id="__codelineno-0-21" name="__codelineno-0-21" href="#__codelineno-0-21"></a><span class="c1">// (entity_tint/entity_outline) or entity-anchored world overlays, parameter overrides and</span>
+<a id="__codelineno-0-22" name="__codelineno-0-22" href="#__codelineno-0-22"></a><span class="c1">// easing. entityUuids — up to 16 UUIDs; an empty list for all other effect types. For world</span>
+<a id="__codelineno-0-23" name="__codelineno-0-23" href="#__codelineno-0-23"></a><span class="c1">// overlays whose definition declares entity-anchored "positions", the UUIDs fill the anchor</span>
+<a id="__codelineno-0-24" name="__codelineno-0-24" href="#__codelineno-0-24"></a><span class="c1">// slots in anchor order (the client tracks those entities per frame).</span>
+<a id="__codelineno-0-25" name="__codelineno-0-25" href="#__codelineno-0-25"></a><span class="kt">void</span><span class="w"> </span><span class="nf">sendEffect</span><span class="p">(</span><span class="n">ServerPlayer</span><span class="w"> </span><span class="n">player</span><span class="p">,</span><span class="w"> </span><span class="n">Identifier</span><span class="w"> </span><span class="n">effectId</span><span class="p">,</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">durationTicks</span><span class="p">,</span><span class="w"> </span><span class="kt">long</span><span class="w"> </span><span class="n">instanceId</span><span class="p">,</span><span class="w"> </span><span class="nd">@Nullable</span><span class="w"> </span><span class="n">Vec3</span><span class="w"> </span><span class="n">worldPos</span><span class="p">,</span><span class="w"> </span><span class="n">List</span><span class="o">&lt;</span><span class="n">UUID</span><span class="o">&gt;</span><span class="w"> </span><span class="n">entityUuids</span><span class="p">,</span><span class="w"> </span><span class="n">Map</span><span class="o">&lt;</span><span class="n">String</span><span class="p">,</span><span class="w"> </span><span class="n">Float</span><span class="o">&gt;</span><span class="w"> </span><span class="n">overrides</span><span class="p">,</span><span class="w"> </span><span class="nd">@Nullable</span><span class="w"> </span><span class="n">EasingType</span><span class="w"> </span><span class="n">easing</span><span class="p">);</span>
+<a id="__codelineno-0-26" name="__codelineno-0-26" href="#__codelineno-0-26"></a>
+<a id="__codelineno-0-27" name="__codelineno-0-27" href="#__codelineno-0-27"></a><span class="c1">// Stops the effect on the player's client (all its instances).</span>
+<a id="__codelineno-0-28" name="__codelineno-0-28" href="#__codelineno-0-28"></a><span class="kt">void</span><span class="w"> </span><span class="nf">sendStop</span><span class="p">(</span><span class="n">ServerPlayer</span><span class="w"> </span><span class="n">player</span><span class="p">,</span><span class="w"> </span><span class="n">Identifier</span><span class="w"> </span><span class="n">effectId</span><span class="p">);</span>
+<a id="__codelineno-0-29" name="__codelineno-0-29" href="#__codelineno-0-29"></a>
+<a id="__codelineno-0-30" name="__codelineno-0-30" href="#__codelineno-0-30"></a><span class="c1">// Stops one specific instance of an effect (see sendEffect with instanceId).</span>
+<a id="__codelineno-0-31" name="__codelineno-0-31" href="#__codelineno-0-31"></a><span class="kt">void</span><span class="w"> </span><span class="nf">sendStop</span><span class="p">(</span><span class="n">ServerPlayer</span><span class="w"> </span><span class="n">player</span><span class="p">,</span><span class="w"> </span><span class="n">Identifier</span><span class="w"> </span><span class="n">effectId</span><span class="p">,</span><span class="w"> </span><span class="kt">long</span><span class="w"> </span><span class="n">instanceId</span><span class="p">);</span>
+<a id="__codelineno-0-32" name="__codelineno-0-32" href="#__codelineno-0-32"></a>
+<a id="__codelineno-0-33" name="__codelineno-0-33" href="#__codelineno-0-33"></a><span class="c1">// Stops every effect the server has recorded for the player, reusing the per-effect stop payload</span>
+<a id="__codelineno-0-34" name="__codelineno-0-34" href="#__codelineno-0-34"></a><span class="c1">// (no new wire action). Effects the player's client played locally (never seen by the server) are</span>
+<a id="__codelineno-0-35" name="__codelineno-0-35" href="#__codelineno-0-35"></a><span class="c1">// not covered - use the client-local stopAllEffects() for those.</span>
+<a id="__codelineno-0-36" name="__codelineno-0-36" href="#__codelineno-0-36"></a><span class="kt">void</span><span class="w"> </span><span class="nf">sendStopAll</span><span class="p">(</span><span class="n">ServerPlayer</span><span class="w"> </span><span class="n">player</span><span class="p">);</span>
+<a id="__codelineno-0-37" name="__codelineno-0-37" href="#__codelineno-0-37"></a>
+<a id="__codelineno-0-38" name="__codelineno-0-38" href="#__codelineno-0-38"></a><span class="c1">// Live-overrides a parameter of a running effect (without restarting the timeline).</span>
+<a id="__codelineno-0-39" name="__codelineno-0-39" href="#__codelineno-0-39"></a><span class="c1">// Ignored by the client with a warning in the log if the effect is not currently running.</span>
+<a id="__codelineno-0-40" name="__codelineno-0-40" href="#__codelineno-0-40"></a><span class="kt">void</span><span class="w"> </span><span class="nf">sendSetParam</span><span class="p">(</span><span class="n">ServerPlayer</span><span class="w"> </span><span class="n">player</span><span class="p">,</span><span class="w"> </span><span class="n">Identifier</span><span class="w"> </span><span class="n">effectId</span><span class="p">,</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="n">param</span><span class="p">,</span><span class="w"> </span><span class="kt">float</span><span class="w"> </span><span class="n">value</span><span class="p">);</span>
+<a id="__codelineno-0-41" name="__codelineno-0-41" href="#__codelineno-0-41"></a>
+<a id="__codelineno-0-42" name="__codelineno-0-42" href="#__codelineno-0-42"></a><span class="c1">// Like sendSetParam, but replaces the parameter with a compiled math expression (same syntax</span>
+<a id="__codelineno-0-43" name="__codelineno-0-43" href="#__codelineno-0-43"></a><span class="c1">// as the JSON "expr" field; compiled per instance with its seed). Applies to every running</span>
+<a id="__codelineno-0-44" name="__codelineno-0-44" href="#__codelineno-0-44"></a><span class="c1">// instance of the effect on the player's client.</span>
+<a id="__codelineno-0-45" name="__codelineno-0-45" href="#__codelineno-0-45"></a><span class="kt">void</span><span class="w"> </span><span class="nf">sendSetParamExpr</span><span class="p">(</span><span class="n">ServerPlayer</span><span class="w"> </span><span class="n">player</span><span class="p">,</span><span class="w"> </span><span class="n">Identifier</span><span class="w"> </span><span class="n">effectId</span><span class="p">,</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="n">param</span><span class="p">,</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="n">exprSource</span><span class="p">);</span>
+<a id="__codelineno-0-46" name="__codelineno-0-46" href="#__codelineno-0-46"></a>
+<a id="__codelineno-0-47" name="__codelineno-0-47" href="#__codelineno-0-47"></a><span class="c1">// Moves a running world-overlay effect instance to a new exact world point (sub-block</span>
+<a id="__codelineno-0-48" name="__codelineno-0-48" href="#__codelineno-0-48"></a><span class="c1">// precision; the instance keeps its timeline and fades). Call every tick for scripted motion.</span>
+<a id="__codelineno-0-49" name="__codelineno-0-49" href="#__codelineno-0-49"></a><span class="c1">// Ignored with a warning when no instance with that id (of that effect) is running.</span>
+<a id="__codelineno-0-50" name="__codelineno-0-50" href="#__codelineno-0-50"></a><span class="kt">void</span><span class="w"> </span><span class="nf">sendMove</span><span class="p">(</span><span class="n">ServerPlayer</span><span class="w"> </span><span class="n">player</span><span class="p">,</span><span class="w"> </span><span class="n">Identifier</span><span class="w"> </span><span class="n">effectId</span><span class="p">,</span><span class="w"> </span><span class="kt">long</span><span class="w"> </span><span class="n">instanceId</span><span class="p">,</span><span class="w"> </span><span class="n">Vec3</span><span class="w"> </span><span class="n">worldPos</span><span class="p">);</span>
+<a id="__codelineno-0-51" name="__codelineno-0-51" href="#__codelineno-0-51"></a>
+<a id="__codelineno-0-52" name="__codelineno-0-52" href="#__codelineno-0-52"></a><span class="c1">// Moves one mask leaf of a running effect to a world position, by setting the three reserved</span>
+<a id="__codelineno-0-53" name="__codelineno-0-53" href="#__codelineno-0-53"></a><span class="c1">// mask.p&lt;N&gt;.center_x/y/z params (see "Mask leaf params" below). Applies to every running</span>
+<a id="__codelineno-0-54" name="__codelineno-0-54" href="#__codelineno-0-54"></a><span class="c1">// instance of the effect; ignored with a client-side warning when it is not running. This is</span>
+<a id="__codelineno-0-55" name="__codelineno-0-55" href="#__codelineno-0-55"></a><span class="c1">// also the server-driven workaround when a client cannot resolve an entity binding (the entity</span>
+<a id="__codelineno-0-56" name="__codelineno-0-56" href="#__codelineno-0-56"></a><span class="c1">// is outside the client's tracking range).</span>
+<a id="__codelineno-0-57" name="__codelineno-0-57" href="#__codelineno-0-57"></a><span class="kt">void</span><span class="w"> </span><span class="nf">sendMaskMove</span><span class="p">(</span><span class="n">ServerPlayer</span><span class="w"> </span><span class="n">player</span><span class="p">,</span><span class="w"> </span><span class="n">Identifier</span><span class="w"> </span><span class="n">effectId</span><span class="p">,</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">primitive</span><span class="p">,</span><span class="w"> </span><span class="n">Vec3</span><span class="w"> </span><span class="n">position</span><span class="p">);</span>
+<a id="__codelineno-0-58" name="__codelineno-0-58" href="#__codelineno-0-58"></a>
+<a id="__codelineno-0-59" name="__codelineno-0-59" href="#__codelineno-0-59"></a><span class="c1">// Writes a mask leaf's dynamic float data (the reserved mask.p&lt;N&gt;.d&lt;J&gt; params; a GLSL-plugin leaf</span>
+<a id="__codelineno-0-60" name="__codelineno-0-60" href="#__codelineno-0-60"></a><span class="c1">// reads them live through vfx_mask_data(...)). Reuses SET_PARAM - one packet per value, no new wire</span>
+<a id="__codelineno-0-61" name="__codelineno-0-61" href="#__codelineno-0-61"></a><span class="c1">// action. Up to MAX_LEAF_DATA (32) values are sent; the rest are ignored. Call every tick to drive</span>
+<a id="__codelineno-0-62" name="__codelineno-0-62" href="#__codelineno-0-62"></a><span class="c1">// plugin geometry without recompiling the shader variant.</span>
+<a id="__codelineno-0-63" name="__codelineno-0-63" href="#__codelineno-0-63"></a><span class="kt">void</span><span class="w"> </span><span class="nf">sendMaskData</span><span class="p">(</span><span class="n">ServerPlayer</span><span class="w"> </span><span class="n">player</span><span class="p">,</span><span class="w"> </span><span class="n">Identifier</span><span class="w"> </span><span class="n">effectId</span><span class="p">,</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">primitive</span><span class="p">,</span><span class="w"> </span><span class="kt">float</span><span class="o">[]</span><span class="w"> </span><span class="n">values</span><span class="p">);</span>
+<a id="__codelineno-0-64" name="__codelineno-0-64" href="#__codelineno-0-64"></a>
+<a id="__codelineno-0-65" name="__codelineno-0-65" href="#__codelineno-0-65"></a><span class="c1">// Adds/replaces a keyframe of a parameter of a running effect.</span>
+<a id="__codelineno-0-66" name="__codelineno-0-66" href="#__codelineno-0-66"></a><span class="c1">// A negative timeTicks means "from here": the value the parameter has right now is pinned at the</span>
+<a id="__codelineno-0-67" name="__codelineno-0-67" href="#__codelineno-0-67"></a><span class="c1">// current time and the animation runs to `value` over |timeTicks| ticks - so animation segments</span>
+<a id="__codelineno-0-68" name="__codelineno-0-68" href="#__codelineno-0-68"></a><span class="c1">// chain without knowing the current value (ramp a blur up, later send -20/0 to fade it back out).</span>
+<a id="__codelineno-0-69" name="__codelineno-0-69" href="#__codelineno-0-69"></a><span class="kt">void</span><span class="w"> </span><span class="nf">sendKeyframe</span><span class="p">(</span><span class="n">ServerPlayer</span><span class="w"> </span><span class="n">player</span><span class="p">,</span><span class="w"> </span><span class="n">Identifier</span><span class="w"> </span><span class="n">effectId</span><span class="p">,</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="n">param</span><span class="p">,</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">timeTicks</span><span class="p">,</span><span class="w"> </span><span class="kt">float</span><span class="w"> </span><span class="n">value</span><span class="p">,</span><span class="w"> </span><span class="n">EasingType</span><span class="w"> </span><span class="n">easing</span><span class="p">);</span>
+</code></pre></div>
+<h3 id="client-locally-without-the-network">Client (locally, without the network)<a class="headerlink" href="#client-locally-without-the-network" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="c1">// durationTicks: 0 = definition default, negative = persistent.</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="c1">// Returns false if called off-client (e.g. on a dedicated server) —</span>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="c1">// in that case use sendEffect().</span>
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="kt">boolean</span><span class="w"> </span><span class="nf">playEffect</span><span class="p">(</span><span class="n">Identifier</span><span class="w"> </span><span class="n">effectId</span><span class="p">,</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">durationTicks</span><span class="p">,</span><span class="w"> </span><span class="n">Map</span><span class="o">&lt;</span><span class="n">String</span><span class="p">,</span><span class="w"> </span><span class="n">Float</span><span class="o">&gt;</span><span class="w"> </span><span class="n">params</span><span class="p">,</span><span class="w"> </span><span class="nd">@Nullable</span><span class="w"> </span><span class="n">EasingType</span><span class="w"> </span><span class="n">easing</span><span class="p">);</span>
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="kt">boolean</span><span class="w"> </span><span class="nf">playEffect</span><span class="p">(</span><span class="n">Identifier</span><span class="w"> </span><span class="n">effectId</span><span class="p">,</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">durationTicks</span><span class="p">,</span><span class="w"> </span><span class="n">Map</span><span class="o">&lt;</span><span class="n">String</span><span class="p">,</span><span class="w"> </span><span class="n">Float</span><span class="o">&gt;</span><span class="w"> </span><span class="n">params</span><span class="p">);</span><span class="w"> </span><span class="c1">// linear easing</span>
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>
+<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="c1">// Like playEffect, but returns the id of the created instance (0 on error) — so you can stop</span>
+<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="c1">// one specific instance out of several concurrent ones via stopEffect(instanceId).</span>
+<a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a><span class="kt">long</span><span class="w"> </span><span class="nf">playEffectId</span><span class="p">(</span><span class="n">Identifier</span><span class="w"> </span><span class="n">effectId</span><span class="p">,</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">durationTicks</span><span class="p">,</span><span class="w"> </span><span class="n">Map</span><span class="o">&lt;</span><span class="n">String</span><span class="p">,</span><span class="w"> </span><span class="n">Float</span><span class="o">&gt;</span><span class="w"> </span><span class="n">params</span><span class="p">,</span><span class="w"> </span><span class="nd">@Nullable</span><span class="w"> </span><span class="n">EasingType</span><span class="w"> </span><span class="n">easing</span><span class="p">);</span>
+<a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a>
+<a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a><span class="kt">boolean</span><span class="w"> </span><span class="nf">stopEffect</span><span class="p">(</span><span class="n">Identifier</span><span class="w"> </span><span class="n">effectId</span><span class="p">);</span><span class="w">          </span><span class="c1">// every instance of the effect</span>
+<a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a><span class="kt">boolean</span><span class="w"> </span><span class="nf">stopEffect</span><span class="p">(</span><span class="kt">long</span><span class="w"> </span><span class="n">instanceId</span><span class="p">);</span><span class="w">              </span><span class="c1">// one specific instance</span>
+<a id="__codelineno-1-13" name="__codelineno-1-13" href="#__codelineno-1-13"></a><span class="kt">boolean</span><span class="w"> </span><span class="nf">stopAllEffects</span><span class="p">();</span>
+</code></pre></div>
+<h4 id="anchored-local-playback">Anchored local playback<a class="headerlink" href="#anchored-local-playback" title="Permanent link">&para;</a></h4>
+<p>A client-local play can be anchored to a world position and/or to entities, so an effect lands
+where the event happened instead of at the definition's default spot (e.g. <code>dent</code>, <code>shockwave</code>,
+<code>vortex</code> centred on a hit). This is the local equivalent of <code>/vfx playat</code> / a network
+<code>sendEffect(player, id, pos, ...)</code> — no packet is involved.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="c1">// Anchor to a world point: replaces the definition's position slots and re-anchors the spatial</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="c1">// world bindings (screen_x, screen_y, proximity, ...) to that point.</span>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="kt">boolean</span><span class="w"> </span><span class="nf">playEffect</span><span class="p">(</span><span class="n">Identifier</span><span class="w"> </span><span class="n">effectId</span><span class="p">,</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">durationTicks</span><span class="p">,</span><span class="w"> </span><span class="n">Vec3</span><span class="w"> </span><span class="n">position</span><span class="p">,</span><span class="w"> </span><span class="n">Map</span><span class="o">&lt;</span><span class="n">String</span><span class="p">,</span><span class="w"> </span><span class="n">Float</span><span class="o">&gt;</span><span class="w"> </span><span class="n">params</span><span class="p">,</span><span class="w"> </span><span class="nd">@Nullable</span><span class="w"> </span><span class="n">EasingType</span><span class="w"> </span><span class="n">easing</span><span class="p">);</span>
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="kt">boolean</span><span class="w"> </span><span class="nf">playEffect</span><span class="p">(</span><span class="n">Identifier</span><span class="w"> </span><span class="n">effectId</span><span class="p">,</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">durationTicks</span><span class="p">,</span><span class="w"> </span><span class="n">Vec3</span><span class="w"> </span><span class="n">position</span><span class="p">,</span><span class="w"> </span><span class="n">Map</span><span class="o">&lt;</span><span class="n">String</span><span class="p">,</span><span class="w"> </span><span class="n">Float</span><span class="o">&gt;</span><span class="w"> </span><span class="n">params</span><span class="p">);</span><span class="w"> </span><span class="c1">// linear easing</span>
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="kt">long</span><span class="w"> </span><span class="nf">playEffectId</span><span class="p">(</span><span class="n">Identifier</span><span class="w"> </span><span class="n">effectId</span><span class="p">,</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">durationTicks</span><span class="p">,</span><span class="w"> </span><span class="n">Vec3</span><span class="w"> </span><span class="n">position</span><span class="p">,</span><span class="w"> </span><span class="n">Map</span><span class="o">&lt;</span><span class="n">String</span><span class="p">,</span><span class="w"> </span><span class="n">Float</span><span class="o">&gt;</span><span class="w"> </span><span class="n">params</span><span class="p">,</span><span class="w"> </span><span class="nd">@Nullable</span><span class="w"> </span><span class="n">EasingType</span><span class="w"> </span><span class="n">easing</span><span class="p">);</span>
+<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a>
+<a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a><span class="c1">// Anchor to entities: when `position` is null and the definition declares entity-anchored</span>
+<a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a><span class="c1">// positions, the UUIDs are zipped with them in declaration order and the effect follows those</span>
+<a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a><span class="c1">// entities. Datapack `entity_selector`s resolve on the server only, so a client-side caller finds</span>
+<a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a><span class="c1">// the entities itself and passes their UUIDs here.</span>
+<a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a><span class="kt">boolean</span><span class="w"> </span><span class="nf">playEffect</span><span class="p">(</span><span class="n">Identifier</span><span class="w"> </span><span class="n">effectId</span><span class="p">,</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">durationTicks</span><span class="p">,</span><span class="w"> </span><span class="nd">@Nullable</span><span class="w"> </span><span class="n">Vec3</span><span class="w"> </span><span class="n">position</span><span class="p">,</span><span class="w"> </span><span class="n">List</span><span class="o">&lt;</span><span class="n">UUID</span><span class="o">&gt;</span><span class="w"> </span><span class="n">entityUuids</span><span class="p">,</span><span class="w"> </span><span class="n">Map</span><span class="o">&lt;</span><span class="n">String</span><span class="p">,</span><span class="w"> </span><span class="n">Float</span><span class="o">&gt;</span><span class="w"> </span><span class="n">params</span><span class="p">,</span><span class="w"> </span><span class="nd">@Nullable</span><span class="w"> </span><span class="n">EasingType</span><span class="w"> </span><span class="n">easing</span><span class="p">);</span>
+<a id="__codelineno-2-12" name="__codelineno-2-12" href="#__codelineno-2-12"></a><span class="kt">long</span><span class="w"> </span><span class="nf">playEffectId</span><span class="p">(</span><span class="n">Identifier</span><span class="w"> </span><span class="n">effectId</span><span class="p">,</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">durationTicks</span><span class="p">,</span><span class="w"> </span><span class="nd">@Nullable</span><span class="w"> </span><span class="n">Vec3</span><span class="w"> </span><span class="n">position</span><span class="p">,</span><span class="w"> </span><span class="n">List</span><span class="o">&lt;</span><span class="n">UUID</span><span class="o">&gt;</span><span class="w"> </span><span class="n">entityUuids</span><span class="p">,</span><span class="w"> </span><span class="n">Map</span><span class="o">&lt;</span><span class="n">String</span><span class="p">,</span><span class="w"> </span><span class="n">Float</span><span class="o">&gt;</span><span class="w"> </span><span class="n">params</span><span class="p">,</span><span class="w"> </span><span class="nd">@Nullable</span><span class="w"> </span><span class="n">EasingType</span><span class="w"> </span><span class="n">easing</span><span class="p">);</span>
+<a id="__codelineno-2-13" name="__codelineno-2-13" href="#__codelineno-2-13"></a>
+<a id="__codelineno-2-14" name="__codelineno-2-14" href="#__codelineno-2-14"></a><span class="c1">// Re-anchor a running instance locally (the local equivalent of the network MOVE action). Call it</span>
+<a id="__codelineno-2-15" name="__codelineno-2-15" href="#__codelineno-2-15"></a><span class="c1">// every tick to make an anchored effect follow a moving point or entity.</span>
+<a id="__codelineno-2-16" name="__codelineno-2-16" href="#__codelineno-2-16"></a><span class="kt">boolean</span><span class="w"> </span><span class="nf">moveEffect</span><span class="p">(</span><span class="n">Identifier</span><span class="w"> </span><span class="n">effectId</span><span class="p">,</span><span class="w"> </span><span class="kt">long</span><span class="w"> </span><span class="n">instanceId</span><span class="p">,</span><span class="w"> </span><span class="n">Vec3</span><span class="w"> </span><span class="n">worldPos</span><span class="p">);</span>
+</code></pre></div>
+<p>Notes:
+- A non-null <code>position</code> wins over the definition's entity anchors (same rule as the network path).
+- If a definition declares entity anchors and a local play passes no UUIDs, the play is rejected
+  (the placeholder slots would otherwise render at the world origin) — logged once.
+- A <code>null</code> easing keeps its meaning on this path: the definition's default easing is used.
+- <code>moveEffect</code> returns <code>true</code> when the request was applied (already on the render thread) or queued;
+  a queued request that references an unknown instance fails silently.
+- Client-local plays with a position are recorded into Flashback replays with the same anchor, so
+  a replay reproduces the effect where it originally happened.</p>
+<h4 id="live-control-client-local">Live control (client-local)<a class="headerlink" href="#live-control-client-local" title="Permanent link">&para;</a></h4>
+<p>The live edits the network exposes also work locally, so a pure client-side mod never needs a
+server round-trip:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="c1">// Constant override of a parameter on every running instance (starts one when none is running).</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="kt">boolean</span><span class="w"> </span><span class="nf">setParam</span><span class="p">(</span><span class="n">Identifier</span><span class="w"> </span><span class="n">effectId</span><span class="p">,</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="n">name</span><span class="p">,</span><span class="w"> </span><span class="kt">float</span><span class="w"> </span><span class="n">value</span><span class="p">);</span>
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="c1">// Swap a parameter for a live math expression (same syntax as the JSON "expr" field).</span>
+<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="kt">boolean</span><span class="w"> </span><span class="nf">setParamExpr</span><span class="p">(</span><span class="n">Identifier</span><span class="w"> </span><span class="n">effectId</span><span class="p">,</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="n">name</span><span class="p">,</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="n">exprSource</span><span class="p">);</span>
+<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a>
+<a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a><span class="c1">// Add/replace a keyframe. A negative time means "from here": pin the value the parameter has now</span>
+<a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a><span class="c1">// and run the segment to `value` over |time| ticks, so animation variations chain seamlessly.</span>
+<a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a><span class="kt">boolean</span><span class="w"> </span><span class="nf">setKeyframe</span><span class="p">(</span><span class="n">Identifier</span><span class="w"> </span><span class="n">effectId</span><span class="p">,</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="n">name</span><span class="p">,</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">time</span><span class="p">,</span><span class="w"> </span><span class="kt">float</span><span class="w"> </span><span class="n">value</span><span class="p">,</span><span class="w"> </span><span class="nd">@Nullable</span><span class="w"> </span><span class="n">EasingType</span><span class="w"> </span><span class="n">easing</span><span class="p">);</span>
+<a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a><span class="kt">boolean</span><span class="w"> </span><span class="nf">setKeyframe</span><span class="p">(</span><span class="n">Identifier</span><span class="w"> </span><span class="n">effectId</span><span class="p">,</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="n">name</span><span class="p">,</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">time</span><span class="p">,</span><span class="w"> </span><span class="kt">float</span><span class="w"> </span><span class="n">value</span><span class="p">,</span><span class="w"> </span><span class="n">String</span><span class="w"> </span><span class="n">easing</span><span class="p">);</span><span class="w"> </span><span class="c1">// named curve</span>
+<a id="__codelineno-3-11" name="__codelineno-3-11" href="#__codelineno-3-11"></a>
+<a id="__codelineno-3-12" name="__codelineno-3-12" href="#__codelineno-3-12"></a><span class="c1">// Move one mask leaf locally (no packet) - the local counterpart of sendMaskMove; expands into</span>
+<a id="__codelineno-3-13" name="__codelineno-3-13" href="#__codelineno-3-13"></a><span class="c1">// the three mask.p&lt;N&gt;.center_* params (see "Mask leaf params" below).</span>
+<a id="__codelineno-3-14" name="__codelineno-3-14" href="#__codelineno-3-14"></a><span class="kt">boolean</span><span class="w"> </span><span class="nf">maskMove</span><span class="p">(</span><span class="n">Identifier</span><span class="w"> </span><span class="n">effectId</span><span class="p">,</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">primitive</span><span class="p">,</span><span class="w"> </span><span class="n">Vec3</span><span class="w"> </span><span class="n">position</span><span class="p">);</span>
+<a id="__codelineno-3-15" name="__codelineno-3-15" href="#__codelineno-3-15"></a>
+<a id="__codelineno-3-16" name="__codelineno-3-16" href="#__codelineno-3-16"></a><span class="c1">// Write one mask leaf's dynamic float data locally (no packet) - the local counterpart of</span>
+<a id="__codelineno-3-17" name="__codelineno-3-17" href="#__codelineno-3-17"></a><span class="c1">// sendMaskData; expands into the mask.p&lt;N&gt;.d&lt;J&gt; params. Up to MAX_LEAF_DATA (32) values.</span>
+<a id="__codelineno-3-18" name="__codelineno-3-18" href="#__codelineno-3-18"></a><span class="kt">boolean</span><span class="w"> </span><span class="nf">maskData</span><span class="p">(</span><span class="n">Identifier</span><span class="w"> </span><span class="n">effectId</span><span class="p">,</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">primitive</span><span class="p">,</span><span class="w"> </span><span class="kt">float</span><span class="o">[]</span><span class="w"> </span><span class="n">values</span><span class="p">);</span>
+</code></pre></div>
+<p>Like <code>moveEffect</code>, these return <code>true</code> when applied on the render thread or queued for it. A <code>null</code>
+(or blank) easing means linear - a keyframe segment has no "definition default".</p>
+<h4 id="mask-leaf-params-reserved-names">Mask leaf params (reserved names)<a class="headerlink" href="#mask-leaf-params-reserved-names" title="Permanent link">&para;</a></h4>
+<p>A mask's numeric leaves are registered as <strong>ordinary animatable effect parameters</strong>, so the whole
+live-control and animation surface above works on them unchanged:</p>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>mask.p&lt;N&gt;.center_x</code> / <code>.center_y</code> / <code>.center_z</code></td>
+<td>leaf <code>&lt;N&gt;</code> centre (screen leaves use x/y)</td>
+</tr>
+<tr>
+<td><code>mask.p&lt;N&gt;.rotation</code></td>
+<td>leaf rotation (degrees)</td>
+</tr>
+<tr>
+<td><code>mask.p&lt;N&gt;.p&lt;J&gt;</code></td>
+<td>the leaf's per-shape parameter <code>J</code> (radius, half_width, … in <code>VFXMaskShapeKind</code> order)</td>
+</tr>
+<tr>
+<td><code>mask.p&lt;N&gt;.d&lt;J&gt;</code></td>
+<td>the custom leaf's dynamic float data (<code>J</code> = 0..31; a GLSL plugin reads them via <code>vfx_mask_data(...)</code>)</td>
+</tr>
+<tr>
+<td><code>mask.p&lt;N&gt;.soft</code></td>
+<td>edge falloff width</td>
+</tr>
+<tr>
+<td><code>mask.p&lt;N&gt;.stroke</code></td>
+<td>stroke width (<code>fill: "stroke"</code>)</td>
+</tr>
+<tr>
+<td><code>mask.p&lt;N&gt;.field_amount</code> / <code>.field_scale</code></td>
+<td>edge-field amount / scale</td>
+</tr>
+</tbody>
+</table>
+<p><code>&lt;N&gt;</code> is the leaf index in mask <strong>declaration order</strong> (0-based; a composition flattens depth-first).
+Every live path works on them: <code>sendSetParam</code>/<code>setParam</code> (also constant, <code>expr</code>/<code>sendSetParamExpr</code>,
+<code>sendKeyframe</code>/<code>setKeyframe</code>), graph <code>{ "from": node }</code> driven inputs, and datapack bindings.
+<code>sendMaskMove</code>/<code>maskMove</code> are a convenience that sets a leaf's three centre components at once:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="c1">// Server: follow a moving point (or drive an entity binding the client cannot resolve).</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="n">VFXAPI</span><span class="p">.</span><span class="na">sendMaskMove</span><span class="p">(</span><span class="n">player</span><span class="p">,</span><span class="w"> </span><span class="n">effectId</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="n">entity</span><span class="p">.</span><span class="na">position</span><span class="p">());</span>
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>
+<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="c1">// Client-local, same expansion, no packet:</span>
+<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="n">VFXAPI</span><span class="p">.</span><span class="na">maskMove</span><span class="p">(</span><span class="n">effectId</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">Vec3</span><span class="p">(</span><span class="n">x</span><span class="p">,</span><span class="w"> </span><span class="n">y</span><span class="p">,</span><span class="w"> </span><span class="n">z</span><span class="p">));</span>
+</code></pre></div>
+<p><code>sendMaskData</code>/<code>maskData</code> are the same kind of convenience for the dynamic float data (one value per
+reserved <code>mask.p&lt;N&gt;.d&lt;J&gt;</code> slot, up to <code>VFXMaskSlots.MAX_LEAF_DATA</code> = 32):</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="c1">// Server: move a plugin-authored set of circles every tick.</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="n">VFXAPI</span><span class="p">.</span><span class="na">sendMaskData</span><span class="p">(</span><span class="n">player</span><span class="p">,</span><span class="w"> </span><span class="n">effectId</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="kt">float</span><span class="o">[]</span><span class="p">{</span><span class="n">cx0</span><span class="p">,</span><span class="w"> </span><span class="n">cy0</span><span class="p">,</span><span class="w"> </span><span class="n">r0</span><span class="p">,</span><span class="w"> </span><span class="n">cx1</span><span class="p">,</span><span class="w"> </span><span class="n">cy1</span><span class="p">,</span><span class="w"> </span><span class="n">r1</span><span class="p">,</span><span class="w"> </span><span class="mf">0.0F</span><span class="p">,</span><span class="w"> </span><span class="mf">0.0F</span><span class="p">});</span>
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>
+<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="c1">// Client-local, same expansion, no packet:</span>
+<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="n">VFXAPI</span><span class="p">.</span><span class="na">maskData</span><span class="p">(</span><span class="n">effectId</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="n">values</span><span class="p">);</span>
+</code></pre></div>
+<p><code>mask.</code> is <strong>reserved</strong>: a user parameter with that prefix would be shadowed by the mask, not merged.</p>
+<h4 id="custom-mask-shapes-client-local">Custom mask shapes (client-local)<a class="headerlink" href="#custom-mask-shapes-client-local" title="Permanent link">&para;</a></h4>
+<p>A mask leaf may reference a shape registered from code instead of a built-in figure. Two kinds
+exist, both registered by id and both usable in a datapack mask as a <code>custom</code> leaf.</p>
+<p><strong>Composed SDF</strong> - a figure built from primitives and operations:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="n">VFXCustomShape</span><span class="w"> </span><span class="n">shape</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">...;</span><span class="w">                      </span><span class="c1">// composed primitives + ops</span>
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="n">VFXAPI</span><span class="p">.</span><span class="na">registerMaskShape</span><span class="p">(</span><span class="n">Identifier</span><span class="p">.</span><span class="na">fromNamespaceAndPath</span><span class="p">(</span><span class="s">"mymod"</span><span class="p">,</span><span class="w"> </span><span class="s">"rune"</span><span class="p">),</span><span class="w"> </span><span class="n">shape</span><span class="p">);</span>
+<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="n">VFXAPI</span><span class="p">.</span><span class="na">unregisterMaskShape</span><span class="p">(</span><span class="n">id</span><span class="p">);</span>
+<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="n">VFXCustomShape</span><span class="w"> </span><span class="n">existing</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">VFXAPI</span><span class="p">.</span><span class="na">maskShape</span><span class="p">(</span><span class="n">id</span><span class="p">);</span><span class="w">  </span><span class="c1">// null when not registered</span>
+</code></pre></div>
+<p>The composed parts are <strong>literal-only</strong>: the leaf's animatable <code>mask.p&lt;N&gt;.p&lt;J&gt;</code> params are not fed
+into the parts (they are fed to a GLSL plugin, below).</p>
+<p><strong>GLSL plugin</strong> - a fragment of GLSL injected into the coverage shader. The plugin defines exactly
+one function, in the leaf's space (world units for a world leaf), negative inside:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="kt">float</span><span class="w"> </span><span class="n">vfx_shape_custom</span><span class="p">(</span><span class="kt">vec3</span><span class="w"> </span><span class="n">world</span><span class="p">,</span><span class="w"> </span><span class="kt">vec2</span><span class="w"> </span><span class="n">uv</span><span class="p">,</span><span class="w"> </span><span class="kt">vec4</span><span class="w"> </span><span class="n">p0</span><span class="p">,</span><span class="w"> </span><span class="kt">vec4</span><span class="w"> </span><span class="n">p1</span><span class="p">);</span>
+</code></pre></div>
+<p><code>world</code> is the depth-reconstructed world position (zero for a screen leaf), <code>uv</code> the screen UV, and
+<code>p0</code>/<code>p1</code> are the leaf's eight animatable params, so a plugin shape stays drivable from the timeline
+(keyframes, <code>expr</code>, graph inputs, <code>setParam</code>). Register it with:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="n">VFXAPI</span><span class="p">.</span><span class="na">registerMaskShapeGlsl</span><span class="p">(</span><span class="n">Identifier</span><span class="p">.</span><span class="na">fromNamespaceAndPath</span><span class="p">(</span><span class="s">"mymod"</span><span class="p">,</span><span class="w"> </span><span class="s">"pentagram"</span><span class="p">),</span><span class="w"> </span><span class="n">plugin</span><span class="p">);</span>
+<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="n">VFXAPI</span><span class="p">.</span><span class="na">unregisterMaskShapeGlsl</span><span class="p">(</span><span class="n">id</span><span class="p">);</span>
+</code></pre></div>
+<p><strong>Dynamic per-leaf data.</strong> A custom leaf also carries 32 reserved dynamic floats
+(<code>mask.p&lt;N&gt;.d0 … d31</code>, authored as a <code>"data": [...]</code> array or set live with <code>sendMaskData</code>/<code>maskData</code>/
+<code>setParam</code>). The wrapper declares <code>int vfx_shape_data_base</code> and <code>float vfx_mask_data(int index)</code> and
+points the base at the calling leaf's slice, so the plugin reads its own values as
+<code>vfx_mask_data(vfx_shape_data_base + j)</code>:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="kt">float</span><span class="w"> </span><span class="n">vfx_shape_custom</span><span class="p">(</span><span class="kt">vec3</span><span class="w"> </span><span class="n">world</span><span class="p">,</span><span class="w"> </span><span class="kt">vec2</span><span class="w"> </span><span class="n">uv</span><span class="p">,</span><span class="w"> </span><span class="kt">vec4</span><span class="w"> </span><span class="n">p0</span><span class="p">,</span><span class="w"> </span><span class="kt">vec4</span><span class="w"> </span><span class="n">p1</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="w">    </span><span class="c1">// Three circles at (cx, cy, r) from mask.p&lt;N&gt;.d0..d8, updated every tick.</span>
+<a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a><span class="w">    </span><span class="kt">float</span><span class="w"> </span><span class="n">acc</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mf">1.0e6</span><span class="p">;</span>
+<a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a><span class="w">    </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="kt">int</span><span class="w"> </span><span class="n">c</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mo">0</span><span class="p">;</span><span class="w"> </span><span class="n">c</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="mi">3</span><span class="p">;</span><span class="w"> </span><span class="n">c</span><span class="o">++</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a><span class="w">        </span><span class="kt">vec2</span><span class="w"> </span><span class="n">centre</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kt">vec2</span><span class="p">(</span><span class="n">vfx_mask_data</span><span class="p">(</span><span class="n">vfx_shape_data_base</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">c</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="mi">3</span><span class="p">),</span>
+<a id="__codelineno-9-6" name="__codelineno-9-6" href="#__codelineno-9-6"></a><span class="w">                          </span><span class="n">vfx_mask_data</span><span class="p">(</span><span class="n">vfx_shape_data_base</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">c</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="mi">3</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">1</span><span class="p">));</span>
+<a id="__codelineno-9-7" name="__codelineno-9-7" href="#__codelineno-9-7"></a><span class="w">        </span><span class="kt">float</span><span class="w"> </span><span class="n">radius</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">vfx_mask_data</span><span class="p">(</span><span class="n">vfx_shape_data_base</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">c</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="mi">3</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">2</span><span class="p">);</span>
+<a id="__codelineno-9-8" name="__codelineno-9-8" href="#__codelineno-9-8"></a><span class="w">        </span><span class="n">acc</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">min</span><span class="p">(</span><span class="n">acc</span><span class="p">,</span><span class="w"> </span><span class="n">length</span><span class="p">(</span><span class="n">uv</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="n">centre</span><span class="p">)</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="n">radius</span><span class="p">);</span>
+<a id="__codelineno-9-9" name="__codelineno-9-9" href="#__codelineno-9-9"></a><span class="w">    </span><span class="p">}</span>
+<a id="__codelineno-9-10" name="__codelineno-9-10" href="#__codelineno-9-10"></a><span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="n">acc</span><span class="p">;</span>
+<a id="__codelineno-9-11" name="__codelineno-9-11" href="#__codelineno-9-11"></a><span class="p">}</span>
+</code></pre></div>
+<p>The plugin must <strong>not</strong> declare <code>vfx_mask_data</code> or <code>vfx_shape_data_base</code> (the wrapper supplies
+them), and must not name a uniform or variable after a GLSL built-in. A plugin that ignores the
+helper compiles and behaves exactly as before. A data update is an ordinary param edit — the shader
+variant is keyed only by the set of plugin ids, so it never triggers a recompile.</p>
+<p><strong>Aura, and the optional broad phase.</strong> A <code>world</code> plugin leaf may take <code>"volume": "aura"</code>: the pixel's
+view ray is sphere-traced through the plugin's SDF (up to 40 entry + 16 exit + 4 refine steps, minimum
+step 0.5, maximum step 64, range capped at 1024) and the coverage is the volume's silhouette at the
+deepest point of the first chord, occluded by nearer scene geometry exactly like a built-in
+<code>sphere</code>/<code>box</code> aura. A plugin may declare a second, optional function to keep that cheap:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="kt">vec4</span><span class="w"> </span><span class="n">vfx_shape_custom_bounds</span><span class="p">();</span><span class="w">   </span><span class="c1">// world (centre.xyz, radius); a negative radius means "no bound"</span>
+</code></pre></div>
+<p>The wrapper only honours it when the source declares that exact signature, so a plugin that omits it
+compiles unchanged and gets the unbounded march. With a bound, a ray that misses the sphere costs zero
+SDF calls, and a hit starts the march at the sphere's near point. The bound may read the leaf's own
+values through <code>vfx_mask_data</code>, so it can follow moving geometry; a bound that is too small clips the
+aura.</p>
+<p>A composed custom leaf has no raw SDF to march, so <code>"volume": "aura"</code> on one is a per-file parse error
+naming the shape (no silent fallback), and a screen-space plugin leaf is rejected the same way (a
+uv-space distance cannot be marched in world units). The march covers the <strong>first</strong> chord only. In
+<code>aura</code> mode a sky pixel is covered like any other; in <code>surface</code> mode a sky pixel contributes no
+coverage, so a plugin SDF that is intentionally unbounded no longer paints the sky.</p>
+<p>Limits and failure behaviour, all of them deliberate:</p>
+<ul>
+<li>A mask may hold at most <strong>2 custom leaves</strong>; a third is a per-file parse error (it would alias
+  row 0 in the packed coverage UBO).</li>
+<li>A custom leaf carries at most <strong>32</strong> dynamic values (<code>mask.p&lt;N&gt;.d0 … d31</code>); a longer <code>"data"</code>
+  array is a per-file parse error. The array is written to the coverage UBO as <code>vec4</code>-packed data
+  (1024 bytes; the coverage UBO grows from 1312 to 2336 bytes), appended after every existing field.</li>
+<li>The raised parameter cap (<code>MAX_PARAMS</code> 32 → 256) is a <strong>read-side bound only</strong>: the wire format is
+  still a varint count plus entries and <code>PROTOCOL_VERSION</code> is unchanged. A <strong>2.0.1 client</strong> still
+  enforces its own 32-entry cap, so a play packet whose resolved map exceeds 32 params — which a mask
+  with many <code>data</code> slots produces, since every reserved <code>mask.p&lt;N&gt;.d&lt;J&gt;</code> default is a constant param
+  — cannot be decoded there; such a definition needs a matching 2.0.2 client.</li>
+<li>The coverage shader variant is keyed by the sorted set of plugin ids, capped at <strong>4 variants</strong>; a
+  variant re-reads the live plugin source, so re-registering a plugin (or a resource reload) does not
+  leave a stale program. A <strong>data value change never reaches the variant</strong> (it is a param edit). Only
+  <strong>one distinct GLSL plugin id</strong> can be compiled into a mask: the injected source defines a single
+  <code>vfx_shape_custom</code>, so two custom leaves that reference two <em>different</em> plugin ids make the variant
+  fail to compile and the whole mask falls back to neutral coverage (two leaves sharing one plugin
+  id, or a composed leaf beside a plugin leaf, compile fine).</li>
+<li>A plugin that fails to compile degrades <strong>only the masks using it</strong> to neutral coverage and is
+  reported once through <code>VFXLog.warnOnce</code>; it never takes down the mod or another effect.</li>
+<li>On the <code>1.21.11</code> node there is no shader-source hook, so a GLSL-plugin shape renders nothing
+  there; the composed-SDF kind works on every node.</li>
+<li>Plugin coverage obeys the same per-leaf fail-closed contract as every other leaf: an unresolved
+  leaf contributes zero and can never be inverted into "everywhere". A bound <code>d&lt;J&gt;</code> slot that cannot
+  resolve fails its leaf closed like any other bound slot.</li>
+</ul>
+<p><code>vfxweaver:ringed_glsl</code> is a built-in plugin (a screen ring with 8 petal-modulated lobes) shipped
+so the path is testable in game; see the <a href="../guide/">guide</a> for the datapack side.</p>
+<h4 id="blockitem-particle-presets-client-local">Block/item-particle presets (client-local)<a class="headerlink" href="#blockitem-particle-presets-client-local" title="Permanent link">&para;</a></h4>
+<p>Model particles — the <code>particles</code> effect with <code>"particle": "block"</code>, <code>"particle": "item"</code> or a
+preset id — can be defined from code, mirroring <code>registerDefinitions</code>. A spec draws a block <strong>or</strong>
+an item (exactly one). Each live particle renders as a <strong>client-side display entity</strong>
+(<code>BlockDisplay</code>/<code>ItemDisplay</code>), so vanilla interpolates its motion; the spec's brightness maps onto
+the display's brightness override, <code>size</code> onto the transformation scale and <code>spin</code> (degrees/tick)
+into a rotation driven by the spec's <code>spinMode</code>/<code>spinAxis</code> (<code>TUMBLE</code> = physical full-3D spin about a
+random or fixed axis, <code>YAW</code> = uniform spin about one axis, <code>NONE</code> = no rotation) with <code>spinRandom</code>/
+<code>spinFriction</code>/<code>spinRoll</code> tuning its randomness and contact response. Presets are
+<strong>client-local and never synced</strong>; the datapack layer (<code>data/&lt;ns&gt;/vfx_particles/&lt;name&gt;.json</code>) wins
+for the same id.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">dev.vfxweaver.effect.VFXBlockParticleSpec</span><span class="p">;</span>
+<a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a><span class="kn">import</span><span class="w"> </span><span class="nn">net.minecraft.world.level.block.Blocks</span><span class="p">;</span>
+<a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a><span class="kn">import</span><span class="w"> </span><span class="nn">net.minecraft.world.item.Items</span><span class="p">;</span>
+<a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a>
+<a id="__codelineno-11-5" name="__codelineno-11-5" href="#__codelineno-11-5"></a><span class="n">VFXBlockParticleSpec</span><span class="w"> </span><span class="n">ember</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">VFXBlockParticleSpec</span><span class="p">.</span><span class="na">builder</span><span class="p">(</span><span class="n">Blocks</span><span class="p">.</span><span class="na">MAGMA_BLOCK</span><span class="p">.</span><span class="na">defaultBlockState</span><span class="p">())</span>
+<a id="__codelineno-11-6" name="__codelineno-11-6" href="#__codelineno-11-6"></a><span class="w">    </span><span class="p">.</span><span class="na">brightness</span><span class="p">(</span><span class="mi">15</span><span class="p">,</span><span class="w"> </span><span class="mi">15</span><span class="p">)</span><span class="w">  </span><span class="c1">// block-display semantics: -1 = world light, or separate block/sky levels</span>
+<a id="__codelineno-11-7" name="__codelineno-11-7" href="#__codelineno-11-7"></a><span class="w">    </span><span class="p">.</span><span class="na">gravity</span><span class="p">(</span><span class="mf">0.8F</span><span class="p">).</span><span class="na">friction</span><span class="p">(</span><span class="mf">0.94F</span><span class="p">).</span><span class="na">collide</span><span class="p">(</span><span class="mf">1.0F</span><span class="p">).</span><span class="na">bounce</span><span class="p">(</span><span class="mf">0.2F</span><span class="p">)</span>
+<a id="__codelineno-11-8" name="__codelineno-11-8" href="#__codelineno-11-8"></a><span class="w">    </span><span class="p">.</span><span class="na">size</span><span class="p">(</span><span class="mf">0.35F</span><span class="p">).</span><span class="na">life</span><span class="p">(</span><span class="mi">60</span><span class="p">).</span><span class="na">spin</span><span class="p">(</span><span class="mf">12.0F</span><span class="p">)</span>
+<a id="__codelineno-11-9" name="__codelineno-11-9" href="#__codelineno-11-9"></a><span class="w">    </span><span class="p">.</span><span class="na">spinMode</span><span class="p">(</span><span class="n">VFXBlockParticleSpec</span><span class="p">.</span><span class="na">SpinMode</span><span class="p">.</span><span class="na">TUMBLE</span><span class="p">)</span><span class="w">  </span><span class="c1">// TUMBLE / YAW / NONE</span>
+<a id="__codelineno-11-10" name="__codelineno-11-10" href="#__codelineno-11-10"></a><span class="w">    </span><span class="p">.</span><span class="na">spinAxis</span><span class="p">(</span><span class="k">new</span><span class="w"> </span><span class="n">Vector3f</span><span class="p">(</span><span class="mf">0.0F</span><span class="p">,</span><span class="w"> </span><span class="mf">1.0F</span><span class="p">,</span><span class="w"> </span><span class="mf">0.0F</span><span class="p">))</span><span class="w">        </span><span class="c1">// null = random axis</span>
+<a id="__codelineno-11-11" name="__codelineno-11-11" href="#__codelineno-11-11"></a><span class="w">    </span><span class="p">.</span><span class="na">spinRandom</span><span class="p">(</span><span class="mf">1.0F</span><span class="p">).</span><span class="na">spinFriction</span><span class="p">(</span><span class="mf">1.0F</span><span class="p">).</span><span class="na">spinRoll</span><span class="p">(</span><span class="mf">0.5F</span><span class="p">)</span>
+<a id="__codelineno-11-12" name="__codelineno-11-12" href="#__codelineno-11-12"></a><span class="w">    </span><span class="p">.</span><span class="na">build</span><span class="p">();</span>
+<a id="__codelineno-11-13" name="__codelineno-11-13" href="#__codelineno-11-13"></a>
+<a id="__codelineno-11-14" name="__codelineno-11-14" href="#__codelineno-11-14"></a><span class="c1">// Item form: the item's baked model is drawn (skull/tool/ingot particles). `item(ItemStack)`</span>
+<a id="__codelineno-11-15" name="__codelineno-11-15" href="#__codelineno-11-15"></a><span class="c1">// is the shorthand for the default physics; a builder is available when you need to tune them.</span>
+<a id="__codelineno-11-16" name="__codelineno-11-16" href="#__codelineno-11-16"></a><span class="n">VFXBlockParticleSpec</span><span class="w"> </span><span class="n">skull</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">VFXBlockParticleSpec</span><span class="p">.</span><span class="na">item</span><span class="p">(</span><span class="k">new</span><span class="w"> </span><span class="n">ItemStack</span><span class="p">(</span><span class="n">Items</span><span class="p">.</span><span class="na">SKELETON_SKULL</span><span class="p">));</span>
+<a id="__codelineno-11-17" name="__codelineno-11-17" href="#__codelineno-11-17"></a><span class="kt">boolean</span><span class="w"> </span><span class="n">skullBlock</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">skull</span><span class="p">.</span><span class="na">hasBlock</span><span class="p">();</span><span class="w">  </span><span class="c1">// false</span>
+<a id="__codelineno-11-18" name="__codelineno-11-18" href="#__codelineno-11-18"></a><span class="kt">boolean</span><span class="w"> </span><span class="n">skullItem</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">skull</span><span class="p">.</span><span class="na">hasItem</span><span class="p">();</span><span class="w">    </span><span class="c1">// true</span>
+<a id="__codelineno-11-19" name="__codelineno-11-19" href="#__codelineno-11-19"></a>
+<a id="__codelineno-11-20" name="__codelineno-11-20" href="#__codelineno-11-20"></a><span class="c1">// Register/unregister a preset in the local layer; register returns false when it is full (256).</span>
+<a id="__codelineno-11-21" name="__codelineno-11-21" href="#__codelineno-11-21"></a><span class="kt">boolean</span><span class="w"> </span><span class="n">registered</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">VFXAPI</span><span class="p">.</span><span class="na">registerBlockParticle</span><span class="p">(</span><span class="n">Identifier</span><span class="p">.</span><span class="na">fromNamespaceAndPath</span><span class="p">(</span><span class="s">"mymod"</span><span class="p">,</span><span class="w"> </span><span class="s">"ember"</span><span class="p">),</span><span class="w"> </span><span class="n">ember</span><span class="p">);</span>
+<a id="__codelineno-11-22" name="__codelineno-11-22" href="#__codelineno-11-22"></a><span class="kt">boolean</span><span class="w"> </span><span class="n">removed</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">VFXAPI</span><span class="p">.</span><span class="na">unregisterBlockParticle</span><span class="p">(</span><span class="n">Identifier</span><span class="p">.</span><span class="na">fromNamespaceAndPath</span><span class="p">(</span><span class="s">"mymod"</span><span class="p">,</span><span class="w"> </span><span class="s">"ember"</span><span class="p">));</span>
+<a id="__codelineno-11-23" name="__codelineno-11-23" href="#__codelineno-11-23"></a>
+<a id="__codelineno-11-24" name="__codelineno-11-24" href="#__codelineno-11-24"></a><span class="c1">// Look one up (datapack layer wins). @Nullable.</span>
+<a id="__codelineno-11-25" name="__codelineno-11-25" href="#__codelineno-11-25"></a><span class="n">VFXBlockParticleSpec</span><span class="w"> </span><span class="n">found</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">VFXAPI</span><span class="p">.</span><span class="na">blockParticle</span><span class="p">(</span><span class="n">Identifier</span><span class="p">.</span><span class="na">fromNamespaceAndPath</span><span class="p">(</span><span class="s">"mymod"</span><span class="p">,</span><span class="w"> </span><span class="s">"ember"</span><span class="p">));</span>
+<a id="__codelineno-11-26" name="__codelineno-11-26" href="#__codelineno-11-26"></a>
+<a id="__codelineno-11-27" name="__codelineno-11-27" href="#__codelineno-11-27"></a><span class="c1">// Spawn a single block particle immediately on this client (no packet, no effect instance);</span>
+<a id="__codelineno-11-28" name="__codelineno-11-28" href="#__codelineno-11-28"></a><span class="c1">// no-op on a dedicated server. `velocity` is in blocks/tick; the spec supplies the physics.</span>
+<a id="__codelineno-11-29" name="__codelineno-11-29" href="#__codelineno-11-29"></a><span class="n">VFXAPI</span><span class="p">.</span><span class="na">spawnBlockParticle</span><span class="p">(</span><span class="n">ember</span><span class="p">,</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">Vec3</span><span class="p">(</span><span class="n">x</span><span class="p">,</span><span class="w"> </span><span class="n">y</span><span class="p">,</span><span class="w"> </span><span class="n">z</span><span class="p">),</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">Vec3</span><span class="p">(</span><span class="mf">0.0</span><span class="p">,</span><span class="w"> </span><span class="mf">0.25</span><span class="p">,</span><span class="w"> </span><span class="mf">0.0</span><span class="p">));</span>
+</code></pre></div>
+<p>A <code>particles</code> effect then reaches the preset with <code>"particle": "mymod:ember"</code>; the effect's
+<code>brightness</code>/<code>gravity</code>/<code>friction</code>/<code>collide</code>/<code>bounce</code>/<code>size</code>/<code>life</code>/<code>spin</code>/<code>spin_random</code>/
+<code>spin_friction</code>/<code>spin_roll</code> params override its fields. <code>spin_mode</code> and <code>spin_axis</code> are spec/preset
+fields only (effect params are numeric), so an effect selects yaw/none by naming a preset. The same
+methods register/spawn item presets — the spec carries the model, the API surface is unchanged. See
+the <code>particles</code> block and item mode in the <a href="../guide/effects/world/particles/">effects guide</a>.</p>
+<p><strong>Spark presets</strong> use the same client-local registry: <code>VFXAPI.registerSpark(id, VFXSparkSpec)</code>,
+<code>VFXAPI.unregisterSpark(id)</code>, <code>VFXAPI.spark(id)</code> and <code>VFXAPI.spawnSpark(spec, position, velocity)</code>
+(the client-only <code>spawnSpark</code> is a <code>default</code> no-op on <code>VFXLocalDispatcher</code>, overridden by the mod's
+client dispatcher). A spark preset is a <code>vfx_particles</code> file with <code>"kind": "spark"</code>; see the
+<a href="../guide/datapack/sparks/">Spark presets</a> page.</p>
+<h3 id="vfxapieffectrequest-fluent-builder"><code>VFXAPI.EffectRequest</code> (fluent builder)<a class="headerlink" href="#vfxapieffectrequest-fluent-builder" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="c1">// Builds one request and plays it on a player (over the network) or locally on this client:</span>
+<a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a><span class="n">VFXAPI</span><span class="p">.</span><span class="na">EffectRequest</span><span class="p">.</span><span class="na">of</span><span class="p">()</span>
+<a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a><span class="w">    </span><span class="p">.</span><span class="na">duration</span><span class="p">(</span><span class="mi">60</span><span class="p">)</span><span class="w">                    </span><span class="c1">// ticks, 0 = definition default</span>
+<a id="__codelineno-12-4" name="__codelineno-12-4" href="#__codelineno-12-4"></a><span class="w">    </span><span class="p">.</span><span class="na">param</span><span class="p">(</span><span class="s">"radius"</span><span class="p">,</span><span class="w"> </span><span class="mf">2.0F</span><span class="p">)</span><span class="w">           </span><span class="c1">// constant overrides (repeatable)</span>
+<a id="__codelineno-12-5" name="__codelineno-12-5" href="#__codelineno-12-5"></a><span class="w">    </span><span class="p">.</span><span class="na">target</span><span class="p">(</span><span class="n">entityUuid</span><span class="p">)</span><span class="w">              </span><span class="c1">// entity UUID targets / entity-anchored overlay slots (repeatable)</span>
+<a id="__codelineno-12-6" name="__codelineno-12-6" href="#__codelineno-12-6"></a><span class="w">    </span><span class="p">.</span><span class="na">easing</span><span class="p">(</span><span class="n">EasingType</span><span class="p">.</span><span class="na">EASE_OUT_CUBIC</span><span class="p">)</span><span class="w"> </span><span class="c1">// or .easing("ease_out_cubic")</span>
+<a id="__codelineno-12-7" name="__codelineno-12-7" href="#__codelineno-12-7"></a><span class="w">    </span><span class="p">.</span><span class="na">play</span><span class="p">(</span><span class="n">player</span><span class="p">);</span><span class="w">                   </span><span class="c1">// or .play() for a client-local play</span>
+</code></pre></div>
+<h3 id="vfxlocaldispatcher"><code>VFXLocalDispatcher</code><a class="headerlink" href="#vfxlocaldispatcher" title="Permanent link">&para;</a></h3>
+<p>A bridge the client entrypoint (<code>VFXClient</code>) registers via <code>VFXAPI.setLocalDispatcher(...)</code> so <code>playEffect</code>/<code>stopEffect</code>/<code>stopAllEffects</code> can run without a network packet. Other mods don't need to implement it — it's an internal part of the common↔client link of the mod. <code>spawnBlockParticle</code> is a <code>default</code> no-op on the interface (so a dispatcher compiled before block particles still links) and is overridden by the mod's client dispatcher.</p>
+<h2 id="definition-registry-vfxdefinitionmanager">Definition registry — <code>VFXDefinitionManager</code><a class="headerlink" href="#definition-registry-vfxdefinitionmanager" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="n">VFXDefinitionManager</span><span class="p">.</span><span class="na">get</span><span class="p">().</span><span class="na">get</span><span class="p">(</span><span class="n">effectId</span><span class="p">);</span><span class="w">        </span><span class="c1">// VFXDefinition or null</span>
+<a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a><span class="n">VFXDefinitionManager</span><span class="p">.</span><span class="na">get</span><span class="p">().</span><span class="na">contains</span><span class="p">(</span><span class="n">effectId</span><span class="p">);</span><span class="w">   </span><span class="c1">// whether the effect exists (built-in or datapack)</span>
+<a id="__codelineno-13-3" name="__codelineno-13-3" href="#__codelineno-13-3"></a><span class="n">VFXDefinitionManager</span><span class="p">.</span><span class="na">get</span><span class="p">().</span><span class="na">getDefinitions</span><span class="p">();</span><span class="w">      </span><span class="c1">// Map&lt;Identifier, VFXDefinition&gt; — snapshot of all known effects</span>
+</code></pre></div>
+<p>Updated on every <code>/reload</code> (see <code>VFXDefinitionManager.prepare</code>/<code>apply</code>); one broken datapack entry is logged and skipped, the rest load normally.</p>
+<h3 id="registering-definitions-from-code">Registering definitions from code<a class="headerlink" href="#registering-definitions-from-code" title="Permanent link">&para;</a></h3>
+<p>A <strong>client-only mod cannot own definitions through a datapack</strong>: Fabric does not reload mod-provided
+<code>SERVER_DATA</code> packs on a multiplayer client (so <code>data/&lt;ns&gt;/vfx/*.json</code> only loads in single player),
+and a server running this mod replaces the whole definition set over <code>vfxweaver:vfx_sync</code>. Register
+them from code instead:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="c1">// Client init (or any time). Same JSON shape as a datapack file; each entry is parsed with the</span>
+<a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a><span class="c1">// same validation - a broken entry is logged, reported by /vfx validate and skipped, and the</span>
+<a id="__codelineno-14-3" name="__codelineno-14-3" href="#__codelineno-14-3"></a><span class="c1">// layer is bounded. Returns the ids that were rejected (empty = all good).</span>
+<a id="__codelineno-14-4" name="__codelineno-14-4" href="#__codelineno-14-4"></a><span class="n">Set</span><span class="o">&lt;</span><span class="n">Identifier</span><span class="o">&gt;</span><span class="w"> </span><span class="n">failed</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">VFXAPI</span><span class="p">.</span><span class="na">registerDefinitions</span><span class="p">(</span><span class="n">Map</span><span class="p">.</span><span class="na">of</span><span class="p">(</span>
+<a id="__codelineno-14-5" name="__codelineno-14-5" href="#__codelineno-14-5"></a><span class="w">    </span><span class="n">Identifier</span><span class="p">.</span><span class="na">fromNamespaceAndPath</span><span class="p">(</span><span class="s">"mymod"</span><span class="p">,</span><span class="w"> </span><span class="s">"burst"</span><span class="p">),</span><span class="w"> </span><span class="s">"""</span>
+<a id="__codelineno-14-6" name="__codelineno-14-6" href="#__codelineno-14-6"></a><span class="s">        { "type": "particles", "duration": 40, "shape": "sphere", "params": { "rate": 80, "radius": 1.5 } }</span>
+<a id="__codelineno-14-7" name="__codelineno-14-7" href="#__codelineno-14-7"></a><span class="s">        """</span><span class="p">,</span>
+<a id="__codelineno-14-8" name="__codelineno-14-8" href="#__codelineno-14-8"></a><span class="w">    </span><span class="n">Identifier</span><span class="p">.</span><span class="na">fromNamespaceAndPath</span><span class="p">(</span><span class="s">"mymod"</span><span class="p">,</span><span class="w"> </span><span class="s">"ring"</span><span class="p">),</span><span class="w"> </span><span class="s">"""</span>
+<a id="__codelineno-14-9" name="__codelineno-14-9" href="#__codelineno-14-9"></a><span class="s">        { "type": "particles", "duration": 60, "shape": "ring", "params": { "rate": 60, "radius": 2.0 } }</span>
+<a id="__codelineno-14-10" name="__codelineno-14-10" href="#__codelineno-14-10"></a><span class="s">        """</span><span class="p">));</span>
+<a id="__codelineno-14-11" name="__codelineno-14-11" href="#__codelineno-14-11"></a>
+<a id="__codelineno-14-12" name="__codelineno-14-12" href="#__codelineno-14-12"></a><span class="kt">boolean</span><span class="w"> </span><span class="n">removed</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">VFXAPI</span><span class="p">.</span><span class="na">unregisterDefinition</span><span class="p">(</span><span class="n">Identifier</span><span class="p">.</span><span class="na">fromNamespaceAndPath</span><span class="p">(</span><span class="s">"mymod"</span><span class="p">,</span><span class="w"> </span><span class="s">"burst"</span><span class="p">));</span>
+</code></pre></div>
+<p>Semantics:</p>
+<ul>
+<li><strong>Usable immediately</strong> and it <strong>survives <code>/reload</code> and a server sync</strong> — local definitions live in a
+  layer of their own; <code>applySynced</code> only replaces the datapack/server set. (A local definition was
+  previously lost on joining a server, and <code>playEffect("mymod:thing", ...)</code> then failed to resolve.)</li>
+<li><strong>Private to this client</strong>: a client's local definitions are never synced to other players
+  (<code>getRawDefinitions()</code>, the payload source, stays datapack-only).</li>
+<li><strong>The datapack/server layer wins</strong> for the same id, so a server can still override a local effect.</li>
+<li>Registered ids show up in <code>getDefinitions()</code>, <code>contains()</code>, <code>/vfx list</code> and (when broken) in
+  <code>getParseErrors()</code> / <code>/vfx validate</code>.</li>
+<li>No protocol or datapack-format change; purely additive API.</li>
+</ul>
+<h2 id="network-protocol">Network protocol<a class="headerlink" href="#network-protocol" title="Permanent link">&para;</a></h2>
+<h3 id="clientbound-vfxweavervfx_trigger-vfxtriggerpayload">Clientbound: <code>vfxweaver:vfx_trigger</code> (<code>VFXTriggerPayload</code>)<a class="headerlink" href="#clientbound-vfxweavervfx_trigger-vfxtriggerpayload" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>protocolVersion</code></td>
+<td>byte</td>
+<td>Current value — <code>VFXTriggerPayload.PROTOCOL_VERSION</code> (6). The client <strong>silently ignores</strong> the packet on a version mismatch (see <code>VFXClient.handleTrigger</code>).</td>
+</tr>
+<tr>
+<td><code>effectId</code></td>
+<td><code>Identifier</code></td>
+<td>Effect id (built-in or datapack)</td>
+</tr>
+<tr>
+<td><code>action</code></td>
+<td><code>VFXAction</code> (<code>PLAY</code>/<code>STOP</code>/<code>SET_PARAM</code>/<code>KEYFRAME</code>/<code>SET_EXPR</code>/<code>MOVE</code>)</td>
+<td><code>SET_PARAM</code>/<code>KEYFRAME</code> apply to <strong>running</strong> effect instances: <code>params</code> carries exactly one <code>name → value</code> entry, for <code>KEYFRAME</code> the frame time is in <code>durationTicks</code> (negative = start the segment at the current time and run over <code>|time|</code> ticks), the segment easing in <code>easing</code>; <code>SET_EXPR</code> uses <code>exprParam</code>+<code>exprSource</code>; <code>MOVE</code> uses <code>position</code> + <code>instanceId</code></td>
+</tr>
+<tr>
+<td><code>durationTicks</code></td>
+<td>varint</td>
+<td>0 = definition default, negative = persistent (only for <code>PLAY</code>)</td>
+</tr>
+<tr>
+<td><code>elapsedTicks</code></td>
+<td>varint</td>
+<td>Resume offset: how far into the timeline the effect already is (only for <code>PLAY</code>, 0 = start fresh). Used when the server re-applies effects after a reconnect, computed from the effect's original start so time spent offline counts.</td>
+</tr>
+<tr>
+<td><code>params</code></td>
+<td><code>Map&lt;String, Float&gt;</code></td>
+<td>Constant overrides, numbers only</td>
+</tr>
+<tr>
+<td><code>easing</code></td>
+<td><code>EasingType</code> (string)</td>
+<td></td>
+</tr>
+<tr>
+<td><code>exprParam</code> / <code>exprSource</code></td>
+<td>optional strings</td>
+<td>Only for <code>SET_EXPR</code>: the parameter name and the raw expression source</td>
+</tr>
+</tbody>
+</table>
+<h3 id="serverbound-vfxweavervfx_request-vfxrequestpayload">Serverbound: <code>vfxweaver:vfx_request</code> (<code>VFXRequestPayload</code>)<a class="headerlink" href="#serverbound-vfxweavervfx_request-vfxrequestpayload" title="Permanent link">&para;</a></h3>
+<p>Lets a client mod ask the server to play an effect through the definition registry. Fields: <code>protocolVersion</code> (must match <code>VFXTriggerPayload.PROTOCOL_VERSION</code>), <code>effectId</code>, <code>broadcast</code> (boolean), <code>instanceId</code> (long, 0 = allocate), <code>worldPos</code> (optional <code>Vec3</code>), <code>params</code> (max <code>VFXTriggerPayload.MAX_PARAMS</code> = 256), <code>easing</code> (built-in easing name string).</p>
+<ul>
+<li><code>broadcast = false</code>: the effect plays only on the requesting player's client.</li>
+<li><code>broadcast = true</code>: the effect plays for every connected player, but the server only honours it from operators (gamemaster level) — anyone else is silently dropped (logged server-side).</li>
+<li>Easing: built-in easing names resolve; custom datapack curve names fall back to <code>LINEAR</code> on this path.</li>
+</ul>
+<p>Bump <code>PROTOCOL_VERSION</code> on any breaking packet-format change — otherwise old clients silently ignore new packets without a single warning in the log.</p>
+<hr />
+<p>See also: <a href="../guide/">guide/</a> — user guide (commands, datapacks), <a href="../ARCHITECTURE/">ARCHITECTURE.md</a> — how rendering works under the hood.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+  <script>var tabs=__md_get("__tabs");if(Array.isArray(tabs))e:for(var set of document.querySelectorAll(".tabbed-set")){var labels=set.querySelector(".tabbed-labels");for(var tab of tabs)for(var label of labels.getElementsByTagName("label"))if(label.innerText.trim()===tab){var input=document.getElementById(label.htmlFor);input.checked=!0;continue e}}</script>
+
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      Authored by Artition &middot; MIT licensed
+    </div>
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+      <div class="md-progress" data-md-component="progress" role="progressbar"></div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.instant", "navigation.instant.progress", "navigation.sections", "navigation.top", "navigation.tracking", "toc.follow", "search.suggest", "search.highlight", "content.code.copy", "content.tabs.link"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"alias": true, "default": "latest", "provider": "mike"}}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>

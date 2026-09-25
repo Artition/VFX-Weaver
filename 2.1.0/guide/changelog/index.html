@@ -1,0 +1,4257 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="A client-side VFX library/API for Minecraft on Fabric and NeoForge: screen post-processing, camera shake, world overlays, entity effects, datapack-defined effects, network triggers and a public Java API.">
+      
+      
+      
+        <link rel="canonical" href="https://artition.github.io/VFX-Weaver/2.1.0/guide/changelog/">
+      
+      
+        <link rel="prev" href="../datapack/sparks/">
+      
+      
+        <link rel="next" href="../../API/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Guide changelog - VFX Weaver</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#guide-changelog" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="VFX Weaver" class="md-header__button md-logo" aria-label="VFX Weaver" data-md-component="logo">
+      
+  <img src="../../assets/images/logo.png" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            VFX Weaver
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Guide changelog
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m14.3 16-.7-2h-3.2l-.7 2H7.8L11 7h2l3.2 9zM20 8.69V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12zm-9.15 3.96h2.3L12 9z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_2" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to system preference"  type="radio" name="__palette" id="__palette_2">
+    
+      <label class="md-header__button md-icon" title="Switch to system preference" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/Artition/VFX-Weaver" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    Artition/VFX-Weaver
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="VFX Weaver" class="md-nav__button md-logo" aria-label="VFX Weaver" data-md-component="logo">
+      
+  <img src="../../assets/images/logo.png" alt="logo">
+
+    </a>
+    VFX Weaver
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/Artition/VFX-Weaver" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    Artition/VFX-Weaver
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting started
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../showcase-datapack/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Showcase datapack
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../first-datapack/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Your first datapack
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Effects
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Effects
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../effects/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_5_2" id="__nav_5_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Screen post-processing
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_5_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Screen post-processing
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../effects/screen/chromatic-aberration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    chromatic_aberration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../effects/screen/color-grade/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    color_grade
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../effects/screen/distortion/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    distortion
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../effects/screen/dent/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    dent
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../effects/screen/gradient-map/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    gradient_map
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../effects/screen/posterize/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    posterize
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../effects/screen/blur/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    blur
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../effects/screen/pixelate/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    pixelate
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../effects/screen/hue-isolation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    hue_isolation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../effects/screen/vignette/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    vignette
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../effects/screen/screen-flash/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    screen_flash
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../effects/screen/motion-blur/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    motion_blur
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../effects/screen/bloom/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    bloom
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../effects/screen/film-grain/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    film_grain
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../effects/screen/scanlines/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    scanlines
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../effects/screen/depth-of-field/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    depth_of_field
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../effects/screen/letterbox/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    letterbox
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../effects/screen/invert/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    invert
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../effects/screen/vortex/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    vortex
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../effects/screen/speed-lines/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    speed_lines
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../effects/screen/slice-shift/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    slice_shift
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../effects/screen/noise-warp/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    noise_warp
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../effects/screen/solarize/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    solarize
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../effects/screen/double-vision/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    double_vision
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../effects/screen/eyelids/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    eyelids
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../effects/screen/iris-wipe/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    iris_wipe
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../effects/screen/digital-glitch/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    digital_glitch
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../effects/screen/vhs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    vhs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../effects/screen/shockwave/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    shockwave
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../effects/screen/afterimage/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    afterimage
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../effects/screen/stop-motion/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    stop_motion
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../effects/screen/surface-pattern/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    surface_pattern
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../effects/screen/sky-pattern/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sky_pattern
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_5_3" id="__nav_5_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    World overlays
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_5_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    World overlays
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../effects/world/block-tint/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    block_tint
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../effects/world/block-outline/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    block_outline
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../effects/world/light-beam/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    light_beam
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../effects/world/pulse-ring/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    pulse_ring
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../effects/world/guide-line/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    guide_line
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../effects/world/particles/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    particles
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../effects/world/block-chain/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    block_chain
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_5_4" id="__nav_5_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Entity effects
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_5_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Entity effects
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../effects/entity/entity-tint/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    entity_tint
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../effects/entity/entity-outline/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    entity_outline
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../effects/entity/entity-displace/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    entity_displace
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5_5" id="__nav_5_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Camera and misc
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_5_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Camera and misc
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../effects/misc/camera-shake/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    camera_shake
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../effects/misc/camera-roll/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    camera_roll
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../effects/misc/fov-modifier/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    fov_modifier
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../effects/misc/fog-modifier/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    fog_modifier
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_5_6" id="__nav_5_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Collections
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_5_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Collections
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../effects/collection/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    collection
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../commands/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Commands
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../recipes/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Triggering effects
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_8" >
+        
+          
+          <label class="md-nav__link" for="__nav_8" id="__nav_8_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Datapack
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Datapack
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../datapack/format/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Format
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../datapack/params/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Animating a param
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../datapack/expr/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Expressions (expr)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../datapack/graph/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Value graphs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../datapack/fields/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Per-pixel fields
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../datapack/masks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Masks
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_8_7" >
+        
+          
+          <label class="md-nav__link" for="__nav_8_7" id="__nav_8_7_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Custom particles
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_8_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Custom particles
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../datapack/particles/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Block and item particles
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../datapack/sparks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Spark presets
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Guide changelog
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Guide changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#v68-released-as-210" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v68 — released as 2.1.0
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v67" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v67
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v66" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v66
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v65" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v65
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v64" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v64
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v63" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v63
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v62" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v62
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v61" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v61
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v60" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v60
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v59" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v59
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v58" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v58
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v57" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v57
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v56" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v56
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v55" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v55
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v54" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v54
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v53" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v53
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v52-released-as-202" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v52 — released as 2.0.2
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v51" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v51
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v50-released-as-201" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v50 — released as 2.0.1
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v49" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v49
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v48" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v48
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v47-released-as-200" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v47 — released as 2.0.0
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v46" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v46
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v45" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v45
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v44" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v44
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v43" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v43
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v42" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v42
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v41" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v41
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v40" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v40
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v39" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v39
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v38" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v38
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v37" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v37
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v36" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v36
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v35" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v35
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v34" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v34
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v33" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v33
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v32" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v32
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v31" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v31
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v30" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v30
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v29" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v29
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v28" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v28
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v27" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v27
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v26" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v26
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v25" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v25
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v24" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v24
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v23" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v23
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v22" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v22
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v20" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v20
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v18" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v18
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v17" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v17
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v16" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v16
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v15" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v15
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v14" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v14
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v13" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v13
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v12" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v12
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../API/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Java API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../ARCHITECTURE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../CHANGELOG/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#v68-released-as-210" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v68 — released as 2.1.0
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v67" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v67
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v66" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v66
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v65" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v65
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v64" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v64
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v63" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v63
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v62" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v62
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v61" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v61
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v60" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v60
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v59" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v59
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v58" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v58
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v57" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v57
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v56" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v56
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v55" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v55
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v54" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v54
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v53" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v53
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v52-released-as-202" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v52 — released as 2.0.2
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v51" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v51
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v50-released-as-201" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v50 — released as 2.0.1
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v49" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v49
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v48" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v48
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v47-released-as-200" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v47 — released as 2.0.0
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v46" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v46
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v45" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v45
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v44" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v44
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v43" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v43
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v42" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v42
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v41" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v41
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v40" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v40
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v39" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v39
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v38" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v38
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v37" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v37
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v36" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v36
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v35" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v35
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v34" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v34
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v33" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v33
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v32" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v32
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v31" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v31
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v30" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v30
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v29" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v29
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v28" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v28
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v27" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v27
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v26" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v26
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v25" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v25
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v24" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v24
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v23" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v23
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v22" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v22
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v20" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v20
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v18" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v18
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v17" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v17
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v16" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v16
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v15" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v15
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v14" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v14
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v13" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v13
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v12" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v12
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="guide-changelog">Guide changelog<a class="headerlink" href="#guide-changelog" title="Permanent link">&para;</a></h1>
+<p>This page is the <strong>authoritative record of guide revisions</strong> (<code>vN</code>): each entry describes how the
+documentation changed. A guide revision is not a mod version — the two numbers are independent, and
+released mod versions are recorded on the <strong><a href="../../CHANGELOG/">mod Changelog</a></strong> instead. Where a guide
+revision shipped with a release, the entry says so (for example <code>v47 — released as 2.0.0</code>).</p>
+<p>Current guide revision: <strong>v68</strong>. Mod version it documents: <strong>2.1.0</strong>. Which jar to download is in the
+<a href="../../#download">download table</a>.</p>
+<h3 id="v68-released-as-210">v68 — released as 2.1.0<a class="headerlink" href="#v68-released-as-210" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>The showcase media set is complete.</strong> The clips recorded for the release are embedded on the pages that previously described their demos in text only: the sky/dome masks and the three plugin-mask demos on <a href="../datapack/masks/">masks</a>, the texture variant and the three sky anchors in <strong>Variants</strong> on <a href="../effects/screen/sky-pattern/">sky_pattern</a>, and a new <strong>Variants</strong> section for the two aim forms on <a href="../effects/world/light-beam/">light_beam</a>. The showcase datapack zip was also rebuilt: the published one stored its entries with backslash separators, which a Java consumer cannot resolve, so the downloaded pack resolved to a single oddly named entry and every effect in it was silently missing.</li>
+<li><strong><code>film_grain</code>: <code>chroma</code>, and the noise fixes.</strong> The page documents the new <code>chroma</code> parameter (<code>0</code> monochrome, default; <code>1</code> coloured) and the re-recorded clip shows the centred cell grid, the non-repeating hash and the chroma ramp. That clip is the one noise asset in the set, so it is encoded at 30 fps / crf 30 (7 MB) instead of the pipeline default, which produced 19.9 MB.</li>
+<li><strong><code>pixelate</code> and <code>film_grain</code> now measure their cell grid from the screen centre</strong>, so an animated cell size grows the pattern outwards from the middle instead of out of the bottom-left corner. Behaviour only — no field changed; per-scanline effects were left alone.</li>
+</ul>
+<h3 id="v67">v67<a class="headerlink" href="#v67" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong><code>sky_pattern</code> <code>anchor: "stars"</code> is now a real lock, not an approximation.</strong> The v62 <code>stars</code> anchor drove <code>dome_rotation</code>, a world-<strong>Y</strong> spin, while vanilla draws the star sphere with the pose <code>Ry(-90°) · Rx(starAngle)</code> (verified with <code>javap</code> in <code>SkyRenderer.renderSunMoonAndStars</code> on 26.2, 26.1.2 and 1.21.11), so the pattern turned about a different axis than the stars. The sky shader now takes the sampled direction into the star sphere's own frame with the exact inverse (<code>include/dome.glsl: vfx_star_local_dir</code>), gated on a new internal <code>anchor_stars</code> field, so a <code>stars</code> pattern is rigidly attached to the star material as it rotates. <code>dome_rotation</code> is <strong>not</strong> hijacked: it stays the author's world-<strong>Y</strong> spin, applied first, and <code>sun</code>/<code>moon</code>/<code>dome</code> are untouched. Two internal Config floats (<code>anchor_stars</code>, <code>star_angle</code>) are appended after <code>sky_mode</code> (no earlier std140 offset shifts); no datapack field renamed, <code>PROTOCOL_VERSION</code> unchanged. See <a href="../effects/screen/sky-pattern/">sky_pattern</a>. <strong>Not verified in game</strong> (the owner tests); <code>scripts/check-sky-pattern.ps1</code> now asserts the shader's star-local transform is the exact inverse of the verified vanilla pose (a runnable round-trip over several angles and directions) and that the CPU passes the angle.</li>
+<li><strong>A built-in world GLSL mask plugin (<code>vfxweaver:blobs_glsl</code>), and the three plugin demos now use it.</strong> The only shipped GLSL plugin was <code>vfxweaver:ringed_glsl</code>, a screen-space 2D figure, so the <code>space: "world"</code> aura/surface demos rendered nonsense and the dynamic-data demo could not show the data driving anything (<code>ringed_glsl</code> ignores <code>vfx_mask_data</code>). The new built-in <code>vfxweaver:blobs_glsl</code> is a genuine world-space SDF (a union of up to eight spheres, negative inside): sphere <code>k</code> takes its centre/radius from consecutive <code>vfx_mask_data</code> entries (<code>d[4k..4k+3]</code>) and the leaf's <code>p0..p7</code> are global controls (offset, radius scale/bias, count), with an optional <code>vfx_shape_custom_bounds()</code> broad phase over the same data+params extent so the aura march is cheap. The coverage shader now publishes the calling leaf's <code>p0</code>/<code>p1</code> as <code>vfx_shape_params0</code>/<code>vfx_shape_params1</code> (declared outside the injection markers, so an older plugin is unchanged) so the bounds can stay conservative. <code>vfxweaver:ringed_glsl</code> stays the screen reference. The three demos were rebuilt on it — <code>show_mask_custom_glsl_aura_demo</code> (a real filled volume, camera outside), <code>show_mask_custom_glsl_surface_demo</code> (geometry only; the sky is never painted) and <code>show_mask_custom_data_demo</code> (animated <code>mask.p0.d&lt;J&gt;</code> so the spheres visibly move). The plugin leaf shape is inert on the <code>1.21.11</code> node (no shader-source hook). Additive: no existing pass's UBO/wire layout changes, <code>PROTOCOL_VERSION</code> unchanged. See <a href="../datapack/masks/">masks</a>. <strong>Not verified in game</strong> (the owner tests); <code>scripts/check-mask-world-plugin.ps1</code> asserts the registration is a WORLD plugin, the SDF reads the data, the bounds is present and reads the data, and aura/surface masks and all three demos parse.</li>
+</ul>
+<h3 id="v66">v66<a class="headerlink" href="#v66" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong><code>fog_modifier</code>: the hook moved to vanilla <code>FogRenderer.setupFog</code>'s return (fix + doc).</strong> The effect now mutates the fog instance the game produces <strong>in place at <code>setupFog</code>'s return</strong>, before any consumer reads it, so the distance scales and the colour reach the fog uniforms, the level renderer and the sky/cloud shaders together. The previous hook on <code>updateBuffer(FogData)</code> substituted a <em>new</em> instance for the parameter only, while the caller kept reading the original instance — the distance change never reached the horizon band and looked invisible. The param surface, the maths and the datapack format are unchanged (no field renamed, no UBO/shader change, <code>PROTOCOL_VERSION</code> unchanged); the 1.21.11 path keeps the private <code>@ModifyArgs</code> on the six distance slots and adds a return hook for the caller-visible colour. The mixin runs at <code>priority = 900</code> so it injects before Sodium's fog mixin. Documented: the new hook point, and that the <strong>zenith</strong> keeps the dimension's own sky colour (the sky shader fogs <code>ColorModulator</code> toward the fog colour and only the far horizon reaches it). See <a href="../effects/misc/fog-modifier/">fog_modifier</a>. <strong>Not verified in game:</strong> the visual result (the owner tests); the hook point was proven with <code>javap</code> against each node's real jar, and <code>scripts/check-fog-modifier.ps1</code> asserts the per-node hooks (26.x <code>@Inject</code> at <code>setupFog</code>'s return mutating the returned <code>FogData</code> in place; 1.21.11 <code>@ModifyArgs</code> slots plus the return colour hook), <code>priority = 900</code> and the combination maths runnably.</li>
+</ul>
+<h3 id="v65">v65<a class="headerlink" href="#v65" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong><code>fog_modifier</code>: a smooth transition from the vanilla fog colour (<code>fog_color_amount</code>), and the sky/cloud ends follow <code>fog_end_scale</code>.</strong> New optional <code>fog_color_amount</code> (<code>0..1</code>, neutral <code>1</code>/unset, unauthored) scales the instance's <strong>colour</strong> weight: <code>0</code> leaves the colour completely untouched (the colour is not written at all and <code>hasColor</code> stays false), <code>1</code> is the full authored colour (today's behaviour) and in between is a partial blend. Because it is just a weight on the one order-independent weighted average (<code>weight·fog_color_amount</code> per effect) there is <strong>no second blend stage</strong> and the distance maths is unchanged; the final colour is <code>vanilla + (target − vanilla)·min(1, Σ(w·amount))</code>, clamped, and <code>NaN</code> never leaks. Author a constant <code>fog_r</code>/<code>fog_g</code>/<code>fog_b</code> and keyframe <code>fog_color_amount</code> from <code>0</code> to <code>1</code> to ramp from the dimension's own fog colour to the authored one and back — the smoothness the all-or-nothing colour could not give. Also documented (the code was already corrected before this revision): the <strong>sky/cloud fade ends</strong> (<code>FogSkyEnd</code>/<code>FogCloudsEnd</code>) scale with <code>fog_end_scale</code>, so <code>fog_end_scale &lt; 1</code> pulls the wall in <strong>and</strong> narrows the horizon band and brings the clouds closer; they have no start value, so <code>fog_start_scale</code> never touches them. Additive and backward-compatible: a new param only, absent = the full authored colour, no datapack field renamed, no shader/UBO change, <code>PROTOCOL_VERSION</code> unchanged, no new dependency. See <a href="../effects/misc/fog-modifier/">fog_modifier</a>. <strong>Not verified in game:</strong> the visual ramp and the distance look (the owner tests); <code>scripts/check-fog-modifier.ps1</code> asserts the colour-amount maths runnably (amount <code>0</code>/<code>0.5</code>/<code>1</code>, unauthored = <code>1.0</code>, order-independent, no colour write at <code>0</code>) and the per-node hooks statically.</li>
+</ul>
+<h3 id="v64">v64<a class="headerlink" href="#v64" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong><code>fog_modifier</code>: change the vanilla fog at its source.</strong> A new effect, the fog sibling of <code>fov_modifier</code> and deliberately <strong>not</strong> a post pass: <code>fog_start_scale</code>/<code>fog_end_scale</code> multiply the vanilla fog start/end distance (neutral <code>1.0</code>; <code>&gt;1</code> sees further, <code>&lt;1</code> pulls it closer) and optional <code>fog_r</code>/<code>fog_g</code>/<code>fog_b</code> override the fog colour (neutral = unset). The mod rewrites the values vanilla serialises into the fog uniforms, so vanilla terrain/entities and the entity-effect geometry all see it; absent params leave the fog untouched. Scales combine additively around neutral and colour is a weight-averaged blend from vanilla (order-independent, clamped). <strong>Coverage:</strong> every distance-based fog on 26.2/26.1.2/1.21.11 — overworld, the <strong>nether</strong> (<code>fog_start_distance</code> 10 / <code>fog_end_distance</code> 96 in its dimension definition) and the End, plus water/lava/snow/blindness/darkness. The design warned the nether/end might be density-based; it was checked and is <strong>not</strong> on these nodes — <code>FogData</code> has no density field and <code>EnvironmentAttributes</code> has no density attribute on any of the three, and the dimensions express fog as start/end distances, so the scales are the complete control. <strong>Honest limits (stated in the page):</strong> under an <strong>Iris shaderpack</strong> the effect is a <strong>no-op</strong> (a pack computes its own fog and ignores the vanilla values); the sky/cloud fade distances are not touched; and the <code>block_tint</code>/<code>block_outline</code>/<code>glow</code>/spark overlays use the fog-free <code>core/position_color</code> shader, so only the entity-effect pipelines inherit the change. No shader change, no UBO change, <code>PROTOCOL_VERSION</code> unchanged, no new dependency. See <a href="../effects/misc/fog-modifier/">fog_modifier</a>. <strong>Not verified in game:</strong> the visual result (the owner tests); the write point was proven with <code>javap</code> against each node's real jar, and <code>scripts/check-fog-modifier.ps1</code> asserts the type/neutral/<code>isPostProcessing</code> wiring, the manager accumulation, the per-node target and the combination maths runnably.</li>
+</ul>
+<h3 id="v63">v63<a class="headerlink" href="#v63" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong><code>sky_pattern</code> drops the legacy equirectangular <code>dome</code> mode.</strong> The effect is unreleased, so the single global chart is removed rather than kept as a legacy path: <code>patch</code> is renumbered to <strong><code>0</code> (default)</strong> and <code>fill</code> to <strong><code>1</code></strong>, and <code>"dome"</code> - or any other unknown value - is now a per-file parse error naming the accepted values. The reason is stated plainly in the page: a single global chart of a sphere has a pole singularity and a mandatory seam - topological, not fixable - so there is <strong>no</strong> equirectangular mode; a true skybox <strong>cube</strong> (six authored faces) remains a separate future feature. <code>vfx_dome_uv</code> stays in <code>include/dome.glsl</code> for the <code>space: "dome"</code> mask path (the mask is untouched). The built-in <code>sky_pattern</code> and every sky demo use only <code>patch</code>/<code>fill</code>. No new shader field, no UBO/Config change, <code>PROTOCOL_VERSION</code> unchanged. See <a href="../effects/screen/sky-pattern/">sky_pattern</a>. <strong>Not verified in game:</strong> the GLSL cannot run headless here - the static contract is asserted by <code>scripts/check-sky-pattern.ps1</code> and the owner checks visually.</li>
+</ul>
+<h3 id="v62">v62<a class="headerlink" href="#v62" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong><code>sky_pattern</code> can follow the sun, the moon or the stars.</strong> A new optional top-level <code>anchor</code> field: omitted (or <code>"dome"</code>) keeps today's world-fixed <code>anchor_yaw</code>/<code>anchor_pitch</code>; <code>"sun"</code> and <code>"moon"</code> make the pattern track the vanilla body; <code>"stars"</code> locks the pattern to the rotating star sphere by driving <code>dome_rotation</code> from the star angle. The body angles are read from the client's own sky render state <strong>on the CPU</strong> and written to the same three uniforms, so there is <strong>no shader change and no mixin</strong> — this is what makes the anchor work <strong>under Iris</strong>: the pack may draw the sky itself, but the world time (and so the angles) is still computed by the game. <strong>Fail-closed:</strong> if the sky state cannot be read (no overworld sky, or the render state is not ready this frame) the effect contributes nothing rather than painting at a guessed spot, and reports once through the logger. Honest limits, stated in the page: the effect is an <strong>overlay</strong>, so the vanilla sun/moon stay drawn underneath (size the pattern to cover them — sun ≈33° apparent width, moon ≈24°); and the vanilla star colour cannot be changed without a <code>SkyRenderer</code> mixin, so <code>"stars"</code> places a pattern at the star sphere rather than recolouring the vanilla stars. Two further design items are <strong>deliberately not implemented</strong> because they would be Iris no-ops: a <code>SkyRenderer</code> mixin to draw <em>under</em> the vanilla bodies (S4b) and a frame-graph sky-capture pass (S5). Additive: a new top-level field only, no datapack field renamed, <code>PROTOCOL_VERSION</code> and every UBO layout unchanged, and the effect is not in a release yet. See <a href="../effects/screen/sky-pattern/">sky_pattern</a>. <strong>Not verified in game:</strong> the anchor's exact tracking and its look under an Iris pack (the owner tests visually); the shipped <code>scripts/check-sky-pattern.ps1</code> asserts the parse, the resolver and the angle→yaw/pitch maths runnably, and the per-node sky-state access was proven with <code>javap</code> on the real jars.</li>
+</ul>
+<h3 id="v61">v61<a class="headerlink" href="#v61" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>A <code>patch</code> has no built-in clip, and the ring demo no longer circles the player.</strong> The v60 unit-disc bound was removed - the owner tested it and rejected it (the circular clip visibly cut the figure; the earlier unbounded behaviour was not a defect to them). A <code>patch</code> is a <strong>flat sign</strong> on the tangent plane with <strong>no built-in clip</strong>: it runs out to the tangent-plane horizon and a pixel behind the decal (<code>dot(dir, anchor) &lt;= 0</code>) is discarded as a hard backstop. A large patch can show that horizon as a straight cut - the rule is the developer who needs a clean edge adds a <a href="../datapack/masks/">mask</a>. <code>tile_scale</code> is documented as the cell scale on that plane (the half-angle table is gone), and the demos keep the v60 <code>sky_mode</code> reassignment (<code>show_sky_pattern_texture</code> and <code>sky_cracks</code> are <code>fill</code>; <code>show_sky_pattern</code> and <code>nine_red_pixels</code> are small <code>patch</code> decals). The <code>show_sky_pattern</code> ring demo no longer animates <code>dome_rotation</code>: in <code>patch</code> mode that spins the sampled direction before projection and <strong>carries the decal along its latitude</strong>, so it circled the player; the demo now animates only <code>tile_scale</code> and <code>opacity</code>, which leave the anchor fixed, and the docs state the semantics (<code>dome_rotation</code> locks a decal to the rotating star sphere, the in-plane <code>rotation</code> spins the figure in place). No datapack field renamed, no UBO/Config change, <code>PROTOCOL_VERSION</code> unchanged. See <a href="../effects/screen/sky-pattern/">sky_pattern</a>. <strong>Not verified in game:</strong> the GLSL cannot run headless here - the static contract is asserted by <code>scripts/check-sky-pattern.ps1</code> and the owner checks visually.</li>
+</ul>
+<h3 id="v60">v60<a class="headerlink" href="#v60" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong><code>patch</code> decals are bounded to a clean disc, and the demos use each <code>sky_mode</code> for what it is for.</strong> The gnomonic <code>patch</code> decal divided by <code>dot(dir, anchor)</code>, so its tiling frequency grew without bound as the ray approached the tangent plane's horizon and the old <code>facing</code> gate cut the decal off with a hard straight edge - a large patch read as a flat plane lying over the sky with a smear at its rim. <code>patch</code> now bounds the decal to its <strong>unit disc</strong>: <code>tile_scale</code> is the patch's angular half-size, <code>tan(half angle)</code> (0.27 ≈ 15°, 0.45 ≈ 24°, 0.577 = 30°, 1.0 = 45°), radius 1 is the patch edge, the coverage fades to zero at the rim (over <code>softness</code>, min 0.05 cell units) and nothing is evaluated past radius 1, so the singular rim is never visible. The honest limit is documented: the decal is a <strong>flat sign</strong> (one tangent plane), so it does not follow the dome's curvature - use <code>fill</code> for content that must wrap the whole sky. The demos were reassigned: <code>show_sky_pattern_texture</code> (a whole-sky texture) and <code>sky_cracks</code> are <code>fill</code>, while <code>show_sky_pattern</code> (the ring) and <code>nine_red_pixels</code> are small bounded <code>patch</code> decals (<code>tile_scale</code> 0.4-0.55 and 0.3). Additive and backward compatible: no datapack field renamed, <code>PROTOCOL_VERSION</code> and every UBO layout unchanged, and the effect is not in a release yet. See <a href="../effects/screen/sky-pattern/">sky_pattern</a>. <strong>Not verified in game:</strong> the GLSL cannot run headless here - the static contract is asserted by <code>scripts/check-sky-pattern.ps1</code> and the owner checks visually.</li>
+</ul>
+<h3 id="v59">v59<a class="headerlink" href="#v59" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong><code>sky_pattern</code> gains a <code>sky_mode</code> projection and stops funnelling at the zenith.</strong> The first release projected the whole dome through one global <strong>equirectangular</strong> chart, which has two topological defects: <code>u</code> is undefined at the poles (tiling there has infinite frequency, so the pattern winds into a funnel at the zenith - where players look) and <code>u</code> must wrap at ±180° yaw (a visible seam / mirror axis). <code>sky_mode</code> replaces the addressing with an <strong>atlas of local charts plus a smooth partition of unity</strong>: <code>patch</code> (default) is one gnomonic (tangent-plane) decal at the anchor - no pole, no seam, clean discard past the decal horizon, keep <code>tile_scale &lt;= 1.0</code>; <code>fill</code> covers the whole sphere with three orthographic charts blended by a sharpened partition of unity - no pole convergence and no seam anywhere, with coverage and colour blended (never the UVs) and the colour renormalised so texels stay saturated in the ~±8° crossfade ribbons, density varying up to ~1.7x; and <code>dome</code> is the legacy equirect path, kept byte-for-byte, with its inherent pole funnel and north seam, not for new content. The anchor is a position in <code>patch</code> and a tiling phase shift in <code>fill</code>; <code>dome_rotation</code> spins the whole field. Additive and backward compatible: <code>sky_mode</code> is appended last to the Config UBO, no existing shader's layout changes, no field renamed, <code>PROTOCOL_VERSION</code> unchanged, and the effect is not in any release yet, so the new default (<code>patch</code>) breaks nothing. A full skybox <strong>cube</strong> remains a separate future feature. See <a href="../effects/screen/sky-pattern/">sky_pattern</a>. <strong>Not verified in game:</strong> the new projection maths (the owner tests visually); the static contract is asserted by <code>scripts/check-sky-pattern.ps1</code>.</li>
+</ul>
+<h3 id="v58">v58<a class="headerlink" href="#v58" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong><code>sky_pattern</code>: a datapack figure or texture painted on the sky dome.</strong> A new screen post effect (stage S3 of the skybox design) and the sky sibling of <code>surface_pattern</code>: the same structural <code>pattern</code> block, shape library and <code>pattern.texture</code> addressing, but the projection target is the dome. The pixel's view ray is reconstructed, optionally spun about world Y by the new <code>dome_rotation</code> param, and mapped to an equirectangular dome coordinate, where the figure is placed by the new <code>anchor_yaw</code>/<code>anchor_pitch</code> params (degrees). The whole pass is gated on the depth sky test, so it only ever paints far-depth sky pixels - never terrain, the hand or the GUI. <code>repeat: [3, 3]</code> gives nine dots with no texture; a <code>pattern.texture</code> with a <code>sheet</code> and the animatable <code>frame</code> param gives an animated sky. Additive: a new effect type only, no existing effect changed, no field renamed, <code>PROTOCOL_VERSION</code> unchanged, and no existing shader's UBO layout touched (the new <code>sky_pattern</code> Config adds a <code>vec4 cam_pos</code> the other depth pass does not have). See <a href="../effects/screen/sky-pattern/">sky_pattern</a>. The dome's pole pinch and the <code>u</code> wrap seam are inherent to equirectangular; the far-depth gate uses the same in-game-verified test as the <code>sky</code> mask. <strong>Not verified in game:</strong> the rendering itself (the owner tests visually), and the effect under an Iris shaderpack (a post pass composes over the pack's sky, as with every other post effect).</li>
+</ul>
+<h3 id="v57">v57<a class="headerlink" href="#v57" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong><code>light_beam</code> can end on a chosen point.</strong> Three optional params — <code>end_at_x</code>/<code>end_at_y</code>/<code>end_at_z</code> — name the world point the <strong>far end</strong> of the beam lands on. The anchor is then derived as <code>end − axis × height</code>, so the geometry finishes exactly at the point (with the default axis it hangs straight down from <code>height</code> above it — a beam falling out of the sky). They are ordinary animatable params (keyframes, <code>expr</code>, graph, bind), and a beam <strong>from A to B</strong> is <code>end_at = B</code> plus the axis and length computed between the two points. Unset, the beam is unchanged. No shader, pipeline, UBO or wire change. See <a href="../effects/world/light-beam/">light_beam</a>.</li>
+</ul>
+<h3 id="v56">v56<a class="headerlink" href="#v56" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>The sky mask confirmed in game, plus two things it does and does not cover.</strong> The far-depth assumption behind <code>sky</code>/<code>space: "dome"</code> is now <strong>verified in game on all three lines</strong> (26.2, 26.1.2 and 1.21.11), not just built from the convention. Two clarifications from that testing: the <strong>sun, the moon and the clouds are drawn without writing depth</strong>, so a <code>sky</code>/<code>dome</code> leaf covers them exactly like the empty sky — a recoloured sky recolours the sun and moon with it (to sit <em>under</em> the celestial bodies, the planned <code>sky_layer</code> selector is needed); and the <strong>horizon fog is baked into the terrain pixels</strong>, so a sky mask does not recolour it and a strong tint can leave a seam at the horizon. See <a href="../datapack/masks/">Masks</a>.</li>
+</ul>
+<h3 id="v55">v55<a class="headerlink" href="#v55" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong><code>light_beam</code> points in any direction.</strong> Three new params — <code>dir_x</code>/<code>dir_y</code>/<code>dir_z</code>, defaults <code>0</code>/<code>1</code>/<code>0</code> — set the beam axis, replacing the fixed vertical one, so a beam can be aimed at an angle (e.g. from a point on the sky). They are ordinary animatable params (keyframes, <code>expr</code>, graph, bind), including to the camera look via <code>{"bind": "look_x"}</code>/<code>look_y</code>/<code>look_z</code>. With the defaults the emitted geometry is unchanged, and a zero direction falls back to straight up. No shader, pipeline, UBO or wire change. See <a href="../effects/world/light-beam/">light_beam</a>.</li>
+</ul>
+<h3 id="v54">v54<a class="headerlink" href="#v54" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Sky masks: the <code>sky</code> leaf and <code>space: "dome"</code>.</strong> A mask can now target the sky instead of the world. <code>sky</code> covers the whole visible sky (no parameters); a 2D shape (<code>circle</code>/<code>ellipse</code>/<code>rect</code>/<code>polygon</code>) with <code>"space": "dome"</code> is placed on an equirectangular map of the sky, with <code>center</code> authored as <code>[yaw, pitch]</code> degrees (yaw 0 = south, 90 = west, ±180 = north; pitch -90 = up, 0 = horizon, 90 = down) and <code>radius</code> in dome units where 0.5 spans half the dome. Both need depth (the sky test is the depth test) and both <strong>fail closed</strong> to zero coverage without trustworthy depth. A dome leaf is sky-occluded by construction, so geometry occupying a dome direction is never tinted — unlike a <code>world</code> leaf, which classifies geometry, and a <code>screen</code> leaf, which can cover anything. A dome <code>center</code> must be a literal <code>[yaw, pitch]</code>; a bound centre is a parse error for now, a <code>sky</code> leaf may not be <code>screen</code>/<code>world</code>, and dome space accepts only the 2D shapes and <code>sky</code>. The far-depth test is verified on 26.2; on 26.1.2/1.21.11 it uses the same proven per-node convention but is <strong>not yet confirmed in game</strong>. No wire, UBO or Java API change. See <a href="../datapack/masks/">Masks</a>.</li>
+</ul>
+<h3 id="v53">v53<a class="headerlink" href="#v53" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>A GLSL mask plugin leaf can be a volume, and a surface custom leaf no longer paints the sky.</strong> A <code>world</code> custom leaf registered through <code>VFXAPI.registerMaskShapeGlsl</code> now accepts <code>"volume": "aura"</code>: the pixel's view ray is sphere-traced through the plugin's own SDF and the volume is filled — air and sky included — wherever the scene does not occlude it, using the same silhouette, edge fade and occlusion maths as a built-in <code>sphere</code>/<code>box</code> aura. A composed custom leaf (no raw SDF to march) and a screen-space plugin leaf are per-file parse errors that name the reason, never a silent fallback. A plugin may declare an optional <code>vec4 vfx_shape_custom_bounds()</code> (world centre and radius) as an analytic broad phase, so a ray that misses the volume is rejected without evaluating the SDF and the cost follows the volume's screen area; the march covers the first chord only, and a 0.5-block minimum step caps its reach at roughly 30 blocks. In the other direction, the default <code>surface</code> mode now gates the sky for custom leaves: a sky pixel contributes no coverage, so an intentionally unbounded plugin SDF no longer paints it (built-in shapes already behaved that way). An existing plugin that declares neither function compiles and behaves exactly as before; no wire, UBO or Java API change. See <a href="../datapack/masks/">Masks</a> and the <a href="../../API/">Java API</a>.</li>
+</ul>
+<h3 id="v52-released-as-202">v52 — released as 2.0.2<a class="headerlink" href="#v52-released-as-202" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Mod version 2.0.2.</strong> The dynamic mask float-data feature documented in v51 ships as <strong>2.0.2</strong>, together with the raised network parameter cap and the coverage UBO growth it required (see v51). No guide behaviour changed in this entry; only <code>mod_version</code> and the version wording moved. The full list is in the <a href="../../CHANGELOG/">mod changelog</a>.</li>
+</ul>
+<h3 id="v51">v51<a class="headerlink" href="#v51" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>GLSL mask plugin shapes can read live per-leaf float data, so their geometry changes without a shader recompile.</strong> A custom mask leaf now carries 32 reserved dynamic floats (<code>mask.p&lt;N&gt;.d0 … d31</code>), authored as a <code>"data": [ … ]</code> array or set every tick with the new <code>VFXAPI.maskData</code>/<code>sendMaskData</code> (or <code>setParam</code>/<code>sendSetParam</code> on a single <code>mask.p&lt;N&gt;.d&lt;J&gt;</code>). A plugin reads its own leaf's slice through the wrapper helper <code>vfx_mask_data(vfx_shape_data_base + j)</code>, so one plugin source drives a moving set of primitives far past the eight animatable params. The coverage UBO gains a <code>vec4</code>-packed <code>shape_data</code> array (18 fields, 2336 bytes; appended after every existing field). Backward compatible: an existing plugin that ignores the helper compiles and behaves exactly as before, and a data update is an ordinary param edit that never recompiles the variant (keyed only by the plugin-id set). The wire param cap (<code>VFXTriggerPayload.MAX_PARAMS</code>, <code>VFXTimeline.MAX_OVERRIDES</code>) and the Flashback snapshot cap are raised 32 → 256 to fit a large mask's params; <code>PROTOCOL_VERSION</code> is unchanged, but the cap is read-side, so a 2.0.1 client still caps at 32 and needs a 2.0.2 client for a many-slot mask. A mask's custom leaves may reference only one distinct GLSL plugin id (two different plugin ids in one mask fail to compile and fall back to neutral coverage), and on <code>1.21.11</code> the missing shader-source hook leaves a GLSL-plugin shape inert. See <a href="../datapack/masks/">Masks</a> and the <a href="../../API/">Java API</a>.</li>
+</ul>
+<h3 id="v50-released-as-201">v50 — released as 2.0.1<a class="headerlink" href="#v50-released-as-201" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Mod version 2.0.1.</strong> A correctness release: the <code>blur</code> effect uses a fixed-tap separable Gaussian, so an animated radius no longer pops; client entity selectors support <code>tag=</code>, <code>name=</code>, <code>distance=</code>, <code>limit=</code> and <code>sort=</code>, and a selector outside the supported subset fails closed with a warning naming the argument instead of binding the wrong entity (see <a href="../datapack/masks/">Masks</a>); and the Flashback replay integration follows the replay clock — pause holds the effects, a scrub places or removes them (including effects from other mods and effects already running when the recording started), looping/persistent effects are recorded, and on 1.21.11 the private/public playback field is resolved tolerantly per symbol (the replay items documented in v48–v49). Effects also keep counting while a player is offline and resume on re-join from the elapsed time. No datapack format, network protocol or Java API changed; the full list is in the <a href="../../CHANGELOG/">mod changelog</a>.</li>
+</ul>
+<h3 id="v49">v49<a class="headerlink" href="#v49" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>An effect another mod triggers through the API is removed when a replay is scrubbed back past its trigger, and a played effect no longer flashes for a single frame.</strong> A play that reached the effect loop without being recorded into the replay (a network trigger or a client-local API play while a replay was open) used to be owned by nobody, so a backward scrub left it running. A seek now stops <em>every</em> active instance and re-places only the effects whose recorded trigger is at or before the new time, so a scrub back before its trigger removes it - finite, looping or persistent alike - without dropping anything between seeks (the earlier per-frame removal made the replay's own effect disappear after one frame). See <a href="../#flashback-compatibility">Flashback compatibility</a>.</li>
+</ul>
+<h3 id="v48">v48<a class="headerlink" href="#v48" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Looping and persistent effects are recorded into Flashback replays.</strong> They used to be skipped when a recording started (an effect already running was not snapshotted) and a persistent play (<code>-1</code>) was dropped entirely; both now record like a finite effect, because the replay-timeline controller keeps a recorded play alive until a recorded stop (or the whole replay when it was never stopped). This is what makes a looping showcase such as <code>vfxweaver:graph_demo</code> or <code>vfxweaver:graph_logic_demo</code> reproduce in a replay. See <a href="../#flashback-compatibility">Flashback compatibility</a>.</li>
+</ul>
+<h3 id="v47-released-as-200">v47 — released as 2.0.0<a class="headerlink" href="#v47-released-as-200" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Mod version 2.0.0.</strong> Everything accumulated since v32 — guides v33–v46: value graphs and macros, per-pixel fields, masks with block geometry and GLSL-plugin shapes, <code>surface_pattern</code> with textures/faces/bands/stitch, spark particles and <code>/vfx stop [&lt;player&gt;]</code>, plus per-line scene depth — ships together as <strong>2.0.0</strong>. No guide behaviour changed in this entry; only <code>mod_version</code> and the version wording moved, so the actual changes are the v33–v46 entries below.</li>
+</ul>
+<h3 id="v46">v46<a class="headerlink" href="#v46" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Textured <code>surface_pattern</code> now resolves on 1.21.11 (and on 26.1.2/26.2 without the first-frame abort).</strong> The texture resolver was written inside a <code>&gt;=26.1</code> guard with a neutral fallback for the <code>1.21.11</code> node, so once the depth pass started running there the texture never resolved, <code>tex_flags</code> never reached the <code>RESOLVED</code> bit and every textured projection drew nothing (the built-in procedural figure still worked). The resolver now has a real per-node implementation — 26.2/26.1.2 through the <code>sprite</code> AtlasManager (<code>SpriteId</code> keyed by <code>TextureAtlas.location()</code>), 1.21.11 through the remapped model AtlasManager and <code>TextureAtlas.getSprite</code> — funnelling every source form (<code>block</code>/<code>item</code>/<code>atlas</code>/<code>standalone</code>) through one <code>resolved(...)</code> factory that sets the flag bit. A standalone texture is shared by both nodes. See <a href="../effects/screen/surface-pattern/">surface_pattern</a>.</li>
+<li><strong>The <code>surface_pattern</code> std140 layout guard no longer aborts the post layer.</strong> The registration-time guard queried <code>glGetUniformIndices</code> with block-qualified names (<code>Config.tile_scale</code>); a driver that reports only the bare member name returned <code>-1</code>, which was then passed to <code>glGetActiveUniformsiv</code> (<code>GL_INVALID_VALUE</code>) and threw out of <code>execute</code>, so the first frame of a textured pattern failed with "Failed to apply VFX post-processing". It queries the bare member name first with a qualified fallback, skips members the driver does not list, and logs at ERROR without throwing, so a false positive cannot drop a frame.</li>
+</ul>
+<h3 id="v45">v45<a class="headerlink" href="#v45" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Scene depth works on every supported line, not just 26.2.</strong> <code>surface_pattern</code>, the depth/world field functions and the depth-needing mask families (a <code>world</code> leaf, an <code>aura</code> volume, a block leaf's <code>occlude</code>) used to be gated to 26.2 because the world reconstruction assumed 26.2's reversed depth. The per-node depth convention is now proven from the client jars and injected into one shared shader source: <strong>26.2 is reversed</strong> (<code>glClipControl(GL_LOWER_LEFT, GL_ZERO_TO_ONE)</code> — near = 1, far = 0) and <strong>26.1.2 / 1.21.11 are standard</strong> (near = 0, far = 1). The shader converts the raw sampled depth, picks the correct sky test and the correct block-occlusion comparison per node, so a depth-needing effect now renders on 26.1.2 and 1.21.11 as well. Fail-closed is unchanged where no trustworthy depth exists. See <a href="../effects/screen/surface-pattern/">surface_pattern</a> and <a href="../datapack/masks/">Masks</a>.</li>
+</ul>
+<h3 id="v44">v44<a class="headerlink" href="#v44" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong><code>surface.stitch</code> — opt-in planar (top-down) projection.</strong> A new boolean in the structural <code>surface</code> block (default <code>false</code>). With <code>"stitch": true</code> every face samples the same top-down coordinate <code>p = world.xz</code>, so a wall pixel <code>(x, y, z)</code> shows exactly what the floor pixel at the wall base <code>(x, floor_y, z)</code> shows — the image's row at the wall line extruded vertically (a ring reaching a wall becomes two vertical stripes from its crossing points). The seam is continuous for <strong>any anchor height</strong> (the anchor's Y no longer matters), and <code>min</code>/<code>max</code> become a height slab that bounds how far up the wall the image stretches. A ceiling is excluded (a top-down projection cannot light a down-facing surface). Deliberate trade-off: a wall shows a 1D slice (vertically constant colour columns), not a 2D unwrapped image. Additive and off by default — without it the hard floor/wall plane switch is unchanged, so every existing definition and the built-in render exactly as before. See <a href="../effects/screen/surface-pattern/">surface_pattern</a>.</li>
+<li><strong><code>normal_mask: 1.0</code> coverage is no longer noisy.</strong> The <code>1.0</code> fallback compared the <em>raw</em> depth-derived normal against exactly <code>1.0</code>, which a normalized normal numerically almost never reaches (<code>0.9999…</code>), so coverage flickered at the threshold (worst at grazing angles near the floor). It now tests the <strong>snapped</strong> normal (<code>abs(n.y) &gt;= 0.5</code>), which is exact for an axis-aligned block face.</li>
+</ul>
+<h3 id="v43">v43<a class="headerlink" href="#v43" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong><code>/vfx stop [&lt;player&gt;]</code> stops every active effect of a player.</strong> With no argument it stops all of the executing player's effects; with a player (selector) it stops that player's effects. It reuses the existing per-effect stop payload on the server and, for the executor's own client, also clears effects played locally (single player / a client-only mod). The old <code>/vfx stop &lt;effect&gt; [players]</code> form is unchanged: a bare token is parsed as an <code>&lt;effect&gt;</code> first, so use a selector (<code>@p</code>/<code>@a</code>) to target a player. New <code>VFXAPI.sendStopAll(ServerPlayer)</code>.</li>
+<li><strong>Mask depth gate is consistent across nodes.</strong> <code>depthRecipeVerified()</code> was left in the 26.2 Stonecutter form on disk, so the active <code>26.1.2</code> Fabric node compiled <code>return true</code> while every other node (including <code>26.1.2-neoforge</code> and <code>1.21.11</code>) compiled <code>false</code>. The active-node form is now the <code>false</code> branch, so a depth-needing mask fails closed (zero coverage) on every non-26.2 node, as documented, instead of silently using the unverified reversed-depth recipe on Fabric.</li>
+<li><strong>A screen-only mask renders on nodes without the verified depth recipe.</strong> The coverage prepass bound the coverage target's own colour texture as the <code>DepthSampler</code> placeholder when depth was untrusted (a feedback loop, undefined on some drivers); it now binds the main target's depth view (else its colour view), so a mask that needs no depth renders identically on <code>26.2</code>, <code>26.1.2</code> and <code>1.21.11</code>.</li>
+</ul>
+<h3 id="v42">v42<a class="headerlink" href="#v42" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong><code>surface_pattern</code> now requires 26.2 (it no longer silently passes through on 26.1.2).</strong> The pass is registered on <code>&gt;=26.2</code> only, matching the mask coverage gate: the reversed-depth reconstruction it reads was verified on 26.2, while 26.1.2/1.21.11 use the other depth convention. On a non-26.2 node the effect type and JSON still parse, but no pass is registered and the effect <strong>draws nothing</strong> (previously 26.1.2 rendered a passthrough with a one-time warning). See <a href="../effects/screen/surface-pattern/">surface_pattern</a>.</li>
+<li><strong>The effect clock and camera/player snapshots are refreshed before layer 0.</strong> They used to advance in the <code>FogRenderer.endFrame</code> hook, which runs after <code>renderLevel</code>, so a <code>surface_pattern</code> (default <code>screen_layer: 0</code>) trailed the player by a frame and time-driven animation was a frame late. Layer 0 now advances the clock and republishes the snapshots; layers &frac12; reuse them, and nothing advances twice. See <a href="../effects/screen/surface-pattern/">surface_pattern</a>.</li>
+<li><strong><code>normal_mask: 1.0</code> is no longer undefined.</strong> The degenerate <code>smoothstep(normal_mask, min(normal_mask + 0.2, 1.0), …)</code> edge collapse (undefined in GLSL) is guarded by clamping <code>normal_mask</code> to <code>0..1</code> and falling back to the exact hard test at <code>1.0</code>.</li>
+<li><strong>A <code>band_softness</code> wider than the band is clamped</strong> to half the band width, so a narrow band (<code>min:10, max:10.5</code>) is solid at its centre instead of evaluating to ~0.28.</li>
+<li><strong><code>distort</code> warps a flat surface instead of translating it.</strong> Its phase was <code>dot(world, normal)</code>, constant on any flat axis-aligned surface; it now follows the in-plane coordinate. Definitions with a non-zero <code>distort</code> on a floor see a different (intended) result.</li>
+<li><strong>Parse fixes that stop a definition from silently doing nothing.</strong> An empty <code>faces: []</code> is now a parse error; <code>pattern.center_x</code>/<code>center_y</code>/<code>center_z</code> are rejected (use <code>pattern.center</code>); an entity-anchored <code>positions</code> entry on a <code>surface_pattern</code> is rejected; a <code>pattern.texture.id</code>/<code>atlas</code> with invalid id syntax is a per-file parse error.</li>
+<li><strong>Per-frame work in the post chain is reduced</strong> — one definition lookup per <code>surface_pattern</code> pass instead of three, and the texture id is parsed once at definition-parse time instead of every frame.</li>
+</ul>
+<h3 id="v41">v41<a class="headerlink" href="#v41" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Mask correctness and performance batch.</strong> Animated <code>softness</code>, composition nesting (left-only, a right-nested <code>op</code> is now a parse error), the custom-leaf (2) and block-leaf (1) caps, an animatable block centre, a composed custom leaf's <code>softness</code>, the depth gate (a depth-needing mask fails closed where <code>surface_pattern</code> does), cached block selection, cleared new coverage targets, live-source shader variants and one-extra-frame uniform-arena retirement. Two plays of one masked definition still share a coverage target (documented). See <a href="../datapack/masks/">Masks</a>.</li>
+</ul>
+<h3 id="v40">v40<a class="headerlink" href="#v40" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Textured <code>surface_pattern</code> figures</strong> — the structural <code>pattern</code> block accepts an optional <code>texture</code> object: a real texture (a block-atlas sprite, an item-atlas sprite, any atlas sprite, or a standalone resource-pack texture) projected onto the same surface the figure uses. <code>id</code> is required; <code>source</code> (<code>block</code>/<code>item</code>/<code>atlas</code>/<code>standalone</code>) is inferred from the id when omitted; <code>channel</code> (<code>alpha</code> default, <code>luminance</code>/<code>r</code>/<code>g</code>/<code>b</code>), <code>sheet</code> (<code>[cols, rows]</code>, <code>1..16</code>, <code>cols*rows &lt;= 256</code>) and <code>aspect</code> (<code>preserve</code>/<code>stretch</code>) are optional. The texture is the figure and an authored <code>figure</code> becomes its mask (a texture with no figure is not clipped). New animatable params <code>rotation</code> (overrides the structural rotation), <code>frame</code> (sprite-sheet cell) and <code>texture_tint</code> (<code>0..1</code> recolour). Atlas sprites use their stitched sub-rect and animate with the atlas; standalone textures sample <code>0..1</code>. Additive: without a <code>texture</code> the block renders exactly as before. See <a href="../effects/screen/surface-pattern/">surface_pattern</a>.</li>
+<li><strong>Texture reload fix</strong> — a texture view cached across a resource reload used to dangle (the loaders close and recreate it); the cache now stores the descriptor and re-derives the view, for both the field <code>texture</code> function and the new pattern texture.</li>
+<li><strong><code>surface_pattern</code> anchor is world-anchored, never the camera</strong> — with no explicit <code>center</code> the anchor fell back to the camera, so third-person (F5) or any camera-only motion slid the projection along the ground. The anchor is now the effect instance's world position: a Java-API move, else its first declared <code>position</code> (<code>/vfx playat</code>), else the <code>pos_x/pos_y/pos_z</code> binds, else the local player for a player-anchored play. An explicit <code>center</code> still wins; camera-only movement no longer moves the pattern. See <a href="../effects/screen/surface-pattern/">surface_pattern</a>.</li>
+</ul>
+<h3 id="v39">v39<a class="headerlink" href="#v39" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong><code>surface_pattern</code> surface selection</strong> — an optional top-level structural <code>surface</code> block selects which face orientations receive the pattern (<code>faces</code>: <code>up</code>/<code>down</code>/<code>north</code>/<code>south</code>/<code>east</code>/<code>west</code>, axis aliases <code>x</code>/<code>y</code>/<code>z</code>, groups <code>horizontal</code>/<code>vertical</code>/<code>all</code>) and an optional inclusive band (<code>min</code>/<code>max</code>) applied <strong>along the fragment's dominant axis</strong> (Y for up/down, X for east/west, Z for north/south). Without the block the legacy numeric <code>normal_mask</code> behaviour is unchanged, so the built-in and every existing definition keep rendering exactly as before. The projection now follows the fragment's dominant world normal, so vertical walls get an upright, un-mirrored figure instead of a sheared XZ one. See <a href="../effects/screen/surface-pattern/">surface_pattern</a>.</li>
+<li><strong><code>surface_pattern</code> band edge is no longer hard</strong> — a surface lying exactly on a band <code>min</code>/<code>max</code> bound flickered, because the depth-reconstructed axis coordinate jitters across the inclusive test from pixel to pixel. The optional <code>band_softness</code> (blocks, <code>0..4</code>, default <code>0</code>) fades the band edge over a small world-space distance, keeping the interior fully on and the outside fully off; <code>0</code> is the exact hard edge, so existing definitions are unchanged. See <a href="../effects/screen/surface-pattern/">surface_pattern</a>.</li>
+</ul>
+<h3 id="v38">v38<a class="headerlink" href="#v38" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>New <code>surface_pattern</code> effect</strong> — a world-anchored shape pattern (<code>circle</code>/<code>ellipse</code>/<code>rect</code>/<code>polygon</code>, tiled by a structural <code>repeat</code> modifier) projected onto the terrain behind each pixel, so it stays fixed to world blocks. Additive: it renders on 26.1.2+ (it reads scene depth), needs <code>"screen_layer": 0</code>, and no existing definition changes behaviour. The figure strings live in a top-level <code>pattern</code> block, never in <code>params</code>. See <a href="../effects/screen/surface-pattern/">surface_pattern</a>.</li>
+</ul>
+<h3 id="v37">v37<a class="headerlink" href="#v37" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Mask bindings now fail closed per leaf</strong> (was per mask) — an unresolved binding (the source entity is absent or off-screen, or outside the client's tracking range, or there is no camera/player state) zeroes <strong>only that leaf's</strong> coverage, so an entity leaving the view no longer makes the whole effect vanish while a still-resolved world leaf knows where it is. An unresolved leaf still never expands coverage, and an <code>invert</code> mask does not turn an all-unresolved (empty) result into full screen. See <a href="../datapack/masks/">Masks</a>.</li>
+<li><strong>New <code>VFXAPI.sendMaskMove</code> / <code>VFXAPI.maskMove</code></strong> — move one mask leaf to a world position by setting its three reserved <code>mask.p&lt;N&gt;.center_x|center_y|center_z</code> params (ordinary animatable effects params). Call it every tick to follow a point, and use it to drive a mask from the <strong>server</strong> when a client-side entity binding is not enough (an entity outside the client's tracking range). See <a href="../../API/">Java API</a> and <a href="../datapack/masks/">Masks</a>.</li>
+<li><strong>Mask coverage at later layers is documented</strong> — the coverage prepass runs at screen layer 0 against the intact scene depth and yields a screen-space coverage, so an effect consuming the mask at a later layer (e.g. <code>screen_layer: 1</code>) tints the first-person hand wherever a masked block lies behind it. Run the masked effect at <code>screen_layer: 0</code> or depth-occlude the consumer to avoid it. See <a href="../datapack/masks/">Masks</a>.</li>
+</ul>
+<h3 id="v36">v36<a class="headerlink" href="#v36" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Mask bindings now fail closed</strong> — a mask that uses a world binding which cannot be resolved (the source entity is absent or off-screen, or there is no camera/player state) contributes <strong>zero</strong> coverage, so the effect applies nowhere, instead of falling back to the leaf's literal default — which for a bound screen <code>rect</code> is the whole screen (the reported "whole screen tint when the villager is not resolvable"). The unresolved source still reports once through <code>VFXLog.warnOnce</code>. See <a href="../datapack/masks/">Masks</a>.</li>
+<li><strong><code>aura</code> masks fill the volume at full strength</strong> — the aura coverage is now sampled at the volume depth nearest the viewer along the view ray (the sphere's closest approach) instead of at the entry point on the boundary, so the interior reaches full coverage and the silhouette edge fades from both sides. See <a href="../datapack/masks/">Masks</a>.</li>
+<li><strong>Mask demos reworked</strong> — <code>vfxweaver:mask_entity_demo</code> and its <code>surface</code> A/B partner <code>vfxweaver:mask_world_demo</code> now use a fixed <code>radius</code> of 4 blocks, so the aura bubble stays the same size as the viewer moves. The entity-following sphere whose radius grew with the viewer's distance moved to the new <code>vfxweaver:mask_pulse_demo</code>, which also documents the <code>"derive": "distance"</code> binding form (54 built-ins).</li>
+</ul>
+<h3 id="v35">v35<a class="headerlink" href="#v35" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>World-volume masks gained an <code>aura</code> evaluation mode</strong> — a <code>sphere</code>/<code>box</code> mask leaf now takes <code>"volume": "surface" | "aura"</code> (see <a href="../datapack/masks/">Masks</a>). <code>"surface"</code> is the default and keeps the original look (the visible surface is classified, so only geometry inside the volume is tinted); <code>"aura"</code> casts the pixel's view ray at the volume and fills the whole volume, including air and sky, wherever the scene does not occlude it, with the edge still fading over <code>softness</code>. Sky and missing depth count as "nothing occludes". The demo <code>vfxweaver:mask_entity_demo</code> (sphere + screen rect) now uses <code>aura</code>; <code>vfxweaver:mask_world_demo</code> is the same entity-following sphere in the default <code>surface</code> mode for an A/B comparison (53 built-ins).</li>
+</ul>
+<h3 id="v34">v34<a class="headerlink" href="#v34" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Per-pixel fields</strong> — a field-capable input (currently <code>dent.intensity</code> and <code>color_grade.tint_r</code>) can carry a <code>{ "field": ... }</code> object that is evaluated per pixel inside the shader instead of once per frame (see <a href="../datapack/fields/">Per-pixel fields</a>): the built-in functions <code>constant</code>, <code>noise</code>, <code>shape</code>, <code>gradient</code>, <code>curve</code>, <code>texture</code>, <code>depth</code>, <code>depth_gradient</code>, <code>normal_facing</code>, <code>screen_uv</code> and <code>world_pos</code>, the shared shape set (<code>circle</code>/<code>ellipse</code>/<code>rect</code>/<code>polygon</code> with <code>fill: solid|stroke</code>, <code>softness</code> and a <code>repeat</code> tiling modifier, plus the 3D <code>sphere</code>/<code>box</code> helpers), and bounded compositions (<code>multiply</code>/<code>add</code>/<code>subtract</code>/<code>mix</code>/<code>min</code>/<code>max</code>). The block is additive — a definition without fields is bit-for-bit unchanged, and a mod that does not know fields ignores them. Depth/world fields need screen layer 0 and otherwise fall back to the neutral value. The built-ins <code>vfxweaver:dent_field_demo</code> and <code>vfxweaver:tint_field_demo</code> are the reference examples (48 built-ins).</li>
+</ul>
+<h3 id="v33">v33<a class="headerlink" href="#v33" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Value graphs</strong> — an effect can drive any numeric input from an optional <code>graph</code> + <code>inputs</code> block (see <a href="../datapack/graph/">Value graphs</a>): <code>constant</code>, <code>time</code>, <code>random</code>, <code>noise</code>, <code>curve</code>, <code>math</code>, <code>mix</code>, <code>clamp</code>, <code>remap</code>, <code>bind</code> and <code>expr</code> nodes plus the logic nodes <code>compare</code>, <code>boolean</code>, <code>if</code> and <code>switch</code>, and reusable <code>subgraphs</code> (macros with <code>$</code> parameters, local prefixed ids and named outputs), all evaluated once per frame. All blocks are additive — a definition without them behaves exactly as before, and a mod that does not know graphs ignores them, because graph wiring never lives inside <code>params</code>. A broken graph fails that file only, and the built-in <code>vfxweaver:graph_demo</code> is the reference example (45 built-ins).</li>
+</ul>
+<h3 id="v32">v32<a class="headerlink" href="#v32" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Block-model particles</strong> — the <code>particles</code> effect can emit real block models instead of vanilla particles: <code>"particle": "block"</code> with a <code>block</code> state, or a reusable preset in <code>data/&lt;namespace&gt;/vfx_particles/&lt;name&gt;.json</code> (registerable from code with <code>VFXAPI.registerBlockParticle</code>). Each particle has block-display brightness (<code>-1</code> = world light, <code>[blockLight, skyLight]</code>), gravity, air friction, optional world collision with surface friction and bounce, size, lifetime and spin; <code>VFXAPI.spawnBlockParticle</code> spawns one immediately on the client.</li>
+<li><strong>Item-model particles</strong> — the same engine can draw real item models: <code>"particle": "item"</code> with an <code>item</code> id (e.g. <code>"minecraft:skeleton_skull"</code>), or a <code>vfx_particles</code> preset that declares <code>"item"</code> instead of <code>"block"</code> (exactly one is required). This is how a skull/head particle works — the block form has no baked block model, the item form does; items render as <code>ItemDisplay</code> entities with the same brightness/physics params.</li>
+<li><strong>Block/item particles render as client-side display entities</strong> — each live particle drives a <code>BlockDisplay</code>/<code>ItemDisplay</code>, so vanilla interpolates its motion (no more jerky stepping) and brightness uses the display's brightness override exactly like a real block display. The physics, presets, datapack/API surface and params are unchanged.</li>
+<li><strong>Block/item particle rotation is fully configurable</strong> — presets and the Java spec builder gained <code>spin_mode</code> (<code>tumble</code> = the physical full-3D spin, <code>yaw</code> = a uniform spin about one axis, <code>none</code> = no rotation), <code>spin_axis</code> (<code>random</code>/<code>x</code>/<code>y</code>/<code>z</code>/<code>[x, y, z]</code>), <code>spin_random</code>, <code>spin_friction</code> and <code>spin_roll</code>; <code>spin</code> is the magnitude of a full 3D angular velocity about a random axis, integrated per tick and damped by the contacted block's friction so a cube lands and settles. The <code>spin</code>/<code>spin_random</code>/<code>spin_friction</code>/<code>spin_roll</code> effect params override a named preset; the defaults (<code>tumble</code>/<code>random</code>/<code>1.0</code>/<code>1.0</code>/<code>0.5</code>) reproduce the previous tumbling behaviour exactly.</li>
+<li><strong><code>vfxweaver:block_chain</code> built-in demo</strong> — the <code>block_chain</code> effect now ships a built-in definition (44 built-ins), so it appears in <code>/vfx</code> tab-completion and <code>/vfx play vfxweaver:block_chain</code> works without writing a datapack.</li>
+<li><strong>NeoForge support for all three Minecraft lines</strong> — a NeoForge node is built beside each Fabric node from one source tree (<code>26.2-neoforge</code>, <code>26.1.2-neoforge</code>, <code>1.21.11-neoforge</code>), so the project produces six jars, one per (Minecraft line, loader). <strong>Flashback is Fabric-only</strong> (Flashback has no NeoForge build). All formats — effect datapacks, <code>vfx_particles</code> presets and the effect definition fields — are additive, so existing datapacks keep working unchanged.</li>
+</ul>
+<h3 id="v31">v31<a class="headerlink" href="#v31" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Replay recording works again with current Flashback versions: the compatibility layer registered two custom actions, which Flashback rejects (it keys actions by class, and both reflection proxies share one class) - that aborted the whole init, so nothing was recorded. Plays, stops, live edits and the definitions snapshot now share one action.</li>
+<li><code>speed_lines</code>: new <code>pos_rand</code> param (default 1.0) - the per-line angular position is jittered inside its own slice, so the spacing is uneven instead of one line per equal sector (<code>0</code> restores the even spacing). <code>seed</code> drives the position as well as the length, so animating it churns the layout.</li>
+<li><code>pulse_ring</code>: <code>thickness: 0</code> now really means zero - the ring is not drawn at all (previously it was clamped to a 0.05 minimum and showed as a hairline).</li>
+</ul>
+<h3 id="v30">v30<a class="headerlink" href="#v30" title="Permanent link">&para;</a></h3>
+<ul>
+<li>New Java API for client-only mods: <code>VFXAPI.registerDefinitions(Map)</code> / <code>VFXAPI.unregisterDefinition(id)</code> register effect definitions from code. They live in a local layer that survives <code>/reload</code> and a server sync (a datapack shipped by a client-side mod only loads in single player, and a server sync used to replace the whole definition set), stay private to this client, and use the same validation as datapack files.</li>
+</ul>
+<h3 id="v29">v29<a class="headerlink" href="#v29" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Live keyframes accept a <strong>negative time</strong> ("from here"): the value the parameter has right now is pinned at the current time and the segment runs to the new value over <code>|time|</code> ticks, so animation variations chain without the caller knowing the current value - <code>sendKeyframe(player, effect, "radius", -20, 0.0F, easing)</code> fades a held blur back out from wherever it stands.</li>
+<li>The live edits are now available <strong>client-side without a packet</strong>: <code>VFXAPI.setParam</code>, <code>VFXAPI.setParamExpr</code> and <code>VFXAPI.setKeyframe</code> mirror the network actions (<code>sendSetParam</code>, <code>sendSetParamExpr</code>, <code>sendKeyframe</code>) locally, next to the already-local <code>playEffect</code>/<code>playEffectId</code>/<code>moveEffect</code>/<code>stopEffect</code> - a pure client-side mod can drive effects end to end.</li>
+<li>Live edits are <strong>recorded into Flashback replays</strong>: <code>setParam</code>, <code>setParamExpr</code> and <code>setKeyframe</code> (local and server-driven) replay along with the original play, so an effect animated while recording keeps its animation on playback.</li>
+</ul>
+<h3 id="v28">v28<a class="headerlink" href="#v28" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Math expressions gained more functions: <code>floor</code>, <code>ceil</code>, <code>round</code>, <code>fract</code>, <code>sign</code>, <code>clamp(x, lo, hi)</code>, <code>lerp</code>/<code>mix(a, b, t)</code>, <code>step(edge, x)</code>, <code>smoothstep(e0, e1, x)</code>, <code>mod(a, b)</code>, <code>tan</code>, <code>atan(y)</code> / <code>atan(y, x)</code> (= atan2), <code>exp</code>, <code>log</code> (natural). Argument counts are now validated when the expression is compiled (a wrong count used to fail while evaluating).</li>
+<li>The client-local Java API can anchor effects: <code>VFXAPI.playEffect</code>/<code>playEffectId</code> take an optional world position and entity-UUID list, and <code>VFXAPI.moveEffect(effectId, instanceId, pos)</code> re-anchors a running instance - no packet involved. The position re-anchors spatial bindings (<code>screen_x</code>, <code>screen_y</code>, <code>proximity</code>, ...) like <code>/vfx playat</code>, so point effects (<code>dent</code>, <code>shockwave</code>, <code>vortex</code>) can be placed at an event and follow it.</li>
+</ul>
+<h3 id="v27">v27<a class="headerlink" href="#v27" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Build restructured for multiple Minecraft versions (Stonecutter). Adds a <code>1.21.11</code>
+  build alongside <code>26.1.2</code>; effect behavior, datapack format and network protocol are unchanged.</li>
+</ul>
+<h3 id="v26">v26<a class="headerlink" href="#v26" title="Permanent link">&para;</a></h3>
+<ul>
+<li>World overlays: entity anchors gained <code>point</code> — the reference point on the entity: <code>feet</code> (default), <code>center</code> (bounding-box centre) or <code>eyes</code> (e.g. <code>{"entity": "@s", "point": "center"}</code>), so effects can attach to the middle/head of an entity instead of its feet.</li>
+<li>World overlays: entity anchors gained <code>dir: "look"</code> + <code>distance</code> — the anchor is pushed along the tracked entity's live look direction (eyes + look × 24 = a laser target where the entity is looking).</li>
+<li>New world-overlay effect <code>block_chain</code>: a line of real textured block-model links between two anchors (datapack picks the block, <code>spacing</code>/<code>arc</code>/<code>scale</code>/<code>align</code> params), rendered through the vanilla submit pipeline (shaderpack-safe). Optional <code>physics: 1</code> — a verlet rope with gravity sag, world collision, player push, <code>sway</code> wind and animatable <code>length</code> (single-anchor hang or two-anchor slack; links stretch when pulled taut).</li>
+<li>New world-overlay effect <code>particles</code>: emits vanilla particles in animated shapes (<code>sphere</code>/<code>ring</code>/<code>helix</code>/<code>line</code>/<code>cube</code>/<code>point</code>) with any RGB via <code>dust</code>. No custom textures — everything from the datapack; entity anchors and fades work as usual. Builtin demo: <code>vfxweaver:particles</code> (golden dust helix).</li>
+</ul>
+<h3 id="v25">v25<a class="headerlink" href="#v25" title="Permanent link">&para;</a></h3>
+<ul>
+<li>New command <code>/vfx validate [namespace]</code> — dry-run definition health report (loaded count + parse errors per file), operator-only.</li>
+<li>New world binding <code>scoreboard</code>: a param can follow a scoreboard value (<code>objective</code> + optional <code>holder</code>, normalized on <code>range</code>, works as a value or a <code>multiply</code> multiplier).</li>
+<li>New Java API: <code>sendSetParamExpr</code> (swap a running effect's param for a live math expression), <code>sendMove</code> (move a running world-overlay instance to an exact point — call per tick for scripted motion), and a serverbound <code>vfxweaver:vfx_request</code> packet letting client mods play effects through the server (broadcast is operator-gated).</li>
+<li>Built-in effects now ship as JSON resources (<code>data/vfxweaver/vfx/*.json</code> inside the mod jar) instead of code — they load, sync and can be overridden like any datapack definitions; copy a file out of the jar to tweak it.</li>
+<li>World-overlay geometry uses exact <code>Vec3</code> coordinates: entity anchors and API moves are no longer snapped to block centres (static <code>positions</code> entries keep the historical block-centre behaviour). Protocol version 6.</li>
+</ul>
+<h3 id="v24">v24<a class="headerlink" href="#v24" title="Permanent link">&para;</a></h3>
+<ul>
+<li>World overlays: <code>positions</code> entries may anchor to a live entity — <code>{"entity": "&lt;selector&gt;", "offset": [x,y,z]}</code>. The server resolves the selector once per play (plain <code>/vfx play</code>; fails if it matches nothing), the client follows the entity every frame; the Java API passes anchors as target UUIDs in anchor order.</li>
+<li>Collections: child <code>params</code> values are now full parameter specs — <code>start</code>/<code>end</code>, <code>keyframes</code>, <code>bind</code>, <code>expr</code>, <code>multiply</code> (plain numbers still work as constants).</li>
+</ul>
+<h3 id="v23">v23<a class="headerlink" href="#v23" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>light_beam</code>: new <code>bottom_fade</code> param (fades the column toward the bottom, mirrors <code>top_fade</code>).</li>
+<li>Fixed <code>light_beam</code> rendering under shaderpacks: packs that declare vertex colour <code>flat</code> (Complementary) take each triangle's colour from one vertex, so the height fade showed as visible triangles. Faded shells are now split into 32 narrow slices, each quad with one uniform colour - clean stepped fade under shaders, imperceptible difference in vanilla.</li>
+</ul>
+<h3 id="v22">v22<a class="headerlink" href="#v22" title="Permanent link">&para;</a></h3>
+<ul>
+<li>New screen effects: <code>slice_shift</code>, <code>noise_warp</code>, <code>solarize</code>, <code>double_vision</code>, <code>eyelids</code>, <code>iris_wipe</code>, <code>digital_glitch</code>, <code>vhs</code>, <code>shockwave</code>, <code>afterimage</code>, <code>stop_motion</code>.</li>
+<li>New world effects: <code>light_beam</code> (layered shells, cubic softness, <code>top_scale</code>), <code>pulse_ring</code> (camera-facing billboard + <code>rot</code>), <code>guide_line</code>.</li>
+<li>New entity effect: <code>entity_displace</code> (flat per-vertex displaced echo over the intact model).</li>
+<li>New misc effects: <code>camera_roll</code>.</li>
+<li><code>afterimage</code> uses an island blend; <code>camera_shake</code>/<code>camera_roll</code> also move the first-person hand.</li>
+<li>Removed before release: <code>block_displace</code>, <code>god_rays</code>, <code>scan_sweep</code>, <code>hud_fade</code> (cut before release, will be redesigned later).</li>
+</ul>
+<h3 id="v20">v20<a class="headerlink" href="#v20" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Parameter overrides whose name the effect definition does not declare (e.g. <code>through_blocks</code> on the built-in effects) now apply as constant values instead of being silently dropped; <code>through_blocks</code> is declared on the built-in entity/block tint/outline.</li>
+<li>Entity tint/outline are rendered on the first-person hand as well (the arm bypasses the normal entity submit path).</li>
+<li>Outlines always render under their target now. Entity outline with <code>through_blocks:1</code> draws an opaque shell before the body (rim around the silhouette, visible through walls); block outlines ignore <code>through_blocks</code> and never cover the block itself.</li>
+<li><code>camera_shake</code> gained a <code>frequency</code> parameter (oscillations per second, default 7).</li>
+<li>All screen effects accept <code>screen_layer</code>: <code>0</code> = under the first-person hand and GUI, <code>1</code> = above the hand below the GUI (default), <code>2</code> = above everything including the GUI.</li>
+</ul>
+<h3 id="v18">v18<a class="headerlink" href="#v18" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Effects survive a reconnect correctly: the server remembers runtime keyframes (Java API <code>sendKeyframe</code>) and resumes playback from the position it was left at (protocol version 5).</li>
+<li>Non-looping effects whose runtime edits animate to zero remove themselves instead of lingering invisibly.</li>
+<li><code>/vfx set</code> on a non-running effect starts a normal instance with the definition's own <code>duration</code> instead of an immortal one.</li>
+<li><code>/vfx playentity</code> accepts an optional <code>[players]</code> list — who sees the effect (default: the executing player).</li>
+<li>Removed the <code>/vfx key</code> command (nobody used it; <code>VFXAPI.sendKeyframe</code> and the network <code>KEYFRAME</code> action remain for mods).</li>
+</ul>
+<h3 id="v17">v17<a class="headerlink" href="#v17" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Flashback compatibility: client-local effects are recorded into Flashback replays and re-triggered during playback (soft dependency, reflection-based, no compile-time coupling).</li>
+</ul>
+<h3 id="v16">v16<a class="headerlink" href="#v16" title="Permanent link">&para;</a></h3>
+<ul>
+<li>New effect types for entities: <code>entity_tint</code> (a solid translucent fill of the effect colour) and <code>entity_outline</code> (an "inverted hull" silhouette outline, thickness <code>width</code>). Targets are set by UUID.</li>
+<li>New command <code>/vfx playentity &lt;effect&gt; &lt;targets&gt;</code> — plays an effect on entities picked by a selector (up to 16 UUIDs).</li>
+<li>Both types support <code>through_blocks</code>: 0 — the effect hides behind walls, 1 — visible through them.</li>
+</ul>
+<h3 id="v15">v15<a class="headerlink" href="#v15" title="Permanent link">&para;</a></h3>
+<ul>
+<li>New way to set a param — the math expression <code>"expr"</code> (variables <code>t</code>/<code>x</code>/<code>y</code>/<code>z</code>/<code>pi</code>/<code>e</code>, functions <code>sin</code>/<code>cos</code>/<code>abs</code>/<code>min</code>/<code>max</code>/<code>pow</code>/<code>sqrt</code>/<code>random</code>/<code>noise</code>). Compiled once, evaluated every frame; <code>random()</code>/<code>noise()</code> are unique per instance.</li>
+<li>Camera shake (<code>camera_shake</code>) is now unique per call (per-instance seed).</li>
+</ul>
+<h3 id="v14">v14<a class="headerlink" href="#v14" title="Permanent link">&para;</a></h3>
+<ul>
+<li>The mutating <code>/vfx</code> commands (<code>play</code>, <code>playat</code>, <code>stop</code>, <code>set</code>, <code>key</code>) now require operator rights; <code>/vfx list</code> is open to all.</li>
+<li>Tighter client protection from a hostile/broken server: caps on network packet sizes (effect params, definition/curve sync), <code>vfx_sync</code> packet version check, cap on effect duration from the server, instance-id validation on stop.</li>
+</ul>
+<h3 id="v13">v13<a class="headerlink" href="#v13" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Datapack VFX effects and curves sync with dedicated-server clients (the <code>vfxweaver:vfx_sync</code> packet on join and after <code>/reload</code>) — custom effects now play for players on a dedicated server, like in single-player.</li>
+</ul>
+<h3 id="v12">v12<a class="headerlink" href="#v12" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>sendEffect</code> accepts a direct world position — no <code>pos_x/y/z</code> hack (the client immediately re-anchors spatial bindings to the point).</li>
+<li>Custom easing curves: files <code>data/&lt;ns&gt;/vfx_curves/&lt;name&gt;.json</code> or an inline object <code>{ "curve": [[t,v],...] }</code> in any <code>easing</code> field.</li>
+<li>Param multiplier: <code>"param": { keyframes/start-end/constant/binding + "multiply": { "bind": "proximity", ... } }</code> — final value = base × multiplier (e.g. an animated dent fading with distance from a point).</li>
+<li><code>VFXAPI.playEffectId(...)</code> returns the instance id, <code>VFXAPI.stopEffect(long)</code> stops one specific instance; <code>sendStop(player, effectId, instanceId)</code> — over the network.</li>
+<li>Network protocol version 4: the packet carries an optional position and instance id.</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+  <script>var tabs=__md_get("__tabs");if(Array.isArray(tabs))e:for(var set of document.querySelectorAll(".tabbed-set")){var labels=set.querySelector(".tabbed-labels");for(var tab of tabs)for(var label of labels.getElementsByTagName("label"))if(label.innerText.trim()===tab){var input=document.getElementById(label.htmlFor);input.checked=!0;continue e}}</script>
+
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      Authored by Artition &middot; MIT licensed
+    </div>
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+      <div class="md-progress" data-md-component="progress" role="progressbar"></div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.instant", "navigation.instant.progress", "navigation.sections", "navigation.top", "navigation.tracking", "toc.follow", "search.suggest", "search.highlight", "content.code.copy", "content.tabs.link"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"alias": true, "default": "latest", "provider": "mike"}}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>
