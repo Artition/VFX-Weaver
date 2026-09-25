@@ -5,7 +5,7 @@ post-processing (ping-pong FBO), camera shake, world overlays (block tint/outlin
 (tint/outline by UUID), keyframe animation, world/camera/player bindings, datapacks, network triggers
 and a public Java API.
 
-- **Mod version: 2.0.2** — what you download (`vfxweaver-2.0.2+<mc>[-neoforge].jar`).
+- **Mod version: 2.1.0** — what you download (`vfxweaver-2.1.0+<mc>[-neoforge].jar`).
 - **Guide revision: v67** — the revision of *this documentation*, independent of the mod version.
   The mod number lives in the release; the guide number lives in the
   [Guide changelog](changelog.md). One jar exists per Minecraft line and loader; Fabric jars need

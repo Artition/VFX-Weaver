@@ -3,7 +3,7 @@
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 **This page is the authoritative record of released mod versions.** The newest entry is the current
-mod version (`2.0.2`, read from `mod_version` in the build). Each `##` heading names a release; where
+mod version (`2.1.0`, read from `mod_version` in the build). Each `##` heading names a release; where
 a release shipped with a guide revision the heading shows both numbers (`v1.2.0 / Guide v32`), and a
 heading titled only `Guide vN` is a guide change that shipped without a mod version bump. The two
 numbers are independent: the **mod version** is what you download, the **guide revision** is how many
@@ -12,9 +12,16 @@ times this documentation has been revised. The authoritative record of guide rev
 the [download table](index.md#download). Add new entries at the top, in the same PR as the behaviour
 change.
 
-## Unreleased
+## 2.1.0 — 2026-09-25
 
 ### Added
+
+- **`film_grain` can be coloured (`chroma`).** A new `chroma` param (`0`, monochrome, default; `1`,
+  fully coloured) mixes an independent per-channel grain into the shared monochrome grain and stops
+  halfway, so at `1` the grain keeps its luminance structure instead of dissolving into plain colour
+  noise. Animated like any other param (`keyframes`, `expr`, `setParam`, `fade_ticks`). Additive: absent
+  = exactly the previous monochrome look, no datapack field renamed, no wire change. See
+  [film_grain](guide/effects/screen/film-grain.md).
 
 - **`fog_modifier` — change the vanilla fog.** A new value-modifier effect (like `fov_modifier`, not
   a post pass): `fog_start_scale`/`fog_end_scale` multiply the vanilla fog start/end distance
@@ -147,6 +154,18 @@ change.
   See [masks](guide/datapack/masks.md).
 
 ### Fixed
+
+- **`film_grain` noise no longer repeats in a fixed pattern.** The cells were hashed with a
+  `fract(sin(dot(...)))` hash, which is only well distributed for large inputs: on the small integers a
+  pixel cell produces it repeats in a visible lattice, so the frame read as one small tile stamped over
+  and over. Cells are now hashed with an integer bit-mix, and the per-frame offset is an integer tick
+  mix rather than a `fract()`-scaled float.
+
+- **`film_grain` and `pixelate` cell grids grow from the centre, not the corner.** Both derived their
+  grid straight from the UV, so an animated cell size expanded the pattern out of the bottom-left
+  corner; the grid is now measured from the screen centre. Effects whose pattern is per-scanline
+  (`scanlines`, `vhs`, `digital_glitch`) are deliberately unchanged — those bands run from the top edge
+  and have no centre to grow from.
 
 - **`sky_pattern` `anchor: "stars"` really tracks the star field.** The anchor previously drove
   `dome_rotation`, a world-**Y** spin, while vanilla rotates the star sphere about a different axis
