@@ -173,6 +173,7 @@ public enum VFXEffectType {
 		case FOV_MODIFIER -> "fov_delta".equals(parameter) ? 0.0F : Float.NaN;
 		case FOG_MODIFIER -> switch (parameter) {
 			case "fog_start_scale", "fog_end_scale" -> 1.0F;
+			case "fog_color_amount" -> Float.NaN;
 			default -> Float.NaN;
 		};
 		case SLICE_SHIFT -> "shift".equals(parameter) ? 0.0F : Float.NaN;

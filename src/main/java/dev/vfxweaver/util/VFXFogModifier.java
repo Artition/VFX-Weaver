@@ -13,8 +13,10 @@ import java.util.List;
  *
  * <p>Scales combine <b>additively</b> like the FOV delta: {@code scale = 1 + Σ((s_i − 1) · w_i)},
  * so two effects that each pull the fog to 2x give 3x, not 4x. Colour is the <b>weighted average</b>
- * of the authored colours, blended from the vanilla colour by the clamped total weight; both are
- * sums, so the result is independent of the order the effects are iterated in.
+ * of the authored colours, blended from the vanilla colour by the clamped total weight; each
+ * instance's colour weight is scaled by {@code fog_color_amount} ({@code 0} leaves the colour
+ * untouched, unauthored = the full authored colour). Both are sums, so the result is independent of
+ * the order the effects are iterated in.
  *
  * <p>Absent colour params must leave the vanilla fog untouched: pass the vanilla channel values in
  * and an unauthored ({@code NaN}) component is returned unchanged with {@link Result#hasColor()} off.
@@ -25,10 +27,12 @@ public final class VFXFogModifier {
 
 	/**
 	 * One active {@code fog_modifier} instance's contribution. {@code startScale}/{@code endScale}
-	 * are neutral at {@code 1.0}; a colour component of {@code NaN} means "not authored"; {@code weight}
-	 * is the instance's fade weight in {@code [0, 1]} (or more, for stacked live edits).
+	 * are neutral at {@code 1.0}; a colour component of {@code NaN} means "not authored";
+	 * {@code colorAmount} is how far the colour moves from vanilla in {@code [0, 1]} ({@code NaN} =
+	 * unauthored, treated as {@code 1.0}); {@code weight} is the instance's fade weight in
+	 * {@code [0, 1]} (or more, for stacked live edits).
 	 */
-	public record Contribution(float startScale, float endScale, float r, float g, float b, float weight) {
+	public record Contribution(float startScale, float endScale, float r, float g, float b, float colorAmount, float weight) {
 	}
 
 	/**
@@ -64,7 +68,13 @@ public final class VFXFogModifier {
 		for (final Contribution c : contributions) {
 			start += (c.startScale() - 1.0F) * c.weight();
 			end += (c.endScale() - 1.0F) * c.weight();
-			final float w = c.weight();
+			// fog_color_amount scales the per-instance COLOUR weight only: 0 = vanilla (never
+			// touched), unauthored (NaN) = the full authored colour. Accumulating (not sequencing)
+			// keeps the blend order-independent. The distance scales are untouched.
+			final float amount = Float.isNaN(c.colorAmount())
+				? 1.0F
+				: Math.min(1.0F, Math.max(0.0F, c.colorAmount()));
+			final float w = c.weight() * amount;
 			if (!Float.isNaN(c.r())) {
 				sumR += c.r() * w;
 				weightR += w;

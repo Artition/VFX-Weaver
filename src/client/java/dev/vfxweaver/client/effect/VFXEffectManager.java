@@ -717,6 +717,7 @@ public class VFXEffectManager {
 					effect.getParam("fog_r", Float.NaN),
 					effect.getParam("fog_g", Float.NaN),
 					effect.getParam("fog_b", Float.NaN),
+					effect.getParam("fog_color_amount", Float.NaN),
 					effect.getWeight()));
 			}
 		}

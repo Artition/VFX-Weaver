@@ -11,7 +11,9 @@
 #              private write inline - so the mixin @ModifyArgs' the private call's six float slots.
 # This check asserts:
 #   * the effect type exists with its neutral values and is excluded from isPostProcessing();
-#   * the manager walks the active effects and reads the five params;
+#   * the manager walks the active effects and reads the six params (incl. fog_color_amount);
+#   * fog_color_amount scales the colour weight (NaN = 1.0), so amount 0 leaves the colour
+#     untouched with hasColor false and amount 0.5 is midway - the distance scales are unaffected;
 #   * the mixin is registered, the 26.x hook is @ModifyVariable on updateBuffer(FogData) returning a
 #     new instance (no in-place mutation) and the 1.21.11 hook is @ModifyArgs on the private write;
 #   * every scaled end including skyEnd/cloudEnd is present, and the degenerate-range guard exists;
@@ -54,6 +56,9 @@ if ($type -notmatch '(?s)case FOG_MODIFIER ->.*?fog_start_scale.*?1\.0F') {
 if ($type -notmatch '(?s)case FOG_MODIFIER ->.*?fog_end_scale.*?1\.0F') {
 	$problems.Add("VFXEffectType.neutralValue FOG_MODIFIER case does not set fog_end_scale = 1.0F")
 }
+if ($type -notmatch '(?s)case FOG_MODIFIER ->.*?fog_color_amount.*?Float\.NaN') {
+	$problems.Add("VFXEffectType.neutralValue FOG_MODIFIER case does not set fog_color_amount = NaN (unauthored)")
+}
 if ($type -notmatch 'this != FOV_MODIFIER && this != FOG_MODIFIER') {
 	$problems.Add("VFXEffectType.isPostProcessing does not exclude FOG_MODIFIER")
 }
@@ -65,7 +70,7 @@ if ($manager -notmatch 'getActiveFogContributions') {
 if ($manager -notmatch 'VFXEffectType\.FOG_MODIFIER') {
 	$problems.Add("VFXEffectManager does not filter for VFXEffectType.FOG_MODIFIER")
 }
-foreach ($param in @('fog_start_scale', 'fog_end_scale', 'fog_r', 'fog_g', 'fog_b')) {
+foreach ($param in @('fog_start_scale', 'fog_end_scale', 'fog_r', 'fog_g', 'fog_b', 'fog_color_amount')) {
 	if ($manager -notmatch [regex]::Escape("getParam(`"$param`"")) {
 		$problems.Add("VFXEffectManager does not read the '$param' param")
 	}
@@ -254,7 +259,7 @@ public final class FogModifierCheck {
 
 		// one effect: its scale, unauthored colour leaves vanilla unchanged.
 		VFXFogModifier.Result one = VFXFogModifier.combine(
-			List.of(new VFXFogModifier.Contribution(0.5F, 1.5F, NaN, NaN, NaN, 1.0F)), 0.1F, 0.2F, 0.3F);
+			List.of(new VFXFogModifier.Contribution(0.5F, 1.5F, NaN, NaN, NaN, NaN, 1.0F)), 0.1F, 0.2F, 0.3F);
 		expect("one active", one.active());
 		expectEq("one start", one.startScale(), 0.5F);
 		expectEq("one end", one.endScale(), 1.5F);
@@ -263,19 +268,19 @@ public final class FogModifierCheck {
 
 		// two effects: additive, weight-scaled.
 		VFXFogModifier.Result two = VFXFogModifier.combine(
-			List.of(new VFXFogModifier.Contribution(2.0F, 3.0F, NaN, NaN, NaN, 1.0F),
-				new VFXFogModifier.Contribution(3.0F, 0.5F, NaN, NaN, NaN, 1.0F)), 0.0F, 0.0F, 0.0F);
+			List.of(new VFXFogModifier.Contribution(2.0F, 3.0F, NaN, NaN, NaN, NaN, 1.0F),
+				new VFXFogModifier.Contribution(3.0F, 0.5F, NaN, NaN, NaN, NaN, 1.0F)), 0.0F, 0.0F, 0.0F);
 		expectEq("additive start", two.startScale(), 1.0F + 1.0F + 2.0F);
 		expectEq("additive end", two.endScale(), 1.0F + 2.0F + (-0.5F));
 
 		VFXFogModifier.Result weighted = VFXFogModifier.combine(
-			List.of(new VFXFogModifier.Contribution(3.0F, 3.0F, NaN, NaN, NaN, 0.5F)), 0.0F, 0.0F, 0.0F);
+			List.of(new VFXFogModifier.Contribution(3.0F, 3.0F, NaN, NaN, NaN, NaN, 0.5F)), 0.0F, 0.0F, 0.0F);
 		expectEq("weight start", weighted.startScale(), 1.0F + (3.0F - 1.0F) * 0.5F);
 		expectEq("weight end", weighted.endScale(), 1.0F + (3.0F - 1.0F) * 0.5F);
 
 		// colour: weighted average blended from vanilla, order-independent, clamped.
-		VFXFogModifier.Contribution red = new VFXFogModifier.Contribution(1.0F, 1.0F, 1.0F, 0.0F, 0.0F, 1.0F);
-		VFXFogModifier.Contribution green = new VFXFogModifier.Contribution(1.0F, 1.0F, 0.0F, 1.0F, 0.0F, 1.0F);
+		VFXFogModifier.Contribution red = new VFXFogModifier.Contribution(1.0F, 1.0F, 1.0F, 0.0F, 0.0F, NaN, 1.0F);
+		VFXFogModifier.Contribution green = new VFXFogModifier.Contribution(1.0F, 1.0F, 0.0F, 1.0F, 0.0F, NaN, 1.0F);
 		VFXFogModifier.Result ab = VFXFogModifier.combine(List.of(red, green), 0.5F, 0.5F, 0.5F);
 		VFXFogModifier.Result ba = VFXFogModifier.combine(List.of(green, red), 0.5F, 0.5F, 0.5F);
 		expect("colour active", ab.hasColor());
@@ -288,14 +293,51 @@ public final class FogModifierCheck {
 
 		// clamped: an authored component past 1 lands on 1, a negative one on 0.
 		VFXFogModifier.Result clamped = VFXFogModifier.combine(
-			List.of(new VFXFogModifier.Contribution(1.0F, 1.0F, 2.0F, -1.0F, 0.5F, 1.0F)), 0.2F, 0.2F, 0.2F);
+			List.of(new VFXFogModifier.Contribution(1.0F, 1.0F, 2.0F, -1.0F, 0.5F, NaN, 1.0F)), 0.2F, 0.2F, 0.2F);
 		expectEq("clamp r", clamped.r(), 1.0F);
 		expectEq("clamp g", clamped.g(), 0.0F);
 		expectEq("clamp b", clamped.b(), 0.5F);
 
+		// fog_color_amount scales the COLOUR only: 1 (or NaN) = full target, 0.5 = midway,
+		// 0 = vanilla and hasColor false; the distance scales are untouched.
+		VFXFogModifier.Result full = VFXFogModifier.combine(
+			List.of(new VFXFogModifier.Contribution(1.0F, 1.0F, 1.0F, 0.0F, 0.0F, 1.0F, 1.0F)), 0.0F, 0.0F, 0.0F);
+		expect("amount 1 has colour", full.hasColor());
+		expectEq("amount 1 r", full.r(), 1.0F);
+		expectEq("amount 1 start neutral", full.startScale(), 1.0F);
+		expectEq("amount 1 end neutral", full.endScale(), 1.0F);
+
+		VFXFogModifier.Result halfAmount = VFXFogModifier.combine(
+			List.of(new VFXFogModifier.Contribution(1.0F, 1.0F, 1.0F, 0.0F, 0.0F, 0.5F, 1.0F)), 0.0F, 0.0F, 0.0F);
+		expect("amount 0.5 has colour", halfAmount.hasColor());
+		expectEq("amount 0.5 r midway", halfAmount.r(), 0.5F);
+
+		VFXFogModifier.Result zeroAmount = VFXFogModifier.combine(
+			List.of(new VFXFogModifier.Contribution(1.0F, 1.0F, 1.0F, 0.0F, 0.0F, 0.0F, 1.0F)), 0.4F, 0.4F, 0.4F);
+		expect("amount 0 no colour", !zeroAmount.hasColor());
+		expectEq("amount 0 r untouched", zeroAmount.r(), 0.4F);
+
+		// an unauthored amount (NaN) with an authored colour behaves as 1.0 (today's full colour).
+		VFXFogModifier.Result unsetAmount = VFXFogModifier.combine(
+			List.of(new VFXFogModifier.Contribution(1.0F, 1.0F, 1.0F, 0.0F, 0.0F, NaN, 1.0F)), 0.0F, 0.0F, 0.0F);
+		expect("unauthored amount has colour", unsetAmount.hasColor());
+		expectEq("unauthored amount r full", unsetAmount.r(), 1.0F);
+
+		// two effects with different amounts combine order-independently (sums, not sequence).
+		VFXFogModifier.Contribution redFull = new VFXFogModifier.Contribution(1.0F, 1.0F, 1.0F, NaN, NaN, 1.0F, 1.0F);
+		VFXFogModifier.Contribution greenHalf = new VFXFogModifier.Contribution(1.0F, 1.0F, NaN, 1.0F, NaN, 0.5F, 1.0F);
+		VFXFogModifier.Result rg = VFXFogModifier.combine(List.of(redFull, greenHalf), 0.0F, 0.0F, 0.0F);
+		VFXFogModifier.Result gr = VFXFogModifier.combine(List.of(greenHalf, redFull), 0.0F, 0.0F, 0.0F);
+		expectEq("amount order r", gr.r(), rg.r());
+		expectEq("amount order g", gr.g(), rg.g());
+		expectEq("amount order b", gr.b(), rg.b());
+		expectEq("amount mixed r full", rg.r(), 1.0F);
+		expectEq("amount mixed g half", rg.g(), 0.5F);
+		expect("amount result finite", Float.isFinite(rg.r()) && Float.isFinite(rg.g()) && Float.isFinite(rg.b()));
+
 		// fading out (weight 0) => scales exactly neutral, colour off.
 		VFXFogModifier.Result faded = VFXFogModifier.combine(
-			List.of(new VFXFogModifier.Contribution(0.5F, 0.5F, 1.0F, 0.0F, 0.0F, 0.0F)), 0.4F, 0.5F, 0.6F);
+			List.of(new VFXFogModifier.Contribution(0.5F, 0.5F, 1.0F, 0.0F, 0.0F, NaN, 0.0F)), 0.4F, 0.5F, 0.6F);
 		expectEq("faded start", faded.startScale(), 1.0F);
 		expectEq("faded end", faded.endScale(), 1.0F);
 		expect("faded no colour", !faded.hasColor());
@@ -322,5 +364,5 @@ try {
 	Pop-Location
 }
 
-Write-Host "fog_modifier OK: type + neutral values + isPostProcessing exclusion, manager accumulation, per-node hooks (26.x @ModifyVariable on FogData returning a new instance incl. skyEnd/cloudEnd + degenerate guard; 1.21.11 @ModifyArgs slots), real-jar targets (javap -s), helper maths."
+Write-Host "fog_modifier OK: type + neutral values (incl. fog_color_amount = NaN) + isPostProcessing exclusion, manager accumulation, per-node hooks (26.x @ModifyVariable on FogData returning a new instance incl. skyEnd/cloudEnd + degenerate guard; 1.21.11 @ModifyArgs slots), real-jar targets (javap -s), colour-amount combination maths (amount 0/0.5/1, NaN = 1.0, order-independent)."
 exit 0

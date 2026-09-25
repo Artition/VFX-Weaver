@@ -19,22 +19,26 @@ change.
 - **`fog_modifier` — change the vanilla fog.** A new value-modifier effect (like `fov_modifier`, not
   a post pass): `fog_start_scale`/`fog_end_scale` multiply the vanilla fog start/end distance
   (neutral `1.0`; `>1` sees further, `<1` pulls the fog closer) and optional `fog_r`/`fog_g`/`fog_b`
-  (neutral "unset") override the fog colour. The mod rewrites the values vanilla writes into the fog
-  uniforms (`FogEnvironmental`/`FogRenderDistance` start+end and `FogColor`), so vanilla terrain,
-  entities and the entity-effect geometry all see the change; absent params leave the fog
-  bit-for-bit untouched. Scales combine additively around neutral (`1 + Σ((s−1)·weight)`) and the
-  colour is a weighted average blended from vanilla (order-independent, clamped), so overlapping
-  effects stack predictably. All five params are ordinary animatable params, so `keyframes`, `expr`,
-  graphs, `setParam` and `fade_ticks` work. The scale applies to every distance-based fog on all
-  three nodes — overworld, **nether** (`fog_start`/`fog_end` distances) and End, plus water/lava/
-  snow/blindness/darkness; these versions have **no** density-fog field or attribute, so nothing is
-  left out. **Honest limits:** under an **Iris shaderpack** this effect is a **no-op** (a pack
-  computes its own fog and ignores the vanilla values); the sky/cloud fade distances are not touched;
-  and the `block_tint`/`block_outline`/`glow`/spark overlays use a fog-free shader, so only the
-  entity-effect geometry inherits the change. No shader change, no UBO change, no new dependency;
-  `PROTOCOL_VERSION` unchanged. **Not verified in game:** the visual result (the owner tests); the
-  static contract — the per-node `FogRenderer` write point, the combination maths and the type/
-  neutral/isPostProcessing wiring — is asserted by `scripts/check-fog-modifier.ps1`.
+  (neutral "unset") override the fog colour. `fog_color_amount` (`0..1`, neutral `1`/unset) scales how
+  far the colour moves from vanilla — animating it ramps smoothly from the dimension's own fog colour
+  to the authored one, and `0` is a true no-op that never writes the colour. The mod rewrites the
+  values vanilla writes into the fog uniforms (`FogEnvironmental`/`FogRenderDistance` start+end,
+  `FogSkyEnd`/`FogCloudsEnd` and `FogColor`), so vanilla terrain, entities and the entity-effect
+  geometry all see the change; absent params leave the fog bit-for-bit untouched. Scales combine
+  additively around neutral (`1 + Σ((s−1)·weight)`) and the colour is a weighted average blended from
+  vanilla (order-independent, clamped; each effect's colour weight is its `weight·fog_color_amount`),
+  so overlapping effects stack predictably. All six params are ordinary animatable params, so
+  `keyframes`, `expr`, graphs, `setParam` and `fade_ticks` work. The start/end scales apply to every
+  distance-based fog on all three nodes — overworld, **nether** (`fog_start`/`fog_end` distances) and
+  End, plus water/lava/snow/blindness/darkness, and `fog_end_scale` also scales the sky/cloud fade
+  ends; these versions have **no** density-fog field or attribute, so nothing is left out. **Honest
+  limits:** under an **Iris shaderpack** this effect is a **no-op** (a pack computes its own fog and
+  ignores the vanilla values); and the `block_tint`/`block_outline`/`glow`/spark overlays use a
+  fog-free shader, so only the entity-effect geometry inherits the change. No shader change, no UBO
+  change, no new dependency; `PROTOCOL_VERSION` unchanged. **Not verified in game:** the visual result
+  (the owner tests); the static contract — the per-node `FogRenderer` write point, the colour-amount
+  combination maths and the type/neutral/isPostProcessing wiring — is asserted by
+  `scripts/check-fog-modifier.ps1`.
 
 - **`sky_pattern` — follow the sun, the moon or the stars (`anchor`).** The overnight sky body is a
   new optional top-level `anchor` string: omitted (or `"dome"`) is the world-fixed
