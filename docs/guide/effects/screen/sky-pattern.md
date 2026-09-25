@@ -1,5 +1,7 @@
 # sky_pattern
 
+<video autoplay loop muted playsinline width="100%"><source src="../../../assets/media/sky_pattern.mp4" type="video/mp4"></video>
+
 `type: "sky_pattern"`
 
 Paints a figure (or a texture) on the **sky dome**. It is the sky sibling of
@@ -286,6 +288,8 @@ the decal along its latitude, around the sky. Its datapack definition:
 
 ### `show_sky_pattern_texture`
 
+<video autoplay loop muted playsinline width="100%"><source src="../../../assets/media/sky_pattern_texture.mp4" type="video/mp4"></video>
+
 ```
 /vfx play vfx_demos:show_sky_pattern_texture
 ```
@@ -336,6 +340,18 @@ cover the entire sky with no pole funnel:
 
 ### `sky_anchor_sun`, `sky_anchor_moon`, `sky_anchor_stars`
 
+`sky_anchor_sun`
+
+<video autoplay loop muted playsinline width="100%"><source src="../../../assets/media/sky_anchor_sun.mp4" type="video/mp4"></video>
+
+`sky_anchor_moon`
+
+<video autoplay loop muted playsinline width="100%"><source src="../../../assets/media/sky_anchor_moon.mp4" type="video/mp4"></video>
+
+`sky_anchor_stars`
+
+<video autoplay loop muted playsinline width="100%"><source src="../../../assets/media/sky_anchor_stars.mp4" type="video/mp4"></video>
+
 ```
 /vfx play vfx_demos:sky_anchor_sun
 /vfx play vfx_demos:sky_anchor_moon
@@ -367,5 +383,77 @@ The same ring on the **moon** (`anchor: "moon"`), and a whole-sky texture locked
 		"color_r": 0.5, "color_g": 0.7, "color_b": 1.0, "texture_tint": 1.0 },
 	"pattern": { "repeat": [6, 3], "texture": { "id": "minecraft:block/cracked_stone_bricks",
 		"source": "block", "sheet": [4, 4], "channel": "luminance", "aspect": "preserve" } }
+}
+```
+
+## Code
+
+```
+/vfx play vfx_demos:show_sky_pattern
+```
+
+Its datapack definition:
+
+```json
+{
+	"type": "sky_pattern",
+	"duration": 200,
+	"easing": "linear",
+	"persistent": true,
+	"loop": true,
+	"fade_ticks": 12,
+	"params": {
+		"screen_layer": 0,
+		"anchor_yaw": 0.0,
+		"anchor_pitch": -30.0,
+		"sky_mode": "patch",
+		"tile_scale": {
+			"keyframes": [
+				{
+					"time": 0,
+					"value": 0.4
+				},
+				{
+					"time": 100,
+					"value": 0.55
+				},
+				{
+					"time": 200,
+					"value": 0.4
+				}
+			]
+		},
+		"color_r": 0.35,
+		"color_g": 0.85,
+		"color_b": 1.0,
+		"opacity": {
+			"keyframes": [
+				{
+					"time": 0,
+					"value": 0.4
+				},
+				{
+					"time": 100,
+					"value": 0.9
+				},
+				{
+					"time": 200,
+					"value": 0.4
+				}
+			]
+		}
+	},
+	"pattern": {
+		"figure": "ellipse",
+		"fill": "stroke",
+		"radius_x": 0.42,
+		"radius_y": 0.42,
+		"stroke_width": 0.03,
+		"softness": 0.03,
+		"repeat": [
+			1,
+			1
+		]
+	}
 }
 ```

@@ -556,6 +556,18 @@ Its datapack definition:
 
 ### `show_mask_custom_glsl_aura_demo`, `show_mask_custom_glsl_surface_demo`, `show_mask_custom_data_demo`
 
+`show_mask_custom_glsl_aura_demo`
+
+<video autoplay loop muted playsinline width="100%"><source src="../../../assets/media/mask_custom_glsl_aura_demo.mp4" type="video/mp4"></video>
+
+`show_mask_custom_glsl_surface_demo`
+
+<video autoplay loop muted playsinline width="100%"><source src="../../../assets/media/mask_custom_glsl_surface_demo.mp4" type="video/mp4"></video>
+
+`show_mask_custom_data_demo`
+
+<video autoplay loop muted playsinline width="100%"><source src="../../../assets/media/mask_custom_data_demo.mp4" type="video/mp4"></video>
+
 ```
 /vfx play vfx_demos:show_mask_custom_glsl_aura_demo
 /vfx play vfx_demos:show_mask_custom_glsl_surface_demo
@@ -1021,6 +1033,61 @@ Its datapack definition:
 			},
 			"softness": 0.5
 		}
+	}
+}
+```
+
+### `show_sky_mask`
+
+<video autoplay loop muted playsinline width="100%"><source src="../../../assets/media/sky_mask.mp4" type="video/mp4"></video>
+
+```
+/vfx play vfx_demos:show_sky_mask
+```
+
+A plain `color_grade` whose mask is the built-in `sky` leaf, so only the sky is tinted. As the
+**Sky masks** section above says, `{"shape": "sky"}` is the whole form: no parameters, no `center`.
+
+```json
+{
+	"type": "color_grade",
+	"duration": 200, "easing": "ease_in_out_cubic", "persistent": true, "loop": true, "fade_ticks": 16,
+	"params": {
+		"screen_layer": 0,
+		"saturation": { "keyframes": [ { "time": 0, "value": 1.0 }, { "time": 100, "value": 1.4 }, { "time": 200, "value": 1.0 } ] },
+		"contrast": 1.0, "brightness": 1.0,
+		"tint_r": 0.05, "tint_g": 0.95, "tint_b": 0.35
+	},
+	"mask": { "invert": false, "a": { "shape": "sky" } }
+}
+```
+
+### `show_dome_mask`
+
+<video autoplay loop muted playsinline width="100%"><source src="../../../assets/media/dome_mask.mp4" type="video/mp4"></video>
+
+```
+/vfx play vfx_demos:show_dome_mask
+```
+
+The same grade restricted to a `dome` space figure — a `circle` addressed on the equirectangular sky
+dome: `center` is `[yaw, pitch]` in degrees, `radius` is in dome units (`0.5` spans half the dome),
+and the shape is sky-occluded, so terrain standing in that direction is never tinted. The radius
+breathes through `mask.p0.p0`.
+
+```json
+{
+	"type": "color_grade",
+	"duration": 220, "easing": "ease_in_out_cubic", "persistent": true, "loop": true, "fade_ticks": 16,
+	"params": {
+		"screen_layer": 0, "saturation": 1.0, "contrast": 1.0,
+		"brightness": { "keyframes": [ { "time": 0, "value": 1.0 }, { "time": 110, "value": 1.55 }, { "time": 220, "value": 1.0 } ] },
+		"tint_r": 1.0, "tint_g": 0.2, "tint_b": 0.2,
+		"mask.p0.p0": { "keyframes": [ { "time": 0, "value": 0.10 }, { "time": 110, "value": 0.22 }, { "time": 220, "value": 0.10 } ] }
+	},
+	"mask": {
+		"invert": false,
+		"a": { "shape": "circle", "space": "dome", "center": [0.0, -25.0], "radius": 0.10, "softness": 0.03 }
 	}
 }
 ```

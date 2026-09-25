@@ -143,3 +143,59 @@ Its datapack definition:
 	}
 }
 ```
+
+## Variants
+
+### `show_light_beam_dir`
+
+<video autoplay loop muted playsinline width="100%"><source src="../../../assets/media/light_beam_dir.mp4" type="video/mp4"></video>
+
+```
+/vfx play vfx_demos:show_light_beam_dir
+```
+
+A beam at an arbitrary angle: `dir_x`/`dir_y`/`dir_z` are the axis and `height` the length along it.
+The cone shell is emitted around that axis, with the vertical basis pinned so a tilted beam never
+rolls as it animates.
+
+```json
+{
+	"type": "light_beam",
+	"duration": 200, "easing": "ease_in_out_cubic", "persistent": true, "loop": true, "fade_ticks": 12,
+	"positions": [ [1996, 100, 1996] ],
+	"params": {
+		"red": 1.0, "green": 0.95, "blue": 0.75,
+		"radius": { "keyframes": [ { "time": 0, "value": 1.0 }, { "time": 100, "value": 1.6 }, { "time": 200, "value": 1.0 } ] },
+		"height": 18.0, "softness": 1.2, "top_scale": 1.5, "top_fade": 0.5, "bottom_fade": 0.0, "through_blocks": 0.0,
+		"dir_x": { "keyframes": [ { "time": 0, "value": 0.6 }, { "time": 100, "value": -0.6 }, { "time": 200, "value": 0.6 } ] },
+		"dir_y": 1.0, "dir_z": 0.0,
+		"intensity": { "keyframes": [ { "time": 0, "value": 0.3 }, { "time": 100, "value": 0.95 }, { "time": 200, "value": 0.3 } ] }
+	}
+}
+```
+
+### `show_light_beam_end_at`
+
+<video autoplay loop muted playsinline width="100%"><source src="../../../assets/media/light_beam_end_at.mp4" type="video/mp4"></video>
+
+```
+/vfx play vfx_demos:show_light_beam_end_at
+```
+
+The other form: `end_at_*` names the point the beam **ends** at, so the axis and length follow from the
+position and the direction — no `height` to keep in sync. Mind the sign, the beam travels *toward*
+`end_at`, hence `dir_y = -1` for a beam coming down from the sky.
+
+```json
+{
+	"type": "light_beam",
+	"duration": 200, "easing": "ease_in_out_cubic", "persistent": true, "loop": true, "fade_ticks": 12,
+	"params": {
+		"red": 1.0, "green": 0.95, "blue": 0.7,
+		"radius": 0.7, "height": 60.0, "softness": 0.8, "top_scale": 1.0, "top_fade": 0.2,
+		"bottom_fade": 0.0, "through_blocks": 0.0,
+		"dir_y": -1.0, "end_at_x": 2004.0, "end_at_y": 100.0, "end_at_z": 1996.0,
+		"intensity": { "keyframes": [ { "time": 0, "value": 0.3 }, { "time": 100, "value": 1.0 }, { "time": 200, "value": 0.3 } ] }
+	}
+}
+```

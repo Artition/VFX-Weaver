@@ -1,5 +1,7 @@
 # fog_modifier
 
+<video autoplay loop muted playsinline width="100%"><source src="../../../assets/media/fog_modifier.mp4" type="video/mp4"></video>
+
 `type: "fog_modifier"`
 
 Changes the **vanilla fog** — how near or far it starts and ends, and optionally its colour. It is a
@@ -172,6 +174,102 @@ ramps from vanilla at the midpoint and back to vanilla at the loop ends):
 				{ "time": 120, "value": 1.0 },
 				{ "time": 180, "value": 0.5 },
 				{ "time": 240, "value": 0.0 }
+			]
+		}
+	}
+}
+```
+
+## Code
+
+```
+/vfx play vfx_demos:show_fog_modifier
+```
+
+Its datapack definition:
+
+```json
+{
+	"type": "fog_modifier",
+	"duration": 240,
+	"easing": "ease_in_out_cubic",
+	"persistent": true,
+	"loop": true,
+	"fade_ticks": 12,
+	"params": {
+		"fog_start_scale": {
+			"keyframes": [
+				{
+					"time": 0,
+					"value": 1.0
+				},
+				{
+					"time": 60,
+					"value": 0.4
+				},
+				{
+					"time": 120,
+					"value": 1.0
+				},
+				{
+					"time": 180,
+					"value": 2.0
+				},
+				{
+					"time": 240,
+					"value": 1.0
+				}
+			]
+		},
+		"fog_end_scale": {
+			"keyframes": [
+				{
+					"time": 0,
+					"value": 1.0
+				},
+				{
+					"time": 60,
+					"value": 0.4
+				},
+				{
+					"time": 120,
+					"value": 1.0
+				},
+				{
+					"time": 180,
+					"value": 2.0
+				},
+				{
+					"time": 240,
+					"value": 1.0
+				}
+			]
+		},
+		"fog_r": 0.15,
+		"fog_g": 0.35,
+		"fog_b": 0.3,
+		"fog_color_amount": {
+			"keyframes": [
+				{
+					"time": 0,
+					"value": 0.0
+				},
+				{
+					"time": 60,
+					"value": 0.5
+				},
+				{
+					"time": 120,
+					"value": 1.0
+				},
+				{
+					"time": 180,
+					"value": 0.5
+				},
+				{
+					"time": 240,
+					"value": 0.0
+				}
 			]
 		}
 	}
