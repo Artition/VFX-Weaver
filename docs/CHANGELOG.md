@@ -21,9 +21,11 @@ change.
   (neutral `1.0`; `>1` sees further, `<1` pulls the fog closer) and optional `fog_r`/`fog_g`/`fog_b`
   (neutral "unset") override the fog colour. `fog_color_amount` (`0..1`, neutral `1`/unset) scales how
   far the colour moves from vanilla — animating it ramps smoothly from the dimension's own fog colour
-  to the authored one, and `0` is a true no-op that never writes the colour. The mod rewrites the
-  values vanilla writes into the fog uniforms (`FogEnvironmental`/`FogRenderDistance` start+end,
-  `FogSkyEnd`/`FogCloudsEnd` and `FogColor`), so vanilla terrain, entities and the entity-effect
+  to the authored one, and `0` is a true no-op that never writes the colour. The mod rewrites the fog
+  at the **return of vanilla `FogRenderer.setupFog`**, mutating the instance the game produced in
+  place before anything consumes it: the same values then reach the fog uniforms (`FogEnvironmental`/
+  `FogRenderDistance` start+end, `FogSkyEnd`/`FogCloudsEnd` and `FogColor`), the level renderer and
+  the sky/cloud shaders, so vanilla terrain, entities, the **horizon band** and the entity-effect
   geometry all see the change; absent params leave the fog bit-for-bit untouched. Scales combine
   additively around neutral (`1 + Σ((s−1)·weight)`) and the colour is a weighted average blended from
   vanilla (order-independent, clamped; each effect's colour weight is its `weight·fog_color_amount`),
@@ -35,8 +37,11 @@ change.
   limits:** under an **Iris shaderpack** this effect is a **no-op** (a pack computes its own fog and
   ignores the vanilla values); and the `block_tint`/`block_outline`/`glow`/spark overlays use a
   fog-free shader, so only the entity-effect geometry inherits the change. No shader change, no UBO
-  change, no new dependency; `PROTOCOL_VERSION` unchanged. **Not verified in game:** the visual result
-  (the owner tests); the static contract — the per-node `FogRenderer` write point, the colour-amount
+  change, no new dependency; `PROTOCOL_VERSION` unchanged. The mixin hooks the return of vanilla
+  `FogRenderer.setupFog` at `priority 900` (before Sodium's fog mixin) and mutates the returned
+  instance in place, so the fog uniforms, the level renderer and the sky/cloud shaders all see it.
+  **Not verified in game:** the visual result (the owner tests); the static contract — the per-node
+  `FogRenderer.setupFog` hook point (return of `setupFog`, mutated in place), the colour-amount
   combination maths and the type/neutral/isPostProcessing wiring — is asserted by
   `scripts/check-fog-modifier.ps1`.
 

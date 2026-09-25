@@ -1,21 +1,24 @@
 # Dev-only guard for the fog_modifier effect (2026-09-24, corrected 2026-09-25).
 #
 # fog_modifier mirrors fov_modifier: it is a value modifier at the SOURCE of the vanilla fog, not a
-# post pass. The vanilla fog's six distances + colour reach the shaders through the Fog UBO written
-# by the private FogRenderer.updateBuffer(ByteBuffer, int, Vector4f, float x6). How the modifier
-# reaches that write differs per node:
-#   26.x     : setupFog assembles a FogData, then the public updateBuffer(FogData) serialises it ->
-#              the mixin @ModifyVariable's that entry (arg 0) and returns a NEW FogData with every
-#              start/end scaled (including skyEnd/cloudEnd) and the colour replaced.
-#   1.21.11  : there is no public FogData entry - setupFog builds a local FogData and calls the
-#              private write inline - so the mixin @ModifyArgs' the private call's six float slots.
+# post pass. The working hook is the RETURN of FogRenderer.setupFog: the returned instance is mutated
+# IN PLACE, so every downstream consumer (the fog UBO, the sky/cloud shaders whose skyEnd/cloudEnd
+# drive the horizon band, and the terrain) sees the change. How that return is reached differs:
+#   26.x     : setupFog returns the FogData it assembled -> the mixin @Inject's at setupFog's RETURN
+#              and scales the returned instance's six fields in place (never a new FogData), and sets
+#              its colour in place.
+#   1.21.11  : setupFog returns the colour Vector4f and passes the six distances to the private
+#              updateBuffer(ByteBuffer,int,Vector4f,float x6) inline -> the mixin @ModifyArgs' the six
+#              float slots, and @Inject's at setupFog's RETURN to mutate the returned Vector4f colour.
 # This check asserts:
 #   * the effect type exists with its neutral values and is excluded from isPostProcessing();
 #   * the manager walks the active effects and reads the six params (incl. fog_color_amount);
 #   * fog_color_amount scales the colour weight (NaN = 1.0), so amount 0 leaves the colour
 #     untouched with hasColor false and amount 0.5 is midway - the distance scales are unaffected;
-#   * the mixin is registered, the 26.x hook is @ModifyVariable on updateBuffer(FogData) returning a
-#     new instance (no in-place mutation) and the 1.21.11 hook is @ModifyArgs on the private write;
+#   * the mixin is registered with priority 900 (so it injects before Sodium's fog mixin), the 26.x
+#     hook is @Inject at setupFog's RETURN mutating the returned FogData in place (no new FogData,
+#     no @ModifyVariable on updateBuffer(FogData)), and the 1.21.11 hook is @ModifyArgs on the private
+#     write plus an @Inject on setupFog's return for the caller-visible colour;
 #   * every scaled end including skyEnd/cloudEnd is present, and the degenerate-range guard exists;
 #   * `javap -s` on each node's REAL jar proves the target entries/fields exist (the build does not
 #     validate mixin targets, so a stale target fails here, not at game start);
@@ -40,11 +43,14 @@ $mixinsJson = if (Test-Path $mixinsJsonPath) { [System.IO.File]::ReadAllText($mi
 
 $problems = New-Object System.Collections.Generic.List[string]
 
-# The real shared descriptor: the private UBO writer on every node.
+# The real shared descriptor: the private UBO writer on 1.21.11 (and 26.x's private transport).
 $targetDescriptor = 'updateBuffer(Ljava/nio/ByteBuffer;ILorg/joml/Vector4f;FFFFFF)V'
-# The enclosing method that holds that call, per node.
-$enclosing26 = 'updateBuffer(Lnet/minecraft/client/renderer/fog/FogData;)V'
-$enclosing12111 = 'setupFog(Lnet/minecraft/client/Camera;ILnet/minecraft/client/DeltaTracker;FLnet/minecraft/client/multiplayer/ClientLevel;)Lorg/joml/Vector4f;'
+# The hook method per node: 26.x setupFog returns the FogData; 1.21.11 returns the colour Vector4f.
+$setupFog26 = 'setupFog(Lnet/minecraft/client/Camera;ILnet/minecraft/client/DeltaTracker;FLnet/minecraft/client/multiplayer/ClientLevel;)Lnet/minecraft/client/renderer/fog/FogData;'
+$setupFog12111 = 'setupFog(Lnet/minecraft/client/Camera;ILnet/minecraft/client/DeltaTracker;FLnet/minecraft/client/multiplayer/ClientLevel;)Lorg/joml/Vector4f;'
+$enclosing12111 = $setupFog12111
+# The stale 26.x target this rework removes.
+$stale26Target = 'updateBuffer(Lnet/minecraft/client/renderer/fog/FogData;)V'
 
 # --- 1. effect type: enum entry, neutral values, isPostProcessing exclusion ------------------------
 if ($type -notmatch 'FOG_MODIFIER\("fog_modifier"\)') {
@@ -89,29 +95,45 @@ $modernBranch = if ($modernMatches.Count -gt 0) { $modernMatches[$modernMatches.
 if (-not $legacyBranch) { $problems.Add("FogRendererMixin has no '//? if <26.1' guarded branch (1.21.11)") }
 if (-not $modernBranch) { $problems.Add("FogRendererMixin has no '//?} else {' guarded branch (26.x)") }
 
-# 26.x: @ModifyVariable at HEAD of the public updateBuffer(FogData) entry, returning a NEW FogData.
-if ($modernBranch -notmatch '@ModifyVariable') {
-	$problems.Add("26.x fog hook is not @ModifyVariable (must modify the FogData entry, not the private transport)")
+# 26.x: @Inject at RETURN of setupFog, mutating the returned FogData IN PLACE (no substitution).
+if ($modernBranch -notmatch '@Inject') {
+	$problems.Add("26.x fog hook is not @Inject (must hook setupFog's return, not updateBuffer)")
 }
-if ($modernBranch -notmatch [regex]::Escape($enclosing26)) {
-	$problems.Add("26.x fog hook does not target the public '$enclosing26' entry")
+if ($modernBranch -notmatch 'setupFog') {
+	$problems.Add("26.x fog hook does not target setupFog")
+}
+if ($modernBranch -notmatch [regex]::Escape('@At("RETURN")')) {
+	$problems.Add('26.x fog hook is not at @At("RETURN") of setupFog')
+}
+if ($modernBranch -notmatch 'getReturnValue') {
+	$problems.Add("26.x fog hook does not read the returned FogData (cir.getReturnValue())")
+}
+if ($modernBranch -match '@ModifyVariable') {
+	$problems.Add("26.x fog hook still uses @ModifyVariable (must hook setupFog's return)")
 }
 if ($modernBranch -match '@ModifyArgs') {
 	$problems.Add("26.x fog hook still uses @ModifyArgs on the private transport")
 }
-if ($modernBranch -notmatch 'new FogData\(\)') {
-	$problems.Add("26.x fog hook does not construct a new FogData (must not mutate the incoming instance)")
+if ($modernBranch -match 'new FogData\(\)') {
+	$problems.Add("26.x fog hook substitutes a new FogData (must mutate the returned instance in place)")
 }
-if ($modernBranch -match 'data\.[A-Za-z]+\s*=') {
-	$problems.Add("26.x fog hook mutates the incoming FogData in place")
+if ($mixin -match [regex]::Escape($stale26Target)) {
+	$problems.Add("26.x fog hook still references the stale '$stale26Target' entry")
 }
 foreach ($band in @('environmentalStart', 'environmentalEnd', 'renderDistanceStart', 'renderDistanceEnd', 'skyEnd', 'cloudEnd')) {
 	if ($modernBranch -notmatch [regex]::Escape($band)) {
 		$problems.Add("26.x fog hook does not scale '$band' (all four distances + skyEnd + cloudEnd)")
 	}
 }
+if ($modernBranch -notmatch 'color\.set') {
+	$problems.Add("26.x fog hook does not set the colour in place (data.color.set)")
+}
+if ($mixin -notmatch 'priority\s*=\s*900') {
+	$problems.Add("FogRendererMixin has no @Mixin priority = 900 (must inject before Sodium)")
+}
 
-# 1.21.11: @ModifyArgs on the private transport call inside setupFog, corrected semantics.
+# 1.21.11: @ModifyArgs on the private transport call inside setupFog for the six distances, plus an
+# @Inject at setupFog's RETURN to mutate the caller-visible colour Vector4f in place.
 if ($legacyBranch -notmatch '@ModifyArgs') {
 	$problems.Add("1.21.11 fog hook is not @ModifyArgs on the private transport")
 }
@@ -124,8 +146,17 @@ if ($legacyBranch -notmatch [regex]::Escape($enclosing12111)) {
 if ($legacyBranch -notmatch 'args\.set\(7' -or $legacyBranch -notmatch 'args\.set\(8') {
 	$problems.Add("1.21.11 fog hook does not scale the private slots 7/8 (skyEnd/cloudEnd)")
 }
+if ($legacyBranch -notmatch '@Inject') {
+	$problems.Add("1.21.11 fog hook has no @Inject at setupFog's RETURN for the caller-visible colour")
+}
+if ($legacyBranch -notmatch [regex]::Escape($setupFog12111)) {
+	$problems.Add("1.21.11 colour hook does not target '$setupFog12111'")
+}
+if ($legacyBranch -notmatch 'getReturnValue') {
+	$problems.Add("1.21.11 colour hook does not read the returned Vector4f (cir.getReturnValue())")
+}
 
-# The degenerate-range guard must exist (shared, runnable) - never mutate the incoming FogData.
+# The degenerate-range guard must exist (shared, runnable) - the returned instance is mutated in place.
 if ($mixin -notmatch 'pullBelow') {
 	$problems.Add("fog hook has no degenerate-range guard (pullBelow: start >= end -> just below end)")
 }
@@ -165,14 +196,14 @@ if (-not $javap) {
 		# javap wraps long descriptor lines, so strip all whitespace and match the descriptor alone.
 		$out = ((& $javap -classpath $t.Jar.FullName -s -p net.minecraft.client.renderer.fog.FogRenderer 2>&1 | Out-String) -replace '\s', '')
 		if ($t.Kind -eq 'Modern') {
-			# 26.x: the hook is @ModifyVariable on the public updateBuffer(FogData) entry.
-			$entryOnly = $enclosing26.Substring($enclosing26.IndexOf('('))
+			# 26.x: the hook is @Inject at setupFog's RETURN, which returns the FogData it assembled.
+			$entryOnly = $setupFog26.Substring($setupFog26.IndexOf('('))
 			if ($out -notmatch [regex]::Escape($entryOnly)) {
-				$problems.Add("${node}: FogRenderer has no public '$enclosing26' (mixin entry is stale)")
+				$problems.Add("${node}: FogRenderer has no '$setupFog26' (mixin entry is stale)")
 			} else {
-				Write-Host "  $node : FogRenderer carries $enclosing26"
+				Write-Host "  $node : FogRenderer carries $setupFog26"
 			}
-			# ...and the FogData instance fields the new record is rebuilt from.
+			# ...and the FogData instance fields the returned instance is mutated through.
 			$data = ((& $javap -classpath $t.Jar.FullName -s -p net.minecraft.client.renderer.fog.FogData 2>&1 | Out-String) -replace '\s', '')
 			foreach ($field in @('environmentalStart', 'renderDistanceStart', 'environmentalEnd', 'renderDistanceEnd', 'skyEnd', 'cloudEnd', 'color')) {
 				if ($data -notmatch [regex]::Escape($field)) {
@@ -181,18 +212,18 @@ if (-not $javap) {
 			}
 			Write-Host "  $node : FogData carries environmentalStart/renderDistanceStart/environmentalEnd/renderDistanceEnd/skyEnd/cloudEnd/color"
 		} else {
-			# 1.21.11: setupFog builds the FogData and calls the private write inline.
+			# 1.21.11: setupFog returns the colour and calls the private distance write inline.
+			$setupOnly = $setupFog12111.Substring($setupFog12111.IndexOf('('))
+			if ($out -notmatch [regex]::Escape($setupOnly)) {
+				$problems.Add("${node}: FogRenderer has no '$setupFog12111' (mixin entry is stale)")
+			} else {
+				Write-Host "  $node : FogRenderer carries $setupFog12111"
+			}
 			$targetOnly = $targetDescriptor.Substring($targetDescriptor.IndexOf('('))
 			if ($out -notmatch [regex]::Escape($targetOnly)) {
 				$problems.Add("${node}: FogRenderer has no private '$targetDescriptor' (mixin target is stale)")
 			} else {
 				Write-Host "  $node : FogRenderer carries $targetDescriptor"
-			}
-			$enclosingOnly = $enclosing12111.Substring($enclosing12111.IndexOf('('))
-			if ($out -notmatch [regex]::Escape($enclosingOnly)) {
-				$problems.Add("${node}: FogRenderer has no '$enclosing12111' (mixin caller is stale)")
-			} else {
-				Write-Host "  $node : FogRenderer carries $enclosing12111"
 			}
 		}
 	}
@@ -364,5 +395,5 @@ try {
 	Pop-Location
 }
 
-Write-Host "fog_modifier OK: type + neutral values (incl. fog_color_amount = NaN) + isPostProcessing exclusion, manager accumulation, per-node hooks (26.x @ModifyVariable on FogData returning a new instance incl. skyEnd/cloudEnd + degenerate guard; 1.21.11 @ModifyArgs slots), real-jar targets (javap -s), colour-amount combination maths (amount 0/0.5/1, NaN = 1.0, order-independent)."
+Write-Host "fog_modifier OK: type + neutral values (incl. fog_color_amount = NaN) + isPostProcessing exclusion, manager accumulation, priority 900, per-node hooks (26.x @Inject at setupFog's RETURN mutating the returned FogData in place incl. skyEnd/cloudEnd + colour in place; 1.21.11 @ModifyArgs slots + setupFog-return colour hook), real-jar targets (javap -s), colour-amount combination maths (amount 0/0.5/1, NaN = 1.0, order-independent)."
 exit 0

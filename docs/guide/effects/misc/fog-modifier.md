@@ -3,10 +3,12 @@
 `type: "fog_modifier"`
 
 Changes the **vanilla fog** — how near or far it starts and ends, and optionally its colour. It is a
-**value modifier at the source of the fog**, not a screen post pass: the mod rewrites the values
-vanilla writes into the fog uniforms (`FogEnvironmentalStart`/`End`, `FogRenderDistanceStart`/`End`,
-`FogSkyEnd`, `FogCloudsEnd`, `FogColor`) before the frame is drawn. Vanilla terrain, entities and the
-mod's own world/entity geometry that sample the fog therefore all see the modified fog.
+**value modifier at the source of the fog**, not a screen post pass: the mod rewrites the fog
+distances and colour at the **return of vanilla `FogRenderer.setupFog`**, mutating the instance the
+game produced, before anything consumes it. The same values then reach the fog uniforms
+(`FogEnvironmentalStart`/`End`, `FogRenderDistanceStart`/`End`, `FogSkyEnd`, `FogCloudsEnd`,
+`FogColor`), the level renderer and the sky/cloud shaders, so vanilla terrain, entities, the
+**horizon band** and the mod's own world/entity geometry all see the modified fog.
 
 > **Iris:** under an Iris shaderpack this effect is a **no-op**. A pack computes its own fog and
 > ignores the vanilla fog values, so there is nothing for the modifier to change. This is inherent to
@@ -70,6 +72,10 @@ which is what makes them visible in normal play (the shader's fog amount is the 
 - **Sky and cloud fade** (`FogSkyEnd`, `FogCloudsEnd`) scale with `fog_end_scale` like the distance
   ends, so `fog_end_scale < 1` narrows the horizon band and brings the clouds in. They have no start
   value, so `fog_start_scale` never affects them.
+- **The zenith keeps the dimension's own sky colour.** The sky shader fogs `ColorModulator` toward
+  the fog colour and only the far horizon actually reaches it, so an authored fog colour tints the
+  horizon band and the clouds but not the top of the sky. That contrast is vanilla behaviour, not a
+  bug.
 - **The mod's own world/entity geometry:** the entity effect pipelines (`entity_tint`,
   `entity_outline`, `entity_displace`) read the same fog uniforms, so they inherit the change. The
   `block_tint`/`block_outline`/`glow`/spark overlays use the `core/position_color` shader, which does
