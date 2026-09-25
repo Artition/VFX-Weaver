@@ -401,6 +401,23 @@ public final class VFXAPI {
 	}
 
 	/**
+	 * Registers a GLSL-plugin mask shape with a declared Lipschitz upper bound on the field's
+	 * gradient. The default ({@code 1.0}) is correct for a plugin that returns a conservative
+	 * distance field ({@code |grad d| <= 1}, negative inside). A field perturbed by a noise term
+	 * over-estimates the distance and would make the aura march over-step and punch holes in the
+	 * volume; declaring the real bound lets the client step correctly. Either scale the returned
+	 * value down until it is a conservative distance, or declare the bound here.
+	 *
+	 * @param id         the shape id referenced by {@code {"shape": "<id>"}}
+	 * @param plugin     the GLSL source provider
+	 * @param lipschitz  an upper bound on {@code |grad d|}; clamped to at least {@code 1.0}
+	 * @return {@code false} when the registry is full and the shape was dropped
+	 */
+	public static boolean registerMaskShapeGlsl(final Identifier id, final VFXMaskShapeGlsl plugin, final float lipschitz) {
+		return VFXShapeRegistry.get().registerGlsl(id.toString(), plugin, lipschitz);
+	}
+
+	/**
 	 * Removes a GLSL-plugin mask shape.
 	 *
 	 * @param id the shape id

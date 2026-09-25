@@ -166,6 +166,87 @@ function Get-March([double]$camX, [double]$elevDeg, $cfg, [double]$softness, [do
 	return @{ Cov = (Get-AuraCover $dMin $tEnter $tExit $softness $sceneDist); TEnter = $tEnter; DMin = $dMin }
 }
 
+# The consultant's proposal: cone-envelope (Lipschitz error-bound) deep point instead of the sampled
+# minimum. The crossing of the Lipschitz cones of two consecutive samples lower-bounds the field
+# between them, so the minimum crossing lower-bounds the ray's signed closest approach (negative =
+# penetration depth, positive = miss distance). Continuous in screen space, exact at creases, never
+# thinner than the truth. dMin survives only as the saturation certificate. `lip` is the declared
+# field Lipschitz bound (1.0 for a conservative distance field).
+function Get-MarchEnvelope([double]$camX, [double]$elevDeg, $cfg, [double]$softness, [double]$sceneDist, [double]$lip = 1.0) {
+	$e = $elevDeg * [Math]::PI / 180.0
+	$tLimit = [Math]::Min($sceneDist + $sceneDist * 2.0e-3 + 0.5 * $softness, $script:MAX_RANGE)
+	$lip = [Math]::Max($lip, 1.0)
+	$tStart = 0.0
+	$t = $tStart
+	$tEnter = -1.0
+	$tExit = 0.0
+	$dMin = 0.0
+	$chordEps = 1.0e-4
+	$dBound = 1.0e9
+	$tBound = $tStart
+	$tPrev = $tStart
+	$dPrev = 0.0
+	$havePrev = $false
+	$calls = 0
+	for ($s = 0; $s -lt $script:ENTRY_STEPS; $s++) {
+		$d = Get-RayFieldValue $camX $e $t $cfg
+		$calls++
+		if ($havePrev) {
+			$dCross = 0.5 * ($dPrev + $d - $lip * ($t - $tPrev))
+			if ($dCross -lt $dBound) { $dBound = $dCross; $tBound = $tPrev + ($dPrev - $dCross) / $lip }
+		}
+		if ($d -le 0.0) {
+			$tEnter = if ($havePrev) { $tPrev + ($t - $tPrev) * $dPrev / [Math]::Max($dPrev - $d, 1.0e-4) } else { $t }
+			$dMin = $d
+			break
+		}
+		$havePrev = $true
+		$tPrev = $t
+		$dPrev = $d
+		if ($d - $lip * ($tLimit - $t) -gt $softness) { break }
+		$t += [Math]::Min([Math]::Max($d / $lip, $script:MIN_STEP), $script:MAX_STEP)
+		if ($t -ge $tLimit) { break }
+	}
+	if ($tEnter -lt 0.0) {
+		return @{ Cov = (Get-AuraCover $dBound $tBound $tBound $softness $sceneDist); TEnter = $null; DMin = $dBound; Calls = $calls }
+	}
+	$tInside = $t
+	$tPrevIn = $t
+	$dPrevIn = $dMin
+	$haveIn = $false
+	$exitFound = $false
+	$saturated = $false
+	for ($s = 0; $s -lt $script:EXIT_STEPS; $s++) {
+		$d = Get-RayFieldValue $camX $e $t $cfg
+		$calls++
+		if ($haveIn) {
+			$dCross = 0.5 * ($dPrevIn + $d - $lip * ($t - $tPrevIn))
+			if ($dCross -lt $dBound) { $dBound = $dCross; $tBound = $tPrevIn + ($dPrevIn - $dCross) / $lip }
+		}
+		if ($d -gt 0.0) { $tExit = $t; $exitFound = $true; break }
+		$haveIn = $true
+		$tPrevIn = $t
+		$dPrevIn = $d
+		if ($d -lt $dMin) { $dMin = $d }
+		$tInside = $t
+		if ($dMin -le -0.5 * $softness) { $saturated = $true; break }
+		$t += [Math]::Min([Math]::Max(-$d / $lip, $script:MIN_STEP), $script:MAX_STEP)
+		if ($t -ge $tLimit) { break }
+	}
+	if ($saturated) {
+		$tExit = $tLimit
+	} elseif ($exitFound) {
+		for ($s = 0; $s -lt $script:REFINE_STEPS; $s++) {
+			$tm = 0.5 * ($tInside + $tExit)
+			if ((Get-RayFieldValue $camX $e $tm $cfg) -le 0.0) { $tInside = $tm } else { $tExit = $tm }
+			$calls++
+		}
+	} else {
+		$tExit = $tLimit
+	}
+	return @{ Cov = (Get-AuraCover $dBound $tEnter $tExit $softness $sceneDist); TEnter = $tEnter; DMin = $dMin; Calls = $calls }
+}
+
 # ------------------------------------------------------------------ scenario
 $script:LADDER = @(8, 16, 24, 32, 48, 64)
 $script:N = 361
@@ -177,20 +258,25 @@ $script:STATES = @(
 $script:SHIPPED = @{ softness = 64.0; lower_bound_scale = 0.7; smooth_k = 16.0 }
 $script:BASELINE = @{ softness = 24.0; lower_bound_scale = 1.0; smooth_k = 0.0 }
 
-function Get-Sweep($cfg, [double]$camX, [double]$softness, [double]$sceneDist) {
+function Get-Sweep($cfg, [double]$camX, [double]$softness, [double]$sceneDist, [string]$March = "shipped", [double]$Lip = 1.0) {
 	$eff = $softness * $cfg.lower_bound_scale
 	$covs = New-Object System.Collections.Generic.List[double]
 	for ($i = 0; $i -lt $script:N; $i++) {
 		$elev = $i * 90.0 / ($script:N - 1)
-		$covs.Add((Get-March $camX $elev $cfg $eff $sceneDist).Cov)
+		if ($March -eq "envelope") {
+			$covs.Add((Get-MarchEnvelope -camX $camX -elevDeg $elev -cfg $cfg -softness $eff -sceneDist $sceneDist -lip $Lip).Cov)
+		} else {
+			$covs.Add((Get-March $camX $elev $cfg $eff $sceneDist).Cov)
+		}
 	}
 	return $covs
 }
 
-# The step structure of the ramp is the symptom: a sampled-minimum deep point resolves the edge
-# into a small set of plateaus (distinct rounded coverages), and a continuous deep point turns the
-# same ramp into many small adjacent changes. Both numbers are reported so the fix can be judged
-# without re-recording anything.
+# The step structure of the ramp is the symptom. `MaxJump` includes the cliff (the jump into a hard
+# zero) and `MaxJumpRamp` does not, so the two are reported apart: a staircase shows up in
+# `MaxJumpRamp`/`Plateaus`, the cliff in `MaxJump` and `Cliff`. `Distinct` alone cannot tell a
+# quantised ramp from a continuous one, because a continuous ramp sampled over M rays also has ~M
+# distinct values.
 function Measure-Ramp($covs) {
 	$partial = New-Object System.Collections.Generic.List[double]
 	for ($i = 0; $i -lt $covs.Count; $i++) {
@@ -198,14 +284,26 @@ function Measure-Ramp($covs) {
 	}
 	$distinct = ($partial | Sort-Object -Unique).Count
 	$maxJump = 0.0
+	$maxJumpRamp = 0.0
+	$plateaus = 0
 	for ($i = 1; $i -lt $covs.Count; $i++) {
-		$maxJump = [Math]::Max($maxJump, [Math]::Abs($covs[$i] - $covs[$i - 1]))
+		$jump = [Math]::Abs($covs[$i] - $covs[$i - 1])
+		$maxJump = [Math]::Max($maxJump, $jump)
+		if ($covs[$i] -gt 0.0 -and $covs[$i - 1] -gt 0.0) { $maxJumpRamp = [Math]::Max($maxJumpRamp, $jump) }
+		if ($covs[$i] -gt 0.0 -and [Math]::Round($covs[$i], 3) -eq [Math]::Round($covs[$i - 1], 3)) { $plateaus++ }
 	}
 	$cliff = $null
+	$cliffJump = 0.0
 	for ($i = 1; $i -lt $covs.Count; $i++) {
-		if ($covs[$i - 1] -gt 0.0 -and $covs[$i] -eq 0.0) { $cliff = $i * 90.0 / ($script:N - 1); break }
+		if ($covs[$i - 1] -gt 0.0 -and $covs[$i] -eq 0.0) { $cliff = $i * 90.0 / ($script:N - 1); $cliffJump = $covs[$i - 1]; break }
 	}
-	return @{ Distinct = $distinct; MaxJump = $maxJump; Cliff = $cliff }
+	# The silhouette edge position: the first ray whose coverage drops below 0.5. It is the metric
+	# that must not move when only the fade around the edge changes.
+	$crossing = $null
+	for ($i = 0; $i -lt $covs.Count; $i++) {
+		if ($covs[$i] -lt 0.5) { $crossing = $i * 90.0 / ($script:N - 1); break }
+	}
+	return @{ Distinct = $distinct; MaxJump = $maxJump; MaxJumpRamp = $maxJumpRamp; Plateaus = $plateaus; Cliff = $cliff; CliffJump = $cliffJump; Crossing = $crossing }
 }
 
 function Get-MaxGrad($cfg, [double]$h = 0.25, [int]$step = 5, [double]$y = 100.0) {
@@ -227,10 +325,16 @@ Write-Host "Plugin aura soft-volume check (march simulation, shipped 2.1.0 shade
 Write-Host "read: $coverage"
 Write-Host ""
 $script:RESULTS = @{}
-$script:TAG_BASE = "1+2a: BASELINE (pre-fix field, shipped march)"
-$script:TAG_SHIP = "1+2b: SHIPPED field fixes, shipped march"
+$script:TAG_BASE = "1+2a: BASELINE (pre-fix field, pre-fix march)"
+$script:TAG_SHIP = "1+2b: SHIPPED field fixes, pre-fix march"
+$script:TAG_ENV_BASE = "5a: BASELINE field, cone-envelope march (shipped shader)"
+$script:TAG_ENV_SHIP = "5b: SHIPPED field, cone-envelope march (shipped shader)"
+$script:TAG_ENV_LIP = "5c: BASELINE field (|grad d| = 1.287), envelope with declared L = 1.25"
 $script:RESULTS[$script:TAG_BASE] = @{}
 $script:RESULTS[$script:TAG_SHIP] = @{}
+$script:RESULTS[$script:TAG_ENV_BASE] = @{}
+$script:RESULTS[$script:TAG_ENV_SHIP] = @{}
+$script:RESULTS[$script:TAG_ENV_LIP] = @{}
 
 # interior coverage is reported from the peak of the sweep
 function Get-Interior($cfg, [double]$softness) {
@@ -240,22 +344,26 @@ function Get-Interior($cfg, [double]$softness) {
 	return $max
 }
 
-function Show-Ladder([string]$tag, $cfg) {
+function Show-Ladder([string]$tag, $cfg, [string]$March = "shipped", [double]$Lip = 1.0) {
 	Write-Host "=== $tag ==="
+	if (-not $script:RESULTS.ContainsKey($tag)) { $script:RESULTS[$tag] = @{} }
 	foreach ($s in $script:LADDER) {
-		$covs = Get-Sweep -cfg $cfg -camX (-40.0) -softness $s -sceneDist 1.0e9
+		$covs = Get-Sweep -cfg $cfg -camX (-40.0) -softness $s -sceneDist 1.0e9 -March $March -Lip $Lip
 		$m = Measure-Ramp $covs
 		$interior = 0.0
 		foreach ($c in $covs) { $interior = [Math]::Max($interior, $c) }
-		$cliffText = if ($null -ne $m.Cliff) { ('{0:F2} deg' -f $m.Cliff) } else { "none" }
-		Write-Host ("  soft {0,3} | interior {1:F4} | distinct {2,3} | max jump {3:F4} | cliff->0 at {4}" -f `
-			$s, $interior, $m.Distinct, $m.MaxJump, $cliffText)
-		$script:RESULTS[$tag][$s] = @{ Distinct = $m.Distinct; MaxJump = $m.MaxJump; Cliff = $m.Cliff; Interior = $interior }
+		$cliffText = if ($null -ne $m.Cliff) { ('{0:F2} deg (jump {1:F3})' -f $m.Cliff, $m.CliffJump) } else { "none" }; $crossText = if ($null -ne $m.Crossing) { ('{0:F2} deg' -f $m.Crossing) } else { "never" }
+		Write-Host ("  soft {0,3} | interior {1:F4} | distinct {2,3} | maxJump {3:F3} | ramp jump {4:F4} | 0.5 at {5,9} | cliff->0 at {6}" -f `
+			$s, $interior, $m.Distinct, $m.MaxJump, $m.MaxJumpRamp, $crossText, $cliffText)
+		$script:RESULTS[$tag][$s] = @{ Distinct = $m.Distinct; MaxJump = $m.MaxJump; MaxJumpRamp = $m.MaxJumpRamp; Plateaus = $m.Plateaus; Cliff = $m.Cliff; CliffJump = $m.CliffJump; Interior = $interior }
 	}
 }
 
 Show-Ladder $script:TAG_BASE $script:BASELINE
 Show-Ladder $script:TAG_SHIP $script:SHIPPED
+Show-Ladder $script:TAG_ENV_BASE $script:BASELINE "envelope"
+Show-Ladder $script:TAG_ENV_SHIP $script:SHIPPED "envelope"
+Show-Ladder $script:TAG_ENV_LIP $script:BASELINE "envelope" 1.25
 Write-Host ""
 
 # ------------------------------------------------------------------ 3: the lower-bound rule
@@ -325,19 +433,45 @@ if ([Math]::Abs($occlusion["sky/inside zone"].White - 78.4) -gt 1.5) {
 	Fail "sky/inside zone white share = $($occlusion['sky/inside zone'].White)%, expected 78.4%"
 }
 
-# 2. The symptoms the fix has to remove are present in the shipped march (they are reports, not
-#    assertions yet: the target values depend on the fix and land with it).
-if ($ship[64].Cliff -ne $null) {
-	Write-Host "  note: the cliff is still present with their field fixes ($($ship[64].Cliff) deg) - the library-side fix is pending"
+# 2. The pre-fix march (the numbers the reporter saw) still show the reported cliff: a jump of
+#    ~0.5 into zero. This is the port-fidelity anchor for the *symptom*; the shipped shader no longer
+#    has it (asserted below), so these are the "before" numbers.
+$base = $script:RESULTS[$script:TAG_BASE]
+$ship = $script:RESULTS[$script:TAG_SHIP]
+if ($base[64].CliffJump -lt 0.4) {
+	Fail "pre-fix baseline jump into zero at softness 64 = $($base[64].CliffJump), expected the ~0.5 cliff"
 }
-if ($ship[64].Distinct -gt 1) {
-	Write-Host "  note: the ramp is still quantised into $($ship[64].Distinct) distinct levels at softness 64 - the deep-point fix is pending"
+if ($ship[64].CliffJump -lt 0.4) {
+	Fail "pre-fix shipped jump into zero at softness 64 = $($ship[64].CliffJump), expected the ~0.5 cliff"
+}
+
+# 3. The shipped shader's cone-envelope march: the hit/miss cliff is gone (the jump into zero is a
+#    small fade, not ~0.5), the interior still saturates to 1.0, and the silhouette edge does not
+#    move (the 0.5-crossing stays where the pre-fix march put it). A field that over-estimates its
+#    gradient is handled through the declared L (5c).
+foreach ($pair in @(
+	@{ Tag = $script:TAG_ENV_BASE; Label = "baseline field" },
+	@{ Tag = $script:TAG_ENV_SHIP; Label = "shipped field" },
+	@{ Tag = $script:TAG_ENV_LIP; Label = "declared-L field" }
+)) {
+	$env = $script:RESULTS[$pair.Tag]
+	$ref = if ($pair.Tag -eq $script:TAG_ENV_LIP) { $base } else { $ship }
+	foreach ($s in $script:LADDER) {
+		$row = $env[$s]
+		if ($row.Interior -lt 0.999) { Fail "$($pair.Label) envelope interior at softness $s = $($row.Interior), expected 1.0" }
+		if ($row.CliffJump -gt 0.05) { Fail "$($pair.Label) envelope jump into zero at softness $s = $($row.CliffJump), expected the cliff to be gone (<= 0.05)" }
+		if ($row.MaxJump -gt 0.20) { Fail "$($pair.Label) envelope max jump at softness $s = $($row.MaxJump), expected a smooth ramp (<= 0.20)" }
+		$refCross = $ref[$s].Crossing
+		if ($null -ne $refCross -and $null -ne $row.Crossing -and [Math]::Abs($row.Crossing - $refCross) -gt 0.3) {
+			Fail "$($pair.Label) envelope 0.5-crossing at softness $s = $($row.Crossing) deg, pre-fix $($refCross) deg - the edge must not move"
+		}
+	}
 }
 
 Write-Host ""
 if ($script:failures.Count -gt 0) {
-	Write-Error "plugin aura soft-volume check failed ($($script:failures.Count) port assertion(s))."
+	Write-Error "plugin aura soft-volume check failed ($($script:failures.Count) assertion(s))."
 	exit 1
 }
-Write-Host "Plugin aura soft-volume check OK: the port reproduces the reported numbers; the cliff and the quantisation are still present in the shipped march."
+Write-Host "Plugin aura soft-volume check OK: the port reproduces the reported numbers and the cliff; the shipped cone-envelope march removes the cliff, keeps the interior at 1.0 and leaves the edge where it was."
 exit 0

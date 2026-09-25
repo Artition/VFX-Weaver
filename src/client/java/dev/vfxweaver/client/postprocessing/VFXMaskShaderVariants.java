@@ -185,16 +185,25 @@ public final class VFXMaskShaderVariants {
 			return null;
 		}
 		final StringBuilder plugin = new StringBuilder();
+		float lipschitz = 1.0F;
 		for (final String id : key.split(",")) {
 			final @Nullable VFXMaskShapeGlsl shape = VFXShapeRegistry.get().plugin(id);
 			if (shape == null) {
 				fail(key, "shape '" + id + "' has no registered GLSL plugin");
 				return null;
 			}
+			final @Nullable Float declared = VFXShapeRegistry.get().pluginLipschitz(id);
+			if (declared != null) {
+				lipschitz = Math.max(lipschitz, declared);
+			}
 			plugin.append("\n// mask custom shape '").append(id).append("'\n").append(shape.glsl()).append('\n');
 		}
 		final String boundsDefine = CUSTOM_BOUNDS_PATTERN.matcher(plugin).find() ? "\n#define VFX_CUSTOM_HAS_BOUNDS 1" : "";
-		return base.substring(0, begin + INJECT_BEGIN.length()) + boundsDefine + plugin + base.substring(end);
+		// The march and the Lipschitz cone-envelope both scale by the field's declared gradient bound;
+		// a variant of several plugins compiles against the max, and an undeclared (conservative) set
+		// gets no define at all so an existing plugin's compiled source is byte-identical.
+		final String lipschitzDefine = lipschitz > 1.0F ? "\n#define VFX_CUSTOM_FIELD_LIPSCHITZ " + lipschitz : "";
+		return base.substring(0, begin + INJECT_BEGIN.length()) + boundsDefine + lipschitzDefine + plugin + base.substring(end);
 		//?}
 	}
 

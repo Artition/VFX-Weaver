@@ -49,6 +49,14 @@ layout(std140) uniform SamplerInfo {
 #define VFX_PLUGIN_AURA_MIN_STEP 0.5
 #define VFX_PLUGIN_AURA_MAX_STEP 64.0
 
+// Declared per-plugin Lipschitz upper bound for the custom field (|grad d| <= L). Injected into
+// the variant prelude (same mechanism as VFX_CUSTOM_HAS_BOUNDS) as the MAX over the variant's
+// plugins when any declares one; the default keeps old plugins identical. Values below 1 are
+// clamped to 1 - the contract is "distance bound", L is the escape hatch for noisier fields.
+#ifndef VFX_CUSTOM_FIELD_LIPSCHITZ
+#define VFX_CUSTOM_FIELD_LIPSCHITZ 1.0
+#endif
+
 layout(std140) uniform Config {
     mat4 invViewProj;
     vec4 camPos;
@@ -278,58 +286,104 @@ void main() {
                                 boundsHit = false;
                             } else {
                                 tStart = max(tNear, 0.0);
+                                // Past the bounds sphere plus the soft band the field cannot
+                                // contribute, so the march never crawls to the scene-distance cap.
+                                tLimit = min(tLimit, tFar + softness);
                             }
                         }
                     }
                     if (!boundsHit || tStart >= tLimit) {
                         cov = 0.0;
                     } else {
+                        float lip = max(VFX_CUSTOM_FIELD_LIPSCHITZ, 1.0);
                         float t = tStart;
                         float tEnter = -1.0;
                         float tExit = 0.0;
                         float dMin = 0.0;
-                        float tMin = tStart;
                         float chordEps = 1.0e-4;
-                        // ponytail: MIN_STEP = 0.5 gives the roughly 60-step budget only ~30 units of
-                        // conservative traversal; use more steps or a larger minimum if that matters.
+                        // Cone-envelope minimum of the field along the ray: the crossing of the
+                        // Lipschitz cones of two consecutive samples lower-bounds the field between
+                        // them, so the minimum crossing lower-bounds the ray's signed closest
+                        // approach (negative = deepest penetration, positive = miss distance).
+                        // Continuous in screen space (kills the softness-spaced banding), exact
+                        // for creased fields (max/min of distance bounds), never thinner than the
+                        // truth. The step rule (h <= d/L) keeps it >= 0 on misses, <= 0 on hits.
+                        float dBound = 1.0e9;
+                        float tBound = tStart;
+                        float tPrev = tStart;
+                        float dPrev = 0.0;
+                        bool havePrev = false;
                         for (int s = 0; s < VFX_PLUGIN_AURA_ENTRY_STEPS; s++) {
                             float d = vfx_shape_custom(camPos.xyz + viewDir * t, texCoord, shape_params0[i], shape_params1[i]);
+                            if (havePrev) {
+                                float dCross = 0.5 * (dPrev + d - lip * (t - tPrev));
+                                if (dCross < dBound) {
+                                    dBound = dCross;
+                                    tBound = tPrev + (dPrev - dCross) / lip;
+                                }
+                            }
                             if (d <= 0.0) {
-                                tEnter = t;
+                                // False-position entry inside the last bracket: the raw first-inside
+                                // sample grid quantises tEnter, and tEnter feeds the occlusion ramp.
+                                tEnter = havePrev ? tPrev + (t - tPrev) * dPrev / max(dPrev - d, 1.0e-4) : t;
                                 dMin = d;
-                                tMin = t;
                                 break;
                             }
-                            t += clamp(d, VFX_PLUGIN_AURA_MIN_STEP, VFX_PLUGIN_AURA_MAX_STEP);
+                            havePrev = true;
+                            tPrev = t;
+                            dPrev = d;
+                            // Even a straight dive from here stays above the soft band, so the rest
+                            // of the ray cannot change the answer. Perf only.
+                            if (d - lip * (tLimit - t) > softness) {
+                                break;
+                            }
+                            t += clamp(d / lip, VFX_PLUGIN_AURA_MIN_STEP, VFX_PLUGIN_AURA_MAX_STEP);
                             if (t >= tLimit) {
                                 break;
                             }
                         }
                         if (tEnter < 0.0) {
-                            cov = 0.0;
+                            // Near-miss fade: vfx_aura_cover gives any entered ray >= 0.5 and gave
+                            // a miss a hard 0 - a designed-in cliff at the silhouette. The same
+                            // cover factors on the envelope bound (a chord shrunk to the closest
+                            // approach point) fade the outside over the same world-space softness;
+                            // the bound tends to 0 from both sides of the tangent.
+                            cov = vfx_aura_cover(dBound, tBound, tBound, chordEps, softness, sceneDist);
                         } else {
-                            t = tEnter;
-                            float tInside = tEnter;
+                            // t still holds the first inside sample: the exit march must start on a
+                            // point proven inside, the false-position tEnter only feeds the gates.
+                            float tInside = t;
+                            float tPrevIn = t;
+                            float dPrevIn = dMin;
+                            bool haveIn = false;
                             bool exitFound = false;
                             bool saturated = false;
                             for (int s = 0; s < VFX_PLUGIN_AURA_EXIT_STEPS; s++) {
                                 float d = vfx_shape_custom(camPos.xyz + viewDir * t, texCoord, shape_params0[i], shape_params1[i]);
+                                if (haveIn) {
+                                    float dCross = 0.5 * (dPrevIn + d - lip * (t - tPrevIn));
+                                    if (dCross < dBound) {
+                                        dBound = dCross;
+                                        tBound = tPrevIn + (dPrevIn - dCross) / lip;
+                                    }
+                                }
                                 if (d > 0.0) {
                                     tExit = t;
                                     exitFound = true;
                                     break;
                                 }
+                                haveIn = true;
+                                tPrevIn = t;
+                                dPrevIn = d;
                                 if (d < dMin) {
                                     dMin = d;
-                                    tMin = t;
                                 }
                                 tInside = t;
                                 if (dMin <= -0.5 * softness) {
-                                    tExit = tLimit;
                                     saturated = true;
                                     break;
                                 }
-                                t += clamp(-d, VFX_PLUGIN_AURA_MIN_STEP, VFX_PLUGIN_AURA_MAX_STEP);
+                                t += clamp(-d / lip, VFX_PLUGIN_AURA_MIN_STEP, VFX_PLUGIN_AURA_MAX_STEP);
                                 if (t >= tLimit) {
                                     break;
                                 }
@@ -350,11 +404,11 @@ void main() {
                                 tExit = tLimit;
                             }
                             if (shape_misc[i].x > 0.5) {
-                                dMin = abs(dMin) - 0.5 * shape_misc[i].y;
+                                dBound = abs(dBound) - 0.5 * shape_misc[i].y;
                             }
-                            vec3 auraFieldPos = (leafSpace == 1) ? camPos.xyz + viewDir * tMin : vec3(texCoord, mask_time);
-                            dMin += fieldValue(int(so.w + 0.5), auraFieldPos, field_params[i].y, field_params[i].z) * field_params[i].x;
-                            cov = vfx_aura_cover(dMin, tEnter, tExit, chordEps, softness, sceneDist);
+                            vec3 auraFieldPos = (leafSpace == 1) ? camPos.xyz + viewDir * tBound : vec3(texCoord, mask_time);
+                            dBound += fieldValue(int(so.w + 0.5), auraFieldPos, field_params[i].y, field_params[i].z) * field_params[i].x;
+                            cov = vfx_aura_cover(dBound, tEnter, tExit, chordEps, softness, sceneDist);
                         }
                     }
                 } else {

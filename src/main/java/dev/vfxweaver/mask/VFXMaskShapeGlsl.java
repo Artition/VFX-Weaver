@@ -49,6 +49,18 @@ package dev.vfxweaver.mask;
  * it must not declare any of those four symbols. The function is optional: a plugin that omits it
  * is treated as unbounded. The built-in reference is {@code vfxweaver:blobs_glsl} (a union of world
  * spheres): the SDF and its bounds both read the same data, so the broad phase is conservative.
+ *
+ * <p><b>The distance-bound obligation.</b> The aura mode marches the field by sphere tracing and
+ * derives a Lipschitz cone-envelope of the field along the view ray, so the returned value must be
+ * a <em>conservative</em> distance: negative inside, positive outside, and never larger than the true
+ * distance to the boundary, i.e. {@code |grad d| <= 1} everywhere. A {@code max}/{@code min}
+ * composition of such fields is still conservative (though creased, which the envelope handles
+ * exactly), so C1 smoothness is <em>not</em> required. A field perturbed by a noise term over-estimates
+ * the distance and breaks the bound; either scale the whole returned value down until it is
+ * conservative, or register the shape with the real bound via
+ * {@code VFXAPI.registerMaskShapeGlsl(id, plugin, lipschitz)} (clamped to {@code >= 1.0}; a variant of
+ * several plugins uses the max). Under-declaring keeps the previous over-stepping behaviour, so the
+ * bound must be a true upper bound on {@code |grad d|}.
  */
 @FunctionalInterface
 public interface VFXMaskShapeGlsl {

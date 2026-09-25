@@ -19,6 +19,8 @@ public final class VFXShapeRegistry {
 
 	private final Map<String, VFXCustomShape> shapes = new HashMap<>();
 	private final Map<String, VFXMaskShapeGlsl> plugins = new HashMap<>();
+	/** The declared Lipschitz bound per plugin id; absent means the conservative default of 1.0. */
+	private final Map<String, Float> pluginLipschitz = new HashMap<>();
 	/** Notified on every registration change so the client can drop its compiled-shape shader variants. */
 	private @Nullable Runnable changeListener;
 
@@ -156,6 +158,7 @@ public final class VFXShapeRegistry {
 	public boolean unregister(final String id) {
 		final boolean existed = this.shapes.remove(id) != null;
 		this.plugins.remove(id);
+		this.pluginLipschitz.remove(id);
 		if (existed) {
 			notifyChanged();
 		}
@@ -174,10 +177,28 @@ public final class VFXShapeRegistry {
 	 * @return {@code false} when the registry is full
 	 */
 	public boolean registerGlsl(final String id, final VFXMaskShapeGlsl plugin) {
+		return this.registerGlsl(id, plugin, 1.0F);
+	}
+
+	/**
+	 * Registers a GLSL-plugin shape with a declared Lipschitz upper bound on the field's gradient
+	 * ({@code |grad d| <= lipschitz}). The client marches the plugin SDF by sphere tracing and derives
+	 * a Lipschitz cone-envelope of the field; a plugin whose field over-estimates the distance (e.g. a
+	 * noise-perturbed SDF) declares the real bound here so the march and the envelope stay correct.
+	 * Values are clamped to at least {@code 1.0} (a distance bound can never be super-gradient), and
+	 * a variant containing several plugins compiles against the max of their declared bounds.
+	 *
+	 * @param lipschitz an upper bound on {@code |grad d|}; {@code 1.0} (the default) means the plugin
+	 * 	already returns a conservative distance field
+	 * @return {@code false} when the registry is full
+	 */
+	public boolean registerGlsl(final String id, final VFXMaskShapeGlsl plugin, final float lipschitz) {
 		if (this.shapes.size() >= MAX_SHAPES && !this.shapes.containsKey(id)) {
 			return false;
 		}
+		final float bound = Math.max(1.0F, lipschitz);
 		this.plugins.put(id, plugin);
+		this.pluginLipschitz.put(id, bound);
 		this.shapes.put(id, new VFXCustomShape(id, VFXMaskSpace.SCREEN, VFXCustomShape.Family.GLSL_PLUGIN, java.util.List.of(), java.util.List.of()));
 		notifyChanged();
 		return true;
@@ -186,6 +207,14 @@ public final class VFXShapeRegistry {
 	/** The registered plugin source for this id, or {@code null}. */
 	public @Nullable VFXMaskShapeGlsl plugin(final String id) {
 		return this.plugins.get(id);
+	}
+
+	/**
+	 * The declared Lipschitz bound for this plugin, or {@code null} when the plugin was registered
+	 * without one (the conservative-distance default of {@code 1.0} then applies).
+	 */
+	public @Nullable Float pluginLipschitz(final String id) {
+		return this.pluginLipschitz.get(id);
 	}
 
 	/** The registered ids (for validation and diagnostics). */
