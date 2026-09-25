@@ -190,10 +190,19 @@ aura still fills the volume's silhouette instead of vanishing against the sky.
 
 A `world` GLSL-plugin leaf accepts the same `"volume": "aura"` field. An arbitrary distance field has
 no analytic ray, so the pixel's view ray is **sphere-traced** through the plugin's own SDF: entry and
-exit are found by marching, and the coverage is sampled at the deepest point of the **first** chord the
-ray enters (a further region along the same ray is not counted). Silhouette, edge fade and scene
-occlusion are then exactly the built-in `aura` maths, so a wall-shaped aura is hidden by a hill in
-front of it and fills air and sky.
+exit are found by marching, and the **signed closest approach** of the ray is estimated by a Lipschitz
+**cone-envelope** — the crossing of the gradient cones of consecutive samples lower-bounds the field
+between them, and the minimum crossing lower-bounds how deep (or how near-missed) the ray is. That
+bound feeds the same built-in `aura` maths as a `sphere`/`box` leaf — silhouette, edge fade and scene
+occlusion — so a wall-shaped aura is hidden by a hill in front of it and fills air and sky. Entry is
+bracketed by **false-position** (the exact root inside the last sample pair), so the entry distance —
+which also feeds the occlusion ramp — is continuous rather than quantised to the sample grid.
+
+The envelope is what makes a plugin aura edge smooth. The previous deep point was the *sampled*
+minimum of the march, so the edge resolved into steps of the sample spacing, and a ray that entered
+scored ≥ 0.5 while a miss scored a hard `0` — a visible ~0.5 cliff. The envelope bound is continuous
+in screen space, is exact for creased fields (`max`/`min` compositions of distance bounds — the usual
+way to build a wedge or a shell), and is never thinner than the truth.
 
 ```json
 {
@@ -218,6 +227,24 @@ A `composed` custom leaf has no raw SDF to march, so `"volume": "aura"` on one i
 error naming the shape — it does not silently fall back. A screen-space plugin leaf is rejected for
 the same reason: a uv-space distance cannot be marched in world units.
 
+**The field must be a conservative distance (the one hard obligation).** The march steps by the value
+the plugin returns and the cone-envelope is built from the same bound, so `vfx_shape_custom` must
+never over-estimate the distance to the boundary — i.e. `|grad d| <= 1` everywhere, negative inside.
+`max`/`min` compositions of correct fields stay conservative, so **C1 smoothness is not required** and
+a hard `max` crease is fine (the envelope is exact there). What breaks the bound is *perturbing* a
+distance field — a noise term, a smooth-min with a bias, a scaled composition — because it can report
+more than the true distance and the march then over-steps. Either scale the whole returned value down
+until it is conservative, or declare the real bound when you register the shape:
+
+```java
+// |grad d| <= 1.25 for this field; clamped to >= 1.0, and a variant of several plugins uses the max.
+VFXAPI.registerMaskShapeGlsl(id, () -> SOURCE, 1.25F);
+```
+
+Under-declaring keeps the previous over-stepping, so the bound must be a **true upper bound** on the
+gradient. Declaring `L` also widens the envelope slightly (the edge thickens by ~`(L-1)`), which is the
+price of a correct march.
+
 **Cost.** The march evaluates the plugin up to 40 entry + 16 exit + 4 refine steps, against the single
 analytic evaluation a built-in `sphere`/`box` costs. Two things cut it:
 
@@ -238,12 +265,13 @@ analytic evaluation a built-in `sphere`/`box` costs. Two things cut it:
   	return vec4(0.0, 64.0, 0.0, vfx_mask_data(vfx_shape_data_base + 9) + vfx_shape_params1.x + 2.0);
   }
   ```
-- **An early exit** once the deepest sample already reached full coverage.
+- **An early exit** once the cone-envelope bound already reaches full coverage, and one more before it:
+  if a straight dive from the current sample cannot get within `softness` of the surface, the rest of
+  the ray cannot change the answer.
 
-Deliberate ceiling: with a 0.5-block minimum step the step budget only traverses roughly 30 blocks, so
-a volume further away than that degrades to "still inside at the march limit" — a safe answer, and
-scene occlusion usually removes such a pixel anyway. Raise the step budget or the minimum step if a
-scene ever needs more.
+Because the envelope is a *conservative* bound, a wide soft volume fades a little wider than the ideal
+half-`softness` and its interior saturates slightly earlier — smooth and monotone, never stepped, and
+never thinner than the true volume.
 
 **Built-in reference: `vfxweaver:blobs_glsl`.** The mod ships one **world** plugin to use as the
 template (the screen-space reference stays `vfxweaver:ringed_glsl`). It is the union of up to eight

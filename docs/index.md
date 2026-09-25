@@ -18,16 +18,16 @@ will play and the loader you already have installed:
 
 | Minecraft line | Loader | Jar |
 |---|---|---|
-| 26.2 | Fabric | `vfxweaver-2.1.0+26.2.jar` |
-| 26.2 | NeoForge | `vfxweaver-2.1.0+26.2-neoforge.jar` |
-| 26.1 / 26.1.1 / 26.1.2 | Fabric | `vfxweaver-2.1.0+26.1.2.jar` |
-| 26.1 / 26.1.1 / 26.1.2 | NeoForge | `vfxweaver-2.1.0+26.1.2-neoforge.jar` |
-| 1.21.11 | Fabric | `vfxweaver-2.1.0+1.21.11.jar` |
-| 1.21.11 | NeoForge | `vfxweaver-2.1.0+1.21.11-neoforge.jar` |
+| 26.2 | Fabric | `vfxweaver-2.1.1+26.2.jar` |
+| 26.2 | NeoForge | `vfxweaver-2.1.1+26.2-neoforge.jar` |
+| 26.1 / 26.1.1 / 26.1.2 | Fabric | `vfxweaver-2.1.1+26.1.2.jar` |
+| 26.1 / 26.1.1 / 26.1.2 | NeoForge | `vfxweaver-2.1.1+26.1.2-neoforge.jar` |
+| 1.21.11 | Fabric | `vfxweaver-2.1.1+1.21.11.jar` |
+| 1.21.11 | NeoForge | `vfxweaver-2.1.1+1.21.11-neoforge.jar` |
 
-**Version scheme.** `2.1.0` in the file name is the **mod version** (the value released on GitHub and
-Modrinth). The documentation also carries a **guide revision** (`Guide v69`); that number tracks the
-guide itself and never appears in a jar name. So `vfxweaver-2.1.0+26.2.jar` = mod 2.1.0, Minecraft
+**Version scheme.** `2.1.1` in the file name is the **mod version** (the value released on GitHub and
+Modrinth). The documentation also carries a **guide revision** (`Guide v70`); that number tracks the
+guide itself and never appears in a jar name. So `vfxweaver-2.1.1+26.2.jar` = mod 2.1.1, Minecraft
 26.2, Fabric; the 26.1.2 jar covers the whole 26.1.x line. Fabric jars need Fabric API; NeoForge jars
 use the `-neoforge` suffix and are installed with [NeoForge](https://neoforged.net/).
 

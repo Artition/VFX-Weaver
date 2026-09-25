@@ -237,6 +237,17 @@ VFXAPI.registerMaskShapeGlsl(Identifier.fromNamespaceAndPath("mymod", "pentagram
 VFXAPI.unregisterMaskShapeGlsl(id);
 ```
 
+**The field must be a conservative distance.** With `volume: "aura"` the coverage shader sphere-traces
+the plugin SDF, so the returned value may never over-estimate the distance to the boundary: `|grad d|
+<= 1` everywhere. `max`/`min` compositions of correct fields stay conservative (C1 smoothness is not
+required), but a field perturbed by noise or a biased blend over-estimates and the march over-steps. A
+plugin that cannot be scaled down can declare a true upper bound on its gradient; the value is clamped
+to `>= 1.0` and a variant of several plugins compiles against the max:
+
+```java
+VFXAPI.registerMaskShapeGlsl(Identifier.fromNamespaceAndPath("mymod", "zone_sdf"), plugin, 1.25F);
+```
+
 **Dynamic per-leaf data.** A custom leaf also carries 32 reserved dynamic floats
 (`mask.p<N>.d0 … d31`, authored as a `"data": [...]` array or set live with `sendMaskData`/`maskData`/
 `setParam`). The wrapper declares `int vfx_shape_data_base` and `float vfx_mask_data(int index)` and

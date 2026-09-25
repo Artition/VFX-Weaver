@@ -3,7 +3,7 @@
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 **This page is the authoritative record of released mod versions.** The newest entry is the current
-mod version (`2.1.0`, read from `mod_version` in the build). Each `##` heading names a release; where
+mod version (`2.1.1`, read from `mod_version` in the build). Each `##` heading names a release; where
 a release shipped with a guide revision the heading shows both numbers (`v1.2.0 / Guide v32`), and a
 heading titled only `Guide vN` is a guide change that shipped without a mod version bump. The two
 numbers are independent: the **mod version** is what you download, the **guide revision** is how many
@@ -11,6 +11,33 @@ times this documentation has been revised. The authoritative record of guide rev
 [Guide changelog](guide/changelog.md). Which jar to download for your Minecraft line and loader is in
 the [download table](index.md#download). Add new entries at the top, in the same PR as the behaviour
 change.
+
+## 2.1.1 — 2026-09-25
+
+### Fixed
+
+- **`volume: "aura"` on a GLSL-plugin mask leaf: a smooth soft edge instead of a banded ramp with a hard
+  cliff.** A wide, soft plugin volume rendered its silhouette in visible steps and dropped from ~50%
+  coverage straight to zero within a fraction of a degree. The plugin aura estimated the ray's deep
+  point as the *sampled* minimum of its march, so the edge resolved into sample-sized steps, and any
+  entered ray scored at least 0.5 while a miss scored exactly zero — a built-in ~0.5 jump at the
+  silhouette. Both are gone by construction: the deep point is now a Lipschitz **cone-envelope** of the
+  samples already taken (continuous in screen space, exact for creased `max`/`min` fields, never thinner
+  than the truth), a ray that misses the volume fades over the leaf's own `softness` instead of
+  vanishing, and the entry distance is bracketed by false-position, which also dequantises the
+  occlusion ramp. The edge lands in the same place, the interior still saturates to full coverage, and
+  the cost is unchanged — no extra SDF evaluations. See
+  [masks](guide/datapack/masks.md).
+
+### Added
+
+- **A plugin can declare its field's gradient bound.** `VFXAPI.registerMaskShapeGlsl(id, plugin, lipschitz)`
+  is a new overload: the plugin field must be a conservative distance (`|grad d| <= 1`), and a field that
+  is perturbed (noise, a biased blend) can no longer stay silent about it — either scale the value down
+  or declare a true upper bound, which the aura march and the envelope then respect. A variant of
+  several plugins compiles against the largest declared bound. The mask guide now states the rule next
+  to the plugin contract. Additive: an existing registration compiles exactly as before.
+  See [masks](guide/datapack/masks.md) and [the API](API.md#vfxapi).
 
 ## 2.1.0 — 2026-09-25
 
