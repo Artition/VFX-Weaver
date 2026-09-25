@@ -47,8 +47,8 @@ Its datapack definition:
 	"loop": true,
 	"fade_ticks": 12,
 	"params": {
-		"intensity": 0.6,
-		"size": { "keyframes": [ { "time": 0, "value": 1.0 }, { "time": 120, "value": 3.0 }, { "time": 240, "value": 1.0 } ] },
+		"intensity": { "keyframes": [ { "time": 0, "value": 0.15 }, { "time": 120, "value": 0.6 }, { "time": 240, "value": 0.15 } ] },
+		"size": { "keyframes": [ { "time": 0, "value": 1.5 }, { "time": 120, "value": 3.5 }, { "time": 240, "value": 1.5 } ] },
 		"chroma": { "keyframes": [ { "time": 0, "value": 0.0 }, { "time": 60, "value": 1.0 }, { "time": 100, "value": 0.0 }, { "time": 150, "value": 1.0 }, { "time": 190, "value": 0.0 }, { "time": 240, "value": 0.0 } ] }
 	}
 }
