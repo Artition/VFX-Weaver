@@ -285,11 +285,11 @@ if (-not (Test-Path -LiteralPath $builtinPath)) {
 
 # --- 7. S4 celestial anchors: enum + parse + CPU resolver + fail-closed (spec §4.4 / §6.1-6.2) -----
 # A top-level `anchor` ("dome" default | "sun" | "moon" | "stars") makes the effect follow the
-# vanilla sky body. The pass is unchanged - the CPU resolves the body's [yaw, pitch] (and, for
-# `stars`, `dome_rotation`) from the client's SkyRenderState and writes the SAME uniforms, so no
-# shader and no mixin are added (this is what keeps it Iris-safe: a post pass composes over the
-# pack's sky). When the sky state is unavailable the effect must contribute NOTHING (opacity 0)
-# rather than paint at a guessed spot, reported once through VFXLog.warnOnce.
+# vanilla sky body. The sun/moon resolve on the CPU to the existing [yaw, pitch] uniforms; `stars`
+# locks for real by appending `anchor_stars` + `star_angle`, so the shader can invert vanilla's star
+# pose (no mixin, which keeps it Iris-safe: a post pass composes over the pack's sky). When the sky
+# state is unavailable the effect must contribute NOTHING (opacity 0) rather than paint at a guessed
+# spot, reported once through VFXLog.warnOnce.
 $anchorEnumPath = Join-Path $repoRoot "src\main\java\dev\vfxweaver\effect\CelestialAnchor.java"
 $skyAnchorPath = Join-Path $repoRoot "src\main\java\dev\vfxweaver\util\VFXSkyAnchor.java"
 $bindingsPath = Join-Path $repoRoot "src\main\java\dev\vfxweaver\effect\VFXWorldBindings.java"
