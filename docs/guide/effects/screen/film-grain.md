@@ -14,6 +14,7 @@ Animated film grain.
 |---|---|---|---|
 | `intensity` | float | 0.08 (fades to 0) | Grain strength |
 | `size` | float | 2 | Grain size in pixels |
+| `chroma` | float | 0 | `0` is monochrome grain, `1` gives each colour channel its own grain |
 
 ## Example
 
@@ -40,29 +41,15 @@ Its datapack definition:
 ```json
 {
 	"type": "film_grain",
-	"duration": 160,
-	"easing": "ease_in_out_cubic",
+	"duration": 240,
+	"easing": "linear",
 	"persistent": true,
 	"loop": true,
 	"fade_ticks": 12,
 	"params": {
-		"intensity": {
-			"keyframes": [
-				{
-					"time": 0,
-					"value": 0.0
-				},
-				{
-					"time": 80,
-					"value": 0.06
-				},
-				{
-					"time": 160,
-					"value": 0.0
-				}
-			]
-		},
-		"size": 3.0
+		"intensity": 0.6,
+		"size": { "keyframes": [ { "time": 0, "value": 1.0 }, { "time": 120, "value": 3.0 }, { "time": 240, "value": 1.0 } ] },
+		"chroma": { "keyframes": [ { "time": 0, "value": 0.0 }, { "time": 60, "value": 1.0 }, { "time": 100, "value": 0.0 }, { "time": 150, "value": 1.0 }, { "time": 190, "value": 0.0 }, { "time": 240, "value": 0.0 } ] }
 	}
 }
 ```

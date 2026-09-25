@@ -189,7 +189,7 @@ public final class VFXShaderPrograms {
 		registerPost(VFXEffectType.SCREEN_FLASH, "alpha", "color_r", "color_g", "color_b");
 		registerPost(VFXEffectType.MOTION_BLUR, "intensity", "yaw_delta", "pitch_delta");
 		registerPost(VFXEffectType.BLOOM, "intensity", "threshold", "radius");
-		registerPost(VFXEffectType.FILM_GRAIN, "intensity", "size", "time");
+		registerPost(VFXEffectType.FILM_GRAIN, "intensity", "size", "time", "chroma");
 		registerPost(VFXEffectType.SCANLINES, "intensity", "line_count", "speed", "time");
 		registerPost(VFXEffectType.DEPTH_OF_FIELD, "intensity", "focus_center", "focus_range");
 		registerPost(VFXEffectType.LETTERBOX, "height", "color_r", "color_g", "color_b");
