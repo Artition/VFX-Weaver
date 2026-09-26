@@ -2552,6 +2552,17 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#v72-released-as-211" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v72 — released as 2.1.1
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#v71-released-as-211" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3305,6 +3316,17 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#v72-released-as-211" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v72 — released as 2.1.1
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#v71-released-as-211" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3967,8 +3989,12 @@
 documentation changed. A guide revision is not a mod version — the two numbers are independent, and
 released mod versions are recorded on the <strong><a href="../../CHANGELOG/">mod Changelog</a></strong> instead. Where a guide
 revision shipped with a release, the entry says so (for example <code>v47 — released as 2.0.0</code>).</p>
-<p>Current guide revision: <strong>v71</strong>. Mod version it documents: <strong>2.1.1</strong>. Which jar to download is in the
+<p>Current guide revision: <strong>v72</strong>. Mod version it documents: <strong>2.1.1</strong>. Which jar to download is in the
 <a href="../../#download">download table</a>.</p>
+<h3 id="v72-released-as-211">v72 — released as 2.1.1<a class="headerlink" href="#v72-released-as-211" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>occlusion_softness: the occlusion width is its own knob.</strong> The ramp that hides an aura behind a surface was denominated in the leaf's own softness, so a soft silhouette also decided how softly the fill was occluded - which is what turned a blocky hillside (a 1-block staircase) into a stack of ~45 bands of ~0.022 coverage along the silhouette, and which also dimmed a volume sitting one block <em>in front</em> of a surface while half-showing one a block behind it. The new aura-only field is that width in world blocks: 0.5 where the volume's entry sits on the surface, falling to 0 or 1 over the given distance. Absent, the ramp keeps following softness animation included, so no existing mask changes, and a sub-block value collapses the terracing into a single silhouette edge. The terracing itself cannot be removed - the occluder really is quantised in blocks - so the page says so and shows the numbers instead of pretending otherwise. Verified by scripts/check-mask-aura-softness.ps1, which pins both directions of the knob (1.0 in front, 0.0 behind at a one-block offset, where the default wide ramp gives 0.66 and 0.41). Additive: no datapack field renamed, no UBO/Config change (shape_volume.w), PROTOCOL_VERSION unchanged. <strong>Not verified in game</strong> (the owner tests it).</li>
+</ul>
 <h3 id="v71-released-as-211">v71 — released as 2.1.1<a class="headerlink" href="#v71-released-as-211" title="Permanent link">&para;</a></h3>
 <ul>
 <li><strong>The depth axis of a mask, written down: the <code>depth</code> leaf, <code>occlusion: false</code>, and what a depth mask can never see.</strong> The page gains a <code>depth</code> leaf (coverage 0.5 at <code>distance</code>, falling over the leaf's own <code>softness</code>, with the sky on the uncovered side and no driver needed to make it camera-relative) and the <code>"occlusion": false</code> opt-out for an aura leaf, which is the only way to fill through translucent geometry — and is explicitly all-or-nothing. An <strong>Honest limits</strong> block states the shared root of two long-standing reports: a depth mask knows only what wrote depth, so vanilla weather and particles are drawn over (weather renders with depth writes off, particles per their own render type), while translucent surfaces legitimately occlude and a surface leaf's answer over glass is correct. The occlusion ramp being denominated in the leaf's <code>softness</code> is documented with the measured consequence — a 1-block terrain staircase reads as ~45 bands of ~0.022 coverage at 44.8 blocks of softness — and narrowing it is recorded as a separate open change, with the measurement that only a sharp width actually hides the steps. Additive: no datapack field renamed, no UBO/Config change, <code>PROTOCOL_VERSION</code> unchanged. <strong>Not verified in game</strong> (the owner tests it); the static contract and the maths are asserted by <code>scripts/check-mask-aura-softness.ps1</code> (the opt-out independence, the depth sweep, a composed band, the ramp terracing and the two shader wirings).</li>
