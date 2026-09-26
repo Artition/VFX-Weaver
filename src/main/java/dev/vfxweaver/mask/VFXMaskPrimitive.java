@@ -41,6 +41,10 @@ import org.jspecify.annotations.Nullable;
  *                           derived {@code SCREEN_RECT} binding on a screen {@code rect} that also sets the
  *                           half-extents; {@code null} for a literal/graph centre
  * @param sizeBinding        a size-only world binding, or {@code null} (reserved; v1 packs none)
+ * @param occlusionDisabled  for an aura leaf, {@code true} when the author asked the fill to ignore the
+ * 						   scene depth entirely ({@code "occlusion": false}), so translucent geometry
+ * 						   stops hiding it - and, as the price, so does nearer terrain and particles
+ * 						   (nothing depth-writing can be told apart in a single depth sample)
  */
 public record VFXMaskPrimitive(
 	@Nullable VFXMaskShapeKind shape,
@@ -67,7 +71,8 @@ public record VFXMaskPrimitive(
 	boolean occlude,
 	@Nullable String customShape,
 	@Nullable BoundParam centerBinding,
-	@Nullable BoundParam sizeBinding
+	@Nullable BoundParam sizeBinding,
+	boolean occlusionDisabled
 ) {
 	public VFXMaskPrimitive {
 		centerSlots = centerSlots.clone();
@@ -85,7 +90,11 @@ public record VFXMaskPrimitive(
 		SHAPE, BLOCK, CUSTOM
 	}
 
-	/** The shader kind code: the built-in ordinal for a shape leaf, {@code 6} for block, {@code 7} for custom. */
+	/**
+	 * The shader kind code: the built-in ordinal for a shape leaf, {@code 6} for block, {@code 7} for
+	 * custom, {@code 8} for the sky leaf (its ordinal would collide with block). {@code DEPTH} is
+	 * appended last so its ordinal is already the code the coverage shader dispatches.
+	 */
 	public int kindCode() {
 		if (this.blockSelection != null) {
 			return 6;

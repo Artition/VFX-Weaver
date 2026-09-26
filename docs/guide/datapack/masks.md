@@ -227,6 +227,70 @@ A `composed` custom leaf has no raw SDF to march, so `"volume": "aura"` on one i
 error naming the shape — it does not silently fall back. A screen-space plugin leaf is rejected for
 the same reason: a uv-space distance cannot be marched in world units.
 
+#### `"occlusion": false` — a fill that ignores scene depth
+
+An aura leaf is hidden by whatever surface the depth buffer holds. That is right for terrain, and
+wrong for a **translucent** surface: stained glass, ice or a water surface write depth, so an aura
+behind a glass wall is (correctly, by the textbook) considered occluded and the fill disappears
+behind it. On an aura leaf, `"occlusion": false` turns the occlusion term off, so the volume is
+filled regardless of the depth buffer:
+
+```json
+"a": { "shape": "sphere", "space": "world", "volume": "aura", "center": [0, 64, 0],
+       "radius": 40, "softness": 4, "occlusion": false }
+```
+
+It is accepted **only** on an aura leaf (a parse error elsewhere, same as `volume`), defaults to
+`true` (existing packs are byte-for-byte unchanged), and costs no extra SDF call. The price is that
+it is all-or-nothing: with the scene depth ignored, the volume is also drawn over nearer terrain and
+over anything else in front of it. That is the honest ceiling — see the limits below.
+
+#### The `depth` leaf — coverage from the scene distance
+
+`"shape": "depth"` is a leaf whose coverage is a function of the pixel's reconstructed scene distance
+(the same value the aura occlusion uses). It has no geometry of its own, so the leaf's **`softness` is
+the falloff width** — there is no separate tolerance knob:
+
+| Scene distance | Coverage |
+|---|---|
+| `<= distance - softness/2` | `1` |
+| `= distance` | `0.5` |
+| `>= distance + softness/2` | `0` |
+
+```json
+{ "type": "blur", "params": { "amount": 6, "radius": 8 },
+  "mask": { "a": { "shape": "depth", "distance": 32, "softness": 16 } } }
+```
+
+That reads as a depth-of-field gate: everything nearer than ~24 blocks is full coverage (sharp), the
+focus band at `distance` is half covered, and everything past ~40 blocks (including the sky) is not
+covered at all. `invert` flips it, so a `difference` of two depth leaves is a **band** around one
+distance, and a sky leaf composited away from it excludes the sky explicitly. Sky and any pixel with
+no trustworthy depth keep the far sentinel, which lands on the uncovered side — the leaf fails closed
+there. No `field` and no stroke on this leaf.
+
+The point of the leaf is camera-relative coverage **without a driver**: the same thing
+`{"shape": "sphere", "center": [player]}`, but no per-frame centre push from Java, and no
+entity to resolve.
+
+> **Honest limits of a depth-based mask.** Everything a depth mask knows about the scene it read from
+> the depth buffer, and nothing else:
+> - **Particles, rain and snow are not in it.** Vanilla renders weather with depth writes off and
+>   particles per their own render type, so a fill built from depth is drawn *over* them. This is not
+>   fixable in one pass with one depth sample; only a second pass or a depth copy would see them.
+> - **Translucent geometry *is* in it.** A surface you can see through still hides an aura (and a
+>   surface leaf simply answers "is that point in the shape", which is correct). `occlusion: false` is
+>   the escape hatch, at the price of also drawing over nearer terrain.
+> - Under an Iris shaderpack the behaviour follows whatever depth the pack leaves in its target.
+>
+> The occlusion ramp is also denominated in the leaf's own `softness`, so on a wide, soft volume the
+> transition from "in front of the surface" to "behind it" spans `softness` blocks. A blocky hillside
+> turned into a 1-block staircase therefore reads as a stack of bands along its silhouette — measured
+> at 44.8 blocks of softness as ~45 visible levels of ~0.022 coverage each. Narrowing that ramp is a
+> separate, still open change: the only width that actually hides the steps is a sharp one
+> (≈ the depth tolerance, i.e. a hard silhouette), since a middle width keeps them and a very wide one
+> only halves their contrast.
+
 **The field must be a conservative distance (the one hard obligation).** The march steps by the value
 the plugin returns and the cone-envelope is built from the same bound, so `vfx_shape_custom` must
 never over-estimate the distance to the boundary — i.e. `|grad d| <= 1` everywhere, negative inside.

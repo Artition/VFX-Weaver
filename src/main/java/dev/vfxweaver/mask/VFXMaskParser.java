@@ -384,10 +384,22 @@ public final class VFXMaskParser {
 			throw new IllegalArgumentException("mask: 'occlude' is only valid on a block leaf");
 		}
 		final boolean occlude = blockLeaf && bool(json, "occlude", true);
+		// An aura leaf may opt out of the scene-depth occlusion entirely. The flag is meaningless on any
+		// other family (a surface leaf answers "is the visible surface in the shape", which a translucent
+		// surface answers correctly).
+		if (json.has("occlusion") && !json.get("occlusion").isJsonNull()) {
+			if (volumeMode != VFXMaskVolumeMode.AURA) {
+				throw new IllegalArgumentException("mask: 'occlusion' is only valid on an aura leaf");
+			}
+			if (!json.get("occlusion").isJsonPrimitive() || !json.get("occlusion").getAsJsonPrimitive().isBoolean()) {
+				throw new IllegalArgumentException("mask: 'occlusion' must be a boolean");
+			}
+		}
+		final boolean occlusionDisabled = volumeMode == VFXMaskVolumeMode.AURA && !bool(json, "occlusion", true);
 		final VFXMaskPrimitive primitive = new VFXMaskPrimitive(shape, space, centerSlots, centerDefaults, rotationSlot, rotationDefault,
 			parameterSlots, parameterDefaults, fill, strokeSlot, strokeDefault, softnessSlot, softnessDefault, volumeMode,
 			field, fieldAmountSlot, fieldAmountDefault, fieldScaleSlot, fieldScaleDefault, i * 17.0F + 1.0F,
-			blockSelection, occlude, customShape, resolvedCenterBinding, null);
+			blockSelection, occlude, customShape, resolvedCenterBinding, null, occlusionDisabled);
 		return new Partial(List.of(primitive), List.of());
 	}
 

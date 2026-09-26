@@ -456,6 +456,105 @@ foreach ($cam in @(-140.0, -200.0, -300.0, -600.0)) {
 		}
 	}
 }
+# ------------------------------------------------------------------ 7: the occlusion opt-out and the depth leaf
+# A sphere volume is the simplest case with an analytic chord, so it is used to pin the opt-out: with
+# occlusion disabled the coverage must not depend on the occluder distance at all (and the plugin march
+# must not be cut by its own tLimit), while the default path must keep depending on it.
+Write-Host "=== 7a: occlusion opt-out (built-in sphere r=64 at (0,0,0), camera at (0,64,-200)) ==="
+$sphereR = 64.0
+$camAura = @(0.0, 64.0, -200.0)
+function Get-SphereChord([double]$cx, [double]$cy, [double]$cz, [double]$ox, [double]$oy, [double]$oz, [double]$r) {
+	$dx = $ox - $cx
+	$dy = $oy - $cy
+	$dz = $oz - $cz
+	$b = [Math]::Sqrt($dx * $dx + $dy * $dy + $dz * $dz)
+	return @([Math]::Max($b - $r, 0.0), $b + $r)
+}
+$softAura = 8.0
+foreach ($scene in @(50.0, 100.0, 150.0, 1.0e9)) {
+	$chord = Get-SphereChord 0.0 0.0 0.0 $camAura[0] $camAura[1] $camAura[2] $sphereR
+	$tEnter = $chord[0]; $tExit = $chord[1]
+	# the sphere's deepest point is the chord midpoint (the closest approach), the built-in recipe
+	$dMid = $sphereR - ($sphereR - $tEnter) + 0.0
+	$dDeep = [Math]::Min(0.0, -($tExit - $tEnter) * 0.5)
+	$covOn = Get-AuraCover $dDeep $tEnter $tExit $softAura $scene
+	$covOff = Get-AuraCover $dDeep $tEnter $tExit $softAura 1.0e9
+	Write-Host ("  sceneDist {0,10:F0} | default {1:F4} | occlusion:false {2:F4}" -f $scene, $covOn, $covOff)
+	if ([Math]::Abs($covOff - 1.0) -gt 1.0e-9) {
+		Fail "the opt-out coverage follows the occluder at sceneDist $scene (got $covOff, want 1.0)"
+	}
+	if ($scene -lt $tEnter -and [Math]::Abs($covOn - $covOff) -lt 1.0e-6) {
+		Fail "the default path stopped following the occluder at sceneDist $scene"
+	}
+}
+
+Write-Host "=== 7b: depth leaf (distance 64, softness 16) ==="
+$dist = 64.0; $softD = 16.0
+$prev = $null; $maxStep = 0.0; $mono = $true
+for ($d = 0.0; $d -le 96.0; $d += 0.25) {
+	$cov = [Math]::Min([Math]::Max(0.5 - ($d - $dist) / $softD, 0.0), 1.0)
+	if ($null -ne $prev) {
+		$step = $cov - $prev
+		if ($step -gt $maxStep) { $maxStep = $step }
+		if ($step -gt 1.0e-9) { $mono = $false }
+	}
+	$prev = $cov
+}
+$cov56 = [Math]::Min([Math]::Max(0.5 - (56.0 - $dist) / $softD, 0.0), 1.0)
+$cov64 = [Math]::Min([Math]::Max(0.5 - (64.0 - $dist) / $softD, 0.0), 1.0)
+$cov72 = [Math]::Min([Math]::Max(0.5 - (72.0 - $dist) / $softD, 0.0), 1.0)
+$covSky = [Math]::Min([Math]::Max(0.5 - (1.0e9 - $dist) / $softD, 0.0), 1.0)
+Write-Host ("  cov(56)={0:F4} cov(64)={1:F4} cov(72)={2:F4} sky(1e9)={3:F4} | monotone non-increasing {4} | max step {5:F4} (bound {6:F4})" -f `
+	$cov56, $cov64, $cov72, $covSky, $mono, $maxStep, (0.25 / $softD + 1.0e-6))
+if ([Math]::Abs($cov56 - 1.0) -gt 1.0e-6) { Fail "depth leaf cov at distance-softness/2 = $cov56, expected 1.0" }
+if ([Math]::Abs($cov64 - 0.5) -gt 1.0e-6) { Fail "depth leaf cov at distance = $cov64, expected 0.5" }
+if ($cov72 -gt 1.0e-9) { Fail "depth leaf cov at distance+softness/2 = $cov72, expected 0" }
+if ($covSky -gt 1.0e-9) { Fail "depth leaf cov on the far sentinel = $covSky, expected 0 (fail-closed)" }
+if (-not $mono) { Fail "the depth leaf coverage is not monotone non-increasing in sceneDist" }
+if ($maxStep -gt (0.25 / $softD + 1.0e-6)) { Fail "the depth leaf steps by $maxStep over a 0.25-block sweep" }
+
+Write-Host "=== 7c: a band from two depth leaves (difference) ==="
+function Get-DepthCov([double]$d, [double]$distance, [double]$soft) {
+	return [Math]::Min([Math]::Max(0.5 - ($d - $distance) / $soft, 0.0), 1.0)
+}
+foreach ($scene in @(52.0, 64.0, 76.0)) {
+	$a = Get-DepthCov $scene 80.0 8.0
+	$b = Get-DepthCov $scene 48.0 8.0
+	$band = $a * (1.0 - $b)   # the mask difference op: union(a) minus b
+	Write-Host ("  sceneDist {0,5:F0} | outer leaf {1:F4} | inner leaf {2:F4} | band {3:F4}" -f $scene, $a, $b, $band)
+	if ([Math]::Abs($band - 1.0) -gt 1.0e-6) { Fail "the depth band at sceneDist $scene = $band, expected 1.0" }
+}
+
+Write-Host "=== 7d: ramp terracing (1-block occluder steps) - deferred width, for the numbers ==="
+foreach ($w in @(2.0, 8.0, 16.0, 44.8, 100.0)) {
+	$prev = $null; $levels = 0; $maxJump = 0.0
+	for ($d = 40.0; $d -le 140.0; $d += 1.0) {
+		$occ = [Math]::Min([Math]::Max(0.5 - (84.5 - $d) / $w, 0.0), 1.0)
+		if ($null -ne $prev) {
+			$j = [Math]::Abs($occ - $prev)
+			if ($j -gt 1.0e-6) { $levels++ }
+			if ($j -gt $maxJump) { $maxJump = $j }
+		}
+		$prev = $occ
+	}
+	Write-Host ("  width {0,6:F1} | visible levels {1,3} | worst step {2:F4} {3}" -f $w, $levels, $maxJump, $(if ($maxJump -le 0.004) { "(ok: under 0.004)" } else { "" }))
+}
+# The opt-out has to be wired on both aura paths, and the plugin path must raise its own march limit:
+# with the occluder ignored, a tLimit left at the scene distance would cut the volume with the *budget*
+# instead of the occlusion term, and the opt-out would fail silently.
+$coverage = [System.IO.File]::ReadAllText((Join-Path (Split-Path -Parent $PSScriptRoot) "src\client\resources\assets\vfxweaver\shaders\post\mask_coverage.fsh"))
+if (([regex]::Matches($coverage, 'float occDist').Count) -ne 2) {
+	Fail "mask_coverage.fsh: both aura paths must derive an occDist from shape_volume[i].z"
+}
+if (-not $coverage.Contains('tLimit = VFX_PLUGIN_AURA_MAX_RANGE;')) {
+	Fail "mask_coverage.fsh: the plugin aura must reach the full range when occlusion is disabled"
+}
+if (-not $coverage.Contains('} else if (kind == 9) {')) {
+	Fail "mask_coverage.fsh: the depth leaf branch (kind 9) is missing"
+}
+if ($coverage.Contains('} else if (kind == 10) {')) {
+	Fail "mask_coverage.fsh: an unexpected kind 10 branch exists"
+}
 # ------------------------------------------------------------------ assertions
 # 1. The port is faithful: these are the numbers the fixture printed on the reporter's machine.
 #    A drift here means the transcription, not the shader, changed.

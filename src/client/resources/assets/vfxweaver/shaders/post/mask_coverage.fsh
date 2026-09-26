@@ -267,7 +267,19 @@ void main() {
                 if (shape_volume[i].x > 0.5) {
                     // Aura: march the plugin's raw world-space SDF and reuse the built-in aura maths.
                     vec3 viewDir = normalize(world - camPos.xyz);
-                    float tLimit = min(sceneDist + sceneDist * 2.0e-3 + 0.5 * softness, VFX_PLUGIN_AURA_MAX_RANGE);
+                    float tLimit;
+                    float occDist;
+                    if (shape_volume[i].z > 0.5) {
+                        // Occlusion opt-out: with the scene depth ignored the march has to reach the
+                        // full range, or a volume behind a hill would be cut by the march budget
+                        // instead of the occlusion term and the opt-out would fail silently. Same cost
+                        // class as today's sky rays (the saturation early-outs are intact).
+                        tLimit = VFX_PLUGIN_AURA_MAX_RANGE;
+                        occDist = 1.0e9;
+                    } else {
+                        tLimit = min(sceneDist + sceneDist * 2.0e-3 + 0.5 * softness, VFX_PLUGIN_AURA_MAX_RANGE);
+                        occDist = sceneDist;
+                    }
                     float tStart = 0.0;
                     vec4 bounds = vfx_custom_bounds();
                     bool boundsHit = true;
@@ -356,7 +368,7 @@ void main() {
                             // cover factors on the envelope bound (a chord shrunk to the closest
                             // approach point) fade the outside over the same world-space softness;
                             // the bound tends to 0 from both sides of the tangent.
-                            cov = vfx_aura_cover(dBound, tBound, tBound, chordEps, softness, sceneDist);
+                            cov = vfx_aura_cover(dBound, tBound, tBound, chordEps, softness, occDist);
                         } else {
                             // t still holds the first inside sample: the exit march must start on a
                             // point proven inside, the false-position tEnter only feeds the gates.
@@ -420,7 +432,7 @@ void main() {
                             }
                             vec3 auraFieldPos = (leafSpace == 1) ? camPos.xyz + viewDir * tBound : vec3(texCoord, mask_time);
                             dBound += fieldValue(int(so.w + 0.5), auraFieldPos, field_params[i].y, field_params[i].z) * field_params[i].x;
-                            cov = vfx_aura_cover(dBound, tEnter, tExit, chordEps, softness, sceneDist);
+                            cov = vfx_aura_cover(dBound, tEnter, tExit, chordEps, softness, occDist);
                         }
                     }
                 } else {
@@ -438,6 +450,14 @@ void main() {
             // pixel that is not sky contributes zero - a pack that leaves no trustworthy far depth
             // simply never matches, which is the fail-closed behaviour.
             cov = isSky ? 1.0 : 0.0;
+        } else if (kind == 9) {
+            // Depth leaf: coverage by the pixel's reconstructed scene distance - the same value the
+            // aura occlusion uses. 1 at `distance - softness/2` and nearer, exactly 0.5 at `distance`,
+            // 0 at `distance + softness/2` and beyond, so the leaf's own softness is the falloff width
+            // (there is no separate tolerance). Sky and any depth-less pixel keep the 1.0e9 sentinel,
+            // i.e. they land on the far side and the leaf fails closed there; mask_invert flips it.
+            // No field and no stroke: this branch never consults them.
+            cov = clamp(0.5 - (sceneDist - shape_params0[i].x) / max(so.z, 1.0e-4), 0.0, 1.0);
         } else if (leafSpace == 2) {
             // Dome space: a 2D shape addressed in equirectangular dome UV, sky-occluded by construction
             // (geometry occupying a dome direction is not sky, so it is never covered). The leaf centre
@@ -484,7 +504,12 @@ void main() {
                 vec3 auraFieldPos = (leafSpace == 1) ? volumePoint : vec3(texCoord, mask_time);
                 d += fieldValue(int(so.w + 0.5), auraFieldPos, field_params[i].y, field_params[i].z) * field_params[i].x;
                 float softness = max(so.z, 1.0e-4);
-                cov = vfx_aura_cover(d, tEnter, tExit, chordEps, softness, sceneDist);
+                // Occlusion opt-out (shape_volume[i].z): passing the far sentinel turns the occluded
+                // term into a constant 1 inside vfx_aura_cover, so the fill ignores the depth buffer
+                // entirely (translucent glass, terrain and particles alike); silhouette and
+                // horizonFade are untouched.
+                float occDist = (shape_volume[i].z > 0.5) ? 1.0e9 : sceneDist;
+                cov = vfx_aura_cover(d, tEnter, tExit, chordEps, softness, occDist);
             }
         } else {
             // The shared library's 2D/3D dispatcher: (kind, space, uv, world, centre, rotation, p0, p1).

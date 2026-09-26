@@ -280,7 +280,11 @@ public final class VFXMaskUniforms {
 			rows[i][5] = new float[]{primitive.fill().ordinal(), slotValue(mask, effect, primitive.strokeSlot(), primitive.strokeDefault()), i, customRow == null ? -1.0F : customRow};
 			// x = world-volume mode (0 surface, 1 aura); only a world sphere/box ever sets 1.
 			// y = 1 when this leaf's world binding could not be resolved (the shader drops its coverage).
-			rows[i][6] = new float[]{primitive.volumeMode().code(), leafResolved ? 0.0F : 1.0F, 0.0F, 0.0F};
+			// z = 1 when the author asked this aura leaf to ignore the scene depth entirely
+			// ("occlusion": false); 0 everywhere else is the pre-existing behaviour.
+			// w reserved.
+			rows[i][6] = new float[]{primitive.volumeMode().code(), leafResolved ? 0.0F : 1.0F,
+				primitive.occlusionDisabled() ? 1.0F : 0.0F, 0.0F};
 		}
 		for (int row = 0; row < 7; row++) {
 			for (int i = 0; i < VFXMask.MAX_PRIMITIVES; i++) {

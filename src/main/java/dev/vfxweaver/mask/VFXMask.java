@@ -85,6 +85,9 @@ public final class VFXMask {
 	/** True when at least one leaf needs trustworthy scene depth in the coverage prepass. */
 	public boolean needsDepth() {
 		for (final VFXMaskPrimitive primitive : this.primitives) {
+			if (primitive.shape() == VFXMaskShapeKind.DEPTH) {
+				return true;
+			}
 			if (primitive.space() == VFXMaskSpace.WORLD || primitive.space() == VFXMaskSpace.DOME) {
 				return true;
 			}

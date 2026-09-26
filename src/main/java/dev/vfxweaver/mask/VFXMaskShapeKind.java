@@ -24,7 +24,12 @@ public enum VFXMaskShapeKind {
 	SPHERE("sphere", VFXMaskSpace.WORLD, true, List.of("radius"), new float[]{8.0F}),
 	BOX("box", VFXMaskSpace.WORLD, true, List.of("half_width", "half_height", "half_depth"), new float[]{4.0F, 4.0F, 4.0F}),
 	// The whole sky dome: dome-only, no parameters, and it needs depth for the sky test.
-	SKY("sky", VFXMaskSpace.DOME, false, List.of(), new float[]{});
+	SKY("sky", VFXMaskSpace.DOME, false, List.of(), new float[]{}),
+	// A band of scene distance: coverage by the pixel's reconstructed distance, 0.5 exactly at
+	// `distance` and falling to 0 at `distance + softness/2`. It has no geometry of its own, so the
+	// leaf's `softness` is the width (there is no second tolerance knob) and no `space` applies.
+	// Appended last: the dispatch code is the ordinal, so it must stay 9 (see VFXMaskPrimitive#kindCode).
+	DEPTH("depth", VFXMaskSpace.SCREEN, false, List.of("distance"), new float[]{32.0F});
 
 	private final String id;
 	private final VFXMaskSpace space;

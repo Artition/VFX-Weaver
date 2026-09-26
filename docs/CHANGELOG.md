@@ -14,6 +14,24 @@ change.
 
 ## 2.1.1 — 2026-09-25
 
+### Added
+
+- **`shape: "depth"` — a mask leaf driven by the scene distance.** Coverage is 0.5 exactly at the
+  leaf's `distance` and falls to 0 at `distance + softness/2` (the leaf's own `softness` is the
+  falloff width, so there is one knob, not two), and 1 nearer than that. Bind a post effect to it and
+  you get depth-of-field masking: sharp up close, blurred past the focus distance, with the sky on the
+  uncovered side unless you compose it away. `invert` flips it, and a `difference` of two depth leaves
+  is a band around one distance. It has no geometry of its own and needs no per-frame driver, so it is
+  the camera-relative alternative to a sphere leaf bound to the player. See
+  [masks](guide/datapack/masks.md).
+
+- **`"occlusion": false` on an aura leaf — a fill that ignores the depth buffer.** Translucent
+  surfaces (stained glass, ice, water) write depth, so a wall of aura behind a glass window was
+  correctly-but-unhelpfully treated as occluded and the fill disappeared. The flag turns the occlusion
+  term off, so the volume shows through glass. It is an aura-only leaf field, defaults to the current
+  behaviour, and costs no extra sampling; being all-or-nothing it also draws the volume over nearer
+  terrain and over anything else in front of it. See [masks](guide/datapack/masks.md).
+
 ### Fixed
 
 - **`volume: "aura"` on a GLSL-plugin mask leaf: a smooth soft edge instead of a banded ramp with a hard
