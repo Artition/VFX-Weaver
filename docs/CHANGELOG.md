@@ -26,7 +26,8 @@ change.
   than the truth), a ray that misses the volume fades over the leaf's own `softness` instead of
   vanishing, and the entry distance is bracketed by false-position, which also dequantises the
   occlusion ramp. The edge lands in the same place, the interior still saturates to full coverage, and
-  the cost is unchanged — no extra SDF evaluations. See
+  the cost is unchanged - no extra SDF evaluations. Standing **inside** the volume keeps filling the
+  view, growing towards full coverage with depth. See
   [masks](guide/datapack/masks.md).
 
 ### Added

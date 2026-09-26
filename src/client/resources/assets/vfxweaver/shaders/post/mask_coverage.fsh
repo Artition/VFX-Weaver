@@ -322,6 +322,14 @@ void main() {
                                     tBound = tPrev + (dPrev - dCross) / lip;
                                 }
                             }
+                            // A sample is the field's exact value at its own position, so it seeds the
+                            // estimate when no bracket exists yet: with the camera inside the volume the
+                            // first sample already saturates, and without this the envelope would keep its
+                            // initial value and paint nothing.
+                            if (d < dBound) {
+                                dBound = d;
+                                tBound = t;
+                            }
                             if (d <= 0.0) {
                                 // False-position entry inside the last bracket: the raw first-inside
                                 // sample grid quantises tEnter, and tEnter feeds the occlusion ramp.
@@ -366,6 +374,10 @@ void main() {
                                         dBound = dCross;
                                         tBound = tPrevIn + (dPrevIn - dCross) / lip;
                                     }
+                                }
+                                if (d < dBound) {
+                                    dBound = d;
+                                    tBound = t;
                                 }
                                 if (d > 0.0) {
                                     tExit = t;

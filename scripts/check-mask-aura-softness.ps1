@@ -195,6 +195,10 @@ function Get-MarchEnvelope([double]$camX, [double]$elevDeg, $cfg, [double]$softn
 			$dCross = 0.5 * ($dPrev + $d - $lip * ($t - $tPrev))
 			if ($dCross -lt $dBound) { $dBound = $dCross; $tBound = $tPrev + ($dPrev - $dCross) / $lip }
 		}
+		# A sample is the field's exact value at its own position, so it seeds the estimate when no
+		# bracket exists yet: with the camera inside the volume the first sample already saturates, and
+		# without this the envelope would keep its initial value and paint nothing.
+		if ($d -lt $dBound) { $dBound = $d; $tBound = $t }
 		if ($d -le 0.0) {
 			$tEnter = if ($havePrev) { $tPrev + ($t - $tPrev) * $dPrev / [Math]::Max($dPrev - $d, 1.0e-4) } else { $t }
 			$dMin = $d
@@ -223,6 +227,7 @@ function Get-MarchEnvelope([double]$camX, [double]$elevDeg, $cfg, [double]$softn
 			$dCross = 0.5 * ($dPrevIn + $d - $lip * ($t - $tPrevIn))
 			if ($dCross -lt $dBound) { $dBound = $dCross; $tBound = $tPrevIn + ($dPrevIn - $dCross) / $lip }
 		}
+		if ($d -lt $dBound) { $dBound = $d; $tBound = $t }
 		if ($d -gt 0.0) { $tExit = $t; $exitFound = $true; break }
 		$haveIn = $true
 		$tPrevIn = $t
@@ -404,6 +409,53 @@ foreach ($scene in @(@{ Dist = 1.0e9; Tag = "sky" }, @{ Dist = 100.0; Tag = "ter
 }
 Write-Host ""
 
+# ------------------------------------------------------------------ 5: occlusion amplification (terrain depth sweep)
+# The aura's occlusion ramp is denominated in the leaf's softness, so a terrain surface 1 block
+# nearer/farther changes the coverage by 0.5/softness and the whole ramp spreads over `softness`
+# blocks. Blocky terrain therefore paints ~softness terraces along its silhouette. Sweeping the
+# scene distance in whole blocks shows both the per-block step and how many blocks the ramp spans;
+# the tolerance-denominated ramp (the fix under test) collapses the same sweep onto one edge.
+function Get-OccludedSpread([double]$tEnter, [double]$sceneDist, [double]$softness, [switch]$Narrow) {
+	$slack = $sceneDist * 2.0e-3
+	if ($Narrow) {
+		$w = [Math]::Max($slack, 0.05)
+		return [Math]::Min([Math]::Max(0.5 - ($tEnter - $sceneDist - $slack) / $w, 0.0), 1.0)
+	}
+	return [Math]::Min([Math]::Max(0.5 - ($tEnter - $sceneDist - $slack) / $softness, 0.0), 1.0)
+}
+Write-Host "=== 5: occlusion ramp width (terrain depth swept in 1-block steps) ==="
+$soft = 44.8
+$tEnter = 84.5
+foreach ($mode in @("softness", "depth-tolerance")) {
+	$narrow = $mode -eq "depth-tolerance"
+	$prev = $null; $maxStep = 0.0; $span = 0; $atScene = 0.0
+	for ($d = 20.0; $d -le 200.0; $d += 1.0) {
+		$occ = Get-OccludedSpread $tEnter $d $soft -Narrow:$narrow
+		if ($null -ne $prev) {
+			$step = [Math]::Abs($occ - $prev)
+			if ($step -gt $maxStep) { $maxStep = $step; $atScene = $d }
+			if ($step -gt 0.0005) { $span++ }
+		}
+		$prev = $occ
+	}
+	Write-Host ("  {0,-16} | per-block step {1:F4} | blocks in the ramp {2,3} | steepest at sceneDist {3:F0}" -f $mode, $maxStep, $span, $atScene)
+}
+# ------------------------------------------------------------------ 6: the camera inside the volume
+# The reporter's third camera position sits inside the void. The aura has to keep filling the view:
+# the entry sample is already inside (and already saturates), so the envelope must be seeded from
+# that sample instead of staying at its initial value.
+Write-Host "=== 6: camera inside the volume ==="
+$effInside = $script:SHIPPED.softness * $script:SHIPPED.lower_bound_scale
+foreach ($cam in @(-140.0, -200.0, -300.0, -600.0)) {
+	foreach ($elev in @(0.0, 30.0)) {
+		$mPre = Get-March -camX $cam -elevDeg $elev -cfg $script:SHIPPED -softness $effInside -sceneDist 1.0e9
+		$mEnv = Get-MarchEnvelope -camX $cam -elevDeg $elev -cfg $script:SHIPPED -softness $effInside -sceneDist 1.0e9
+		Write-Host ("  cam {0,6} | elev {1,4} | pre-fix march {2:F4} | cone-envelope {3:F4}" -f $cam, $elev, $mPre.Cov, $mEnv.Cov)
+		if ($mEnv.Cov -lt 0.9) {
+			Fail "cone-envelope coverage from inside the volume (cam $cam, elev $elev) = $($mEnv.Cov), expected a filled view"
+		}
+	}
+}
 # ------------------------------------------------------------------ assertions
 # 1. The port is faithful: these are the numbers the fixture printed on the reporter's machine.
 #    A drift here means the transcription, not the shader, changed.
