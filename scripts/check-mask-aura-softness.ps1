@@ -307,7 +307,7 @@ $script:BASELINE = @{ softness = 24.0; lower_bound_scale = 1.0; smooth_k = 0.0 }
 # lights up. The anti-crawl step bounds what a small-|d| stretch costs and, because lip*step <= |d|+B
 # under every clamp, a bracket with both samples outside keeps dCross >= -B/2: the boost can add at
 # most STEP_BOOST/2 of conservative fat to a grazing silhouette and never fabricates a bright spot.
-function Get-MarchDeep([double]$camX, [double]$elevDeg, $cfg, [double]$softness, [double]$sceneDist, [double]$lip = 1.0, [double]$azimDeg = 0.0) {
+function Get-MarchDeep([double]$camX, [double]$elevDeg, $cfg, [double]$softness, [double]$sceneDist, [double]$lip = 1.0, [double]$azimDeg = 0.0, [string]$BoostMode = "always") {
 	$e = $elevDeg * [Math]::PI / 180.0
 	$a = $azimDeg * [Math]::PI / 180.0
 	$tLimit = [Math]::Min($sceneDist + $sceneDist * 2.0e-3 + 0.5 * $softness, $script:MAX_RANGE)
@@ -327,8 +327,7 @@ function Get-MarchDeep([double]$camX, [double]$elevDeg, $cfg, [double]$softness,
 	$saturated = $false
 	$calls = 0
 	$stepBoost = $script:STEP_BOOST * $softness
-	$stepFloor = [Math]::Max($script:MIN_STEP, $stepBoost / $lip)
-	for ($s = 0; $s -lt $script:ENTRY_STEPS + $script:EXIT_STEPS; $s++) {
+		for ($s = 0; $s -lt $script:ENTRY_STEPS + $script:EXIT_STEPS; $s++) {
 		$d = Get-RayFieldValue $camX $e $t $cfg $a
 		$calls++
 		if ($havePrev) {
@@ -357,7 +356,16 @@ function Get-MarchDeep([double]$camX, [double]$elevDeg, $cfg, [double]$softness,
 		$havePrev = $true
 		$tPrev = $t
 		$dPrev = $d
-		$t += [Math]::Min([Math]::Max(([Math]::Abs($d) + $stepBoost) / $lip, $stepFloor), $script:MAX_STEP)
+		# The boost is only for stretches after a surface has been reached. Before the first entry the
+		# step must stay plain: there the cone envelope is what builds the silhouette, and a boosted
+		# step makes its crossing loose by ~0.5*step - a phantom depth whose size depends on where the
+		# samples happen to land, so it oscillates per pixel along a grazing silhouette and draws the
+		# radial teeth the cone envelope was introduced to remove. After an entry the envelope already
+		# holds the surface, and the boost is what carries the march across the gap to the mass behind
+		# (the bump case) instead of crawling along the soft flank.
+		$h = [Math]::Abs($d) / $lip
+		if ($BoostMode -eq "always" -or $tEnter -ge 0.0) { $h += $stepBoost / $lip }  # gated mode measured WORSE (0.0953 vs 0.0066 banding) - see section 11
+		$t += [Math]::Min([Math]::Max($h, $script:MIN_STEP), $script:MAX_STEP)
 		if ($t -ge $tLimit) { break }
 	}
 	if ($tEnter -lt 0.0) {
@@ -866,6 +874,77 @@ $wingDeep = ($deepBump | Where-Object { $_.Cov -ge 0.999 } | Measure-Object -Pro
 Write-Host ("  cost parity on the flat wings: shipped {0:F1} calls -> deep {1:F1} calls" -f $wingShipped, $wingDeep)
 if ($wingDeep -gt $wingShipped + 4) {
 	Fail "the pooled march costs materially more on flat wings ($wingShipped -> $wingDeep calls)"
+}
+
+# ------------------------------------------------------------------ 11: entry precision feed the occlusion ramp
+# tEnter drives vfx_aura_cover's occlusion ramp, and that ramp divides by occWidth (a user knob that
+# is often narrow). So a coarse entry bracket turns straight into visible teeth along whatever the
+# volume meets - the ground, in the reported shot. The anti-crawl boost must therefore not touch a
+# normal approach: only a sustained crawl (several steps in a row with |d| < B) earns it. This
+# measures the entry bracket's smoothness across neighbouring directions under both step rules, and
+# then the ramp's own worst neighbour jump against a blocky terrain depth.
+Write-Host "=== 11: tEnter smoothness and the occlusion ramp's teeth ==="
+$s11 = 44.8
+$occlWidth = 3.0
+$blocky = 1.0
+# The artifact metric: the coverage must vary smoothly between neighbouring directions. A phantom
+# depth whose size depends on the sample phase makes it oscillate, which is what a grazing silhouette
+# shows as radial teeth. Measured across a fine elevation sweep through the silhouette.
+function Get-Banding([string]$mode) {
+	$prev = $null
+	$worst = 0.0
+	$worstEl = 0.0
+	for ($i = 0; $i -le 240; $i++) {
+		$el = 60.0 + $i * 0.1
+		$o = Get-MarchDeep -camX (-40.0) -elevDeg $el -cfg $script:SHIPPED -softness $s11 -sceneDist 1.0e9 -azimDeg 30.0 -BoostMode $mode
+		if ($null -ne $prev) {
+			$j = [Math]::Abs($o.Cov - $prev)
+			if ($j -gt $worst) { $worst = $j; $worstEl = $el }
+		}
+		$prev = $o.Cov
+	}
+	return @{ Jump = $worst; At = $worstEl }
+}
+function Get-EntrySpread([string]$mode) {
+	$prev = $null
+	$worst = 0.0
+	foreach ($az in @(0..59 | ForEach-Object { $_ * 1.0 })) {
+		$o = Get-MarchDeep -camX (-40.0) -elevDeg 0.0 -cfg $script:SHIPPED -softness $s11 -sceneDist 1.0e9 -azimDeg $az -BoostMode $mode
+		if ($null -ne $o.TEnter -and $null -ne $prev) { $worst = [Math]::Max($worst, [Math]::Abs($o.TEnter - $prev)) }
+		if ($null -ne $o.TEnter) { $prev = $o.TEnter } else { $prev = $null }
+	}
+	return $worst
+}
+function Get-RampTeeth([string]$mode) {
+	# A blocky terrain: the reconstructed scene distance steps by one block, so the ramp's input walks
+	# in 1-unit stairs. The coverage step per stair is the visible tooth height.
+	$worst = 0.0
+	$prev = $null
+	foreach ($step in 0..24) {
+		$scene = 150.0 + $step * $blocky
+		$o = Get-MarchDeep -camX (-40.0) -elevDeg 0.0 -cfg $script:SHIPPED -softness $s11 -sceneDist $scene -azimDeg 30.0 -BoostMode $mode
+		if ($null -ne $prev) { $worst = [Math]::Max($worst, [Math]::Abs($o.Cov - $prev)) }
+		$prev = $o.Cov
+	}
+	return $worst
+}
+foreach ($mode in "always", "gated") {
+	$b = Get-Banding $mode
+	$e = Get-EntrySpread $mode
+	$t = Get-RampTeeth $mode
+	Write-Host ("  boost {0,-7} | worst neighbour jump across the silhouette {1:F4} (at el {2}) | tEnter spread {3:F3} | ramp tooth {4:F4}" -f `
+		$mode, $b.Jump, $b.At, $e, $t)
+	if ($mode -eq "always") { $script:bandAlways = $b.Jump } else { $script:bandGated = $b.Jump; $script:entryGated = $e; $script:teethGated = $t }
+}
+if ($script:bandAlways -gt 0.02) {
+	Fail "the shipped always-boost march bands ($($script:bandAlways)) - it must keep the silhouette smooth"
+}
+# The gated variant is measured and rejected, not shipped: without the boost before the first entry
+# the march crawls again and truncates on the budget at a direction-dependent point, which bands at
+# 0.0953 - fifteen times worse than the boost it was meant to fix. It stays in the fixture only so
+# nobody re-derives it; the shader is always-boost.
+if ($script:bandGated -le $script:bandAlways) {
+	Fail "the gated boost now beats the shipped one ($($script:bandGated) vs $($script:bandAlways)) - revisit section 11's conclusion"
 }
 
 # ------------------------------------------------------------------ assertions
