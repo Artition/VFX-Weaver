@@ -48,6 +48,11 @@ layout(std140) uniform SamplerInfo {
 #define VFX_PLUGIN_AURA_REFINE_STEPS 4
 #define VFX_PLUGIN_AURA_MIN_STEP 0.5
 #define VFX_PLUGIN_AURA_MAX_STEP 64.0
+// Anti-crawl step boost: the step becomes (|d| + STEP_BOOST*softness)/lip, which bounds what a
+// small-|d| stretch costs. Because lip*step <= |d|+B under every clamp, a bracket with both samples
+// outside keeps dCross >= -B/2, so a ray that never enters can reach at most 0.5 + STEP_BOOST/2 of
+// coverage - a bounded rim instead of a fabricated bright spot.
+#define VFX_PLUGIN_AURA_STEP_BOOST 0.2
 
 // Declared per-plugin Lipschitz upper bound for the custom field (|grad d| <= L). Injected into
 // the variant prelude (same mechanism as VFX_CUSTOM_HAS_BOUNDS) as the MAX over the variant's
@@ -314,7 +319,6 @@ void main() {
                         float t = tStart;
                         float tEnter = -1.0;
                         float tExit = 0.0;
-                        float dMin = 0.0;
                         float chordEps = 1.0e-4;
                         // Cone-envelope minimum of the field along the ray: the crossing of the
                         // Lipschitz cones of two consecutive samples lower-bounds the field between
@@ -322,13 +326,39 @@ void main() {
                         // approach (negative = deepest penetration, positive = miss distance).
                         // Continuous in screen space (kills the softness-spaced banding), exact
                         // for creased fields (max/min of distance bounds), never thinner than the
-                        // truth. The step rule (h <= d/L) keeps it >= 0 on misses, <= 0 on hits.
+                        // truth. Valid for ANY sample spacing, which is what lets the step below
+                        // take an anti-crawl boost.
                         float dBound = 1.0e9;
                         float tBound = tStart;
                         float tPrev = tStart;
                         float dPrev = 0.0;
                         bool havePrev = false;
-                        for (int s = 0; s < VFX_PLUGIN_AURA_ENTRY_STEPS; s++) {
+                        // Deepest-penetration march. The old two-phase march stopped at the first
+                        // sign crossing, so for a non-convex field (a soft bump in front of a solid
+                        // mass) the mass was never sampled and the silhouette reported the bump's
+                        // depth - a wide dip in the coverage across the bump. One pooled loop (entry
+                        // + exit budget) now runs to a real termination and never stops at a
+                        // crossing: dBound is global over the whole ray (union semantics - the
+                        // global minimum IS the deepest segment's minimum), tEnter keeps the FIRST
+                        // entry (occlusion ramp), tInside/tExitAfter bracket the LAST exit (horizon
+                        // fade). Saturation is only ever a sample certificate; budget exhaustion
+                        // must NOT saturate, or a long shallow corridor would light up.
+                        float tInside = -1.0;
+                        float tExitAfter = -1.0;
+                        bool inside = false;
+                        bool saturated = false;
+                        // Anti-crawl step. A pure |d|/lip step collapses onto the 0.5 floor wherever
+                        // the field is small, so a grazing approach or the gap between two volume
+                        // parts costs ~2 steps per unit and the budget can die before the solid
+                        // part is reached. The additive boost bounds the crawl cost per unit and
+                        // bounds the price: a boosted step lands at most B inside (Lipschitz), and a
+                        // bracket with both samples outside keeps dCross >= -B/2, so it can add at
+                        // most STEP_BOOST/2 of conservative fat to a grazing silhouette and never
+                        // fabricate a bright spot. Multiplicative relaxation (lambda*d) has no such
+                        // uniform bound - not used.
+                        float stepBoost = VFX_PLUGIN_AURA_STEP_BOOST * softness;
+                        float stepFloor = max(VFX_PLUGIN_AURA_MIN_STEP, stepBoost / lip);
+                        for (int s = 0; s < VFX_PLUGIN_AURA_ENTRY_STEPS + VFX_PLUGIN_AURA_EXIT_STEPS; s++) {
                             float d = vfx_shape_custom(camPos.xyz + viewDir * t, texCoord, shape_params0[i], shape_params1[i]);
                             if (havePrev) {
                                 float dCross = 0.5 * (dPrev + d - lip * (t - tPrev));
@@ -346,21 +376,35 @@ void main() {
                                 tBound = t;
                             }
                             if (d <= 0.0) {
-                                // False-position entry inside the last bracket: the raw first-inside
-                                // sample grid quantises tEnter, and tEnter feeds the occlusion ramp.
-                                tEnter = havePrev ? tPrev + (t - tPrev) * dPrev / max(dPrev - d, 1.0e-4) : t;
-                                dMin = d;
+                                if (!inside) {
+                                    inside = true;
+                                    if (tEnter < 0.0) {
+                                        // False-position entry inside the first bracket; dPrev > 0
+                                        // here by the transition. tEnter feeds the occlusion ramp.
+                                        tEnter = havePrev ? tPrev + (t - tPrev) * dPrev / max(dPrev - d, 1.0e-4) : t;
+                                    }
+                                }
+                                tInside = t;
+                                tExitAfter = -1.0;
+                                if (d <= -0.5 * softness) {
+                                    saturated = true;
+                                    break;
+                                }
+                            } else if (inside) {
+                                inside = false;
+                                tExitAfter = t;
+                            }
+                            // Perf only: even a full-slope dive to tLimit can no longer reach the
+                            // visible band, or can no longer beat the best bound so far - the rest
+                            // of the ray cannot change the answer.
+                            float dive = d - lip * (tLimit - t);
+                            if (dive > 0.5 * softness || dive >= dBound) {
                                 break;
                             }
                             havePrev = true;
                             tPrev = t;
                             dPrev = d;
-                            // Even a straight dive from here stays above the soft band, so the rest
-                            // of the ray cannot change the answer. Perf only.
-                            if (d - lip * (tLimit - t) > softness) {
-                                break;
-                            }
-                            t += clamp(d / lip, VFX_PLUGIN_AURA_MIN_STEP, VFX_PLUGIN_AURA_MAX_STEP);
+                            t += clamp((abs(d) + stepBoost) / lip, stepFloor, VFX_PLUGIN_AURA_MAX_STEP);
                             if (t >= tLimit) {
                                 break;
                             }
@@ -370,65 +414,25 @@ void main() {
                             // a miss a hard 0 - a designed-in cliff at the silhouette. The same
                             // cover factors on the envelope bound (a chord shrunk to the closest
                             // approach point) fade the outside over the same world-space softness;
-                            // the bound tends to 0 from both sides of the tangent.
+                            // the bound tends to 0 from both sides of the tangent. The ceiling is
+                            // 0.5 + STEP_BOOST/2 - the boost's bounded conservative fat.
                             cov = vfx_aura_cover(dBound, tBound, tBound, chordEps, softness, shape_volume[i].w, occDist);
                         } else {
-                            // t still holds the first inside sample: the exit march must start on a
-                            // point proven inside, the false-position tEnter only feeds the gates.
-                            float tInside = t;
-                            float tPrevIn = t;
-                            float dPrevIn = dMin;
-                            bool haveIn = false;
-                            bool exitFound = false;
-                            bool saturated = false;
-                            for (int s = 0; s < VFX_PLUGIN_AURA_EXIT_STEPS; s++) {
-                                float d = vfx_shape_custom(camPos.xyz + viewDir * t, texCoord, shape_params0[i], shape_params1[i]);
-                                if (haveIn) {
-                                    float dCross = 0.5 * (dPrevIn + d - lip * (t - tPrevIn));
-                                    if (dCross < dBound) {
-                                        dBound = dCross;
-                                        tBound = tPrevIn + (dPrevIn - dCross) / lip;
-                                    }
-                                }
-                                if (d < dBound) {
-                                    dBound = d;
-                                    tBound = t;
-                                }
-                                if (d > 0.0) {
-                                    tExit = t;
-                                    exitFound = true;
-                                    break;
-                                }
-                                haveIn = true;
-                                tPrevIn = t;
-                                dPrevIn = d;
-                                if (d < dMin) {
-                                    dMin = d;
-                                }
-                                tInside = t;
-                                if (dMin <= -0.5 * softness) {
-                                    saturated = true;
-                                    break;
-                                }
-                                t += clamp(-d / lip, VFX_PLUGIN_AURA_MIN_STEP, VFX_PLUGIN_AURA_MAX_STEP);
-                                if (t >= tLimit) {
-                                    break;
-                                }
-                            }
-                            if (saturated) {
+                            if (saturated || tExitAfter < 0.0) {
+                                // Still inside at the end (or saturated): the chord extends at least
+                                // this far, and a short fake chord would fade a live volume.
                                 tExit = tLimit;
-                            } else if (exitFound) {
+                            } else {
                                 for (int s = 0; s < VFX_PLUGIN_AURA_REFINE_STEPS; s++) {
-                                    float tMid = 0.5 * (tInside + tExit);
+                                    float tMid = 0.5 * (tInside + tExitAfter);
                                     float dMid = vfx_shape_custom(camPos.xyz + viewDir * tMid, texCoord, shape_params0[i], shape_params1[i]);
                                     if (dMid <= 0.0) {
                                         tInside = tMid;
                                     } else {
-                                        tExit = tMid;
+                                        tExitAfter = tMid;
                                     }
                                 }
-                            } else {
-                                tExit = tLimit;
+                                tExit = tExitAfter;
                             }
                             if (shape_misc[i].x > 0.5) {
                                 dBound = abs(dBound) - 0.5 * shape_misc[i].y;

@@ -94,7 +94,23 @@ function Get-FieldValue([double]$x, [double]$z, [double]$y, $cfg, [double]$clock
 			$locate = [Math]::Min($locate, ([Math]::Sqrt(($x - $node.x) * ($x - $node.x) + ($z - $node.z) * ($z - $node.z))) - ($node.r + $n))
 		}
 	}
+	if ($null -ne $cfg.corridor) {
+		# A long shallow corridor: a box 5000 long and 16 across, so the ray travels inside it at a
+		# constant -8 for thousands of units. If budget exhaustion ever saturates, this lights up.
+		$dx = [Math]::Abs($x - 2458.0) - 2500.0
+		$dy = [Math]::Abs($y - 64.0) - 8.0
+		$dz = [Math]::Abs($z) - 8.0
+		return [Math]::Max([Math]::Max($dx, $dy), $dz)
+	}
 	$wall = -($locate + $script:EDGE_RECENTRE - $script:OFFSET)
+	# A bump: a ball of volume hanging off the wall toward the camera, the case a real volume has and a
+	# radial one does not. min() of two distance fields is still a distance field, so the field stays
+	# conservative and the march still cannot tunnel - the only thing that changes is the ray's shape.
+	if ($null -ne $cfg.lump) {
+		$l = $cfg.lump
+		$dl = [Math]::Sqrt(($x - $l[0]) * ($x - $l[0]) + ($y - $l[1]) * ($y - $l[1]) + ($z - $l[2]) * ($z - $l[2])) - $l[3]
+		$wall = [Math]::Min($wall, $dl)
+	}
 	if ($script:CAP_HEIGHT -gt 0.0 -and $cfg.softness -gt 0.0) {
 		$slope = $cfg.softness / [Math]::Max($cfg.softness + $script:CAP_SOFT, $cfg.softness)
 		$cap = ($y - ($script:CAP_BASE + $script:CAP_HEIGHT)) * $slope
@@ -111,6 +127,12 @@ $script:REFINE_STEPS = 4
 $script:MIN_STEP = 0.5
 $script:MAX_STEP = 64.0
 $script:CHORD_EPS = 1.0e-4
+# Anti-crawl step boost (the 2.1.1 fix): the step becomes (|d| + STEP_BOOST*softness)/lip, which
+# bounds the cost of small-|d| stretches. Because lip*step <= |d|+B under every clamp, a bracket with
+# both samples outside keeps dCross >= -B/2, so a ray that never enters can reach at most
+# 0.5 + STEP_BOOST/2 of coverage - the ceiling asserted over the miss sweep.
+$script:STEP_BOOST = 0.2
+$script:MISS_CEILING = 0.5 + 0.1
 
 function Get-AuraCover([double]$d, [double]$tEnter, [double]$tExit, [double]$softness, [double]$sceneDist, [double]$occWidth = -1.0) {
 	if ($tExit -le $script:CHORD_EPS) { return 0.0 }
@@ -277,6 +299,83 @@ $script:STATES = @(
 $script:SHIPPED = @{ softness = 64.0; lower_bound_scale = 0.7; smooth_k = 16.0 }
 $script:BASELINE = @{ softness = 24.0; lower_bound_scale = 1.0; smooth_k = 0.0 }
 
+# The pooled deepest-penetration march (the 2.1.1 fix). One loop over the entry+exit budget that never
+# stops at a sign crossing: dBound is global over the whole ray (the global minimum IS the deepest
+# segment's minimum, so union semantics falls out), tEnter keeps the FIRST entry for the occlusion
+# ramp, tInside/tExitAfter bracket the LAST exit for the horizon fade. Saturation is only ever a sample
+# certificate (d <= -0.5*softness); budget exhaustion must NOT saturate, or a long shallow corridor
+# lights up. The anti-crawl step bounds what a small-|d| stretch costs and, because lip*step <= |d|+B
+# under every clamp, a bracket with both samples outside keeps dCross >= -B/2: the boost can add at
+# most STEP_BOOST/2 of conservative fat to a grazing silhouette and never fabricates a bright spot.
+function Get-MarchDeep([double]$camX, [double]$elevDeg, $cfg, [double]$softness, [double]$sceneDist, [double]$lip = 1.0, [double]$azimDeg = 0.0) {
+	$e = $elevDeg * [Math]::PI / 180.0
+	$a = $azimDeg * [Math]::PI / 180.0
+	$tLimit = [Math]::Min($sceneDist + $sceneDist * 2.0e-3 + 0.5 * $softness, $script:MAX_RANGE)
+	$lip = [Math]::Max($lip, 1.0)
+	$t = 0.0
+	$tEnter = -1.0
+	$tExit = 0.0
+	$chordEps = 1.0e-4
+	$dBound = 1.0e9
+	$tBound = $t
+	$tPrev = $t
+	$dPrev = 0.0
+	$havePrev = $false
+	$tInside = -1.0
+	$tExitAfter = -1.0
+	$inside = $false
+	$saturated = $false
+	$calls = 0
+	$stepBoost = $script:STEP_BOOST * $softness
+	$stepFloor = [Math]::Max($script:MIN_STEP, $stepBoost / $lip)
+	for ($s = 0; $s -lt $script:ENTRY_STEPS + $script:EXIT_STEPS; $s++) {
+		$d = Get-RayFieldValue $camX $e $t $cfg $a
+		$calls++
+		if ($havePrev) {
+			$dCross = 0.5 * ($dPrev + $d - $lip * ($t - $tPrev))
+			if ($dCross -lt $dBound) { $dBound = $dCross; $tBound = $tPrev + ($dPrev - $dCross) / $lip }
+		}
+		if ($d -lt $dBound) { $dBound = $d; $tBound = $t }
+		if ($d -le 0.0) {
+			if (-not $inside) {
+				$inside = $true
+				if ($tEnter -lt 0.0) {
+					$tEnter = if ($havePrev) { $tPrev + ($t - $tPrev) * $dPrev / [Math]::Max($dPrev - $d, 1.0e-4) } else { $t }
+				}
+			}
+			$tInside = $t
+			$tExitAfter = -1.0
+			if ($d -le -0.5 * $softness) { $saturated = $true; break }
+		} elseif ($inside) {
+			$inside = $false
+			$tExitAfter = $t
+		}
+		# Perf only: a full-slope dive to tLimit can no longer reach the visible band, or can no longer
+		# beat the best bound so far, so the rest of the ray cannot change the answer.
+		$dive = $d - $lip * ($tLimit - $t)
+		if ($dive -gt 0.5 * $softness -or $dive -ge $dBound) { break }
+		$havePrev = $true
+		$tPrev = $t
+		$dPrev = $d
+		$t += [Math]::Min([Math]::Max(([Math]::Abs($d) + $stepBoost) / $lip, $stepFloor), $script:MAX_STEP)
+		if ($t -ge $tLimit) { break }
+	}
+	if ($tEnter -lt 0.0) {
+		return @{ Cov = (Get-AuraCover $dBound $tBound $tBound $softness $sceneDist); TEnter = $null; DMin = $dBound; Calls = $calls }
+	}
+	if ($saturated -or $tExitAfter -lt 0.0) {
+		$tExit = $tLimit
+	} else {
+		for ($s = 0; $s -lt $script:REFINE_STEPS; $s++) {
+			$tm = 0.5 * ($tInside + $tExitAfter)
+			if ((Get-RayFieldValue $camX $e $tm $cfg $a) -le 0.0) { $tInside = $tm } else { $tExitAfter = $tm }
+			$calls++
+		}
+		$tExit = $tExitAfter
+	}
+	return @{ Cov = (Get-AuraCover $dBound $tEnter $tExit $softness $sceneDist); TEnter = $tEnter; DMin = $dBound; Calls = $calls }
+}
+
 function Get-Sweep($cfg, [double]$camX, [double]$softness, [double]$sceneDist, [string]$March = "shipped", [double]$Lip = 1.0) {
 	$eff = $softness * $cfg.lower_bound_scale
 	$covs = New-Object System.Collections.Generic.List[double]
@@ -284,6 +383,8 @@ function Get-Sweep($cfg, [double]$camX, [double]$softness, [double]$sceneDist, [
 		$elev = $i * 90.0 / ($script:N - 1)
 		if ($March -eq "envelope") {
 			$covs.Add((Get-MarchEnvelope -camX $camX -elevDeg $elev -cfg $cfg -softness $eff -sceneDist $sceneDist -lip $Lip).Cov)
+		} elseif ($March -eq "deep") {
+			$covs.Add((Get-MarchDeep -camX $camX -elevDeg $elev -cfg $cfg -softness $eff -sceneDist $sceneDist -lip $Lip).Cov)
 		} else {
 			$covs.Add((Get-March $camX $elev $cfg $eff $sceneDist).Cov)
 		}
@@ -684,6 +785,87 @@ if ($notches.Count -gt 0) {
 	$w = $notches | Sort-Object -Property Dip -Descending | Select-Object -First 1
 	Write-Host ("  worst dip {0:F4} at az {1} el {2} (cell {3:F4}, weakest neighbour {4:F4})" -f $w.Dip, $w.Az, $w.El, $w.Cov, $w.Nb)
 	Fail "$($notches.Count) notch cells - the coverage has a local minimum, which this field's geometry cannot produce"
+}
+
+# ------------------------------------------------------------------ 10: a bump in front of the mass (the reported notch)
+# The reported case: a wall with a bump, viewed from the bump side. The ray clips the bump - a ball of
+# volume with its own softness - and the solid mass of the wall sits right behind it. The two-phase
+# march stopped at the first d > 0, so everything behind the bump was never sampled and the silhouette
+# term reported the bump's shallow depth: full strength on both sides, a wide dip across the bump.
+# The pooled deepest-penetration march runs to a real termination, so the mass behind is what gets
+# measured. This section pins both: the shipped profile's dip and the fixed profile's flat 1.0, plus
+# the three properties the fix must never break - the miss ceiling, no false saturation on a long
+# shallow corridor, and a bounded crawl cost.
+$cfgBump = @{}
+foreach ($k in $script:SHIPPED.Keys) { $cfgBump[$k] = $script:SHIPPED[$k] }
+$cfgBump['lump'] = @(85.0, 64.0, 0.0, 20.0)
+Write-Host "=== 10: bump in front of the mass (bump r=20 at rho=85, wall at rho=126) ==="
+$bumpSoft = 44.8
+$azims = @(0..24 | ForEach-Object { 150.0 + $_ * 2.5 })
+function Get-BumpProfile([string]$March) {
+	$row = @()
+	foreach ($az in $azims) {
+		$o = if ($March -eq "deep") {
+			Get-MarchDeep -camX (-40.0) -elevDeg 0.0 -cfg $cfgBump -softness $bumpSoft -sceneDist 1.0e9 -azimDeg $az
+		} else {
+			Get-MarchEnvelope -camX (-40.0) -elevDeg 0.0 -cfg $cfgBump -softness $bumpSoft -sceneDist 1.0e9 -azimDeg $az
+		}
+		$row += [pscustomobject]@{ Az = $az; Cov = $o.Cov; Calls = $o.Calls }
+	}
+	return $row
+}
+$shippedBump = Get-BumpProfile "shipped"
+$deepBump = Get-BumpProfile "deep"
+$shippedMin = ($shippedBump.Cov | Measure-Object -Minimum).Minimum
+$deepMin = ($deepBump.Cov | Measure-Object -Minimum).Minimum
+Write-Host ("  shipped: min cov {0:F4} across the cut | {1}" -f $shippedMin, (($shippedBump.Cov | ForEach-Object { "{0:F2}" -f $_ }) -join " "))
+Write-Host ("  deep:    min cov {0:F4} across the cut | {1}" -f $deepMin, (($deepBump.Cov | ForEach-Object { "{0:F2}" -f $_ }) -join " "))
+if ($shippedMin -gt 0.95) {
+	Fail "the bump case no longer reproduces the report (shipped min $shippedMin, expected a dip near 0.6)"
+}
+if ($deepMin -lt 0.999) {
+	Fail "the pooled march leaves a dip over the bump (min $deepMin, expected 1.0)"
+}
+
+# miss ceiling: the anti-crawl boost may add at most STEP_BOOST/2 of conservative fat, so a ray that
+# never enters the volume still cannot exceed 0.6.
+$missCovs = @()
+foreach ($az in @(0..59 | ForEach-Object { $_ * 6.0 })) {
+	foreach ($el in @(6..30 | ForEach-Object { $_ * 3.0 })) {
+		$o = Get-MarchDeep -camX (-40.0) -elevDeg $el -cfg $script:SHIPPED -softness $bumpSoft -sceneDist 1.0e9 -azimDeg $az
+		if ($null -eq $o.TEnter) { $missCovs += $o.Cov }
+	}
+}
+$missMax = ($missCovs | Measure-Object -Maximum).Maximum
+Write-Host ("  miss ceiling: {0} rays that never enter | max cov {1:F4} (ceiling {2:F2})" -f $missCovs.Count, $missMax, $script:MISS_CEILING)
+if ($missMax -gt $script:MISS_CEILING + 1.0e-6) {
+	Fail "a ray that never enters the volume reaches $missMax, above the $($script:MISS_CEILING) ceiling the boost is allowed to add"
+}
+
+# No false saturation: a long shallow corridor that exhausts the budget must read its own depth, not 1.0.
+$cfgCorridor = @{}
+foreach ($k in $script:SHIPPED.Keys) { $cfgCorridor[$k] = $script:SHIPPED[$k] }
+$cfgCorridor['corridor'] = $true
+$deepCorridor = Get-MarchDeep -camX (-40.0) -elevDeg 0.0 -cfg $cfgCorridor -softness $bumpSoft -sceneDist 1.0e9 -azimDeg 180.0
+$expect = 0.5 + 8.0 / $bumpSoft
+Write-Host ("  long shallow corridor (d = -8 for 500 units): cov {0:F4} (expected ~{1:F4}, must not be 1.0)" -f $deepCorridor.Cov, $expect)
+if ($deepCorridor.Cov -gt 0.95) {
+	Fail "budget exhaustion saturated a long shallow corridor (cov $($deepCorridor.Cov)) - a false bright patch"
+}
+
+# Crawl bound: a ray that turned around outside must terminate on the dive bound, not by eating the budget.
+$deepMiss = Get-MarchDeep -camX (-40.0) -elevDeg 0.0 -cfg $script:SHIPPED -softness $bumpSoft -sceneDist 1.0e9 -azimDeg 0.0
+Write-Host ("  receding ray: {0} field calls of {1}" -f $deepMiss.Calls, ($script:ENTRY_STEPS + $script:EXIT_STEPS))
+if ($deepMiss.Calls -gt 35) {
+	Fail "the receding ray still burns the budget ($($deepMiss.Calls) calls) - the dive bound is not terminating it"
+}
+
+# Cost parity: the wings (directions well away from the bump) must not get materially more expensive.
+$wingShipped = ($shippedBump | Where-Object { $_.Cov -ge 0.999 } | Measure-Object -Property Calls -Average).Average
+$wingDeep = ($deepBump | Where-Object { $_.Cov -ge 0.999 } | Measure-Object -Property Calls -Average).Average
+Write-Host ("  cost parity on the flat wings: shipped {0:F1} calls -> deep {1:F1} calls" -f $wingShipped, $wingDeep)
+if ($wingDeep -gt $wingShipped + 4) {
+	Fail "the pooled march costs materially more on flat wings ($wingShipped -> $wingDeep calls)"
 }
 
 # ------------------------------------------------------------------ assertions
