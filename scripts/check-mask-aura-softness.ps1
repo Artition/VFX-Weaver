@@ -124,8 +124,9 @@ function Get-AuraCover([double]$d, [double]$tEnter, [double]$tExit, [double]$sof
 	return $silhouette * $occluded * $horizon
 }
 
-function Get-RayFieldValue([double]$camX, [double]$elevRad, [double]$t, $cfg) {
-	return Get-FieldValue ($camX - [Math]::Cos($elevRad) * $t) 0.0 ($script:CAP_BASE + [Math]::Sin($elevRad) * $t) $cfg
+function Get-RayFieldValue([double]$camX, [double]$elevRad, [double]$t, $cfg, [double]$azimRad = 0.0) {
+	$ce = [Math]::Cos($elevRad)
+	return Get-FieldValue ($camX - $ce * [Math]::Cos($azimRad) * $t) (-$ce * [Math]::Sin($azimRad) * $t) ($script:CAP_BASE + [Math]::Sin($elevRad) * $t) $cfg
 }
 
 function Get-March([double]$camX, [double]$elevDeg, $cfg, [double]$softness, [double]$sceneDist) {
@@ -173,8 +174,9 @@ function Get-March([double]$camX, [double]$elevDeg, $cfg, [double]$softness, [do
 # penetration depth, positive = miss distance). Continuous in screen space, exact at creases, never
 # thinner than the truth. dMin survives only as the saturation certificate. `lip` is the declared
 # field Lipschitz bound (1.0 for a conservative distance field).
-function Get-MarchEnvelope([double]$camX, [double]$elevDeg, $cfg, [double]$softness, [double]$sceneDist, [double]$lip = 1.0, [switch]$SaturateUnresolved) {
+function Get-MarchEnvelope([double]$camX, [double]$elevDeg, $cfg, [double]$softness, [double]$sceneDist, [double]$lip = 1.0, [switch]$SaturateUnresolved, [double]$azimDeg = 0.0) {
 	$e = $elevDeg * [Math]::PI / 180.0
+	$a = $azimDeg * [Math]::PI / 180.0
 	$tLimit = [Math]::Min($sceneDist + $sceneDist * 2.0e-3 + 0.5 * $softness, $script:MAX_RANGE)
 	$lip = [Math]::Max($lip, 1.0)
 	$tStart = 0.0
@@ -192,7 +194,7 @@ function Get-MarchEnvelope([double]$camX, [double]$elevDeg, $cfg, [double]$softn
 	$dLast = 0.0
 	$tLast = $tStart
 	for ($s = 0; $s -lt $script:ENTRY_STEPS; $s++) {
-		$d = Get-RayFieldValue $camX $e $t $cfg
+		$d = Get-RayFieldValue $camX $e $t $cfg $a
 		$calls++
 		$dLast = $d
 		$tLast = $t
@@ -233,7 +235,7 @@ function Get-MarchEnvelope([double]$camX, [double]$elevDeg, $cfg, [double]$softn
 	$exitFound = $false
 	$saturated = $false
 	for ($s = 0; $s -lt $script:EXIT_STEPS; $s++) {
-		$d = Get-RayFieldValue $camX $e $t $cfg
+		$d = Get-RayFieldValue $camX $e $t $cfg $a
 		$calls++
 		if ($haveIn) {
 			$dCross = 0.5 * ($dPrevIn + $d - $lip * ($t - $tPrevIn))
@@ -255,7 +257,7 @@ function Get-MarchEnvelope([double]$camX, [double]$elevDeg, $cfg, [double]$softn
 	} elseif ($exitFound) {
 		for ($s = 0; $s -lt $script:REFINE_STEPS; $s++) {
 			$tm = 0.5 * ($tInside + $tExit)
-			if ((Get-RayFieldValue $camX $e $tm $cfg) -le 0.0) { $tInside = $tm } else { $tExit = $tm }
+			if ((Get-RayFieldValue $camX $e $tm $cfg $a) -le 0.0) { $tInside = $tm } else { $tExit = $tm }
 			$calls++
 		}
 	} else {
@@ -651,6 +653,38 @@ if (($afterCov - $beforeCov) / $cnt -gt 0.05) {
 # only early-out is the cone bound near tLimit, so a receding ray spends most of its steps going nowhere.
 # Recorded as a known cost, not asserted - a tighter early-out is a performance change, not a fix.
 Write-Host "  known cost: a receding ray spends its remaining entry steps marching away from the volume"
+
+# ------------------------------------------------------------------ 9: notches over a 2D sweep (tripwire, not a reproduction)
+# A real aura volume is not a clean shell, so the reported "notch" case - a thin soft protrusion in
+# front of a solid mass - needs a field with more than one inside segment per ray. This fixture's field
+# is {outside the ring wall} and {below the cap}: convex along any ray, one segment, saturating. It
+# therefore cannot produce that artifact, and no amount of tweaking these numbers will reproduce it.
+# What the sweep is worth is as a tripwire: a cell weaker than ALL four neighbours is a notch, not an
+# edge (a real silhouette is monotone in every direction), so if one ever shows up here the fixture's
+# own geometry changed and the numbers above need re-reading.
+$script:NOTCH_SOFTNESS = 44.8
+Write-Host "=== 9: notch tripwire over a 2D azimuth x elevation sweep (softness $($script:NOTCH_SOFTNESS)) ==="
+$grid = @{}
+foreach ($az in @(0..59 | ForEach-Object { $_ * 6.0 })) {
+	foreach ($el in @(6..30 | ForEach-Object { $_ * 3.0 })) {
+		$grid["$az|$el"] = (Get-MarchEnvelope -camX (-40.0) -elevDeg $el -cfg $script:SHIPPED -softness $script:NOTCH_SOFTNESS -sceneDist 1.0e9 -azimDeg $az).Cov
+	}
+}
+$notches = @()
+foreach ($az in @(6..53 | ForEach-Object { $_ * 6.0 })) {
+	foreach ($el in @(9..30 | ForEach-Object { $_ * 3.0 })) {
+		$c = $grid["$az|$el"]
+		$nb = [Math]::Min([Math]::Min($grid["$($az - 6.0)|$el"], $grid["$($az + 6.0)|$el"]), [Math]::Min($grid["$az|$($el - 3.0)"], $grid["$az|$($el + 3.0)"]))
+		if (($nb - $c) -gt 0.15) { $notches += [pscustomobject]@{ Az = $az; El = $el; Cov = $c; Nb = $nb; Dip = $nb - $c } }
+	}
+}
+Write-Host ("  60 x 25 directions | coverage {0:F4}..{1:F4} | notch cells (dip > 0.15): {2}" -f `
+	(($grid.Values | Measure-Object -Minimum).Minimum), (($grid.Values | Measure-Object -Maximum).Maximum), $notches.Count)
+if ($notches.Count -gt 0) {
+	$w = $notches | Sort-Object -Property Dip -Descending | Select-Object -First 1
+	Write-Host ("  worst dip {0:F4} at az {1} el {2} (cell {3:F4}, weakest neighbour {4:F4})" -f $w.Dip, $w.Az, $w.El, $w.Cov, $w.Nb)
+	Fail "$($notches.Count) notch cells - the coverage has a local minimum, which this field's geometry cannot produce"
+}
 
 # ------------------------------------------------------------------ assertions
 # 1. The port is faithful: these are the numbers the fixture printed on the reporter's machine.
