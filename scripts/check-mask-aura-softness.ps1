@@ -112,13 +112,14 @@ $script:MIN_STEP = 0.5
 $script:MAX_STEP = 64.0
 $script:CHORD_EPS = 1.0e-4
 
-function Get-AuraCover([double]$d, [double]$tEnter, [double]$tExit, [double]$softness, [double]$sceneDist) {
+function Get-AuraCover([double]$d, [double]$tEnter, [double]$tExit, [double]$softness, [double]$sceneDist, [double]$occWidth = -1.0) {
 	if ($tExit -le $script:CHORD_EPS) { return 0.0 }
+	if ($occWidth -lt 0.0) { $occWidth = $softness }
 	$silhouette = [Math]::Min([Math]::Max(0.5 - $d / $softness, 0.0), 1.0)
 	$horizon = [Math]::Min([Math]::Max(($tExit - $script:CHORD_EPS) / $softness, 0.0), 1.0)
 	$occluded = 1.0
 	if ($tEnter -gt 0.0) {
-		$occluded = [Math]::Min([Math]::Max(0.5 - ($tEnter - $sceneDist - $sceneDist * 2.0e-3) / $softness, 0.0), 1.0)
+		$occluded = [Math]::Min([Math]::Max(0.5 - ($tEnter - $sceneDist - $sceneDist * 2.0e-3) / $occWidth, 0.0), 1.0)
 	}
 	return $silhouette * $occluded * $horizon
 }
@@ -478,8 +479,9 @@ foreach ($scene in @(50.0, 100.0, 150.0, 1.0e9)) {
 	$dMid = $sphereR - ($sphereR - $tEnter) + 0.0
 	$dDeep = [Math]::Min(0.0, -($tExit - $tEnter) * 0.5)
 	$covOn = Get-AuraCover $dDeep $tEnter $tExit $softAura $scene
+	$covNarrow = Get-AuraCover $dDeep $tEnter $tExit $softAura $scene 0.5
 	$covOff = Get-AuraCover $dDeep $tEnter $tExit $softAura 1.0e9
-	Write-Host ("  sceneDist {0,10:F0} | default {1:F4} | occlusion:false {2:F4}" -f $scene, $covOn, $covOff)
+	Write-Host ("  sceneDist {0,10:F0} | default {1:F4} | occ_soft 0.5 {2:F4} | occlusion:false {3:F4}" -f $scene, $covOn, $covNarrow, $covOff)
 	if ([Math]::Abs($covOff - 1.0) -gt 1.0e-9) {
 		Fail "the opt-out coverage follows the occluder at sceneDist $scene (got $covOff, want 1.0)"
 	}
@@ -487,6 +489,24 @@ foreach ($scene in @(50.0, 100.0, 150.0, 1.0e9)) {
 		Fail "the default path stopped following the occluder at sceneDist $scene"
 	}
 }
+# The ramp width is its own term now, and this is the coupling defect it exists to remove: a ramp as
+# wide as the silhouette wrongly dims a volume that is one block IN FRONT of the surface, and wrongly
+# half-shows one that is one block BEHIND it. A narrow authored width must reach both extremes.
+$chordDec = Get-SphereChord 0.0 0.0 0.0 0.0 64.0 -200.0 $sphereR
+$dDeepDec = [Math]::Min(0.0, -(($chordDec[1] - $chordDec[0]) * 0.5))
+function Get-RampPair([double]$offset) {
+	$scene = $chordDec[0] + $offset
+	$wide = Get-AuraCover $dDeepDec $chordDec[0] $chordDec[1] $softAura $scene
+	$narrow = Get-AuraCover $dDeepDec $chordDec[0] $chordDec[1] $softAura $scene 0.5
+	Write-Host ("  surface {0} block(s) behind the entry: softness {1:F4} | occlusion_softness 0.5 {2:F4}" -f $offset, $wide, $narrow)
+	return @($wide, $narrow)
+}
+$inFront = Get-RampPair 1.0
+if ($inFront[1] -lt 0.999) { Fail "a narrow occlusion_softness must fully show a volume 1 block in front of the surface (got $($inFront[1]))" }
+if ($inFront[0] -ge 0.999) { Fail "the default wide ramp must still show the coupling (it no longer dims a volume 1 block in front)" }
+$behind = Get-RampPair (-1.0)
+if ($behind[1] -gt 0.001) { Fail "a narrow occlusion_softness must fully hide a volume 1 block behind the surface (got $($behind[1]))" }
+if ($behind[0] -le 0.001) { Fail "the default wide ramp must still show the coupling (it no longer half-shows a hidden volume)" }
 
 Write-Host "=== 7b: depth leaf (distance 64, softness 16) ==="
 $dist = 64.0; $softD = 16.0

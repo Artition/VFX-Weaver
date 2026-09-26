@@ -26,7 +26,7 @@ if (-not $kind7.Contains('if (shape_volume[i].x <= 0.5 && isSky)')) {
 if (-not $kind7.Contains('shape_volume[i].x > 0.5') -or -not $kind7.Contains('vfx_aura_cover(')) {
 	$problems.Add("mask_coverage.fsh: a kind == 7 plugin leaf cannot reach shared aura coverage")
 }
-if ($shader -notmatch 'vfx_aura_cover\(float d, float tEnter, float tExit, float chordEps, float softness, float sceneDist\)') {
+if ($shader -notmatch 'vfx_aura_cover\(float d, float tEnter, float tExit, float chordEps, float softness, float occWidth, float sceneDist\)') {
 	$problems.Add("mask_coverage.fsh: the shared aura coverage helper is missing")
 }
 $constants = @(

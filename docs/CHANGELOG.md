@@ -32,6 +32,15 @@ change.
   behaviour, and costs no extra sampling; being all-or-nothing it also draws the volume over nearer
   terrain and over anything else in front of it. See [masks](guide/datapack/masks.md).
 
+- **`"occlusion_softness"` on an aura leaf — the occlusion width as its own knob.** The occlusion ramp
+  used to be denominated in the leaf's own `softness`, so a deliberately soft silhouette also decided
+  how softly the fill was hidden by terrain, and a blocky hillside (a 1-block staircase) turned into a
+  stack of ~45 bands along the silhouette. The new field is that width in world blocks: 0.5 where the
+  volume's entry sits on the surface, falling to 0 or 1 over the given distance. Absent, the ramp keeps
+  following `softness` exactly as before, animation included, so no existing mask changes. A sub-block
+  value gives a crisp silhouette that follows the terrain instead of a 45-band fade.
+  See [masks](guide/datapack/masks.md).
+
 ### Fixed
 
 - **`volume: "aura"` on a GLSL-plugin mask leaf: a smooth soft edge instead of a banded ramp with a hard

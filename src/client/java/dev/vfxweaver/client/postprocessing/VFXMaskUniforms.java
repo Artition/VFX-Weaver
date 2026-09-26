@@ -282,9 +282,14 @@ public final class VFXMaskUniforms {
 			// y = 1 when this leaf's world binding could not be resolved (the shader drops its coverage).
 			// z = 1 when the author asked this aura leaf to ignore the scene depth entirely
 			// ("occlusion": false); 0 everywhere else is the pre-existing behaviour.
-			// w reserved.
+			// w = the occlusion-ramp width in world blocks: the authored "occlusion_softness" when the
+			// leaf has one, otherwise the leaf's own softness (so the ramp keeps following it, animation
+			// included, exactly as before this field existed).
 			rows[i][6] = new float[]{primitive.volumeMode().code(), leafResolved ? 0.0F : 1.0F,
-				primitive.occlusionDisabled() ? 1.0F : 0.0F, 0.0F};
+				primitive.occlusionDisabled() ? 1.0F : 0.0F,
+				primitive.occlusionSoftnessSlot() != null
+					? slotValue(mask, effect, primitive.occlusionSoftnessSlot(), primitive.occlusionSoftnessDefault())
+					: slotValue(mask, effect, primitive.softnessSlot(), primitive.softnessDefault())};
 		}
 		for (int row = 0; row < 7; row++) {
 			for (int i = 0; i < VFXMask.MAX_PRIMITIVES; i++) {

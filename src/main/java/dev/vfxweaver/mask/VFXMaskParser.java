@@ -396,10 +396,23 @@ public final class VFXMaskParser {
 			}
 		}
 		final boolean occlusionDisabled = volumeMode == VFXMaskVolumeMode.AURA && !bool(json, "occlusion", true);
+		// The occlusion ramp width, in world blocks, decoupled from the leaf's own softness so a soft
+		// silhouette and a crisp occlusion are two knobs instead of one. Absent (the default) the ramp
+		// keeps following the softness slot, so an existing pack is unchanged animation included.
+		@Nullable String occlusionSoftnessSlot = null;
+		float occlusionSoftnessDefault = 0.0F;
+		if (json.has("occlusion_softness") && !json.get("occlusion_softness").isJsonNull()) {
+			if (volumeMode != VFXMaskVolumeMode.AURA) {
+				throw new IllegalArgumentException("mask: 'occlusion_softness' is only valid on an aura leaf");
+			}
+			occlusionSoftnessSlot = VFXMaskSlots.occSoft(i);
+			occlusionSoftnessDefault = number(slots, occlusionSoftnessSlot, json.get("occlusion_softness"), WORLD_DEFAULT_SOFTNESS);
+		}
 		final VFXMaskPrimitive primitive = new VFXMaskPrimitive(shape, space, centerSlots, centerDefaults, rotationSlot, rotationDefault,
 			parameterSlots, parameterDefaults, fill, strokeSlot, strokeDefault, softnessSlot, softnessDefault, volumeMode,
 			field, fieldAmountSlot, fieldAmountDefault, fieldScaleSlot, fieldScaleDefault, i * 17.0F + 1.0F,
-			blockSelection, occlude, customShape, resolvedCenterBinding, null, occlusionDisabled);
+			blockSelection, occlude, customShape, resolvedCenterBinding, null, occlusionDisabled,
+			occlusionSoftnessSlot, occlusionSoftnessDefault);
 		return new Partial(List.of(primitive), List.of());
 	}
 

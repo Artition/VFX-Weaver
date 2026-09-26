@@ -245,6 +245,27 @@ It is accepted **only** on an aura leaf (a parse error elsewhere, same as `volum
 it is all-or-nothing: with the scene depth ignored, the volume is also drawn over nearer terrain and
 over anything else in front of it. That is the honest ceiling — see the limits below.
 
+#### `"occlusion_softness"` — the occlusion width, decoupled from the edge softness
+
+The occlusion ramp is measured in world blocks, and by default it used to be *the same* number as the
+leaf's `softness` — so a deliberately soft silhouette also decided how softly the fill was hidden by
+the surface, with no way to choose otherwise. `occlusion_softness` is that second knob, on an aura
+leaf:
+
+```json
+"a": { "shape": "sphere", "space": "world", "volume": "aura", "center": [0, 64, 0],
+       "radius": 40, "softness": 6, "occlusion_softness": 0.5 }
+```
+
+Coverage is 0.5 exactly where the volume's entry sits on the visible surface, and falls to 0 or 1
+over this width instead. **Absent, the ramp keeps following `softness`**, animation included, so no
+existing mask changes. Set it small (≈ the depth tolerance, i.e. sub-block) for a crisp silhouette
+that follows the terrain, and leave it out for a soft fade. Because a blocky hillside is a 1-block
+staircase, a ramp as wide as `softness` turns every one of those steps into a band along the
+silhouette (measured: ~45 visible levels of ~0.022 coverage each at `softness` 44.8), and it also
+*dims a volume that is one block in front of the surface* and *half-shows one that is one block
+behind it* — a narrow width reaches 1.0 and 0.0 at those points instead.
+
 #### The `depth` leaf — coverage from the scene distance
 
 `"shape": "depth"` is a leaf whose coverage is a function of the pixel's reconstructed scene distance
@@ -283,13 +304,13 @@ entity to resolve.
 >   the escape hatch, at the price of also drawing over nearer terrain.
 > - Under an Iris shaderpack the behaviour follows whatever depth the pack leaves in its target.
 >
-> The occlusion ramp is also denominated in the leaf's own `softness`, so on a wide, soft volume the
-> transition from "in front of the surface" to "behind it" spans `softness` blocks. A blocky hillside
-> turned into a 1-block staircase therefore reads as a stack of bands along its silhouette — measured
-> at 44.8 blocks of softness as ~45 visible levels of ~0.022 coverage each. Narrowing that ramp is a
-> separate, still open change: the only width that actually hides the steps is a sharp one
-> (≈ the depth tolerance, i.e. a hard silhouette), since a middle width keeps them and a very wide one
-> only halves their contrast.
+> The occlusion ramp is also denominated in a width of its own (see `occlusion_softness`), and the
+> default for that width is the leaf's `softness` — so on a wide, soft volume the transition from
+> "in front of the surface" to "behind it" spans `softness` blocks, and a blocky hillside turned into a
+> 1-block staircase therefore reads as a stack of bands along its silhouette (measured at 44.8 blocks
+> of softness as ~45 visible levels of ~0.022 coverage each). Author `occlusion_softness` to narrow
+> that ramp: the terracing cannot be removed (the occluder really is quantised in blocks), but a
+> sub-block width collapses it into a single silhouette edge instead of ~45 of them.
 
 **The field must be a conservative distance (the one hard obligation).** The march steps by the value
 the plugin returns and the cone-envelope is built from the same bound, so `vfx_shape_custom` must

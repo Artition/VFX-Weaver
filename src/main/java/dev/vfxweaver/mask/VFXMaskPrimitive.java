@@ -45,6 +45,12 @@ import org.jspecify.annotations.Nullable;
  * 						   scene depth entirely ({@code "occlusion": false}), so translucent geometry
  * 						   stops hiding it - and, as the price, so does nearer terrain and particles
  * 						   (nothing depth-writing can be told apart in a single depth sample)
+ * @param occlusionSoftnessSlot
+ * 						   the occlusion-ramp width slot in world blocks ({@code "occlusion_softness"}),
+ * 						   or {@code null} when the author did not author it - then the ramp follows the
+ * 						   leaf's own {@link #softnessSlot()} and the behaviour is exactly the old one
+ * @param occlusionSoftnessDefault
+ * 						   the authored ramp width, ignored when the slot is {@code null}
  */
 public record VFXMaskPrimitive(
 	@Nullable VFXMaskShapeKind shape,
@@ -72,7 +78,9 @@ public record VFXMaskPrimitive(
 	@Nullable String customShape,
 	@Nullable BoundParam centerBinding,
 	@Nullable BoundParam sizeBinding,
-	boolean occlusionDisabled
+	boolean occlusionDisabled,
+	@Nullable String occlusionSoftnessSlot,
+	float occlusionSoftnessDefault
 ) {
 	public VFXMaskPrimitive {
 		centerSlots = centerSlots.clone();

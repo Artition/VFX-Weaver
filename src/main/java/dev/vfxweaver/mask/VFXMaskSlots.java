@@ -53,6 +53,15 @@ public final class VFXMaskSlots {
 		return "mask.p" + i + ".soft";
 	}
 
+	/**
+	 * The occlusion-ramp width slot of primitive {@code i}, in world blocks. Only an aura leaf that
+	 * authors {@code "occlusion_softness"} gets one; otherwise the ramp keeps following the leaf's own
+	 * {@link #soft(int)} (the pre-existing behaviour, animation included).
+	 */
+	public static String occSoft(final int i) {
+		return "mask.p" + i + ".occ_soft";
+	}
+
 	/** The stroke-width slot of primitive {@code i}. */
 	public static String stroke(final int i) {
 		return "mask.p" + i + ".stroke";

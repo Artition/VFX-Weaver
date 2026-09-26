@@ -197,18 +197,21 @@ float vfx_composed_leaf(int row, vec3 world, vec2 uv, float softness) {
     return acc;
 }
 
-float vfx_aura_cover(float d, float tEnter, float tExit, float chordEps, float softness, float sceneDist) {
+float vfx_aura_cover(float d, float tEnter, float tExit, float chordEps, float softness, float occWidth, float sceneDist) {
     if (tExit <= chordEps) {
         return 0.0;
     }
     float silhouette = clamp(0.5 - d / softness, 0.0, 1.0);
     // A vanishing chord fades in over the same world-space softness as the silhouette.
     float horizonFade = clamp((tExit - chordEps) / softness, 0.0, 1.0);
-    // Depth is reconstructed, so entry occlusion uses a relative rather than fixed slack.
+    // Depth is reconstructed, so entry occlusion uses a relative rather than fixed slack. The ramp
+    // width is its own world-space term (shape_volume[i].w, defaulting to the leaf's softness) so a
+    // soft silhouette and a crisp occlusion are two knobs: a blocky occluder quantised into a 1-block
+    // staircase turns a wide ramp into a stack of bands, and narrowing it collapses those into one edge.
     float occluded = 1.0;
     if (tEnter > 0.0) {
         float depthSlack = sceneDist * 2.0e-3;
-        occluded = clamp(0.5 - (tEnter - sceneDist - depthSlack) / softness, 0.0, 1.0);
+        occluded = clamp(0.5 - (tEnter - sceneDist - depthSlack) / max(occWidth, 1.0e-4), 0.0, 1.0);
     }
     return silhouette * occluded * horizonFade;
 }
@@ -368,7 +371,7 @@ void main() {
                             // cover factors on the envelope bound (a chord shrunk to the closest
                             // approach point) fade the outside over the same world-space softness;
                             // the bound tends to 0 from both sides of the tangent.
-                            cov = vfx_aura_cover(dBound, tBound, tBound, chordEps, softness, occDist);
+                            cov = vfx_aura_cover(dBound, tBound, tBound, chordEps, softness, shape_volume[i].w, occDist);
                         } else {
                             // t still holds the first inside sample: the exit march must start on a
                             // point proven inside, the false-position tEnter only feeds the gates.
@@ -432,7 +435,7 @@ void main() {
                             }
                             vec3 auraFieldPos = (leafSpace == 1) ? camPos.xyz + viewDir * tBound : vec3(texCoord, mask_time);
                             dBound += fieldValue(int(so.w + 0.5), auraFieldPos, field_params[i].y, field_params[i].z) * field_params[i].x;
-                            cov = vfx_aura_cover(dBound, tEnter, tExit, chordEps, softness, occDist);
+                            cov = vfx_aura_cover(dBound, tEnter, tExit, chordEps, softness, shape_volume[i].w, occDist);
                         }
                     }
                 } else {
@@ -509,7 +512,7 @@ void main() {
                 // entirely (translucent glass, terrain and particles alike); silhouette and
                 // horizonFade are untouched.
                 float occDist = (shape_volume[i].z > 0.5) ? 1.0e9 : sceneDist;
-                cov = vfx_aura_cover(d, tEnter, tExit, chordEps, softness, occDist);
+                cov = vfx_aura_cover(d, tEnter, tExit, chordEps, softness, shape_volume[i].w, occDist);
             }
         } else {
             // The shared library's 2D/3D dispatcher: (kind, space, uv, world, centre, rotation, p0, p1).
