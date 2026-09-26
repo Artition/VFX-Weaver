@@ -173,7 +173,7 @@ function Get-March([double]$camX, [double]$elevDeg, $cfg, [double]$softness, [do
 # penetration depth, positive = miss distance). Continuous in screen space, exact at creases, never
 # thinner than the truth. dMin survives only as the saturation certificate. `lip` is the declared
 # field Lipschitz bound (1.0 for a conservative distance field).
-function Get-MarchEnvelope([double]$camX, [double]$elevDeg, $cfg, [double]$softness, [double]$sceneDist, [double]$lip = 1.0) {
+function Get-MarchEnvelope([double]$camX, [double]$elevDeg, $cfg, [double]$softness, [double]$sceneDist, [double]$lip = 1.0, [switch]$SaturateUnresolved) {
 	$e = $elevDeg * [Math]::PI / 180.0
 	$tLimit = [Math]::Min($sceneDist + $sceneDist * 2.0e-3 + 0.5 * $softness, $script:MAX_RANGE)
 	$lip = [Math]::Max($lip, 1.0)
@@ -189,9 +189,13 @@ function Get-MarchEnvelope([double]$camX, [double]$elevDeg, $cfg, [double]$softn
 	$dPrev = 0.0
 	$havePrev = $false
 	$calls = 0
+	$dLast = 0.0
+	$tLast = $tStart
 	for ($s = 0; $s -lt $script:ENTRY_STEPS; $s++) {
 		$d = Get-RayFieldValue $camX $e $t $cfg
 		$calls++
+		$dLast = $d
+		$tLast = $t
 		if ($havePrev) {
 			$dCross = 0.5 * ($dPrev + $d - $lip * ($t - $tPrev))
 			if ($dCross -lt $dBound) { $dBound = $dCross; $tBound = $tPrev + ($dPrev - $dCross) / $lip }
@@ -212,7 +216,14 @@ function Get-MarchEnvelope([double]$camX, [double]$elevDeg, $cfg, [double]$softn
 		$t += [Math]::Min([Math]::Max($d / $lip, $script:MIN_STEP), $script:MAX_STEP)
 		if ($t -ge $tLimit) { break }
 	}
+	$unresolved = $false
+	if ($tEnter -lt 0.0 -and $SaturateUnresolved -and ($dLast - $lip * ($tLimit - $tLast)) -le $softness) {
+		$unresolved = $true
+	}
 	if ($tEnter -lt 0.0) {
+		if ($unresolved) {
+			return @{ Cov = (Get-AuraCover (-0.5 * $softness) 0.0 $script:MAX_RANGE $softness $sceneDist); TEnter = $null; DMin = $dBound; Calls = $calls }
+		}
 		return @{ Cov = (Get-AuraCover $dBound $tBound $tBound $softness $sceneDist); TEnter = $null; DMin = $dBound; Calls = $calls }
 	}
 	$tInside = $t
@@ -575,6 +586,72 @@ if (-not $coverage.Contains('} else if (kind == 9) {')) {
 if ($coverage.Contains('} else if (kind == 10) {')) {
 	Fail "mask_coverage.fsh: an unexpected kind 10 branch exists"
 }
+# ------------------------------------------------------------------ 8: rays that miss the volume, and the Lipschitz contract
+# A ray whose closest approach to the volume stays outside (d_min > 0) never enters, so it keeps the
+# near-miss cover. That cover's silhouette term is 0.5 - dBound/softness, and the cone bound keeps
+# dBound >= -softness/4 for any non-entering ray, so such a ray is structurally capped just under 0.5
+# while a ray that does enter a solid volume saturates at 1.0. The cap is real and is asserted below.
+# It is not a defect: a ray that grazes the volume owes a partial silhouette, not full coverage. What
+# must never happen is a wide band of directions reading ~0.5 against a solid volume they really are
+# inside - that is a march budget problem, and the reporter's proposed one-liner for it is measured
+# here instead of being taken on faith.
+Write-Host "=== 8: near-miss cap and the Lipschitz contract ==="
+$softRad = 44.8
+$missCov = @()
+for ($elev = 40.0; $elev -le 90.0; $elev += 0.5) {
+	$o = Get-MarchEnvelope -camX (-40.0) -elevDeg $elev -cfg $script:SHIPPED -softness $softRad -sceneDist 1.0e9
+	if ($null -eq $o.TEnter) { $missCov += $o.Cov }
+}
+if ($missCov.Count -lt 5) {
+	Fail "expected several rays to miss the volume, found $($missCov.Count) - the near-miss case is not covered"
+}
+$maxMiss = ($missCov | Measure-Object -Maximum).Maximum
+Write-Host ("  rays that miss the volume: {0} | coverage {1:F4}..{2:F4} (structurally capped just under 0.5)" -f `
+	$missCov.Count, (($missCov | Measure-Object -Minimum).Minimum), $maxMiss)
+if ($maxMiss -gt 0.51) {
+	Fail "a ray that misses the volume reaches coverage $maxMiss - the near-miss cap is not where the contract says it is"
+}
+
+# The march steps by d/lip and is only sound while the field is conservative. Section 3 already
+# measured the field's worst gradient for every lower-bound scale, and the magnitude is linear in that
+# scale, so the two numbers that matter here are already on the table: the shipped 0.7 field is a true
+# distance field, while the raw field is not - which is what makes the 0.7 lower-bound scale load-bearing
+# and the registerMaskShapeGlsl lipschitz overload mandatory for a plugin that skips it.
+Write-Host ("  max |grad|: shipped scale 0.7 -> {0:F4} (L = 1.0 is sound) | raw -> {1:F4} (L >= {2:F2} required)" -f `
+	$bounds[0.7], $bounds[1.0], $bounds[1.0])
+if ($bounds[0.7] -gt 1.0) {
+	Fail "the fixture's scaled field is not conservative ($($bounds[0.7]) > 1) - the march would tunnel and every step count here would be meaningless"
+}
+if ($bounds[1.0] -le 1.0) {
+	Fail "the raw field came out conservative ($($bounds[1.0])) - this fixture no longer shows that the lower-bound scale is load-bearing"
+}
+
+# The reporter's proposed fix for their arch: after the entry loop, treat a march that ran out of steps
+# but whose last sample can still reach the soft band as saturated instead of a near miss. Measured, so
+# the next reader sees whether it does anything: it fires only on rays that end far short of tLimit,
+# and a ray that legitimately turned around outside the volume never satisfies the condition.
+$beforeCov = 0.0
+$afterCov = 0.0
+$cnt = 0
+for ($elev = 40.0; $elev -le 90.0; $elev += 0.5) {
+	$a = Get-MarchEnvelope -camX (-40.0) -elevDeg $elev -cfg $script:SHIPPED -softness $softRad -sceneDist 1.0e9
+	if ($null -ne $a.TEnter) { continue }
+	$b = Get-MarchEnvelope -camX (-40.0) -elevDeg $elev -cfg $script:SHIPPED -softness $softRad -sceneDist 1.0e9 -SaturateUnresolved
+	$beforeCov += $a.Cov
+	$afterCov += $b.Cov
+	$cnt++
+}
+Write-Host ("  reporter's proposed saturate-on-exhaustion fix: mean miss coverage {0:F4} -> {1:F4}" -f `
+	($beforeCov / $cnt), ($afterCov / $cnt))
+if (($afterCov - $beforeCov) / $cnt -gt 0.05) {
+	Fail "the proposed saturate-on-exhaustion fix now measurably changes the miss coverage - revisit this section's conclusion"
+}
+
+# A ray that turns around outside the volume keeps marching away from it until the budget runs out: the
+# only early-out is the cone bound near tLimit, so a receding ray spends most of its steps going nowhere.
+# Recorded as a known cost, not asserted - a tighter early-out is a performance change, not a fix.
+Write-Host "  known cost: a receding ray spends its remaining entry steps marching away from the volume"
+
 # ------------------------------------------------------------------ assertions
 # 1. The port is faithful: these are the numbers the fixture printed on the reporter's machine.
 #    A drift here means the transcription, not the shader, changed.
