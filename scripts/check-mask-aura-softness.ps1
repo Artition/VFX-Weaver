@@ -1073,6 +1073,62 @@ Write-Host ("  the ramp spans {0:F3} deg (el {1:F2} .. {2:F2}) = {3:F1} px at 10
 	$span, $lo, $hi, $px, $levels.Count)
 $perPx = if ($px -gt 0.0) { [Math]::Round($levels.Count / $px, 1) } else { 0 }
 Write-Host ("  that is {0} discrete coverage levels per pixel - a stepped function sampled below its own step size, which is exactly what aliases into a comb along the boundary" -f $perPx)
+# The fix widens the ramp so it spans at least OCC_MIN_PIXELS on screen wherever the depth moves fast
+# per pixel. Resample the same boundary at one pixel (0.065 deg) and compare the coverage step that
+# lands on each pixel: that per-pixel step is what the eye reads as the comb.
+$occMinPixels = 48.0
+$occMaxGrowth = 4.0
+$pxDeg = 0.065
+$pixels = @()
+$el = 0.0
+while ($el -gt -3.0) {
+	$near = $ship12 | Sort-Object { [Math]::Abs($_.El - $el) } | Select-Object -First 1
+	$scene = Get-GroundSceneDist $el
+	$sceneNext = Get-GroundSceneDist ($el - $pxDeg)
+	$slope = if ($scene -lt 1.0e6 -and $sceneNext -lt 1.0e6) { [Math]::Abs($sceneNext - $scene) } else { -1.0 }
+	$tEnter = $near.TEnter
+	$pixels += [pscustomobject]@{ El = $el; Scene = $scene; Slope = $slope; TEnter = $tEnter }
+	$el -= $pxDeg
+}
+function Get-OccStep($pixels, [bool]$adaptive) {
+	$prev = $null; $worst = 0.0
+	foreach ($p in $pixels) {
+		# Skip the pairs that straddle the sky sentinel: that single jump to 1e9 is the horizon line,
+		# not the ground comb this section is about.
+		if ($p.Scene -ge 1.0e6 -or $p.Slope -lt 0.0) { $prev = $null; continue }
+		$w = [Math]::Max(44.8, 1.0e-4)
+		if ($adaptive) { $w = [Math]::Max($w, [Math]::Min($occMinPixels * $p.Slope, $occMaxGrowth * $w)) }
+		$occ = if ($null -eq $p.TEnter -or $p.TEnter -le 0.0) { 1.0 } else {
+			[Math]::Min([Math]::Max(0.5 - ($p.TEnter - $p.Scene - $p.Scene * 2.0e-3) / $w, 0.0), 1.0)
+		}
+		if ($null -ne $prev) { $worst = [Math]::Max($worst, [Math]::Abs($occ - $prev)) }
+		$prev = $occ
+	}
+	return $worst
+}
+$stepAuthored = Get-OccStep $pixels $false
+$stepAdaptive = Get-OccStep $pixels $true
+$slopeMax = ($pixels | Where-Object { $_.Slope -ge 0.0 } | Measure-Object -Property Slope -Maximum).Maximum
+Write-Host ("  per-pixel depth slope up to {0:F2} blocks | worst coverage step per pixel {1:F4} authored -> {2:F4} adaptive" -f $slopeMax, $stepAuthored, $stepAdaptive)
+# Near the horizon the ground's distance swings hundreds of blocks per pixel and no world-space ramp can
+# stay smooth there - the fix's cap keeps that from smearing, and it stays a hard edge. The comb is a
+# different regime: the terrain is blocky, so sceneDist steps by one block at each block edge, and every
+# such step moves the ramp. That step's size in coverage is one block over the ramp width, so widening
+# the ramp shrinks it. This is the number that decides whether the boundary reads as a comb or a fade.
+$perBlockAuthored = 0.0
+$perBlockAdaptive = 0.0
+foreach ($pxSlope in 1.0, 2.0, 2.8, 4.0) {
+	$wAuth = 44.8
+	$wAdapt = [Math]::Max($wAuth, [Math]::Min($occMinPixels * $pxSlope, $occMaxGrowth * $wAuth))
+	$jA = 1.0 / $wAuth
+	$jB = 1.0 / $wAdapt
+	if ($jA -gt $perBlockAuthored) { $perBlockAuthored = $jA }
+	if ($jB -gt $perBlockAdaptive) { $perBlockAdaptive = $jB }
+	Write-Host ("    {0:F1} blocks/px | ramp {1,6:F1} -> {2,6:F1} blocks | step per block edge {3:F4} -> {4:F4}" -f $pxSlope, $wAuth, $wAdapt, $jA, $jB)
+}
+if ($perBlockAdaptive -ge $perBlockAuthored) {
+	Fail "the adaptive ramp width does not shrink the per-block-edge step ($perBlockAuthored -> $perBlockAdaptive)"
+}
 
 # ------------------------------------------------------------------ assertions
 # 1. The port is faithful: these are the numbers the fixture printed on the reporter's machine.

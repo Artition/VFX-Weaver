@@ -53,6 +53,12 @@ layout(std140) uniform SamplerInfo {
 // outside keeps dCross >= -B/2, so a ray that never enters can reach at most 0.5 + STEP_BOOST/2 of
 // coverage - a bounded rim instead of a fabricated bright spot.
 #define VFX_PLUGIN_AURA_STEP_BOOST 0.2
+// The occlusion ramp must span at least this many pixels on screen, and may grow at most this many
+// times the authored occlusion_softness when the reconstructed depth moves fast per pixel (a grazing
+// view of the ground). Without it the ramp's world-space steps from a blocky occluder land below one
+// pixel and the mask's edge aliases into a comb; see the note in vfx_aura_cover.
+#define VFX_MASK_OCC_MIN_PIXELS 48.0
+#define VFX_MASK_OCC_MAX_GROWTH 4.0
 
 // Declared per-plugin Lipschitz upper bound for the custom field (|grad d| <= L). Injected into
 // the variant prelude (same mechanism as VFX_CUSTOM_HAS_BOUNDS) as the MAX over the variant's
@@ -216,7 +222,20 @@ float vfx_aura_cover(float d, float tEnter, float tExit, float chordEps, float s
     float occluded = 1.0;
     if (tEnter > 0.0) {
         float depthSlack = sceneDist * 2.0e-3;
-        occluded = clamp(0.5 - (tEnter - sceneDist - depthSlack) / max(occWidth, 1.0e-4), 0.0, 1.0);
+        // A depth-driven edge inherits the depth buffer's granularity. Where the reconstructed distance
+        // changes by many blocks per pixel - a grazing view of the ground, which is exactly the bottom
+        // edge of the reported whiten wall - the world-space ramp collapses to a sub-pixel staircase
+        // whose steps follow the terrain's own block grid, and that aliases into a comb along the
+        // boundary. Requiring the ramp to span at least VFX_MASK_OCC_MIN_PIXELS on screen bounds the
+        // coverage change per pixel wherever the depth moves fast, while the authored occlusion_softness
+        // still wins wherever it is already wider, so a near face-on occluder stays crisp. The
+        // derivative is taken unconditionally so control flow stays uniform, and the widening is capped
+        // so a depth discontinuity - a cliff silhouette, where fwidth spikes for the pixel or two that
+        // straddle it - cannot smear the edge across the frame.
+        float width = max(occWidth, 1.0e-4);
+        float screenWidth = VFX_MASK_OCC_MIN_PIXELS * max(fwidth(sceneDist), 0.0);
+        width = max(width, min(screenWidth, VFX_MASK_OCC_MAX_GROWTH * width));
+        occluded = clamp(0.5 - (tEnter - sceneDist - depthSlack) / width, 0.0, 1.0);
     }
     return silhouette * occluded * horizonFade;
 }
