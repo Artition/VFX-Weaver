@@ -93,7 +93,7 @@ ordinary params, keyframes, `expr`, graph `{ "from": node }` driven inputs, data
 every live-edit API (`sendSetParam`, `sendKeyframe`, `setParam`, …) work on them unchanged. The
 `mask.` prefix is reserved (see the [Java API](../../API.md)).
 
-#### Dynamic float data (`data`): live plugin geometry without a recompile
+#### Dynamic float data (`data`): live plugin geometry without a recompile { data-toc-label="Dynamic float data" }
 
 A **custom leaf** (composed or GLSL plugin) carries up to **32** reserved dynamic floats
 `mask.p<N>.d0 … d31`, authored as a `"data": [ … ]` array on the leaf (each entry a number,
@@ -150,7 +150,7 @@ works on every node. A `"data"` array registers a constant `mask.p<N>.d<J>` para
 large mask sends a larger play packet; a 2.0.1 client caps the parameter map at 32 and cannot decode
 it, so pair a many-slot mask with 2.0.2 clients (the wire format itself is unchanged).
 
-#### World-volume evaluation: `volume`
+#### World-volume evaluation: `volume` { data-toc-label="World-volume evaluation" }
 
 A `sphere`/`box` leaf carries an optional `"volume"` field choosing how the volume is evaluated
 against the scene. Both modes are first-class looks; the default is `"surface"`.
@@ -186,7 +186,7 @@ aura still fills the volume's silhouette instead of vanishing against the sky.
 }
 ```
 
-#### `volume` on a custom GLSL-plugin leaf
+#### `volume` on a custom GLSL-plugin leaf { data-toc-label="volume on a GLSL leaf" }
 
 A `world` GLSL-plugin leaf accepts the same `"volume": "aura"` field. An arbitrary distance field has
 no analytic ray, so the pixel's view ray is **sphere-traced** through the plugin's own SDF: entry and
@@ -245,7 +245,7 @@ A `composed` custom leaf has no raw SDF to march, so `"volume": "aura"` on one i
 error naming the shape — it does not silently fall back. A screen-space plugin leaf is rejected for
 the same reason: a uv-space distance cannot be marched in world units.
 
-#### `"occlusion": false` — a fill that ignores scene depth
+#### `"occlusion": false` — a fill that ignores scene depth { data-toc-label="occlusion: false" }
 
 An aura leaf is hidden by whatever surface the depth buffer holds. That is right for terrain, and
 wrong for a **translucent** surface: stained glass, ice or a water surface write depth, so an aura
@@ -263,7 +263,7 @@ It is accepted **only** on an aura leaf (a parse error elsewhere, same as `volum
 it is all-or-nothing: with the scene depth ignored, the volume is also drawn over nearer terrain and
 over anything else in front of it. That is the honest ceiling — see the limits below.
 
-#### `"occlusion_softness"` — the occlusion width, decoupled from the edge softness
+#### `"occlusion_softness"` — the occlusion width, decoupled from the edge softness { data-toc-label="occlusion_softness" }
 
 The occlusion ramp is measured in world blocks, and by default it used to be *the same* number as the
 leaf's `softness` — so a deliberately soft silhouette also decided how softly the fill was hidden by
@@ -297,7 +297,7 @@ terrain block edge falls from 0.0223 to 0.0074, below what an 8-bit target can s
 horizon — hundreds of blocks per pixel — no world-space ramp can stay smooth and the edge stays hard;
 that is by design, since widening further would erase the occlusion altogether.
 
-#### The `depth` leaf — coverage from the scene distance
+#### The `depth` leaf — coverage from the scene distance { data-toc-label="depth leaf" }
 
 `"shape": "depth"` is a leaf whose coverage is a function of the pixel's reconstructed scene distance
 (the same value the aura occlusion uses). It has no geometry of its own, so the leaf's **`softness` is
@@ -434,7 +434,7 @@ that implicitly (their bounded SDF puts a far-plane point outside the shape); fo
 gate is explicit, because its SDF may be intentionally unbounded. A plugin that used to paint the sky
 from a `surface` leaf no longer does — that is the point of the gate.
 
-#### Sky masks: the `sky` leaf and `space: "dome"`
+#### Sky masks: the `sky` leaf and `space: "dome"` { data-toc-label="Sky masks" }
 
 Two leaves address the **sky** rather than the world. Both need scene depth, because the only thing
 that tells the sky apart from geometry is the depth test.
@@ -491,7 +491,7 @@ position) is not supported yet and is a parse error. A `sky` leaf may not be `sc
 > the fog meets the sky. Blend the mask into a screen-space gradient near the horizon, or keep the
 > tint soft, if that seam matters.
 
-#### Block masks: `occlude`
+#### Block masks: `occlude` { data-toc-label="Block masks" }
 
 A `block` leaf carries an optional `"occlude"` boolean controlling whether its rasterised model
 geometry is occluded by the scene. Both looks are first-class; the default is `true`.
