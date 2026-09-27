@@ -148,7 +148,7 @@ Its datapack definition:
 
 ### `show_light_beam_dir`
 
-<video autoplay loop muted playsinline width="100%"><source src="../../../assets/media/light_beam_dir.mp4" type="video/mp4"></video>
+<video autoplay loop muted playsinline width="100%"><source src="../../../../assets/media/light_beam_dir.mp4" type="video/mp4"></video>
 
 ```
 /vfx play vfx_demos:show_light_beam_dir
@@ -176,7 +176,7 @@ rolls as it animates.
 
 ### `show_light_beam_end_at`
 
-<video autoplay loop muted playsinline width="100%"><source src="../../../assets/media/light_beam_end_at.mp4" type="video/mp4"></video>
+<video autoplay loop muted playsinline width="100%"><source src="../../../../assets/media/light_beam_end_at.mp4" type="video/mp4"></video>
 
 ```
 /vfx play vfx_demos:show_light_beam_end_at

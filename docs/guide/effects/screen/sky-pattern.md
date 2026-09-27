@@ -1,6 +1,6 @@
 # sky_pattern
 
-<video autoplay loop muted playsinline width="100%"><source src="../../../assets/media/sky_pattern.mp4" type="video/mp4"></video>
+<video autoplay loop muted playsinline width="100%"><source src="../../../../assets/media/sky_pattern.mp4" type="video/mp4"></video>
 
 `type: "sky_pattern"`
 
@@ -288,7 +288,7 @@ the decal along its latitude, around the sky. Its datapack definition:
 
 ### `show_sky_pattern_texture`
 
-<video autoplay loop muted playsinline width="100%"><source src="../../../assets/media/sky_pattern_texture.mp4" type="video/mp4"></video>
+<video autoplay loop muted playsinline width="100%"><source src="../../../../assets/media/sky_pattern_texture.mp4" type="video/mp4"></video>
 
 ```
 /vfx play vfx_demos:show_sky_pattern_texture
@@ -342,15 +342,15 @@ cover the entire sky with no pole funnel:
 
 `sky_anchor_sun`
 
-<video autoplay loop muted playsinline width="100%"><source src="../../../assets/media/sky_anchor_sun.mp4" type="video/mp4"></video>
+<video autoplay loop muted playsinline width="100%"><source src="../../../../assets/media/sky_anchor_sun.mp4" type="video/mp4"></video>
 
 `sky_anchor_moon`
 
-<video autoplay loop muted playsinline width="100%"><source src="../../../assets/media/sky_anchor_moon.mp4" type="video/mp4"></video>
+<video autoplay loop muted playsinline width="100%"><source src="../../../../assets/media/sky_anchor_moon.mp4" type="video/mp4"></video>
 
 `sky_anchor_stars`
 
-<video autoplay loop muted playsinline width="100%"><source src="../../../assets/media/sky_anchor_stars.mp4" type="video/mp4"></video>
+<video autoplay loop muted playsinline width="100%"><source src="../../../../assets/media/sky_anchor_stars.mp4" type="video/mp4"></video>
 
 ```
 /vfx play vfx_demos:sky_anchor_sun
