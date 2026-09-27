@@ -5115,7 +5115,8 @@ change.</p>
 </ul>
 <h3 id="fixed">Fixed<a class="headerlink" href="#fixed" title="Permanent link">&para;</a></h3>
 <ul>
-<li><strong><code>volume: "aura"</code> on a GLSL-plugin mask leaf: a smooth soft edge instead of a banded ramp with a hard
+<li>
+<p><strong><code>volume: "aura"</code> on a GLSL-plugin mask leaf: a smooth soft edge instead of a banded ramp with a hard
   cliff.</strong> A wide, soft plugin volume rendered its silhouette in visible steps and dropped from ~50%
   coverage straight to zero within a fraction of a degree. The plugin aura estimated the ray's deep
   point as the <em>sampled</em> minimum of its march, so the edge resolved into sample-sized steps, and any
@@ -5127,17 +5128,56 @@ change.</p>
   occlusion ramp. The edge lands in the same place, the interior still saturates to full coverage, and
   the cost is unchanged - no extra SDF evaluations. Standing <strong>inside</strong> the volume keeps filling the
   view, growing towards full coverage with depth. See
-  <a href="../guide/datapack/masks/">masks</a>.</li>
+  <a href="../guide/datapack/masks/">masks</a>.</p>
+</li>
+<li>
+<p><strong>The aura march grades a ray by its deepest penetration, not its first exit.</strong> Entry and exit were
+  two marches and the second stopped at the first <code>d &gt; 0</code>, so on a wall with a bump the solid mass
+  <em>behind</em> the bump was never sampled and the silhouette reported the bump's shallow depth - the
+  coverage dipped across it (the reported arch at the bottom of a wall). One pooled loop over the same
+  40 + 16 steps now runs to a real termination: the cone bound stays global over the whole ray (so the
+  mass behind a bump is what gets measured), the first entry still drives the occlusion ramp and the
+  last exit brackets the horizon fade. Saturation stays a sample certificate and budget exhaustion
+  deliberately does <em>not</em> saturate - a long shallow corridor would light up. An additive anti-crawl step
+  keeps a grazing approach or the gap behind a bump from eating the budget; it is bounded, which is why
+  a ray that never enters can now reach at most 0.6 rather than 0.5 of coverage. Measured: the bump
+  profile goes from <code>1.00 ×9, 0.58 0.70 0.80 0.85 0.80 0.70 0.58, 1.00 ×9</code> to a flat <code>1.00</code>, the
+  fixture's flat wings drop from 22.0 to 8.9 SDF calls per ray, and a receding ray terminates in 5
+  instead of burning all 40. See <a href="../guide/datapack/masks/">masks</a>.</p>
+</li>
+<li>
+<p><strong>The occlusion ramp is kept at least 48 pixels wide on screen.</strong> A depth-driven edge inherits the
+  depth buffer's granularity: blocky terrain steps by a block at every block edge, and at a grazing
+  view of the ground those steps land less than a pixel apart, so the mask's silhouette aliased into a
+  comb. The ramp is widened with the per-pixel depth slope wherever the depth moves fast, capped at 4x
+  the authored width so a depth discontinuity (a cliff edge) cannot smear the edge; the authored
+  <code>occlusion_softness</code> stays the floor, so a near face-on occluder is unchanged. Measured at 2.8 blocks
+  per pixel: the ramp runs 44.8 → 134.4 blocks and the coverage step per terrain block edge falls from
+  0.0223 to 0.0074 - below what an 8-bit target can show. No uniform, no UBO/wire change, no new knob.
+  See <a href="../guide/datapack/masks/">masks</a>.</p>
+</li>
 </ul>
 <h3 id="added_1">Added<a class="headerlink" href="#added_1" title="Permanent link">&para;</a></h3>
 <ul>
-<li><strong>A plugin can declare its field's gradient bound.</strong> <code>VFXAPI.registerMaskShapeGlsl(id, plugin, lipschitz)</code>
+<li>
+<p><strong><code>order</code> - the compositing order of screen effects inside a layer.</strong> Screen effects accept an
+  <code>order</code> param next to <code>screen_layer</code>: a float, lower runs earlier, default <code>0</code>, and effects that
+  leave it alone keep the order they were started in, so no existing pack changes. <code>screen_layer</code> stays
+  the outer, semantic axis (which part of the frame the pass belongs to) and <code>order</code> only sequences the
+  effects that layer already selected; being fractional, <code>10.5</code> slots an effect between two at <code>10</code> and
+  <code>11</code>. It is an ordinary param, so the datapack, the command param-map, <code>setParam</code> and keyframes all
+  reach it, and the wire format, UBO and <code>PROTOCOL_VERSION</code> are untouched. See
+  <a href="../guide/effects/">screen effects</a>.</p>
+</li>
+<li>
+<p><strong>A plugin can declare its field's gradient bound.</strong> <code>VFXAPI.registerMaskShapeGlsl(id, plugin, lipschitz)</code>
   is a new overload: the plugin field must be a conservative distance (<code>|grad d| &lt;= 1</code>), and a field that
   is perturbed (noise, a biased blend) can no longer stay silent about it — either scale the value down
   or declare a true upper bound, which the aura march and the envelope then respect. A variant of
   several plugins compiles against the largest declared bound. The mask guide now states the rule next
   to the plugin contract. Additive: an existing registration compiles exactly as before.
-  See <a href="../guide/datapack/masks/">masks</a> and <a href="../API/#vfxapi">the API</a>.</li>
+  See <a href="../guide/datapack/masks/">masks</a> and <a href="../API/#vfxapi">the API</a>.</p>
+</li>
 </ul>
 <h2 id="210-2026-09-25">2.1.0 — 2026-09-25<a class="headerlink" href="#210-2026-09-25" title="Permanent link">&para;</a></h2>
 <h3 id="added_2">Added<a class="headerlink" href="#added_2" title="Permanent link">&para;</a></h3>

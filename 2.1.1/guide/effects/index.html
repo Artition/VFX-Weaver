@@ -2936,6 +2936,11 @@ complete field list and a copy-pasteable example.</p>
   value the param has right now - see <a href="../datapack/params/#ways-to-set-a-param">Animating a param</a>.</li>
 <li><code>screen_layer</code> (screen effects only): <code>0</code> = under the first-person hand and GUI, <code>1</code> = above the
   hand below the GUI (default), <code>2</code> = above everything.</li>
+<li><code>order</code> (screen effects only): the compositing order <strong>within one <code>screen_layer</code></strong>. Lower runs
+  earlier, default <code>0</code>, and effects that do not set it keep the order they were started in. It is a
+  float, so <code>10.5</code> slots an effect between two that sit at <code>10</code> and <code>11</code> without renumbering. It is
+  an ordinary param - set it from the datapack, the command param-map, <code>setParam</code> or a keyframe like
+  any other value; changing it live re-sorts from the next frame, which can pop if you animate it.</li>
 </ul>
 <h2 id="shared-fields">Shared fields<a class="headerlink" href="#shared-fields" title="Permanent link">&para;</a></h2>
 <p>Every effect accepts fields that are <strong>not</strong> repeated in its own <code>Fields</code> table. A reader must check
@@ -2944,7 +2949,8 @@ these too:</p>
 <code>fade_ticks</code>, <code>params</code>, <code>sound</code>, <code>sound_pos</code>, <code>volume</code>, <code>pitch</code> — the complete list, types and
 defaults is on <a href="../datapack/format/#definition-fields">Datapack format</a>. These control how long the
 effect runs, whether it loops or persists until stopped, how it fades, and its optional sound.</p>
-<p><strong>Screen effects</strong> additionally accept <code>screen_layer</code> (<code>0</code>/<code>1</code>/<code>2</code>, above). See
+<p><strong>Screen effects</strong> additionally accept <code>screen_layer</code> (<code>0</code>/<code>1</code>/<code>2</code>, above) and <code>order</code> (the
+compositing order inside one layer, above). See
 <a href="../datapack/format/">Datapack format</a>.</p>
 <p><strong>World overlays</strong> (<code>block_tint</code>, <code>block_outline</code>, <code>light_beam</code>, <code>pulse_ring</code>, <code>guide_line</code>,
 <code>particles</code>, <code>block_chain</code>) additionally accept:</p>
