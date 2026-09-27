@@ -1058,6 +1058,21 @@ if ($offShip -gt 0.2 -or $offDeep -gt 0.2) {
 # width 8 -> 9 of 0.125, width 16 -> 17 of 0.0625, width 44.8 -> 45 of 0.0223, width 100 -> 95 of
 # 0.01. Narrower means fewer, coarser steps; wider means many fine ones. Nothing here needs a second
 # copy of that table, so the boundary question is settled there.
+# How wide the ramp is on screen, and how many steps live inside that width: this is what decides
+# whether the boundary reads as a smooth fade, a staircase, or a jagged comb.
+$lo = $null; $hi = $null; $levels = @{}
+foreach ($r in $ship12) {
+	if ($null -eq $lo -and $r.Cov -ge 0.05) { $lo = $r.El }
+	if ($null -eq $hi -and $r.Cov -ge 0.95) { $hi = $r.El }
+	if ($r.Cov -ge 0.05 -and $r.Cov -le 0.95) { $levels[[Math]::Round($r.Cov, 2)] = $true }
+}
+$span = if ($null -ne $lo -and $null -ne $hi) { $hi - $lo } else { 0.0 }
+# One pixel at 1920x1080 and a 70-degree vertical FOV subtends ~0.065 degrees.
+$px = $span / 0.065
+Write-Host ("  the ramp spans {0:F3} deg (el {1:F2} .. {2:F2}) = {3:F1} px at 1080p/70deg, holding {4} distinct cov levels" -f `
+	$span, $lo, $hi, $px, $levels.Count)
+$perPx = if ($px -gt 0.0) { [Math]::Round($levels.Count / $px, 1) } else { 0 }
+Write-Host ("  that is {0} discrete coverage levels per pixel - a stepped function sampled below its own step size, which is exactly what aliases into a comb along the boundary" -f $perPx)
 
 # ------------------------------------------------------------------ assertions
 # 1. The port is faithful: these are the numbers the fixture printed on the reporter's machine.
