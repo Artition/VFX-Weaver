@@ -204,6 +204,24 @@ scored ≥ 0.5 while a miss scored a hard `0` — a visible ~0.5 cliff. The enve
 in screen space, is exact for creased fields (`max`/`min` compositions of distance bounds — the usual
 way to build a wedge or a shell), and is never thinner than the truth.
 
+**The ray is graded by its deepest penetration, not its first exit.** Entry and exit used to be two
+marches, and the second one stopped at the first `d > 0` — so on a volume with a bump the solid mass
+*behind* the bump was never sampled, the silhouette reported the bump's shallow depth, and the coverage
+dipped across it (reported as an arch/dip at the bottom of a wall). There is now one pooled loop over
+the same 40 + 16 steps that never stops at a sign crossing: the cone bound stays global over the whole
+ray (the global minimum *is* the deepest segment's minimum, so a bump in front of a mass no longer hides
+it), the *first* entry still feeds the occlusion ramp, and the *last* exit brackets the horizon fade.
+Saturation stays a sample certificate (`d <= -0.5 * softness`), and running out of steps deliberately
+does **not** saturate — a long shallow corridor would otherwise light up as a false bright patch. The
+step carries an additive boost, `(|d| + 0.2 * softness) / L`, because a plain `|d|` step collapses onto
+the 0.5 floor wherever the field is small, so a grazing approach or the gap behind a bump cost ~2 steps
+per unit and could eat the whole budget before the solid part was reached; the boost is bounded
+(`L * h <= |d| + B`), which is why a ray that never enters can now reach at most `0.5 + 0.1` of coverage
+rather than 0.5. Two consequences worth knowing: an occluder sitting *between* two parts of one volume
+does not dim it (union semantics — the nearer part is the same volume), and the boost makes a grazing
+edge very slightly fatter. Cost moved the other way: the fixture's flat wings drop from 22.0 to 8.9
+SDF calls per ray and a receding ray terminates on the dive bound in 5 instead of burning all 40.
+
 ```json
 {
 	"type": "color_grade",
@@ -265,6 +283,19 @@ staircase, a ramp as wide as `softness` turns every one of those steps into a ba
 silhouette (measured: ~45 visible levels of ~0.022 coverage each at `softness` 44.8), and it also
 *dims a volume that is one block in front of the surface* and *half-shows one that is one block
 behind it* — a narrow width reaches 1.0 and 0.0 at those points instead.
+
+**The ramp also has a screen-space floor, and it is what stops the comb.** Whatever width you author,
+the ramp is widened when the reconstructed depth changes fast from one pixel to the next — a grazing
+view of the ground is the usual case, where the distance to the surface swings by several blocks per
+pixel, so a world-space ramp collapses into a sub-pixel staircase whose steps follow the terrain's own
+block edges and the silhouette aliases into a comb. The ramp is kept at least 48 pixels wide on screen
+wherever that happens, capped at 4× the authored width so a depth *discontinuity* (a cliff edge, which
+spikes the per-pixel slope for the pixel or two that straddle it) cannot smear the edge. Your
+`occlusion_softness` remains the floor, so a near, face-on occluder stays exactly as crisp as you set
+it. Measured at 2.8 blocks per pixel: the ramp runs 44.8 → 134.4 blocks and the coverage step per
+terrain block edge falls from 0.0223 to 0.0074, below what an 8-bit target can show. Right at the
+horizon — hundreds of blocks per pixel — no world-space ramp can stay smooth and the edge stays hard;
+that is by design, since widening further would erase the occlusion altogether.
 
 #### The `depth` leaf — coverage from the scene distance
 

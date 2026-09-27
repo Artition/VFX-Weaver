@@ -163,6 +163,21 @@ public final class VFXPostProcessingManager {
 	}
 
 	/**
+	 * The effect's compositing order inside its screen layer, from the {@code "order"} param.
+	 * Declared as a param rather than a structural field so it is authored, animated and set exactly
+	 * like every other value (datapack params, {@code setParam}, keyframes, {@code expr}) with no
+	 * format change. Sanitised because an {@code expr} can produce NaN or an infinity, and an
+	 * inconsistent comparator makes {@link List#sort} throw.
+	 *
+	 * @param effect the active effect to rank
+	 * @return the ordering key; lower runs earlier, and a non-finite value falls back to the default
+	 */
+	private static float orderedRank(final VFXActiveEffect effect) {
+		final float order = effect.getParam("order", 0.0F);
+		return Float.isFinite(order) ? order : 0.0F;
+	}
+
+	/**
 	 * Runs the chain of active screen effects assigned to layer {@code layer} (see
 	 * {@code screen_layer}). Called on the render thread every frame; may be called several times
 	 * per frame with different layers.
@@ -182,6 +197,14 @@ public final class VFXPostProcessingManager {
 				active.add(effect);
 			}
 		}
+		// Compositing order inside the layer: the authored "order" param, ascending, lower first.
+		// List.sort is stable, so effects that leave it alone - which is all of them until a pack
+		// authors it, the default being 0 - keep exactly the order they had before this existed.
+		// The sort runs on the layer's already-filtered list, so "screen_layer" stays the outer,
+		// semantic axis (which part of the frame the pass belongs to) and "order" only decides the
+		// sequence within one of those parts. A live change (setParam/keyframe/expr) re-sorts from
+		// the next frame, which is deliberate but can pop mid-animation.
+		active.sort((a, b) -> Float.compare(orderedRank(a), orderedRank(b)));
 		// Every distinct masked definition this frame, regardless of the owning effect's layer: the
 		// coverage prepass runs at layer 0 for all of them, and the consumer reads it at any layer.
 		final Map<Identifier, VFXActiveEffect> maskEffects = activeMaskEffects(effects.getActivePostEffects());

@@ -16,6 +16,11 @@ complete field list and a copy-pasteable example.
   value the param has right now - see [Animating a param](../datapack/params.md#ways-to-set-a-param).
 - `screen_layer` (screen effects only): `0` = under the first-person hand and GUI, `1` = above the
   hand below the GUI (default), `2` = above everything.
+- `order` (screen effects only): the compositing order **within one `screen_layer`**. Lower runs
+  earlier, default `0`, and effects that do not set it keep the order they were started in. It is a
+  float, so `10.5` slots an effect between two that sit at `10` and `11` without renumbering. It is
+  an ordinary param - set it from the datapack, the command param-map, `setParam` or a keyframe like
+  any other value; changing it live re-sorts from the next frame, which can pop if you animate it.
 
 ## Shared fields
 
@@ -27,7 +32,8 @@ these too:
 defaults is on [Datapack format](../datapack/format.md#definition-fields). These control how long the
 effect runs, whether it loops or persists until stopped, how it fades, and its optional sound.
 
-**Screen effects** additionally accept `screen_layer` (`0`/`1`/`2`, above). See
+**Screen effects** additionally accept `screen_layer` (`0`/`1`/`2`, above) and `order` (the
+compositing order inside one layer, above). See
 [Datapack format](../datapack/format.md).
 
 **World overlays** (`block_tint`, `block_outline`, `light_beam`, `pulse_ring`, `guide_line`,

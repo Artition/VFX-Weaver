@@ -57,7 +57,40 @@ change.
   view, growing towards full coverage with depth. See
   [masks](guide/datapack/masks.md).
 
+- **The aura march grades a ray by its deepest penetration, not its first exit.** Entry and exit were
+  two marches and the second stopped at the first `d > 0`, so on a wall with a bump the solid mass
+  *behind* the bump was never sampled and the silhouette reported the bump's shallow depth - the
+  coverage dipped across it (the reported arch at the bottom of a wall). One pooled loop over the same
+  40 + 16 steps now runs to a real termination: the cone bound stays global over the whole ray (so the
+  mass behind a bump is what gets measured), the first entry still drives the occlusion ramp and the
+  last exit brackets the horizon fade. Saturation stays a sample certificate and budget exhaustion
+  deliberately does *not* saturate - a long shallow corridor would light up. An additive anti-crawl step
+  keeps a grazing approach or the gap behind a bump from eating the budget; it is bounded, which is why
+  a ray that never enters can now reach at most 0.6 rather than 0.5 of coverage. Measured: the bump
+  profile goes from `1.00 ×9, 0.58 0.70 0.80 0.85 0.80 0.70 0.58, 1.00 ×9` to a flat `1.00`, the
+  fixture's flat wings drop from 22.0 to 8.9 SDF calls per ray, and a receding ray terminates in 5
+  instead of burning all 40. See [masks](guide/datapack/masks.md).
+
+- **The occlusion ramp is kept at least 48 pixels wide on screen.** A depth-driven edge inherits the
+  depth buffer's granularity: blocky terrain steps by a block at every block edge, and at a grazing
+  view of the ground those steps land less than a pixel apart, so the mask's silhouette aliased into a
+  comb. The ramp is widened with the per-pixel depth slope wherever the depth moves fast, capped at 4x
+  the authored width so a depth discontinuity (a cliff edge) cannot smear the edge; the authored
+  `occlusion_softness` stays the floor, so a near face-on occluder is unchanged. Measured at 2.8 blocks
+  per pixel: the ramp runs 44.8 → 134.4 blocks and the coverage step per terrain block edge falls from
+  0.0223 to 0.0074 - below what an 8-bit target can show. No uniform, no UBO/wire change, no new knob.
+  See [masks](guide/datapack/masks.md).
+
 ### Added
+
+- **`order` - the compositing order of screen effects inside a layer.** Screen effects accept an
+  `order` param next to `screen_layer`: a float, lower runs earlier, default `0`, and effects that
+  leave it alone keep the order they were started in, so no existing pack changes. `screen_layer` stays
+  the outer, semantic axis (which part of the frame the pass belongs to) and `order` only sequences the
+  effects that layer already selected; being fractional, `10.5` slots an effect between two at `10` and
+  `11`. It is an ordinary param, so the datapack, the command param-map, `setParam` and keyframes all
+  reach it, and the wire format, UBO and `PROTOCOL_VERSION` are untouched. See
+  [screen effects](guide/effects/index.md).
 
 - **A plugin can declare its field's gradient bound.** `VFXAPI.registerMaskShapeGlsl(id, plugin, lipschitz)`
   is a new overload: the plugin field must be a conservative distance (`|grad d| <= 1`), and a field that
