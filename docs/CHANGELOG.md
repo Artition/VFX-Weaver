@@ -41,6 +41,23 @@ change.
   value gives a crisp silhouette that follows the terrain instead of a 45-band fade.
   See [masks](guide/datapack/masks.md).
 
+- **`order` - the compositing order of screen effects inside a layer.** Screen effects accept an
+  `order` param next to `screen_layer`: a float, lower runs earlier, default `0`, and effects that
+  leave it alone keep the order they were started in, so no existing pack changes. `screen_layer` stays
+  the outer, semantic axis (which part of the frame the pass belongs to) and `order` only sequences the
+  effects that layer already selected; being fractional, `10.5` slots an effect between two at `10` and
+  `11`. It is an ordinary param, so the datapack, the command param-map, `setParam` and keyframes all
+  reach it, and the wire format, UBO and `PROTOCOL_VERSION` are untouched. See
+  [screen effects](guide/effects/index.md).
+
+- **A plugin can declare its field's gradient bound.** `VFXAPI.registerMaskShapeGlsl(id, plugin, lipschitz)`
+  is a new overload: the plugin field must be a conservative distance (`|grad d| <= 1`), and a field that
+  is perturbed (noise, a biased blend) can no longer stay silent about it — either scale the value down
+  or declare a true upper bound, which the aura march and the envelope then respect. A variant of
+  several plugins compiles against the largest declared bound. The mask guide now states the rule next
+  to the plugin contract. Additive: an existing registration compiles exactly as before.
+  See [masks](guide/datapack/masks.md) and [the API](API.md#vfxapi).
+
 ### Fixed
 
 - **`volume: "aura"` on a GLSL-plugin mask leaf: a smooth soft edge instead of a banded ramp with a hard
@@ -80,25 +97,6 @@ change.
   per pixel: the ramp runs 44.8 → 134.4 blocks and the coverage step per terrain block edge falls from
   0.0223 to 0.0074 - below what an 8-bit target can show. No uniform, no UBO/wire change, no new knob.
   See [masks](guide/datapack/masks.md).
-
-### Added
-
-- **`order` - the compositing order of screen effects inside a layer.** Screen effects accept an
-  `order` param next to `screen_layer`: a float, lower runs earlier, default `0`, and effects that
-  leave it alone keep the order they were started in, so no existing pack changes. `screen_layer` stays
-  the outer, semantic axis (which part of the frame the pass belongs to) and `order` only sequences the
-  effects that layer already selected; being fractional, `10.5` slots an effect between two at `10` and
-  `11`. It is an ordinary param, so the datapack, the command param-map, `setParam` and keyframes all
-  reach it, and the wire format, UBO and `PROTOCOL_VERSION` are untouched. See
-  [screen effects](guide/effects/index.md).
-
-- **A plugin can declare its field's gradient bound.** `VFXAPI.registerMaskShapeGlsl(id, plugin, lipschitz)`
-  is a new overload: the plugin field must be a conservative distance (`|grad d| <= 1`), and a field that
-  is perturbed (noise, a biased blend) can no longer stay silent about it — either scale the value down
-  or declare a true upper bound, which the aura march and the envelope then respect. A variant of
-  several plugins compiles against the largest declared bound. The mask guide now states the rule next
-  to the plugin contract. Additive: an existing registration compiles exactly as before.
-  See [masks](guide/datapack/masks.md) and [the API](API.md#vfxapi).
 
 ## 2.1.0 — 2026-09-25
 
