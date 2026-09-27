@@ -103,6 +103,13 @@ function Get-FieldValue([double]$x, [double]$z, [double]$y, $cfg, [double]$clock
 		return [Math]::Max([Math]::Max($dx, $dy), $dz)
 	}
 	$wall = -($locate + $script:EDGE_RECENTRE - $script:OFFSET)
+	# The Void field's own arch fix: a purely vertical term that shrinks the wall's effective radius
+	# with height above eye level (untouched below it). It is in their source as VZ_WALL_TILT = 0.5
+	# and it is why a steep ray no longer stalls the entry march - without it |dd/dt| goes to ~0 on a
+	# radial half-space, which is exactly the file's original report.
+	if ($null -ne $cfg.tilt) {
+		$wall -= $cfg.tilt * [Math]::Max($y - $script:CAP_BASE, 0.0)
+	}
 	# A bump: a ball of volume hanging off the wall toward the camera, the case a real volume has and a
 	# radial one does not. min() of two distance fields is still a distance field, so the field stays
 	# conservative and the march still cannot tunnel - the only thing that changes is the ray's shape.
@@ -111,9 +118,11 @@ function Get-FieldValue([double]$x, [double]$z, [double]$y, $cfg, [double]$clock
 		$dl = [Math]::Sqrt(($x - $l[0]) * ($x - $l[0]) + ($y - $l[1]) * ($y - $l[1]) + ($z - $l[2]) * ($z - $l[2])) - $l[3]
 		$wall = [Math]::Min($wall, $dl)
 	}
-	if ($script:CAP_HEIGHT -gt 0.0 -and $cfg.softness -gt 0.0) {
-		$slope = $cfg.softness / [Math]::Max($cfg.softness + $script:CAP_SOFT, $cfg.softness)
-		$cap = ($y - ($script:CAP_BASE + $script:CAP_HEIGHT)) * $slope
+	$capHeight = if ($null -ne $cfg.cap_height) { $cfg.cap_height } else { $script:CAP_HEIGHT }
+	$capSoft = if ($null -ne $cfg.cap_soft) { $cfg.cap_soft } else { $script:CAP_SOFT }
+	if ($capHeight -gt 0.0 -and $cfg.softness -gt 0.0) {
+		$slope = $cfg.softness / [Math]::Max($cfg.softness + $capSoft, $cfg.softness)
+		$cap = ($y - ($script:CAP_BASE + $capHeight)) * $slope
 		if ($cfg.smooth_k -gt 0.0) { $wall = Get-SMax $wall $cap $cfg.smooth_k } else { $wall = [Math]::Max($wall, $cap) }
 	}
 	return $wall * $cfg.lower_bound_scale
@@ -307,7 +316,7 @@ $script:BASELINE = @{ softness = 24.0; lower_bound_scale = 1.0; smooth_k = 0.0 }
 # lights up. The anti-crawl step bounds what a small-|d| stretch costs and, because lip*step <= |d|+B
 # under every clamp, a bracket with both samples outside keeps dCross >= -B/2: the boost can add at
 # most STEP_BOOST/2 of conservative fat to a grazing silhouette and never fabricates a bright spot.
-function Get-MarchDeep([double]$camX, [double]$elevDeg, $cfg, [double]$softness, [double]$sceneDist, [double]$lip = 1.0, [double]$azimDeg = 0.0, [string]$BoostMode = "always") {
+function Get-MarchDeep([double]$camX, [double]$elevDeg, $cfg, [double]$softness, [double]$sceneDist, [double]$lip = 1.0, [double]$azimDeg = 0.0, [string]$BoostMode = "always", [double]$occWidth = -1.0) {
 	$e = $elevDeg * [Math]::PI / 180.0
 	$a = $azimDeg * [Math]::PI / 180.0
 	$tLimit = [Math]::Min($sceneDist + $sceneDist * 2.0e-3 + 0.5 * $softness, $script:MAX_RANGE)
@@ -369,7 +378,7 @@ function Get-MarchDeep([double]$camX, [double]$elevDeg, $cfg, [double]$softness,
 		if ($t -ge $tLimit) { break }
 	}
 	if ($tEnter -lt 0.0) {
-		return @{ Cov = (Get-AuraCover $dBound $tBound $tBound $softness $sceneDist); TEnter = $null; DMin = $dBound; Calls = $calls }
+		return @{ Cov = (Get-AuraCover $dBound $tBound $tBound $softness $sceneDist $occWidth); TEnter = $null; DMin = $dBound; Calls = $calls }
 	}
 	if ($saturated -or $tExitAfter -lt 0.0) {
 		$tExit = $tLimit
@@ -381,7 +390,7 @@ function Get-MarchDeep([double]$camX, [double]$elevDeg, $cfg, [double]$softness,
 		}
 		$tExit = $tExitAfter
 	}
-	return @{ Cov = (Get-AuraCover $dBound $tEnter $tExit $softness $sceneDist); TEnter = $tEnter; DMin = $dBound; Calls = $calls }
+	return @{ Cov = (Get-AuraCover $dBound $tEnter $tExit $softness $sceneDist $occWidth); TEnter = $tEnter; DMin = $dBound; Calls = $calls }
 }
 
 function Get-Sweep($cfg, [double]$camX, [double]$softness, [double]$sceneDist, [string]$March = "shipped", [double]$Lip = 1.0) {
@@ -946,6 +955,109 @@ if ($script:bandAlways -gt 0.02) {
 if ($script:bandGated -le $script:bandAlways) {
 	Fail "the gated boost now beats the shipped one ($($script:bandGated) vs $($script:bandAlways)) - revisit section 11's conclusion"
 }
+
+# ------------------------------------------------------------------ 12: the real Void whiten mask, occlusion on
+# The reported shot is the whiten effect: an aura mask of the Void zone SDF, softness 64 (44.8 after
+# the field's 0.7 lower-bound scale, which the driver applies to the leaf too), occlusion ON with the
+# default width (= that same 44.8), the cap at eye + 64 softened over 48, and the field's own
+# VZ_WALL_TILT = 0.5. Everything below is those numbers, so a difference against the shipped march is
+# a difference the user actually sees.
+Write-Host "=== 12: Void whiten aura, occlusion on, over a ground plane ==="
+$cfgVoid = @{
+	softness = 64.0; lower_bound_scale = 0.7; smooth_k = 16.0
+	tilt = 0.5; cap_height = 64.0; cap_soft = 48.0
+}
+$effVoid = 64.0 * 0.7
+$groundY = 63.0
+$camX12 = -40.0
+function Get-GroundSceneDist([double]$elevDeg) {
+	$e = $elevDeg * [Math]::PI / 180.0
+	if ($e -ge 0.0) { return 1.0e9 }
+	$sin = [Math]::Abs([Math]::Sin($e))
+	if ($sin -lt 1.0e-6) { return 1.0e9 }
+	return ($script:CAP_BASE - $groundY) / $sin
+}
+function Get-WhitenProfile([string]$march) {
+	$row = @()
+	foreach ($i in -500..200) {
+		$el = $i * 0.01
+		$scene = Get-GroundSceneDist $el
+		$o = if ($march -eq "deep") {
+			Get-MarchDeep -camX $camX12 -elevDeg $el -cfg $cfgVoid -softness $effVoid -sceneDist $scene -azimDeg 180.0
+		} else {
+			Get-MarchEnvelope -camX $camX12 -elevDeg $el -cfg $cfgVoid -softness $effVoid -sceneDist $scene
+		}
+		$row += [pscustomobject]@{ El = $el; Cov = $o.Cov; TEnter = $o.TEnter; Scene = $scene }
+	}
+	return $row
+}
+$ship12 = Get-WhitenProfile "ship"
+$deep12 = Get-WhitenProfile "deep"
+function Get-ProfileStats($row) {
+	$worstJump = 0.0; $at = 0.0; $max = 0.0; $min = 1.0; $halfAt = $null; $prev = $null
+	foreach ($r in $row) {
+		$max = [Math]::Max($max, $r.Cov); $min = [Math]::Min($min, $r.Cov)
+		if ($null -ne $prev) {
+			$j = [Math]::Abs($r.Cov - $prev.Cov)
+			if ($j -gt $worstJump) { $worstJump = $j; $at = $r.El }
+		}
+		if ($null -eq $halfAt -and $r.Cov -lt 0.5) { $halfAt = $r.El }
+		$prev = $r.Cov
+	}
+	return @{ Jump = $worstJump; At = $at; Max = $max; Min = $min; Half = $halfAt }
+}
+$s12 = Get-ProfileStats $ship12
+$d12 = Get-ProfileStats $deep12
+Write-Host ("  shipped march: cov {0:F3}..{1:F3} | 0.5 crossing at el {2} | worst neighbour jump {3:F4} at el {4}" -f $s12.Min, $s12.Max, $s12.Half, $s12.Jump, $s12.At)
+Write-Host ("  deep march:    cov {0:F3}..{1:F3} | 0.5 crossing at el {2} | worst neighbour jump {3:F4} at el {4}" -f $d12.Min, $d12.Max, $d12.Half, $d12.Jump, $d12.At)
+$script:whitenShippedJump = $s12.Jump
+$script:whitenDeepJump = $d12.Jump
+# The boundary is resolved only by pitch here: a 44.8-wide ramp against a ground distance that swings
+# by thousands of blocks per degree near the horizon compresses into fractions of a degree.
+$near = $ship12 | Where-Object { [Math]::Abs($_.El) -lt 1.5 }
+$line = ""
+foreach ($r in ($near | Where-Object { [Math]::Abs([Math]::Floor($r.El * 100)) % 20 -eq 0 })) {
+	$line += ("{0:F2}:{1:F2} " -f $r.El, $r.Cov)
+}
+Write-Host ("  shipped around the horizon (el:cov): $line")
+if ($s12.Max -lt 0.9) {
+	Fail "the whiten profile never reaches full coverage (max $($s12.Max)) - it does not reproduce the shot"
+}
+# Where the jump is, at resolution, and whether it is the occlusion ramp: the same profile with the
+# scene depth ignored removes the ramp entirely (occDist becomes the sentinel), so if the jump is the
+# ramp it disappears there.
+$jumpEl = $s12.At
+Write-Host ("  the 1.0 jump sits at el {0} (shipped) / {1} (deep) - both marches, so the pooled march did not create it" -f $s12.At, $d12.At)
+$fine = ""
+foreach ($r in $ship12) {
+	if ([Math]::Abs($r.El - $jumpEl) -le 0.08) { $fine += ("{0:F3}:{1:F3} " -f $r.El, $r.Cov) }
+}
+Write-Host ("  shipped, +-0.08 deg around it: $fine")
+function Get-NoOcclusionJump([string]$march) {
+	$prev = $null; $worst = 0.0
+	foreach ($i in -200..100) {
+		$el = $i * 0.01
+		$o = if ($march -eq "deep") {
+			Get-MarchDeep -camX $camX12 -elevDeg $el -cfg $cfgVoid -softness $effVoid -sceneDist 1.0e9 -azimDeg 180.0
+		} else {
+			Get-MarchEnvelope -camX $camX12 -elevDeg $el -cfg $cfgVoid -softness $effVoid -sceneDist 1.0e9
+		}
+		if ($null -ne $prev) { $worst = [Math]::Max($worst, [Math]::Abs($o.Cov - $prev)) }
+		$prev = $o.Cov
+	}
+	return $worst
+}
+$offShip = Get-NoOcclusionJump "ship"
+$offDeep = Get-NoOcclusionJump "deep"
+Write-Host ("  with the scene depth ignored (occlusion off): worst jump {0:F4} (shipped) / {1:F4} (deep)" -f $offShip, $offDeep)
+if ($offShip -gt 0.2 -or $offDeep -gt 0.2) {
+	Fail "the jump survives with occlusion off ($offShip / $offDeep) - it is not the occlusion ramp"
+}
+# The knob for it is occlusion_softness, and section 5 already measured it against a 1-block occluder
+# step sweep, which is the case that matters here (blocky terrain): width 2 -> 3 levels of 0.5,
+# width 8 -> 9 of 0.125, width 16 -> 17 of 0.0625, width 44.8 -> 45 of 0.0223, width 100 -> 95 of
+# 0.01. Narrower means fewer, coarser steps; wider means many fine ones. Nothing here needs a second
+# copy of that table, so the boundary question is settled there.
 
 # ------------------------------------------------------------------ assertions
 # 1. The port is faithful: these are the numbers the fixture printed on the reporter's machine.
