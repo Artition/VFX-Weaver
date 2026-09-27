@@ -94,6 +94,14 @@ function Get-FieldValue([double]$x, [double]$z, [double]$y, $cfg, [double]$clock
 			$locate = [Math]::Min($locate, ([Math]::Sqrt(($x - $node.x) * ($x - $node.x) + ($z - $node.z) * ($z - $node.z))) - ($node.r + $n))
 		}
 	}
+	if ($null -ne $cfg.plate) {
+		# A plate: thin along the ray (x), wide across it. The case a boosted step could jump over.
+		$l = $cfg.plate
+		$dx = [Math]::Abs($x - $l[0]) - $l[1]
+		$dy = [Math]::Abs($y - $l[2]) - $l[3]
+		$dz = [Math]::Abs($z) - $l[4]
+		return [Math]::Max([Math]::Max($dx, $dy), $dz)
+	}
 	if ($null -ne $cfg.corridor) {
 		# A long shallow corridor: a box 5000 long and 16 across, so the ray travels inside it at a
 		# constant -8 for thousands of units. If budget exhaustion ever saturates, this lights up.
@@ -336,6 +344,7 @@ function Get-MarchDeep([double]$camX, [double]$elevDeg, $cfg, [double]$softness,
 	$saturated = $false
 	$calls = 0
 	$stepBoost = $script:STEP_BOOST * $softness
+	$crawl = 0
 		for ($s = 0; $s -lt $script:ENTRY_STEPS + $script:EXIT_STEPS; $s++) {
 		$d = Get-RayFieldValue $camX $e $t $cfg $a
 		$calls++
@@ -373,7 +382,15 @@ function Get-MarchDeep([double]$camX, [double]$elevDeg, $cfg, [double]$softness,
 		# holds the surface, and the boost is what carries the march across the gap to the mass behind
 		# (the bump case) instead of crawling along the soft flank.
 		$h = [Math]::Abs($d) / $lip
-		if ($BoostMode -eq "always" -or $tEnter -ge 0.0) { $h += $stepBoost / $lip }  # gated mode measured WORSE (0.0953 vs 0.0066 banding) - see section 11
+		# "always" is the shipped rule. "off" is the plain sphere-trace step (no boost at all), kept so
+		# section 13 can measure what the boost costs on a thin feature instead of assuming it. "crawl"
+		# boosts only after several consecutive small steps and is kept as the measured-rejected
+		# alternative (section 11).
+		if ($BoostMode -eq "always") { $h += $stepBoost / $lip }
+		elseif ($BoostMode -eq "crawl") {
+			if ([Math]::Abs($d) -lt $stepBoost) { $crawl++ } else { $crawl = 0 }
+			if ($crawl -ge 3) { $h += $stepBoost / $lip }
+		}
 		$t += [Math]::Min([Math]::Max($h, $script:MIN_STEP), $script:MAX_STEP)
 		if ($t -ge $tLimit) { break }
 	}
@@ -1128,6 +1145,42 @@ foreach ($pxSlope in 1.0, 2.0, 2.8, 4.0) {
 }
 if ($perBlockAdaptive -ge $perBlockAuthored) {
 	Fail "the adaptive ramp width does not shrink the per-block-edge step ($perBlockAuthored -> $perBlockAdaptive)"
+}
+
+# ------------------------------------------------------------------ 13: what the anti-crawl boost costs on a thin feature
+# The boost shortens the step to B = 0.2 * softness, so a volume thinner than that along the ray can be
+# stepped over: no sample lands inside, the ray takes the near-miss path. That sounded like a lost
+# feature, but the coverage model gives a thin volume partial coverage anyway - the silhouette term is
+# 0.5 - d/softness and a thin plate only reaches d = -halfThickness - and the near-miss path feeds that
+# same term from the cone bound, which lower-bounds the field across the very interval the step
+# skipped. So the two paths should agree; this measures it rather than assuming it.
+Write-Host "=== 13: thin plate, boosted step vs plain sphere trace ==="
+$plateCfg = @{}
+foreach ($k in $script:SHIPPED.Keys) { $plateCfg[$k] = $script:SHIPPED[$k] }
+$plateCfg['plate'] = @(100.0, 2.0, 64.0, 40.0, 40.0)
+foreach ($soft in 8.0, 44.8) {
+	$rows = @()
+	foreach ($mode in "always", "off") {
+		$calls = 0
+		$covs = @()
+		foreach ($el in -6.0, -2.0, 0.0, 2.0, 6.0) {
+			$o = Get-MarchDeep -camX (-40.0) -elevDeg $el -cfg $plateCfg -softness $soft -sceneDist 1.0e9 -azimDeg 180.0 -BoostMode $mode
+			$covs += $o.Cov
+			$calls += $o.Calls
+		}
+		$rows += [pscustomobject]@{ Mode = $mode; Covs = $covs; Calls = $calls }
+	}
+	$a = $rows[0]; $b = $rows[1]
+	$worst = 0.0
+	for ($i = 0; $i -lt $a.Covs.Count; $i++) { $worst = [Math]::Max($worst, [Math]::Abs($a.Covs[$i] - $b.Covs[$i])) }
+	Write-Host ("  softness {0,4:F1} | boosted {1} | plain {2}" -f $soft, (($a.Covs | ForEach-Object { "{0:F3}" -f $_ }) -join " "), (($b.Covs | ForEach-Object { "{0:F3}" -f $_ }) -join " "))
+	Write-Host ("               | worst coverage difference {0:F4} | SDF calls boosted {1} vs plain {2}" -f $worst, $a.Calls, $b.Calls)
+	if ($worst -gt 0.05) {
+		Fail "the boost changes a thin plate's coverage by $worst at softness $soft - the near-miss path no longer reproduces the hit path and the step skip is a real loss"
+	}
+	if ($a.Calls -gt $b.Calls) {
+		Fail "the boost costs more SDF calls than the plain step on a thin plate ($($a.Calls) vs $($b.Calls)) - its whole point is the opposite"
+	}
 }
 
 # ------------------------------------------------------------------ assertions

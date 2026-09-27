@@ -26,8 +26,20 @@ if (-not $kind7.Contains('if (shape_volume[i].x <= 0.5 && isSky)')) {
 if (-not $kind7.Contains('shape_volume[i].x > 0.5') -or -not $kind7.Contains('vfx_aura_cover(')) {
 	$problems.Add("mask_coverage.fsh: a kind == 7 plugin leaf cannot reach shared aura coverage")
 }
-if ($shader -notmatch 'vfx_aura_cover\(float d, float tEnter, float tExit, float chordEps, float softness, float occWidth, float sceneDist\)') {
-	$problems.Add("mask_coverage.fsh: the shared aura coverage helper is missing")
+if ($shader -notmatch 'vfx_aura_cover\(float d, float tEnter, float tExit, float chordEps, float softness, float occWidth, float sceneDist, float depthSlope\)') {
+	$problems.Add("mask_coverage.fsh: the shared aura coverage helper is missing (or no longer takes the per-pixel depth slope)")
+}
+# The slope is passed in, not sampled inside the helper: a derivative there would sit in per-shape,
+# per-branch control flow, where GLSL leaves fwidth undefined. One sample, in main, before any call.
+if (([regex]::Matches($shader, [regex]::Escape('fwidth('))).Count -ne 1) {
+	$problems.Add("mask_coverage.fsh: expected exactly one fwidth() in the shader, in main before the first vfx_aura_cover call")
+}
+$slopeAt = $shader.IndexOf('float depthSlope = fwidth(sceneDist);')
+$firstCallAt = $shader.IndexOf('vfx_aura_cover(dBound, tBound, tBound')
+if ($slopeAt -lt 0) {
+	$problems.Add("mask_coverage.fsh: the per-pixel depth slope declaration is missing")
+} elseif ($firstCallAt -lt 0 -or $slopeAt -gt $firstCallAt) {
+	$problems.Add("mask_coverage.fsh: the depth slope is not sampled before the first aura coverage call - move it into main, after the depth branch reconverges")
 }
 $constants = @(
 	@('VFX_PLUGIN_AURA_MAX_RANGE', '1024.0'),

@@ -42,6 +42,7 @@ import dev.vfxweaver.util.VFXReloadSafeCache;
 import dev.vfxweaver.util.VFXSkyAnchor;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -99,6 +100,14 @@ public final class VFXPostProcessingManager {
 	private @Nullable TextureTarget stopMotionHold;
 	/** Last quantised hold slot per stop_motion effect (effect id -> slot). */
 	private final Map<Identifier, Integer> stopMotionSlots = new HashMap<>();
+	/**
+	 * The {@code "order"} rank of every effect in the layer being sorted, read once per effect per
+	 * frame and reused by the comparator: {@code getParam} is not a map lookup - it can evaluate a
+	 * graph node, a world binding or an {@code expr} (which reads the camera), and a comparator is
+	 * invoked about {@code n log n} times with both operands. Identity semantics because the key is
+	 * the live effect object, and cleared per layer so an effect that stopped keeps no rank.
+	 */
+	private final Map<VFXActiveEffect, Float> rankCache = new IdentityHashMap<>();
 	/** One coverage target per distinct masked definition, reused across frames (pruned to the live set). */
 	private final Map<Identifier, TextureTarget> coverageTargets = new HashMap<>();
 	/** One geometry-coverage scratch per distinct block mask, cleared each frame before the prepass. */
@@ -204,7 +213,13 @@ public final class VFXPostProcessingManager {
 		// semantic axis (which part of the frame the pass belongs to) and "order" only decides the
 		// sequence within one of those parts. A live change (setParam/keyframe/expr) re-sorts from
 		// the next frame, which is deliberate but can pop mid-animation.
-		active.sort((a, b) -> Float.compare(orderedRank(a), orderedRank(b)));
+		// Each rank is read once and cached (see rankCache): the comparator would otherwise evaluate
+		// the param - graph node, binding or expr included - about 2 * n log n times per frame.
+		this.rankCache.clear();
+		for (final VFXActiveEffect effect : active) {
+			this.rankCache.put(effect, orderedRank(effect));
+		}
+		active.sort((a, b) -> Float.compare(this.rankCache.get(a), this.rankCache.get(b)));
 		// Every distinct masked definition this frame, regardless of the owning effect's layer: the
 		// coverage prepass runs at layer 0 for all of them, and the consumer reads it at any layer.
 		final Map<Identifier, VFXActiveEffect> maskEffects = activeMaskEffects(effects.getActivePostEffects());

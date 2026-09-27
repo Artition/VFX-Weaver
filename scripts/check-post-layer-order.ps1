@@ -32,10 +32,26 @@ if ($manager -notmatch 'Float\.isFinite\(order\) \? order : 0\.0F') {
 	$problems.Add("orderedRank does not sanitise a non-finite order - a NaN from an expr would make the comparator inconsistent and List.sort would throw")
 }
 
-# 2) The sort itself: on the layer list, by the rank, and stable (List.sort, not a heap or a tree).
-$sortMatch = [regex]::Match($manager, 'active\.sort\(\(a, b\) -> Float\.compare\(orderedRank\(a\), orderedRank\(b\)\)\);')
+# 2) The sort itself: on the layer list, by the cached rank, and stable (List.sort, not a heap or a
+#    tree). The rank is read once per effect, never inside the comparator.
+$sortMatch = [regex]::Match($manager, 'active\.sort\(\(a, b\) -> Float\.compare\(this\.rankCache\.get\(a\), this\.rankCache\.get\(b\)\)\);')
 if (-not $sortMatch.Success) {
-	$problems.Add("the active list is not sorted by orderedRank(a) vs orderedRank(b)")
+	$problems.Add("the active list is not sorted by the cached rank (rankCache.get(a) vs rankCache.get(b))")
+}
+if ($manager -match 'Float\.compare\(orderedRank') {
+	$problems.Add("the comparator evaluates orderedRank directly again - it is called ~2 * n log n times per frame and getParam can run a graph/binding/expr")
+}
+if ($manager -notmatch 'this\.rankCache\.put\(effect, orderedRank\(effect\)\);') {
+	$problems.Add("the rank cache is not filled once per effect before the sort")
+}
+if ($manager -notmatch 'this\.rankCache\.clear\(\);') {
+	$problems.Add("the rank cache is never cleared - an effect that stopped would keep its slot")
+}
+if ($manager -notmatch 'private final Map<VFXActiveEffect, Float> rankCache = new IdentityHashMap<>\(\);') {
+	$problems.Add("rankCache is missing or is not an IdentityHashMap (the key is the live effect object)")
+}
+if ($manager -notmatch 'import java\.util\.IdentityHashMap;') {
+	$problems.Add("java.util.IdentityHashMap is not imported")
 }
 if ($manager -match 'PriorityQueue|TreeSet|TreeMap<[^>]*VFXActiveEffect') {
 	$problems.Add("ordering was moved onto a non-stable structure; an equal-order tie must keep the manager's order")
@@ -43,7 +59,7 @@ if ($manager -match 'PriorityQueue|TreeSet|TreeMap<[^>]*VFXActiveEffect') {
 
 # 3) Position: after the screen_layer filter, before the chain build.
 $filterAt = $manager.IndexOf('Math.round(Mth.clamp(effect.getParam("screen_layer", defaultLayer), 0.0F, 2.0F)) == layer')
-$sortAt = $manager.IndexOf('active.sort((a, b) -> Float.compare(orderedRank(a), orderedRank(b)))')
+$sortAt = $manager.IndexOf('active.sort((a, b) -> Float.compare(this.rankCache.get(a), this.rankCache.get(b)))')
 $chainAt = $manager.IndexOf('boolean anyField = false;')
 if ($filterAt -lt 0) {
 	$problems.Add("the screen_layer filter expression changed - the layer semantics are what the order is scoped to")

@@ -208,7 +208,7 @@ float vfx_composed_leaf(int row, vec3 world, vec2 uv, float softness) {
     return acc;
 }
 
-float vfx_aura_cover(float d, float tEnter, float tExit, float chordEps, float softness, float occWidth, float sceneDist) {
+float vfx_aura_cover(float d, float tEnter, float tExit, float chordEps, float softness, float occWidth, float sceneDist, float depthSlope) {
     if (tExit <= chordEps) {
         return 0.0;
     }
@@ -228,13 +228,21 @@ float vfx_aura_cover(float d, float tEnter, float tExit, float chordEps, float s
         // whose steps follow the terrain's own block grid, and that aliases into a comb along the
         // boundary. Requiring the ramp to span at least VFX_MASK_OCC_MIN_PIXELS on screen bounds the
         // coverage change per pixel wherever the depth moves fast, while the authored occlusion_softness
-        // still wins wherever it is already wider, so a near face-on occluder stays crisp. The
-        // derivative is taken unconditionally so control flow stays uniform, and the widening is capped
-        // so a depth discontinuity - a cliff silhouette, where fwidth spikes for the pixel or two that
-        // straddle it - cannot smear the edge across the frame.
+        // still wins wherever it is already wider, so a near face-on occluder stays crisp. The slope is
+        // passed in rather than sampled here: a derivative inside this function would sit in per-shape,
+        // per-branch control flow, where GLSL leaves fwidth undefined. The widening is capped so a depth
+        // discontinuity - a cliff silhouette, where the slope spikes for the pixel or two that straddle
+        // it - cannot smear the edge across the frame.
+        //
+        // The guard is a comparison, not max(): min/max are not defined on NaN in GLSL, and a NaN slope
+        // from a degenerate depth conversion must not reach the ramp, where it would make the whole
+        // pixel's coverage NaN.
+        float slope = depthSlope;
+        if (!(slope > 0.0)) {
+            slope = 0.0;
+        }
         float width = max(occWidth, 1.0e-4);
-        float screenWidth = VFX_MASK_OCC_MIN_PIXELS * max(fwidth(sceneDist), 0.0);
-        width = max(width, min(screenWidth, VFX_MASK_OCC_MAX_GROWTH * width));
+        width = max(width, min(VFX_MASK_OCC_MIN_PIXELS * slope, VFX_MASK_OCC_MAX_GROWTH * width));
         occluded = clamp(0.5 - (tEnter - sceneDist - depthSlack) / width, 0.0, 1.0);
     }
     return silhouette * occluded * horizonFade;
@@ -256,6 +264,12 @@ void main() {
             sceneDist = length(world - camPos.xyz);
         }
     }
+
+    // The occlusion ramp's screen-space floor needs the per-pixel depth slope. It is sampled here,
+    // after the depth branch has reconverged: GLSL leaves dFdx/fwidth undefined in non-uniform
+    // control flow, and vfx_aura_cover runs inside per-shape, per-branch code. Zero for a screen mask
+    // (no depth sampled) and for a uniform depth, which is exactly when no floor is wanted.
+    float depthSlope = fwidth(sceneDist);
 
     float accumulator = 0.0;
     // Set when any leaf in range was flagged unresolved (shape_volume[i].y, written per leaf by
@@ -376,7 +390,6 @@ void main() {
                         // fabricate a bright spot. Multiplicative relaxation (lambda*d) has no such
                         // uniform bound - not used.
                         float stepBoost = VFX_PLUGIN_AURA_STEP_BOOST * softness;
-                        float stepFloor = max(VFX_PLUGIN_AURA_MIN_STEP, stepBoost / lip);
                         for (int s = 0; s < VFX_PLUGIN_AURA_ENTRY_STEPS + VFX_PLUGIN_AURA_EXIT_STEPS; s++) {
                             float d = vfx_shape_custom(camPos.xyz + viewDir * t, texCoord, shape_params0[i], shape_params1[i]);
                             if (havePrev) {
@@ -423,7 +436,7 @@ void main() {
                             havePrev = true;
                             tPrev = t;
                             dPrev = d;
-                            t += clamp((abs(d) + stepBoost) / lip, stepFloor, VFX_PLUGIN_AURA_MAX_STEP);
+                            t += clamp((abs(d) + stepBoost) / lip, VFX_PLUGIN_AURA_MIN_STEP, VFX_PLUGIN_AURA_MAX_STEP);
                             if (t >= tLimit) {
                                 break;
                             }
@@ -435,7 +448,7 @@ void main() {
                             // approach point) fade the outside over the same world-space softness;
                             // the bound tends to 0 from both sides of the tangent. The ceiling is
                             // 0.5 + STEP_BOOST/2 - the boost's bounded conservative fat.
-                            cov = vfx_aura_cover(dBound, tBound, tBound, chordEps, softness, shape_volume[i].w, occDist);
+                            cov = vfx_aura_cover(dBound, tBound, tBound, chordEps, softness, shape_volume[i].w, occDist, depthSlope);
                         } else {
                             if (saturated || tExitAfter < 0.0) {
                                 // Still inside at the end (or saturated): the chord extends at least
@@ -458,7 +471,7 @@ void main() {
                             }
                             vec3 auraFieldPos = (leafSpace == 1) ? camPos.xyz + viewDir * tBound : vec3(texCoord, mask_time);
                             dBound += fieldValue(int(so.w + 0.5), auraFieldPos, field_params[i].y, field_params[i].z) * field_params[i].x;
-                            cov = vfx_aura_cover(dBound, tEnter, tExit, chordEps, softness, shape_volume[i].w, occDist);
+                            cov = vfx_aura_cover(dBound, tEnter, tExit, chordEps, softness, shape_volume[i].w, occDist, depthSlope);
                         }
                     }
                 } else {
@@ -535,7 +548,7 @@ void main() {
                 // entirely (translucent glass, terrain and particles alike); silhouette and
                 // horizonFade are untouched.
                 float occDist = (shape_volume[i].z > 0.5) ? 1.0e9 : sceneDist;
-                cov = vfx_aura_cover(d, tEnter, tExit, chordEps, softness, shape_volume[i].w, occDist);
+                cov = vfx_aura_cover(d, tEnter, tExit, chordEps, softness, shape_volume[i].w, occDist, depthSlope);
             }
         } else {
             // The shared library's 2D/3D dispatcher: (kind, space, uv, world, centre, rotation, p0, p1).
