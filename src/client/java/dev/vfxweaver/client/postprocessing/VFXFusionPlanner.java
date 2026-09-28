@@ -34,14 +34,32 @@ public final class VFXFusionPlanner {
 	public record StageRef(VFXShaderPrograms.ProgramInfo info, @Nullable VFXActiveEffect effect, boolean mask, boolean captureBefore) {
 	}
 
-	/** One planned step: a single pass, or a run of stages fused into one program. */
-	public sealed interface Step permits Step.Single, Step.Fused {
-		/** A stage rendered as its own pass, exactly as before fusion existed. */
-		record Single(StageRef stage) implements Step {
+	/** One planned step: a single pass, a fused run, or a run's conversion boundary. */
+	public sealed interface Step permits Step.Single, Step.Fused, Step.Down, Step.Up {
+		/**
+		 * A stage rendered as its own pass, exactly as before fusion existed.
+		 *
+		 * @param stage    the stage to render
+		 * @param resScale the target scale relative to full resolution; {@code 1.0F} outside a
+		 *                 half-resolution run, {@code 2.0F} inside one
+		 */
+		record Single(StageRef stage, float resScale) implements Step {
+			/** The full-resolution pass every non-scalable stage still renders as. */
+			Single(final StageRef stage) {
+				this(stage, 1.0F);
+			}
 		}
 
 		/** A run of stages rendered as one fused program. */
 		record Fused(List<StageRef> stages, VFXFusedPrograms.FusedProgram program) implements Step {
+		}
+
+		/** The downsample opening a half-resolution scalable run. */
+		record Down() implements Step {
+		}
+
+		/** The upsample closing a half-resolution scalable run. */
+		record Up() implements Step {
 		}
 	}
 
@@ -90,7 +108,61 @@ public final class VFXFusionPlanner {
 				}
 			}
 		}
-		return steps;
+		return wrapScalableRuns(steps);
+	}
+
+	/**
+	 * Wraps every maximal run of consecutive scalable single passes in a {@code Down}/{@code Up}
+	 * conversion pair when the chain-resolution switch is on and the run's tap sum reaches
+	 * {@link VFXChainResolution#MIN_RUN_TAPS} (spec &sect;4).
+	 *
+	 * <p>Fusion runs first and is never changed: a scalable stage is a barrier, so it already maps to
+	 * its own {@code Single} step, and any fused step, consumer, feedback or stop-motion pass between
+	 * two scalable passes breaks the consecutive sequence here exactly as it breaks the run in the
+	 * chain. The threshold is a minimum, not a budget, so a run of any length is wrapped once its
+	 * sum clears it; a shorter sequence stays at full resolution.
+	 */
+	private static List<Step> wrapScalableRuns(final List<Step> steps) {
+		if (!VFXChainResolution.HALF) {
+			return steps;
+		}
+		final List<Step> wrapped = new ArrayList<>(steps.size());
+		int i = 0;
+		while (i < steps.size()) {
+			if (!(steps.get(i) instanceof Step.Single first) || !scalable(first.stage())) {
+				wrapped.add(steps.get(i));
+				i++;
+				continue;
+			}
+			int end = i;
+			int taps = 0;
+			while (end < steps.size() && steps.get(end) instanceof Step.Single single && scalable(single.stage())) {
+				taps += single.stage().info().taps();
+				end++;
+			}
+			if (taps >= VFXChainResolution.MIN_RUN_TAPS) {
+				wrapped.add(new Step.Down());
+				for (int k = i; k < end; k++) {
+					wrapped.add(new Step.Single(((Step.Single) steps.get(k)).stage(), 2.0F));
+				}
+				wrapped.add(new Step.Up());
+				i = end;
+			} else {
+				wrapped.add(steps.get(i));
+				i++;
+			}
+		}
+		return wrapped;
+	}
+
+	/** A stage that may render inside a half-resolution run: a scalable {@code NORMAL} barrier. */
+	private static boolean scalable(final StageRef stage) {
+		final VFXShaderPrograms.ProgramInfo info = stage.info();
+		return VFXChainResolution.HALF
+			&& info.scalable()
+			&& info.role() == VFXShaderPrograms.PassRole.NORMAL
+			&& !stage.mask()
+			&& info.fusionClass() == VFXFusionClass.BARRIER;
 	}
 
 	/**

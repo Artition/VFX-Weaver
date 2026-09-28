@@ -160,6 +160,33 @@ try {
 }
 Write-Host "Fusion budget check OK."
 
+# --- chain resolution (Task 4): the switch, the threshold and the new step kinds ------------------
+$resolutionPath = Join-Path $repoRoot "src\client\java\dev\vfxweaver\client\postprocessing\VFXChainResolution.java"
+$resolutionProblems = New-Object System.Collections.Generic.List[string]
+if (-not (Test-Path -LiteralPath $resolutionPath)) {
+	Write-Error "chain resolution check: VFXChainResolution.java is missing."
+	exit 1
+}
+$resolution = [System.IO.File]::ReadAllText($resolutionPath)
+if ($resolution -notmatch 'System\.getProperty\("vfxweaver\.chainres", "1\.0"\)') { $resolutionProblems.Add("SCALE does not read -Dvfxweaver.chainres with default 1.0") }
+if ($resolution -notmatch '"1\.0"\.equals\(raw\)') { $resolutionProblems.Add("SCALE does not accept exactly 1.0") }
+if ($resolution -notmatch '"0\.5"\.equals\(raw\)') { $resolutionProblems.Add("SCALE does not accept exactly 0.5") }
+if ($resolution -notmatch 'MIN_RUN_TAPS = 8;') { $resolutionProblems.Add("MIN_RUN_TAPS is not 8") }
+if ($resolution -notmatch 'HALF = SCALE < 1\.0F;') { $resolutionProblems.Add("HALF is not SCALE < 1.0F") }
+if ($resolution -notmatch 'VFXLog\.warnOnce') { $resolutionProblems.Add("an unknown chainres value is not refused with warn-once") }
+$plannerSource = [System.IO.File]::ReadAllText((Join-Path $repoRoot "src\client\java\dev\vfxweaver\client\postprocessing\VFXFusionPlanner.java"))
+if ($plannerSource -notmatch 'permits Step\.Single, Step\.Fused, Step\.Down, Step\.Up') { $resolutionProblems.Add("Step does not permit Single/Fused/Down/Up") }
+if ($plannerSource -notmatch 'record Single\(StageRef stage, float resScale\)') { $resolutionProblems.Add("Step.Single has no float resScale component") }
+if ($plannerSource -notmatch 'record Down\(\) implements Step') { $resolutionProblems.Add("Step.Down is missing") }
+if ($plannerSource -notmatch 'record Up\(\) implements Step') { $resolutionProblems.Add("Step.Up is missing") }
+Write-Host "Chain resolution check (static)"
+if ($resolutionProblems.Count -gt 0) {
+	$resolutionProblems | ForEach-Object { Write-Host "  - $_" }
+	Write-Error "chain resolution check failed ($($resolutionProblems.Count) problem(s))."
+	exit 1
+}
+Write-Host "  chainres 1.0/0.5 only, MIN_RUN_TAPS 8, Step.Down/Up + Step.Single(resScale)"
+
 # --- planner fixtures (Task 4): the pass-level model, computed by the planner itself ---------------
 $plannerPath = Join-Path $repoRoot "src\client\java\dev\vfxweaver\client\postprocessing\VFXFusionPlanner.java"
 $policyPath = Join-Path $repoRoot "src\client\java\dev\vfxweaver\client\postprocessing\VFXFusionPolicy.java"
@@ -201,6 +228,7 @@ import dev.vfxweaver.client.postprocessing.VFXFusionPlanner.Step;
 import dev.vfxweaver.client.postprocessing.VFXShaderPrograms.PassRole;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 
 /** The planner fixtures: the pass-level model the budget error would have broken. */
 public final class FusionPlannerCheck {
@@ -213,7 +241,113 @@ public final class FusionPlannerCheck {
 		four_masked_pointwise_plans_as_one_run();
 		at_most_one_run_head_consumer_per_run();
 		sampler_cut_at_six_effects();
-		System.out.println("fusion planner check OK: fixtures hold");
+		if (VFXChainResolution.HALF) {
+			heavy_scene_splits_into_two_runs();
+			heavy_scene_with_mask_on_blur_splits_into_three_runs();
+			tap_threshold_is_not_wrapped();
+			System.out.println("fusion planner check OK: fixtures hold, half-resolution runs split");
+		} else {
+			default_scene_stays_full_resolution();
+			System.out.println("fusion planner check OK: fixtures hold, default path emits no conversions");
+		}
+	}
+
+	/** The spec section 1 scene, modeled at the pre-audit scalability of spec section 4. */
+	private static List<StageRef> heavyScene() {
+		final List<StageRef> chain = new ArrayList<>();
+		chain.add(new StageRef(scalable(25), null, false, false)); // blur_x
+		chain.add(new StageRef(scalable(25), null, false, false)); // blur_y
+		chain.add(new StageRef(scalable(9), null, false, false));  // bloom
+		chain.add(new StageRef(plain(4), null, false, false));     // vhs
+		chain.add(new StageRef(plain(0), null, false, false));     // afterimage
+		chain.add(new StageRef(scalable(16), null, false, false)); // depth_of_field
+		chain.add(new StageRef(plain(4), null, false, false));     // digital_glitch
+		chain.add(new StageRef(plain(3), null, false, false));     // chromatic_aberration
+		return chain;
+	}
+
+	/** The same scene with a mask consumer right after the blur passes. */
+	private static List<StageRef> maskedHeavyScene() {
+		final List<StageRef> chain = new ArrayList<>();
+		chain.add(new StageRef(scalable(25), null, false, false)); // blur_x
+		chain.add(new StageRef(scalable(25), null, false, false)); // blur_y
+		chain.add(new StageRef(plain(0), null, true, false));      // mask consumer
+		chain.add(new StageRef(scalable(9), null, false, false));  // bloom
+		chain.add(new StageRef(plain(4), null, false, false));     // vhs
+		chain.add(new StageRef(plain(0), null, false, false));     // afterimage
+		chain.add(new StageRef(scalable(16), null, false, false)); // depth_of_field
+		chain.add(new StageRef(plain(4), null, false, false));     // digital_glitch
+		chain.add(new StageRef(plain(3), null, false, false));     // chromatic_aberration
+		return chain;
+	}
+
+	private static void heavy_scene_splits_into_two_runs() {
+		sequence(heavyScene(), "Down S(25@2.0) S(25@2.0) S(9@2.0) Up S(4@1.0) S(0@1.0) Down S(16@2.0) Up S(4@1.0) S(3@1.0)");
+		System.out.println("  heavy_scene_splits_into_two_runs: Down blur_x blur_y bloom Up | vhs afterimage | Down dof Up | glitch chromatic_aberration");
+	}
+
+	private static void heavy_scene_with_mask_on_blur_splits_into_three_runs() {
+		sequence(maskedHeavyScene(), "Down S(25@2.0) S(25@2.0) Up S(0@1.0) Down S(9@2.0) Up S(4@1.0) S(0@1.0) Down S(16@2.0) Up S(4@1.0) S(3@1.0)");
+		System.out.println("  heavy_scene_with_mask_on_blur_splits_into_three_runs: blur run, consumer, bloom run, dof run");
+	}
+
+	private static void tap_threshold_is_not_wrapped() {
+		sequence(List.of(new StageRef(scalable(4), null, false, false), new StageRef(scalable(4), null, false, false)),
+			"Down S(4@2.0) S(4@2.0) Up");
+		sequence(List.of(new StageRef(scalable(3), null, false, false), new StageRef(plain(4), null, false, false)),
+			"S(3@1.0) S(4@1.0)");
+		sequence(List.of(new StageRef(scalable(3), null, false, false), new StageRef(scalable(4), null, false, false)),
+			"S(3@1.0) S(4@1.0)");
+		System.out.println("  tap_threshold_is_not_wrapped: 4+4 wraps, 3+plain and 3+4 stay full resolution");
+	}
+
+	private static void default_scene_stays_full_resolution() {
+		final List<Step> steps = VFXFusionPlanner.plan(heavyScene(), ignored -> new VFXFusedPrograms.FusedProgram(null, "check", List.of(), 0, 0));
+		for (final Step step : steps) {
+			if (step instanceof Step.Down || step instanceof Step.Up) {
+				throw new AssertionError("the default path emitted a conversion");
+			}
+			if (step instanceof Step.Single single && single.resScale() != 1.0F) {
+				throw new AssertionError("the default path scaled a stage to " + single.resScale());
+			}
+		}
+		is(steps.size(), 8, "default scene passes");
+		System.out.println("  default_scene_stays_full_resolution: 8 plain passes, no Down/Up");
+	}
+
+	private static VFXShaderPrograms.ProgramInfo scalable(final int taps) {
+		return new VFXShaderPrograms.ProgramInfo(null, new String[0], 0, PassRole.NORMAL, false, null, false, false, false, VFXFusionClass.BARRIER, 1, true, Set.of(), taps);
+	}
+
+	private static VFXShaderPrograms.ProgramInfo plain(final int taps) {
+		return new VFXShaderPrograms.ProgramInfo(null, new String[0], 0, PassRole.NORMAL, false, null, false, false, false, VFXFusionClass.BARRIER, 1, false, Set.of(), taps);
+	}
+
+	private static void sequence(final List<StageRef> chain, final String want) {
+		final List<Step> steps = VFXFusionPlanner.plan(chain, ignored -> new VFXFusedPrograms.FusedProgram(null, "check", List.of(), 0, 0));
+		final String got = describe(steps);
+		if (!got.equals(want)) {
+			throw new AssertionError("plan = [" + got + "], want [" + want + "]");
+		}
+	}
+
+	private static String describe(final List<Step> steps) {
+		final StringBuilder sb = new StringBuilder();
+		for (final Step step : steps) {
+			if (sb.length() > 0) {
+				sb.append(' ');
+			}
+			if (step instanceof Step.Down) {
+				sb.append("Down");
+			} else if (step instanceof Step.Up) {
+				sb.append("Up");
+			} else if (step instanceof Step.Single single) {
+				sb.append("S(").append(single.stage().info().taps()).append('@').append(single.resScale()).append(')');
+			} else {
+				sb.append("Fused");
+			}
+		}
+		return sb.toString();
 	}
 
 	private static void four_masked_pointwise_plans_as_one_run() {
@@ -298,8 +432,12 @@ Push-Location $repoRoot
 try {
 	& $javac "@$plannerCpFile" -d $plannerCheckDir $plannerSrc
 	if ($LASTEXITCODE -ne 0) { throw "javac failed" }
-	& $java "@$plannerCpFile" dev.vfxweaver.client.postprocessing.FusionPlannerCheck
-	if ($LASTEXITCODE -ne 0) { throw "FusionPlannerCheck failed" }
+	foreach ($chainres in @($null, "0.75", "0.5")) {
+		$props = @()
+		if ($chainres) { $props = @("-Dvfxweaver.chainres=$chainres") }
+		& $java @props "@$plannerCpFile" dev.vfxweaver.client.postprocessing.FusionPlannerCheck
+		if ($LASTEXITCODE -ne 0) { throw "FusionPlannerCheck failed (chainres=$(if ($chainres) { $chainres } else { 'default' }))" }
+	}
 } finally {
 	Pop-Location
 }
