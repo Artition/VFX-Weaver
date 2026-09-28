@@ -6,8 +6,8 @@
 # that evaluates the prefix 33 times, which is the bug this whole design exists to prevent.
 #
 # The pass-level model (how many stages and samplers a masked pointwise effect really costs, and the
-# run cuts at 12/15/18 evaluations) is the planner's to assert, with the planner, in Task 4 - it
-# cannot be pinned here without a planner to compute it.
+# run cuts at 12/15/18 evaluations) is pinned by the planner fixtures below, which compile a harness
+# against the built client classes and run VFXFusionPlanner.runs/plan directly.
 #
 # Usage: powershell -ExecutionPolicy Bypass -File scripts/check-fusion-budget.ps1
 $ErrorActionPreference = "Stop"
@@ -159,4 +159,149 @@ try {
 	Pop-Location
 }
 Write-Host "Fusion budget check OK."
+
+# --- planner fixtures (Task 4): the pass-level model, computed by the planner itself ---------------
+$plannerPath = Join-Path $repoRoot "src\client\java\dev\vfxweaver\client\postprocessing\VFXFusionPlanner.java"
+$policyPath = Join-Path $repoRoot "src\client\java\dev\vfxweaver\client\postprocessing\VFXFusionPolicy.java"
+$programsPath = Join-Path $repoRoot "src\client\java\dev\vfxweaver\client\postprocessing\VFXFusedPrograms.java"
+foreach ($file in @(
+	@($plannerPath, 'VFXFusionPlanner.java'),
+	@($policyPath, 'VFXFusionPolicy.java'),
+	@($programsPath, 'VFXFusedPrograms.java'))) {
+	if (-not (Test-Path -LiteralPath $file[0])) {
+		Write-Error "fusion planner check: missing $($file[1]) (Task 4 not implemented)."
+		exit 1
+	}
+}
+$clientClasses = Join-Path $repoRoot "versions\26.1.2\build\classes\java\client"
+if (-not (Test-Path (Join-Path $clientClasses "dev\vfxweaver\client\postprocessing\VFXFusionPlanner.class"))) {
+	Write-Error "fusion planner check: build :26.1.2 first (missing $clientClasses)."
+	exit 1
+}
+$mcJar = Get-ChildItem (Join-Path $env:USERPROFILE ".gradle\caches\fabric-loom\minecraftMaven\net\minecraft\minecraft-merged-deobf\26.1.2") -Filter "*.jar" -ErrorAction SilentlyContinue | Select-Object -First 1
+if (-not $mcJar) {
+	Write-Error "fusion planner check: minecraft merged-deobf 26.1.2 jar not found."
+	exit 1
+}
+$jars = (Get-ChildItem (Join-Path $env:USERPROFILE ".gradle\caches\modules-2\files-2.1") -Recurse -Filter *.jar -ErrorAction SilentlyContinue |
+	Where-Object { $_.FullName -notmatch 'dev\.vfxweaver|maven\.modrinth' } |
+	ForEach-Object { $_.FullName.Replace('\', '/') }) -join ';'
+
+$plannerCheckDir = Join-Path $env:TEMP "vfxweaver-fusion-planner-check"
+New-Item -ItemType Directory -Force -Path $plannerCheckDir | Out-Null
+$plannerSrc = Join-Path $plannerCheckDir "FusionPlannerCheck.java"
+$plannerCpFile = Join-Path $plannerCheckDir "cp.txt"
+$plannerCp = "versions/26.1.2/build/classes/java/main;versions/26.1.2/build/classes/java/client;$($plannerCheckDir.Replace('\', '/'));$($mcJar.FullName.Replace('\', '/'));$jars"
+[System.IO.File]::WriteAllText($plannerCpFile, "-cp `"$plannerCp`"", [System.Text.UTF8Encoding]::new($false))
+$plannerJava = @'
+package dev.vfxweaver.client.postprocessing;
+
+import dev.vfxweaver.client.postprocessing.VFXFusionPlanner.StageRef;
+import dev.vfxweaver.client.postprocessing.VFXFusionPlanner.Step;
+import dev.vfxweaver.client.postprocessing.VFXShaderPrograms.PassRole;
+import java.util.ArrayList;
+import java.util.List;
+
+/** The planner fixtures: the pass-level model the budget error would have broken. */
+public final class FusionPlannerCheck {
+	private static final VFXShaderPrograms.ProgramInfo POINT = new VFXShaderPrograms.ProgramInfo(
+		null, new String[] {"a", "b"}, 8, PassRole.NORMAL, true, null, false, false, false, VFXFusionClass.POINT, 1);
+	private static final VFXShaderPrograms.ProgramInfo CONSUMER = new VFXShaderPrograms.ProgramInfo(
+		null, new String[0], 0, PassRole.NORMAL, false, null, true, false, false, VFXFusionClass.BARRIER, 1);
+
+	public static void main(final String[] args) {
+		four_masked_pointwise_plans_as_one_run();
+		at_most_one_run_head_consumer_per_run();
+		sampler_cut_at_six_effects();
+		System.out.println("fusion planner check OK: fixtures hold");
+	}
+
+	private static void four_masked_pointwise_plans_as_one_run() {
+		final List<StageRef> chain = maskedPointwise(4);
+		final List<VFXFusionPlanner.Run> runs = VFXFusionPlanner.runs(chain);
+		is(runs.size(), 1, "four masked pointwise runs");
+		is(runs.get(0).stages().size(), 8, "four masked pointwise stages");
+		is(runs.get(0).linear(), 12, "four masked pointwise linear");
+		is(runs.get(0).samplers(), 10, "four masked pointwise samplers");
+		final List<Step> steps = VFXFusionPlanner.plan(chain, ignored -> new VFXFusedPrograms.FusedProgram(null, "check", List.of(), 0, 0));
+		int fused = 0;
+		for (final Step step : steps) {
+			if (step instanceof Step.Fused) {
+				fused++;
+			}
+		}
+		is(fused, 1, "four masked pointwise fused steps");
+		System.out.println("  four_masked_pointwise_plans_as_one_run: 1 Fused, 8 stages, linear 12, samplers 10");
+	}
+
+	private static void at_most_one_run_head_consumer_per_run() {
+		final List<StageRef> chain = new ArrayList<>();
+		chain.add(new StageRef(CONSUMER, null, true, false));
+		chain.add(new StageRef(CONSUMER, null, true, false));
+		final List<VFXFusionPlanner.Run> runs = VFXFusionPlanner.runs(chain);
+		is(runs.size(), 2, "two standalone consumers split into two runs");
+		for (final VFXFusionPlanner.Run run : runs) {
+			int heads = 0;
+			for (int i = 0; i < run.stages().size(); i++) {
+				if (i == 0 && run.stages().get(i).mask()) {
+					heads++;
+				}
+			}
+			if (heads > 1) {
+				throw new AssertionError("run carries more than one run-head consumer");
+			}
+		}
+		System.out.println("  at_most_one_run_head_consumer_per_run: 2 runs, at most one head consumer each");
+	}
+
+	private static void sampler_cut_at_six_effects() {
+		final List<VFXFusionPlanner.Run> four = VFXFusionPlanner.runs(maskedPointwise(4));
+		final List<VFXFusionPlanner.Run> five = VFXFusionPlanner.runs(maskedPointwise(5));
+		final List<VFXFusionPlanner.Run> six = VFXFusionPlanner.runs(maskedPointwise(6));
+		is(linearTotal(four), 12, "four linear");
+		is(five.size(), 1, "five runs");
+		is(linearTotal(five), 15, "five linear");
+		is(five.get(0).samplers(), 12, "five samplers");
+		is(linearTotal(six), 18, "six linear");
+		is(six.size(), 2, "six runs");
+		System.out.println("  sampler_cut_at_six_effects: 12->1, 15->1, 18->2");
+	}
+
+	private static int linearTotal(final List<VFXFusionPlanner.Run> runs) {
+		int total = 0;
+		for (final VFXFusionPlanner.Run run : runs) {
+			total += run.linear();
+		}
+		return total;
+	}
+
+	private static List<StageRef> maskedPointwise(final int effects) {
+		final List<StageRef> chain = new ArrayList<>();
+		for (int i = 0; i < effects; i++) {
+			chain.add(new StageRef(POINT, null, false, true));
+			chain.add(new StageRef(CONSUMER, null, true, false));
+		}
+		return chain;
+	}
+
+	private static void is(final int actual, final int want, final String what) {
+		if (actual != want) {
+			throw new AssertionError(what + " = " + actual + ", want " + want);
+		}
+	}
+}
+'@
+[System.IO.File]::WriteAllText($plannerSrc, $plannerJava, [System.Text.UTF8Encoding]::new($false))
+
+Write-Host "Fusion planner check"
+Push-Location $repoRoot
+try {
+	& $javac "@$plannerCpFile" -d $plannerCheckDir $plannerSrc
+	if ($LASTEXITCODE -ne 0) { throw "javac failed" }
+	& $java "@$plannerCpFile" dev.vfxweaver.client.postprocessing.FusionPlannerCheck
+	if ($LASTEXITCODE -ne 0) { throw "FusionPlannerCheck failed" }
+} finally {
+	Pop-Location
+}
+Write-Host "Fusion planner check OK."
 exit 0
