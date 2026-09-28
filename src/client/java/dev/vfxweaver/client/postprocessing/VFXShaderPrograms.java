@@ -236,16 +236,16 @@ public final class VFXShaderPrograms {
 		registerFieldPost(VFXEffectType.DENT, new String[]{"strength", "radius", "center_x", "center_y", "line_mode", "x0", "y0", "x1", "y1"}, "intensity");
 		registerPost(VFXEffectType.GRADIENT_MAP, "from_r", "from_g", "from_b", "to_r", "to_g", "to_b", "intensity", "mode", "pos");
 		registerPost(VFXEffectType.POSTERIZE, "strength");
-		registerMultiPass(VFXEffectType.BLUR, List.of("blur_x", "blur_y"), List.of(new String[]{"radius"}, new String[]{"radius"}));
+		registerMultiPass(VFXEffectType.BLUR, List.of("blur_x", "blur_y"), List.of(new String[]{"radius"}, new String[]{"radius"}), true, Set.of("radius"), 25);
 		registerPost(VFXEffectType.PIXELATE, "cell_size");
 		registerPost(VFXEffectType.HUE_ISOLATION, "hue", "tolerance", "intensity");
 		registerPost(VFXEffectType.VIGNETTE, "intensity", "color_r", "color_g", "color_b");
 		registerPost(VFXEffectType.SCREEN_FLASH, "alpha", "color_r", "color_g", "color_b");
 		registerPost(VFXEffectType.MOTION_BLUR, "intensity", "yaw_delta", "pitch_delta");
-		registerPost(VFXEffectType.BLOOM, "intensity", "threshold", "radius");
+		registerPost(VFXEffectType.BLOOM, new String[]{"intensity", "threshold", "radius"}, true, Set.of("radius"), 9);
 		registerPost(VFXEffectType.FILM_GRAIN, "intensity", "size", "time", "chroma");
 		registerPost(VFXEffectType.SCANLINES, "intensity", "line_count", "speed", "time");
-		registerPost(VFXEffectType.DEPTH_OF_FIELD, "intensity", "focus_center", "focus_range");
+		registerPost(VFXEffectType.DEPTH_OF_FIELD, new String[]{"intensity", "focus_center", "focus_range"}, true, Set.of("intensity"), 16);
 		registerPost(VFXEffectType.LETTERBOX, "height", "color_r", "color_g", "color_b");
 		registerPost(VFXEffectType.INVERT, "intensity");
 		registerPost(VFXEffectType.VORTEX, "strength", "radius", "center_x", "center_y");
@@ -255,8 +255,8 @@ public final class VFXShaderPrograms {
 		registerPost(VFXEffectType.DOUBLE_VISION, "offset", "ghost_opacity", "drift", "intensity", "time");
 		registerPost(VFXEffectType.EYELIDS, "openness", "softness", "curve", "red", "green", "blue");
 		registerPost(VFXEffectType.IRIS_WIPE, "radius", "softness", "center_x", "center_y", "zoom");
-		registerPost(VFXEffectType.DIGITAL_GLITCH, "block", "displacement", "rate", "chroma", "seed", "chance", "intensity", "time");
-		registerPost(VFXEffectType.VHS, "tracking", "band_height", "band_speed", "bleed", "wobble", "intensity", "time");
+		registerPost(VFXEffectType.DIGITAL_GLITCH, new String[]{"block", "displacement", "rate", "chroma", "seed", "chance", "intensity", "time"}, true, Set.of(), 4);
+		registerPost(VFXEffectType.VHS, new String[]{"tracking", "band_height", "band_speed", "bleed", "wobble", "intensity", "time"}, true, Set.of(), 4);
 		registerPost(VFXEffectType.SHOCKWAVE, "center_x", "center_y", "radius", "width", "amplitude", "sharpness");
 		registerFeedbackEffects();
 		registerPost(VFXEffectType.NOISE_WARP, "scale", "amplitude", "contrast", "coherence", "speed", "drift_x", "drift_y", "seed", "time");
@@ -539,7 +539,28 @@ public final class VFXShaderPrograms {
 	}
 
 	private static void registerPost(final VFXEffectType type, final String... params) {
-		registerMultiPass(type, List.of(type.getName()), List.<String[]>of(params));
+		registerPost(type, params, false, Set.of(), 0);
+	}
+
+	/**
+	 * Registers a single-pass effect whose resolution policy is declared (spec §3): {@code scalable}
+	 * marks a program that may run inside a half-resolution chain run, {@code pixelParams} names the
+	 * texel/pixel-unit parameters whose value the run divides by the chain scale so the visual size is
+	 * kept, and {@code taps} is the per-pass fetch count the run threshold sums.
+	 *
+	 * <p>{@code radius} (blur, bloom) and {@code intensity} (depth_of_field) are pixel-unit
+	 * quantities: the shader turns them into a texel offset via {@code InSize}, which halves inside a
+	 * half-resolution run. Dividing the value where the {@code Config} is written keeps the visual
+	 * size; the shaders and their {@code Config} order stay untouched.</p>
+	 *
+	 * @param type        the effect whose programs are registered
+	 * @param params      the {@code Config} parameter names, in std140 order
+	 * @param scalable    true when the pass may run inside a half-resolution chain run
+	 * @param pixelParams the texel-unit parameter names divided by the chain scale
+	 * @param taps        the per-pass fetch count the run threshold sums
+	 */
+	private static void registerPost(final VFXEffectType type, final String[] params, final boolean scalable, final Set<String> pixelParams, final int taps) {
+		registerMultiPass(type, List.of(type.getName()), List.<String[]>of(params), scalable, pixelParams, taps);
 	}
 
 	/**
@@ -713,6 +734,27 @@ public final class VFXShaderPrograms {
 	}
 
 	private static void registerMultiPass(final VFXEffectType type, final List<String> shaders, final List<String[]> params) {
+		registerMultiPass(type, shaders, params, false, Set.of(), 0);
+	}
+
+	/**
+	 * Registers a multi-pass effect whose resolution policy is declared (spec §3): {@code scalable}
+	 * marks the programs that may run inside a half-resolution chain run, {@code pixelParams} names
+	 * the texel/pixel-unit parameters divided by the chain scale, and {@code taps} is the per-pass
+	 * fetch count the run threshold sums. Every program of the effect carries the same policy.
+	 *
+	 * <p>{@code radius} (blur) is a pixel-unit quantity: the blur shader turns it into a texel offset
+	 * via {@code InSize}, which halves inside a half-resolution run, so dividing the value where the
+	 * {@code Config} is written keeps the visual size and the shaders stay untouched.</p>
+	 *
+	 * @param type        the effect whose programs are registered
+	 * @param shaders     the fragment shader names, in chain order
+	 * @param params      each shader's {@code Config} parameter names, in std140 order
+	 * @param scalable    true when the passes may run inside a half-resolution chain run
+	 * @param pixelParams the texel-unit parameter names divided by the chain scale
+	 * @param taps        the per-pass fetch count the run threshold sums
+	 */
+	private static void registerMultiPass(final VFXEffectType type, final List<String> shaders, final List<String[]> params, final boolean scalable, final Set<String> pixelParams, final int taps) {
 		List<ProgramInfo> programs = new java.util.ArrayList<>(shaders.size());
 		for (int i = 0; i < shaders.size(); i++) {
 			Identifier location = Identifier.fromNamespaceAndPath("vfxweaver", "post/" + shaders.get(i));
@@ -731,7 +773,7 @@ public final class VFXShaderPrograms {
 				.build();
 			RenderPipelines.register(pipeline);
 			String[] configParams = params.get(i);
-			programs.add(new ProgramInfo(pipeline, configParams, align16(configParams.length * 4)));
+			programs.add(new ProgramInfo(pipeline, configParams, align16(configParams.length * 4), PassRole.NORMAL, false, null, false, false, false, VFXFusionClass.BARRIER, 1, scalable, pixelParams, taps));
 		}
 		PROGRAMS.put(type, List.copyOf(programs));
 	}
