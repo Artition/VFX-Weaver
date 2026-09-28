@@ -2552,6 +2552,17 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#v74-unreleased" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v74 (unreleased)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#v73-released-as-211" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3327,6 +3338,17 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#v74-unreleased" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v74 (unreleased)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#v73-released-as-211" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -4011,8 +4033,12 @@
 documentation changed. A guide revision is not a mod version — the two numbers are independent, and
 released mod versions are recorded on the <strong><a href="../../CHANGELOG/">mod Changelog</a></strong> instead. Where a guide
 revision shipped with a release, the entry says so (for example <code>v47 — released as 2.0.0</code>).</p>
-<p>Current guide revision: <strong>v73</strong>. Mod version it documents: <strong>2.1.1</strong>. Which jar to download is in the
+<p>Current guide revision: <strong>v74</strong>. Mod version it documents: <strong>2.1.1</strong>. Which jar to download is in the
 <a href="../../#download">download table</a>.</p>
+<h3 id="v74-unreleased">v74 (unreleased)<a class="headerlink" href="#v74-unreleased" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Post-chain fusion: how the screen chain is drawn now.</strong> A run of adjacent pointwise screen effects plus each masked effect's coverage consumer is compiled into one generated fragment program, so the frame is read and written once for the run instead of once per pass (<code>blur</code>-class effects, the feedback pair <code>afterimage</code>/<code>stop_motion</code> and anything unannotated cut the chain). The output is unchanged: every fused stage boundary is re-quantised to the RGBA8 the unfused chain wrote. The <a href="../effects/">effects index</a> states it and the two kill switches: <code>-Dvfxweaver.fusion=false</code> turns fusion off entirely and <code>-Dvfxweaver.fusion.remap</code> (default off) only enables the experimental one-tap remaps (<code>distortion</code>, <code>vortex</code>, <code>pixelate</code>, <code>noise_warp</code>, <code>slice_shift</code>). No datapack field, UBO, API or wire change. Asserted by <code>scripts/check-post-fusion.ps1</code> (the annotation list and the golden generated-source shape); the GLSL cannot compile headless here. <strong>Not verified in game</strong> (the owner tests it).</li>
+</ul>
 <h3 id="v73-released-as-211">v73 — released as 2.1.1<a class="headerlink" href="#v73-released-as-211" title="Permanent link">&para;</a></h3>
 <ul>
 <li><strong><code>order</code>: the compositing order of screen effects inside a layer.</strong> Screen effects now take an <code>order</code> param alongside <code>screen_layer</code> — a float, lower runs earlier, default <code>0</code>, and effects that leave it alone keep the order they were started in, so no existing pack changes. <code>screen_layer</code> stays the outer, semantic axis (which part of the frame the pass belongs to: under the hand, above it, above the GUI) and <code>order</code> only sequences the effects that layer already selected; being fractions, <code>10.5</code> slots an effect between two at <code>10</code> and <code>11</code>. It is an ordinary param, so the datapack, the command param-map, <code>setParam</code> and keyframes all reach it and the wire format, UBO and <code>PROTOCOL_VERSION</code> are untouched. Asserted by <code>scripts/check-post-layer-order.ps1</code> (the read with its finite fallback, the stable sort sitting between the layer filter and the chain, the layer semantics untouched). <strong>Not verified in game</strong> (the owner tests it).</li>
