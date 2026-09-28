@@ -58,18 +58,20 @@ public final class VFXShaderPrograms {
 	 * before the float params (the camera world position the dome view ray starts from); a
 	 * non-camPos depth pass keeps the original 64-byte prefix so its layout is unchanged.
 	 */
-	public record ProgramInfo(RenderPipeline pipeline, String[] configParams, int configUboSize, PassRole role, boolean usesDepth, @Nullable String fieldInput, boolean mask, boolean depthConfig, boolean depthHasCamPos) {
+	/**{@code fusionClass}/{@code prefixEvals} are the post-chain-fusion cost policy; every convenience
+	 * constructor routes them as BARRIER/1, so an unannotated registration can never fuse. */
+	public record ProgramInfo(RenderPipeline pipeline, String[] configParams, int configUboSize, PassRole role, boolean usesDepth, @Nullable String fieldInput, boolean mask, boolean depthConfig, boolean depthHasCamPos, VFXFusionClass fusionClass, int prefixEvals) {
 		/** The 8-component form for every depth pass whose Config has no {@code cam_pos} prefix. */
 		public ProgramInfo(final RenderPipeline pipeline, final String[] configParams, final int configUboSize, final PassRole role, final boolean usesDepth, final @Nullable String fieldInput, final boolean mask, final boolean depthConfig) {
-			this(pipeline, configParams, configUboSize, role, usesDepth, fieldInput, mask, depthConfig, false);
+			this(pipeline, configParams, configUboSize, role, usesDepth, fieldInput, mask, depthConfig, false, VFXFusionClass.BARRIER, 1);
 		}
 
 		public ProgramInfo(final RenderPipeline pipeline, final String[] configParams, final int configUboSize, final PassRole role) {
-			this(pipeline, configParams, configUboSize, role, false, null, false, false, false);
+			this(pipeline, configParams, configUboSize, role, false, null, false, false, false, VFXFusionClass.BARRIER, 1);
 		}
 
 		public ProgramInfo(final RenderPipeline pipeline, final String[] configParams, final int configUboSize) {
-			this(pipeline, configParams, configUboSize, PassRole.NORMAL, false, null, false, false, false);
+			this(pipeline, configParams, configUboSize, PassRole.NORMAL, false, null, false, false, false, VFXFusionClass.BARRIER, 1);
 		}
 
 		/** True when this pipeline declares the {@code FieldConfig} uniform block. */
@@ -485,7 +487,7 @@ public final class VFXShaderPrograms {
 			.build();
 		RenderPipelines.register(pipeline);
 		final int uboSize = hasCamPos ? depthConfigSize(params.length, true) : depthConfigSize(params.length);
-		PROGRAMS.put(type, List.of(new ProgramInfo(pipeline, params, uboSize, PassRole.NORMAL, true, null, false, true, hasCamPos)));
+		PROGRAMS.put(type, List.of(new ProgramInfo(pipeline, params, uboSize, PassRole.NORMAL, true, null, false, true, hasCamPos, VFXFusionClass.BARRIER, 1)));
 	}
 
 	/**
