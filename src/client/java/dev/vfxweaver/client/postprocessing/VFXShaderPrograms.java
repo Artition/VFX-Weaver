@@ -136,6 +136,8 @@ public final class VFXShaderPrograms {
 	private static @Nullable ProgramInfo coverageProgram;
 	private static @Nullable RenderPipeline maskPipeline;
 	private static @Nullable ProgramInfo maskProgram;
+	private static @Nullable ProgramInfo downsampleProgram;
+	private static @Nullable ProgramInfo upsampleProgram;
 	private static @Nullable RenderPipeline blockGeometryPipeline;
 	private static @Nullable ProgramInfo blockGeometryProgram;
 
@@ -353,6 +355,12 @@ public final class VFXShaderPrograms {
 		);
 		maskProgram = new ProgramInfo(maskPipeline, new String[0], 0, PassRole.NORMAL, false, null, true, false, false, VFXFusionClass.POINT, 1);
 
+		// The chain-resolution conversion pair (spec §4): an exact 2x2 box downsample and a clamped
+		// manual-bilinear upsample wrapping every half-resolution run. They register like any pass,
+		// so they carry the same SamplerInfo/Config contract; their Config is one pad float.
+		downsampleProgram = new ProgramInfo(conversionPipeline("post/downsample"), new String[]{"vfxPad"}, align16(4));
+		upsampleProgram = new ProgramInfo(conversionPipeline("post/upsample"), new String[]{"vfxPad"}, align16(4));
+
 		// The block-geometry contribution writes coverage into the geometry scratch; it is drawn by
 		// the manager, not scheduled as an effect-chain ProgramInfo. It draws the selected blocks'
 		// baked model quads as triangles (TRIANGLES, one vertex buffer, no index buffer), camera-
@@ -484,6 +492,22 @@ public final class VFXShaderPrograms {
 	 */
 	public static @Nullable ProgramInfo blockGeometryProgram() {
 		return blockGeometryProgram;
+	}
+
+	/**
+	 * The chain-resolution downsample conversion pass (full-res to half-res), or {@code null} before
+	 * {@link #register()} runs.
+	 */
+	public static @Nullable ProgramInfo downsampleProgram() {
+		return downsampleProgram;
+	}
+
+	/**
+	 * The chain-resolution upsample conversion pass (half-res to full-res), or {@code null} before
+	 * {@link #register()} runs.
+	 */
+	public static @Nullable ProgramInfo upsampleProgram() {
+		return upsampleProgram;
 	}
 
 	/**
@@ -656,6 +680,33 @@ public final class VFXShaderPrograms {
 			//?} else {
 			/*.withBindGroupLayout(BindGroupLayouts.IN_SAMPLER)
 			.withBindGroupLayout(HIST_SAMPLER_LAYOUT)
+			.withBindGroupLayout(SAMPLER_INFO_CONFIG_LAYOUT);
+			*///?}
+		return RenderPipelines.register(builder.build());
+	}
+
+	/**
+	 * Builds one chain-resolution conversion pass (spec §4): the standard post-processing shape with
+	 * a single {@code InSampler}, the {@code SamplerInfo}/{@code Config} UBOs and the same per-node
+	 * bind-group branch as {@link #feedbackPipeline(String, String...)}. {@code name} is the full
+	 * resource path ({@code post/downsample} / {@code post/upsample}), used for the pipeline location
+	 * and the fragment shader alike.
+	 *
+	 * @param name the {@code vfxweaver}-namespaced resource path of the conversion pass
+	 * @return the registered conversion pipeline
+	 */
+	private static RenderPipeline conversionPipeline(final String name) {
+		final Identifier location = Identifier.fromNamespaceAndPath("vfxweaver", name);
+		RenderPipeline.Builder builder = RenderPipeline.builder(RenderPipelines.POST_PROCESSING_SNIPPET)
+			.withLocation(location)
+			.withVertexShader("core/screenquad")
+			.withFragmentShader(location)
+			//? if <26.2 {
+			.withSampler("InSampler")
+			.withUniform("SamplerInfo", UniformType.UNIFORM_BUFFER)
+			.withUniform("Config", UniformType.UNIFORM_BUFFER);
+			//?} else {
+			/*.withBindGroupLayout(BindGroupLayouts.IN_SAMPLER)
 			.withBindGroupLayout(SAMPLER_INFO_CONFIG_LAYOUT);
 			*///?}
 		return RenderPipelines.register(builder.build());
