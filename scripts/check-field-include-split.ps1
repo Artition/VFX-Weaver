@@ -51,7 +51,12 @@ function Get-CodeLines($lines) {
 $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ("vfx-split-" + [Guid]::NewGuid().ToString("N"))
 $tmpInclude = Join-Path $tmp "include"
 Copy-Item -Recurse -Force -LiteralPath $shaders -Destination $tmp
-$head = & git -C $repoRoot show "HEAD:src/client/resources/assets/vfxweaver/shaders/include/field.glsl"
+# The baseline is the revision *before* the split, never HEAD: HEAD moves on, and a guard whose
+# "before" side moves with it fails the moment the split lands (it did). The split commit is the one
+# that added the body; its parent is the pre-split text.
+$splitCommit = (& git -C $repoRoot log --diff-filter=A --format=%H -1 -- "src/client/resources/assets/vfxweaver/shaders/include/field_body.glsl").Trim()
+$baseRev = if ($splitCommit) { "$splitCommit^" } else { "HEAD" }
+$head = & git -C $repoRoot show "${baseRev}:src/client/resources/assets/vfxweaver/shaders/include/field.glsl"
 [System.IO.File]::WriteAllLines((Join-Path $tmpInclude "field.glsl"), $head, (New-Object System.Text.UTF8Encoding($false)))
 # HEAD's field.glsl had no body import; remove the split's body so the "before" resolution cannot
 # silently depend on it.
