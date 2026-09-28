@@ -37,6 +37,7 @@ public final class VFXFusedShaderGenerator {
 	private static final Pattern BLOCK = Pattern.compile("layout\\s*\\(\\s*std140\\s*\\)\\s*uniform\\s+(\\w+)\\s*\\{(.*?)\\}\\s*;", Pattern.DOTALL);
 	private static final Pattern SAMPLER = Pattern.compile("uniform\\s+sampler2D\\s+(\\w+)\\s*;");
 	private static final Pattern TEXTURE_IN = Pattern.compile("texture\\s*\\(\\s*InSampler\\s*,");
+	private static final Pattern TEXTURE_HISTORY = Pattern.compile("texture\\s*\\(\\s*HistSampler\\s*,");
 	private static final Pattern FIELD_FUNCTION = Pattern.compile("(?m)^\\s*[\\w<>]+\\s+(\\w+)\\s*\\(");
 	private static final String FIELD_INCLUDE = "vfxweaver:field.glsl";
 	private static final String FIELD_BODY_INCLUDE = "vfxweaver:field_body.glsl";
@@ -106,6 +107,9 @@ public final class VFXFusedShaderGenerator {
 		}
 		for (int k = 0; k < parsed.size(); k++) {
 			for (final String sampler : parsed.get(k).samplers()) {
+				if (sampler.equals("HistSampler") && k != 1) {
+					continue;
+				}
 				samplerDeclarations.add("uniform sampler2D s" + k + "_" + sampler + ";");
 			}
 			if (parsed.get(k).imports().contains(FIELD_INCLUDE)) {
@@ -146,8 +150,12 @@ public final class VFXFusedShaderGenerator {
 			String body = replaceWord(stage.body(), "fragColor", "vfxColor");
 			body = TEXTURE_IN.matcher(body).replaceAll(Matcher.quoteReplacement(k == 0 ? "vfxIn(" : "fx" + (k - 1) + "q("));
 			if (stage.mask()) {
-				body = replaceWord(body, "HistSampler", "s" + k + "_HistSampler");
 				body = replaceWord(body, "CoverageSampler", "s" + k + "_CoverageSampler");
+				if (k == 1) {
+					body = replaceWord(body, "HistSampler", "s1_HistSampler");
+				} else {
+					body = TEXTURE_HISTORY.matcher(body).replaceAll(Matcher.quoteReplacement("fx" + (k - 2) + "q("));
+				}
 			}
 			for (final Member member : stage.configMembers()) {
 				body = replaceWord(body, member.name(), "e" + k + "_" + member.name());
@@ -184,7 +192,6 @@ public final class VFXFusedShaderGenerator {
 		final List<Binding> bindings = new ArrayList<>();
 		bindings.add(new Binding(Kind.INPUT, "InSampler", 0));
 		boolean depth = false;
-		boolean history = false;
 		for (int k = 0; k < stages.size(); k++) {
 			if (stages.get(k).imports().contains(FIELD_INCLUDE)) {
 				bindings.add(new Binding(Kind.FIELD, "s" + k + "_fld_tex0", k));
@@ -195,9 +202,8 @@ public final class VFXFusedShaderGenerator {
 			}
 			if (stages.get(k).mask()) {
 				bindings.add(new Binding(Kind.COVERAGE, "s" + k + "_CoverageSampler", k));
-				if (!history) {
-					bindings.add(new Binding(Kind.HISTORY, "s" + k + "_HistSampler", k));
-					history = true;
+				if (k == 1) {
+					bindings.add(new Binding(Kind.HISTORY, "s1_HistSampler", k));
 				}
 			}
 		}

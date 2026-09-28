@@ -238,6 +238,17 @@ public final class FusionSourceCheck {
 		contains(source, "vfxQ8", "vfxQ8 present");
 		System.out.println("  plain: fx0/fx0q/fx1, one texture(InSampler outside the fx* bodies, every s<k>_<Name> declared once, vfxQ8 present");
 
+		final List<StageAsset> paired = List.of(
+			asset("vfxweaver:post/fx_a", false), asset("vfxweaver:post/mask_apply", true),
+			asset("vfxweaver:post/fx_a", false), asset("vfxweaver:post/mask_apply", true));
+		final String pairedSource = generate(paired, lookup);
+		contains(pairedSource, "vec4 fx2(", "fx2 present");
+		contains(pairedSource, "uniform sampler2D s1_HistSampler;", "the run-head consumer keeps HistSampler");
+		if (pairedSource.contains("s3_HistSampler")) {
+			throw new AssertionError("an in-run consumer still declares HistSampler (it must read the register)");
+		}
+		System.out.println("  multi-consumer: only the run-head consumer binds HistSampler; the in-run one reads fx0q");
+
 		final List<StageAsset> fieldChain = List.of(asset("vfxweaver:post/fx_field", false), asset("vfxweaver:post/mask_apply", true));
 		final String fieldSource = generate(fieldChain, lookup);
 		contains(fieldSource, "e0_amount", "e0_amount present");

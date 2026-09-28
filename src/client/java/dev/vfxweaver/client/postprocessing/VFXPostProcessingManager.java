@@ -117,6 +117,8 @@ public final class VFXPostProcessingManager {
 	//? if >=26.1
 	private final Projection projection = new Projection();
 	private final Map<Identifier, VFXPass> passes = new HashMap<>();
+	/** One uniform arena per fused pipeline, rotated with the single-pass arenas every frame. */
+	private final Map<String, UniformArena> fusedArenas = new HashMap<>();
 	//? if <26.1 {
 /*	private @Nullable CachedOrthoProjectionMatrixBuffer projectionMatrixBuffer;
 *///?} else {
@@ -161,6 +163,10 @@ public final class VFXPostProcessingManager {
 			pass.close();
 		}
 		this.passes.clear();
+		for (final UniformArena arena : this.fusedArenas.values()) {
+			arena.close();
+		}
+		this.fusedArenas.clear();
 		this.projectionMatrixBuffer = null;
 	}
 
@@ -267,6 +273,8 @@ public final class VFXPostProcessingManager {
 		final VFXShaderPrograms.ProgramInfo maskInfo = VFXShaderPrograms.maskProgram();
 		final boolean depthReady = VFXFieldEnv.depthValid() && mainTarget.getDepthTextureView() != null;
 		List<PassRun> chain = new ArrayList<>();
+		final List<VFXFusionPlanner.StageRef> stageRefs = new ArrayList<>();
+		final VFXShaderPrograms.ProgramInfo copyInfo = new VFXShaderPrograms.ProgramInfo(VFXShaderPrograms.getCopyPipeline(), new String[0], 0);
 		for (VFXActiveEffect effect : active) {
 			List<VFXShaderPrograms.ProgramInfo> infos = VFXShaderPrograms.getPrograms(effect.getType());
 			if (infos.isEmpty()) {
@@ -279,12 +287,15 @@ public final class VFXPostProcessingManager {
 					VFXLog.warnOnce(LOGGER, "surface_pattern:nodepth:" + effect.getId(),
 						"Effect '{}' needs scene depth but it is unavailable (main target depth missing or camera not ready); rendering a passthrough", effect.getId());
 					chain.add(new PassRun(this.copyPass(), effect, false, masked && i == 0));
+					stageRefs.add(new VFXFusionPlanner.StageRef(copyInfo, effect, false, masked && i == 0));
 					continue;
 				}
 				chain.add(new PassRun(this.pass(info), effect, false, masked && i == 0));
+				stageRefs.add(new VFXFusionPlanner.StageRef(info, effect, false, masked && i == 0));
 			}
 			if (masked) {
 				chain.add(new PassRun(this.pass(maskInfo), effect, true, false));
+				stageRefs.add(new VFXFusionPlanner.StageRef(maskInfo, effect, true, false));
 			}
 		}
 		if (chain.isEmpty() && (layer != 0 || maskEffects.isEmpty())) {
@@ -343,45 +354,72 @@ public final class VFXPostProcessingManager {
 
 			RenderTarget read = this.pingPong[0];
 			int pingPongIndex = 1;
-			for (int i = 0; i < chain.size(); i++) {
-				boolean last = i == chain.size() - 1;
-				PassRun run = chain.get(i);
-				if (run.captureBefore()) {
-					// Preserve the pre-effect image so the consumer can blend the coverage into it.
-					copy.execute(encoder, samplerCache, read, this.maskBefore, null, null, null, null, null, null);
-				}
-				if (run.mask()) {
-					final TextureTarget coverage = this.coverageTargets.get(run.effect().getId());
-					RenderTarget output = last ? mainTarget : this.pingPong[pingPongIndex];
-					run.pass().execute(encoder, samplerCache, read, output, run.effect(), this.maskBefore, null, null, null, coverage);
-					read = output;
-					if (!last) {
-						pingPongIndex = 1 - pingPongIndex;
+			final List<VFXFusionPlanner.Step> steps = VFXFusionPolicy.ENABLED
+				? VFXFusionPlanner.plan(stageRefs)
+				: singleSteps(stageRefs);
+			int entry = 0;
+			for (final VFXFusionPlanner.Step step : steps) {
+				if (step instanceof VFXFusionPlanner.Step.Fused fused && canExecuteFused(fused, mainTarget)) {
+					if (fused.stages().get(0).captureBefore()) {
+						copy.execute(encoder, samplerCache, read, this.maskBefore, null, null, null, null, null, null);
 					}
-					continue;
+					final boolean runLast = entry + fused.stages().size() == chain.size();
+					final RenderTarget output = runLast ? mainTarget : this.pingPong[pingPongIndex];
+					try {
+						executeFused(encoder, samplerCache, read, output, mainTarget, fused);
+						read = output;
+						if (!runLast) {
+							pingPongIndex = 1 - pingPongIndex;
+						}
+						entry += fused.stages().size();
+						continue;
+					} catch (Exception e) {
+						VFXLog.warnOnce(LOGGER, "post:fused:" + layer, "Failed to run a fused VFX post pass; falling back to single passes", e);
+					}
 				}
-				VFXShaderPrograms.PassRole role = run.role();
-				if (role == VFXShaderPrograms.PassRole.FEEDBACK_UPDATE) {
-					// History update: read the live frame + the previous history, write the next.
-					RenderTarget histPrev = this.historyDirty ? read : this.history[0];
-					run.pass().execute(encoder, samplerCache, read, this.history[1], run.effect(), histPrev, null, null, null, null);
-					this.historyDirty = false;
-					// read stays the live frame for the composite pass.
-				} else {
-					RenderTarget output = last ? mainTarget : this.pingPong[pingPongIndex];
-					if (role == VFXShaderPrograms.PassRole.STOP_MOTION) {
-						float hold = this.updateStopMotionHold(run.effect(), encoder, samplerCache, copy, mainTarget);
-						run.pass().execute(encoder, samplerCache, read, output, run.effect(), this.stopMotionHold, hold, null, null, null);
-					} else if (role == VFXShaderPrograms.PassRole.FEEDBACK_COMPOSITE) {
-						run.pass().execute(encoder, samplerCache, read, output, run.effect(), this.history[1], null, null, null, null);
-						this.swapHistory();
+				final int stageCount = step instanceof VFXFusionPlanner.Step.Fused fused ? fused.stages().size() : 1;
+				for (int s = 0; s < stageCount; s++) {
+					boolean last = entry == chain.size() - 1;
+					PassRun run = chain.get(entry);
+					if (run.captureBefore()) {
+						// Preserve the pre-effect image so the consumer can blend the coverage into it.
+						copy.execute(encoder, samplerCache, read, this.maskBefore, null, null, null, null, null, null);
+					}
+					if (run.mask()) {
+						final TextureTarget coverage = this.coverageTargets.get(run.effect().getId());
+						RenderTarget output = last ? mainTarget : this.pingPong[pingPongIndex];
+						run.pass().execute(encoder, samplerCache, read, output, run.effect(), this.maskBefore, null, null, null, coverage);
+						read = output;
+						if (!last) {
+							pingPongIndex = 1 - pingPongIndex;
+						}
+						entry++;
+						continue;
+					}
+					VFXShaderPrograms.PassRole role = run.role();
+					if (role == VFXShaderPrograms.PassRole.FEEDBACK_UPDATE) {
+						// History update: read the live frame + the previous history, write the next.
+						RenderTarget histPrev = this.historyDirty ? read : this.history[0];
+						run.pass().execute(encoder, samplerCache, read, this.history[1], run.effect(), histPrev, null, null, null, null);
+						this.historyDirty = false;
+						// read stays the live frame for the composite pass.
 					} else {
-						run.pass().execute(encoder, samplerCache, read, output, run.effect(), null, null, mainTarget, run.fieldProgram(), null);
+						RenderTarget output = last ? mainTarget : this.pingPong[pingPongIndex];
+						if (role == VFXShaderPrograms.PassRole.STOP_MOTION) {
+							float hold = this.updateStopMotionHold(run.effect(), encoder, samplerCache, copy, mainTarget);
+							run.pass().execute(encoder, samplerCache, read, output, run.effect(), this.stopMotionHold, hold, null, null, null);
+						} else if (role == VFXShaderPrograms.PassRole.FEEDBACK_COMPOSITE) {
+							run.pass().execute(encoder, samplerCache, read, output, run.effect(), this.history[1], null, null, null, null);
+							this.swapHistory();
+						} else {
+							run.pass().execute(encoder, samplerCache, read, output, run.effect(), null, null, mainTarget, run.fieldProgram(), null);
+						}
+						read = output;
+						if (!last) {
+							pingPongIndex = 1 - pingPongIndex;
+						}
 					}
-					read = output;
-					if (!last) {
-						pingPongIndex = 1 - pingPongIndex;
-					}
+					entry++;
 				}
 			}
 		} catch (Exception e) {
@@ -393,7 +431,169 @@ public final class VFXPostProcessingManager {
 			for (final VFXPass pass : this.passes.values()) {
 				pass.endFrame();
 			}
+			for (final UniformArena arena : this.fusedArenas.values()) {
+				arena.endFrame();
+			}
 			RenderSystem.restoreProjectionMatrix();
+		}
+	}
+
+	/** Wraps every stage as a {@code Single} step, so the execution loop has one path when fusion is off. */
+	private static List<VFXFusionPlanner.Step> singleSteps(final List<VFXFusionPlanner.StageRef> stageRefs) {
+		final List<VFXFusionPlanner.Step> steps = new ArrayList<>(stageRefs.size());
+		for (final VFXFusionPlanner.StageRef stage : stageRefs) {
+			steps.add(new VFXFusionPlanner.Step.Single(stage));
+		}
+		return steps;
+	}
+
+	/**
+	 * Whether a fused run may be drawn right now. Fails closed to the single passes when a stage is
+	 * not a plain forward pass, or when a binding it needs (a coverage target, the captured before,
+	 * the scene depth) is unavailable this frame.
+	 */
+	private boolean canExecuteFused(final VFXFusionPlanner.Step.Fused fused, final RenderTarget mainTarget) {
+		for (final VFXFusionPlanner.StageRef stage : fused.stages()) {
+			if (stage.info().role() != VFXShaderPrograms.PassRole.NORMAL || stage.info().depthConfig()) {
+				return false;
+			}
+			if (stage.mask() && this.coverageTargets.get(stage.effect().getId()) == null) {
+				return false;
+			}
+		}
+		for (final VFXFusedPrograms.Binding binding : fused.program().bindings()) {
+			if (binding.kind() == VFXFusedPrograms.Kind.HISTORY && (this.maskBefore == null || !fused.stages().get(0).captureBefore())) {
+				return false;
+			}
+			if (binding.kind() == VFXFusedPrograms.Kind.DEPTH && mainTarget.getDepthTextureView() == null) {
+				return false;
+			}
+		}
+		return true;
+	}
+
+	/**
+	 * Draws a whole fused run in one program: the merged {@code Config} written {@code [params][field
+	 * members]} per stage exactly as {@link VFXPass} writes a single pass, and every sampler bound by
+	 * its {@link VFXFusedPrograms.Binding.Kind} the same way the single passes bind it.
+	 */
+	private void executeFused(
+		final CommandEncoder encoder,
+		final SamplerCache samplerCache,
+		final RenderTarget input,
+		final RenderTarget output,
+		final RenderTarget mainTarget,
+		final VFXFusionPlanner.Step.Fused fused
+	) {
+		final VFXFusedPrograms.FusedProgram program = fused.program();
+		final UniformArena arena = this.fusedArenas.computeIfAbsent(program.name(), name ->
+			new UniformArena(name + " uniforms", Math.max(SAMPLER_INFO_SIZE, program.configUboSize())));
+		final GpuBufferSlice samplerInfo = arena.write(encoder, builder ->
+			builder.putVec2(output.width, output.height).putVec2(input.width, input.height));
+		GpuBufferSlice config = null;
+		if (program.configParamCount() > 0) {
+			config = arena.write(encoder, builder -> this.writeFusedConfig(builder, fused.stages()));
+		}
+		try (RenderPass renderPass = encoder.createRenderPass(
+				() -> "VFX fused " + program.name(),
+				output.getColorTextureView(),
+				//? if <26.2 {
+				OptionalInt.empty()
+				//?} else {
+				/*Optional.empty()
+				*///?}
+			)) {
+			renderPass.setPipeline(program.pipeline());
+			RenderSystem.bindDefaultUniforms(renderPass);
+			renderPass.setUniform("SamplerInfo", samplerInfo);
+			if (config != null) {
+				renderPass.setUniform("Config", config);
+			}
+			for (final VFXFusedPrograms.Binding binding : program.bindings()) {
+				this.bindFused(renderPass, samplerCache, binding, fused.stages(), input, mainTarget);
+			}
+			//? if <26.2 {
+			renderPass.draw(0, 3);
+			//?} else {
+			/*renderPass.draw(3, 1, 0, 0);
+			*///?}
+		}
+	}
+
+	/** Binds one fused-run sampler the same way the single passes bind their samplers. */
+	private void bindFused(
+		final RenderPass renderPass,
+		final SamplerCache samplerCache,
+		final VFXFusedPrograms.Binding binding,
+		final List<VFXFusionPlanner.StageRef> stages,
+		final RenderTarget input,
+		final RenderTarget mainTarget
+	) {
+		switch (binding.kind()) {
+			case INPUT -> renderPass.bindTexture(binding.sampler(), input.getColorTextureView(), samplerCache.getClampToEdge(FilterMode.LINEAR));
+			case HISTORY -> {
+				if (this.maskBefore != null) {
+					renderPass.bindTexture(binding.sampler(), this.maskBefore.getColorTextureView(), samplerCache.getClampToEdge(FilterMode.LINEAR));
+				}
+			}
+			case COVERAGE -> {
+				final TextureTarget coverage = this.coverageTargets.get(stages.get(binding.stageIndex()).effect().getId());
+				if (coverage != null) {
+					renderPass.bindTexture(binding.sampler(), coverage.getColorTextureView(), samplerCache.getClampToEdge(FilterMode.NEAREST));
+				}
+			}
+			case DEPTH -> {
+				final GpuTextureView depth = mainTarget.getDepthTextureView();
+				if (depth != null) {
+					renderPass.bindTexture(binding.sampler(), depth, samplerCache.getClampToEdge(FilterMode.NEAREST));
+				}
+			}
+			case FIELD -> {
+				final VFXFusionPlanner.StageRef stage = stages.get(binding.stageIndex());
+				final VFXPass pass = this.passes.get(stage.info().pipeline().getLocation());
+				final @Nullable VFXFieldProgram field = pass == null ? null : stage.effect().getTimeline().getFieldProgram(pass.fieldInput());
+				final GpuTextureView view = field == null ? null : pass.resolveTexture(field.texture());
+				renderPass.bindTexture(binding.sampler(), view == null ? input.getColorTextureView() : view, samplerCache.getClampToEdge(FilterMode.LINEAR));
+			}
+		}
+	}
+
+	/**
+	 * Writes the merged {@code Config} in stage order, {@code [params][field members]} per stage,
+	 * from the same {@code effect.getParam(...)} source the single pass uses (see {@link VFXPass}).
+	 */
+	private void writeFusedConfig(final Std140Builder builder, final List<VFXFusionPlanner.StageRef> stages) {
+		for (final VFXFusionPlanner.StageRef stage : stages) {
+			if (stage.mask()) {
+				continue;
+			}
+			final VFXActiveEffect effect = stage.effect();
+			final float weight = effect.getWeight();
+			for (final String param : stage.info().configParams()) {
+				final float raw;
+				final boolean reserved = "time".equals(param) || "hold".equals(param);
+				if ("time".equals(param)) {
+					raw = effect.getAge();
+				} else if ("hold".equals(param)) {
+					raw = 0.0F;
+				} else {
+					raw = effect.getParam(param, 0.0F);
+				}
+				final float neutral = reserved ? Float.NaN : effect.getType().neutralValue(param);
+				builder.putFloat(Float.isNaN(neutral) ? raw : neutral + (raw - neutral) * weight);
+			}
+			if (stage.info().usesField()) {
+				final String fieldInput = stage.info().fieldInput();
+				final float neutral = effect.getType().fieldNeutral(fieldInput);
+				final float raw = effect.getParam(fieldInput, neutral);
+				final float uniform = neutral + (raw - neutral) * weight;
+				final @Nullable VFXFieldProgram program = effect.getTimeline().getFieldProgram(fieldInput);
+				(program == null ? VFXFieldProgram.empty() : program).write(new VFXFieldValueWriterAdapter(builder),
+					effect.getTimeline().getGraphEvaluator(), uniform, weight,
+					VFXFieldEnv.depthValid() ? 1.0F : 0.0F,
+					VFXFieldEnv.invWidth(), VFXFieldEnv.invHeight(),
+					VFXFieldEnv.invViewProj(), VFXFieldEnv.cameraX(), VFXFieldEnv.cameraY(), VFXFieldEnv.cameraZ());
+			}
 		}
 	}
 
