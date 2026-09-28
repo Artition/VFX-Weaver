@@ -6,9 +6,11 @@ import com.mojang.blaze3d.shaders.UniformType;
 import com.mojang.blaze3d.buffers.Std140SizeCalculator;
 import com.mojang.blaze3d.vertex.DefaultVertexFormat;
 import dev.vfxweaver.effect.VFXEffectType;
+import dev.vfxweaver.util.VFXLog;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 //? if <26.1 {
 /*import com.mojang.blaze3d.platform.DepthTestFunction;
 *///?} else {
@@ -27,6 +29,8 @@ import net.minecraft.client.renderer.BindGroupLayouts;
 import net.minecraft.client.renderer.RenderPipelines;
 import net.minecraft.resources.Identifier;
 import org.jspecify.annotations.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Registers a dedicated {@link RenderPipeline} for every post-processing effect type and exposes
@@ -58,20 +62,65 @@ public final class VFXShaderPrograms {
 	 * before the float params (the camera world position the dome view ray starts from); a
 	 * non-camPos depth pass keeps the original 64-byte prefix so its layout is unchanged.
 	 */
-	/**{@code fusionClass}/{@code prefixEvals} are the post-chain-fusion cost policy; every convenience
-	 * constructor routes them as BARRIER/1, so an unannotated registration can never fuse. */
-	public record ProgramInfo(RenderPipeline pipeline, String[] configParams, int configUboSize, PassRole role, boolean usesDepth, @Nullable String fieldInput, boolean mask, boolean depthConfig, boolean depthHasCamPos, VFXFusionClass fusionClass, int prefixEvals) {
+	/**
+	 * {@code fusionClass}/{@code prefixEvals} are the post-chain-fusion cost policy; every
+	 * convenience constructor routes them as BARRIER/1, so an unannotated registration can never
+	 * fuse. {@code scalable}/{@code pixelParams}/{@code taps} are the chain-resolution policy: a
+	 * scalable pass may run inside a half-resolution chain run, the listed {@code Config} parameters
+	 * hold texel-unit values (so the manager divides their value by the chain scale) and {@code taps}
+	 * is the per-pass fetch count the run threshold sums.
+	 *
+	 * @param pipeline       the render pipeline this pass runs through
+	 * @param configParams   the ordered float parameter names of the {@code Config} block
+	 * @param configUboSize  the std140-aligned byte size of the {@code Config} block
+	 * @param role           how the pass participates in the feedback pipeline
+	 * @param usesDepth      true when the pass reads the scene depth sampler
+	 * @param fieldInput     the field input name, or {@code null} when the pass declares no field block
+	 * @param mask           true when the pass consumes the shared coverage mask
+	 * @param depthConfig    true when the {@code Config} starts with the depth {@code inv_view_proj} prefix
+	 * @param depthHasCamPos true when that depth prefix is followed by {@code cam_pos}
+	 * @param fusionClass    the fusion cost class, forced to {@link VFXFusionClass#BARRIER} when scalable
+	 * @param prefixEvals    the stage's prefix evaluations (fusion cost)
+	 * @param scalable       true when the pass may run inside a half-resolution chain run
+	 * @param pixelParams    the texel-unit parameter names whose value is divided by the chain scale
+	 * @param taps           the per-pass fetch count the chain-resolution run threshold sums
+	 */
+	public record ProgramInfo(RenderPipeline pipeline, String[] configParams, int configUboSize, PassRole role, boolean usesDepth, @Nullable String fieldInput, boolean mask, boolean depthConfig, boolean depthHasCamPos, VFXFusionClass fusionClass, int prefixEvals, boolean scalable, Set<String> pixelParams, int taps) {
+		public ProgramInfo {
+			fusionClass = scalableClass(fusionClass, scalable);
+		}
+
+		/**
+		 * The 11-component form for a program whose resolution policy is unset: not scalable, with no
+		 * pixel parameters and no taps.
+		 */
+		public ProgramInfo(final RenderPipeline pipeline, final String[] configParams, final int configUboSize, final PassRole role, final boolean usesDepth, final @Nullable String fieldInput, final boolean mask, final boolean depthConfig, final boolean depthHasCamPos, final VFXFusionClass fusionClass, final int prefixEvals) {
+			this(pipeline, configParams, configUboSize, role, usesDepth, fieldInput, mask, depthConfig, depthHasCamPos, fusionClass, prefixEvals, false, Set.of(), 0);
+		}
+
 		/** The 8-component form for every depth pass whose Config has no {@code cam_pos} prefix. */
 		public ProgramInfo(final RenderPipeline pipeline, final String[] configParams, final int configUboSize, final PassRole role, final boolean usesDepth, final @Nullable String fieldInput, final boolean mask, final boolean depthConfig) {
-			this(pipeline, configParams, configUboSize, role, usesDepth, fieldInput, mask, depthConfig, false, VFXFusionClass.BARRIER, 1);
+			this(pipeline, configParams, configUboSize, role, usesDepth, fieldInput, mask, depthConfig, false, VFXFusionClass.BARRIER, 1, false, Set.of(), 0);
 		}
 
 		public ProgramInfo(final RenderPipeline pipeline, final String[] configParams, final int configUboSize, final PassRole role) {
-			this(pipeline, configParams, configUboSize, role, false, null, false, false, false, VFXFusionClass.BARRIER, 1);
+			this(pipeline, configParams, configUboSize, role, false, null, false, false, false, VFXFusionClass.BARRIER, 1, false, Set.of(), 0);
 		}
 
 		public ProgramInfo(final RenderPipeline pipeline, final String[] configParams, final int configUboSize) {
-			this(pipeline, configParams, configUboSize, PassRole.NORMAL, false, null, false, false, false, VFXFusionClass.BARRIER, 1);
+			this(pipeline, configParams, configUboSize, PassRole.NORMAL, false, null, false, false, false, VFXFusionClass.BARRIER, 1, false, Set.of(), 0);
+		}
+
+		/**
+		 * A scalable program must be a barrier: a fusible program is fused and never scaled, so the two
+		 * mechanisms cannot disagree about a stage. A violation is logged once and forced to the barrier.
+		 */
+		private static VFXFusionClass scalableClass(final VFXFusionClass fusionClass, final boolean scalable) {
+			if (scalable && fusionClass != VFXFusionClass.BARRIER) {
+				VFXLog.warnOnce(LOGGER, "chainres:fusible-scalable", "A scalable post program is annotated fusible; forcing it to a barrier");
+				return VFXFusionClass.BARRIER;
+			}
+			return fusionClass;
 		}
 
 		/** True when this pipeline declares the {@code FieldConfig} uniform block. */
@@ -80,6 +129,7 @@ public final class VFXShaderPrograms {
 		}
 	}
 
+	private static final Logger LOGGER = LoggerFactory.getLogger("vfxweaver/post");
 	private static final Map<VFXEffectType, List<ProgramInfo>> PROGRAMS = new EnumMap<>(VFXEffectType.class);
 	private static @Nullable RenderPipeline copyPipeline;
 	private static @Nullable RenderPipeline coveragePipeline;

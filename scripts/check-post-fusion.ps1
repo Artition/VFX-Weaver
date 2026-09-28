@@ -2,9 +2,10 @@
 # for the shape of the generated fused source (Task 5).
 #
 # The class contract: VFXFusionClass exists with exactly BARRIER/POINT/UV_REMAP; ProgramInfo carries
-# the fusion policy as its last two components (BARRIER/1 = never fuse); every convenience
-# constructor routes those defaults, so an unannotated registration can never fuse; and nothing can
-# flip a program's class from a system property (the kill switch in the policy is the only switch).
+# the fusion policy as the two components before the chain-resolution policy (BARRIER/1 = never
+# fuse); every convenience constructor routes those defaults, so an unannotated registration can
+# never fuse; and nothing can flip a program's class from a system property (the kill switch in the
+# policy is the only switch).
 #
 # The source contract (spec §9.1): the generator emits fx0/fx0q/fx1, reads the run input once
 # (through vfxIn, so no fx* body names InSampler), declares each s<k>_<Name> exactly once, applies
@@ -32,22 +33,23 @@ if (($constants -join ',') -ne ($expected -join ',')) {
 	$problems.Add("VFXFusionClass constants are '$($constants -join ',')', expected '$($expected -join ',')'")
 }
 
-# 2) the registry: the fusion policy is the record's last two components.
-if ($programs -notmatch 'VFXFusionClass fusionClass, int prefixEvals\)\s*\{') {
-	$problems.Add("ProgramInfo does not end with the fusion components (VFXFusionClass fusionClass, int prefixEvals)")
+# 2) the registry: the fusion pair sits before the resolution policy, which ends the record.
+if ($programs -notmatch 'VFXFusionClass fusionClass, int prefixEvals, boolean scalable, Set<String> pixelParams, int taps\)\s*\{') {
+	$problems.Add("ProgramInfo does not carry the fusion pair (VFXFusionClass fusionClass, int prefixEvals) before the resolution policy (scalable, pixelParams, taps)")
 }
 if ($programs -notmatch 'public record ProgramInfo\(RenderPipeline pipeline,') {
 	$problems.Add("ProgramInfo no longer starts with RenderPipeline pipeline - the positional registry contract changed")
 }
 
-# 3) every convenience constructor routes BARRIER/1 (the canonical one takes them as parameters).
+# 3) every convenience constructor either defaults the fusion class to BARRIER/1 or passes the
+#    canonical fusionClass/prefixEvals through, and every one routes the resolution policy defaults.
 $delegations = [regex]::Matches($programs, '(?m)^\s*this\((.*)\);\s*$')
 if ($delegations.Count -lt 3) {
 	$problems.Add("expected at least three delegating constructors, found $($delegations.Count)")
 }
 foreach ($d in $delegations) {
-	if ($d.Groups[1].Value -notmatch 'VFXFusionClass\.BARRIER,\s*1$') {
-		$problems.Add("a convenience constructor does not default to BARRIER/1: this($($d.Groups[1].Value))")
+	if ($d.Groups[1].Value -notmatch '(VFXFusionClass\.BARRIER, 1|prefixEvals), false, Set\.of\(\), 0$') {
+		$problems.Add("a convenience constructor does not route BARRIER/1 (or prefixEvals) plus the resolution policy defaults: this($($d.Groups[1].Value))")
 	}
 }
 
@@ -83,7 +85,7 @@ if ($problems.Count -gt 0) {
 	Write-Error "post fusion class check failed ($($problems.Count) problem(s))."
 	exit 1
 }
-Write-Host "  BARRIER/POINT/UV_REMAP, the policy as the record's last two components, every convenience constructor defaulting to BARRIER/1, no property override; the 12 fusable programs annotated and the multi-tap/feedback ones left BARRIER"
+Write-Host "  BARRIER/POINT/UV_REMAP, the fusion pair before the resolution policy, every convenience constructor defaulting to BARRIER/1, no property override; the 12 fusable programs annotated and the multi-tap/feedback ones left BARRIER"
 Write-Host "Post fusion class check OK."
 
 # --- golden source (Task 5): the shape of the generated fused program ------------------------------
