@@ -11,8 +11,16 @@ import dev.vfxweaver.effect.VFXFusionBudget;
  * filter-exact in-game A/B proves the linear-fetch emulation.
  */
 public final class VFXFusionPolicy {
-	/** The master switch ({@code -Dvfxweaver.fusion}, default {@code true}). */
-	public static final boolean ENABLED = Boolean.parseBoolean(System.getProperty("vfxweaver.fusion", "true"));
+	/**
+	 * The master switch ({@code -Dvfxweaver.fusion}, default {@code true}).
+	 *
+	 * <p>It is also inert while no program is annotated: a chain of {@link VFXFusionClass#BARRIER}
+	 * stages cannot fuse into anything, so running the planner over it every frame would only
+	 * allocate grouping objects for a run that is guaranteed to fall back to single passes. Gating
+	 * here means an unannotated build takes exactly the pre-fusion path.
+	 */
+	public static final boolean ENABLED = Boolean.parseBoolean(System.getProperty("vfxweaver.fusion", "true"))
+		&& VFXShaderPrograms.hasAnnotatedProgram();
 
 	/** Enables {@code UV_REMAP} stages ({@code -Dvfxweaver.fusion.remap}, default off). */
 	public static final boolean REMAP_ENABLED = Boolean.parseBoolean(System.getProperty("vfxweaver.fusion.remap", "false"));

@@ -353,6 +353,28 @@ public final class VFXShaderPrograms {
 	}
 
 	/**
+	 * True when at least one registered program is annotated to fuse (its class is not
+	 * {@link VFXFusionClass#BARRIER}), so a chain could actually contain a fusable run.
+	 *
+	 * <p>Post-chain fusion is opt-in per program: until something is annotated, every chain is all
+	 * barriers and the planner has no work, so the fusion path can be skipped entirely rather than
+	 * planned and discarded every frame. Evaluated once, at class initialisation, which is the point
+	 * by which every built-in and plugin registration has run.
+	 *
+	 * @return true when the fusion path could produce a fused run for some chain
+	 */
+	public static boolean hasAnnotatedProgram() {
+		for (final List<ProgramInfo> programs : PROGRAMS.values()) {
+			for (final ProgramInfo info : programs) {
+				if (info.fusionClass() != VFXFusionClass.BARRIER) {
+					return true;
+				}
+			}
+		}
+		return false;
+	}
+
+	/**
 	 * Returns the pipeline that copies an arbitrary input texture to the main target.
 	 */
 	public static @Nullable RenderPipeline getCopyPipeline() {
