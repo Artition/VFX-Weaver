@@ -58,13 +58,32 @@ foreach ($text in @($programs, $enum)) {
 	}
 }
 
+# 5) the annotation list: each fusable program's class/prefixEvals, and the barriers.
+foreach ($entry in @(
+	@('COLOR_GRADE', 'POINT', 1), @('SCREEN_FLASH', 'POINT', 1), @('VIGNETTE', 'POINT', 1),
+	@('INVERT', 'POINT', 1), @('POSTERIZE', 'POINT', 1), @('SCANLINES', 'POINT', 1), @('FILM_GRAIN', 'POINT', 1),
+	@('DISTORTION', 'UV_REMAP', 2), @('VORTEX', 'UV_REMAP', 2), @('PIXELATE', 'UV_REMAP', 2),
+	@('NOISE_WARP', 'UV_REMAP', 2), @('SLICE_SHIFT', 'UV_REMAP', 2))) {
+	if ($programs -notmatch "annotate\(VFXEffectType\.$($entry[0]), VFXFusionClass\.$($entry[1]), $($entry[2])\);") {
+		$problems.Add("annotation missing or wrong: expected $($entry[0]) $($entry[1])/$($entry[2])")
+	}
+}
+foreach ($barrier in @('BLUR', 'BLOOM', 'VHS', 'MOTION_BLUR', 'AFTERIMAGE', 'STOP_MOTION', 'DOUBLE_VISION', 'SHOCKWAVE', 'DENT')) {
+	if ($programs -match "annotate\(VFXEffectType\.$barrier,") {
+		$problems.Add("$barrier must stay BARRIER (multi-tap or non-fusible) but is annotated")
+	}
+}
+if ($programs -notmatch 'maskProgram = new ProgramInfo\(maskPipeline, new String\[0\], 0, PassRole\.NORMAL, false, null, true, false, false, VFXFusionClass\.POINT, 1\);') {
+	$problems.Add("mask_apply (the coverage consumer) is not annotated POINT/1")
+}
+
 Write-Host "Post fusion class check (static)"
 if ($problems.Count -gt 0) {
 	$problems | ForEach-Object { Write-Host "  - $_" }
 	Write-Error "post fusion class check failed ($($problems.Count) problem(s))."
 	exit 1
 }
-Write-Host "  BARRIER/POINT/UV_REMAP, the policy as the record's last two components, every convenience constructor defaulting to BARRIER/1, no property override"
+Write-Host "  BARRIER/POINT/UV_REMAP, the policy as the record's last two components, every convenience constructor defaulting to BARRIER/1, no property override; the 12 fusable programs annotated and the multi-tap/feedback ones left BARRIER"
 Write-Host "Post fusion class check OK."
 
 # --- golden source (Task 5): the shape of the generated fused program ------------------------------

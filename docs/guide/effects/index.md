@@ -61,6 +61,16 @@ which lets a plain `/vfx play` find its own targets. See
 
 Fullscreen shader passes, one per effect. They accept `screen_layer`.
 
+Adjacent **pointwise** screen effects - `color_grade`, `screen_flash`, `vignette`, `invert`,
+`posterize`, `scanlines` and `film_grain` - are fused with each masked effect's coverage consumer
+into one shader pass, so a run reads and writes the frame once instead of once per effect. Output is
+unchanged: every fused stage boundary is re-quantised to the RGBA8 the unfused chain wrote.
+`blur`-class effects (anything that samples neighbours, including `bloom`, `vhs` and `motion_blur`),
+`afterimage`/`stop_motion` and every unannotated effect cut the chain and render exactly as before.
+Fusion is on by default; disable it with `-Dvfxweaver.fusion=false`. The one-tap remaps
+(`distortion`, `vortex`, `pixelate`, `noise_warp`, `slice_shift`) stay disabled until
+`-Dvfxweaver.fusion.remap` is set.
+
 - [chromatic_aberration](screen/chromatic-aberration.md) - RGB channel fringing towards the edges
 - [color_grade](screen/color-grade.md) - saturation, contrast, brightness and tint
 - [distortion](screen/distortion.md) - barrel/pincushion warp

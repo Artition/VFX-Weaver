@@ -12,6 +12,21 @@ times this documentation has been revised. The authoritative record of guide rev
 the [download table](index.md#download). Add new entries at the top, in the same PR as the behaviour
 change.
 
+## Unreleased
+
+### Added
+
+- **Post-chain fusion: a run of pointwise screen effects renders as one shader pass.** Adjacent
+  `POINT` screen effects (`color_grade`, `screen_flash`, `vignette`, `invert`, `posterize`,
+  `scanlines`, `film_grain`) and each masked effect's coverage consumer are compiled into a single
+  generated program, so a chain of four masked pointwise effects costs one pass instead of twelve.
+  `blur`-class effects (anything that samples neighbours, including `bloom`, `vhs` and `motion_blur`),
+  `afterimage`/`stop_motion` and every unannotated effect cut the chain and render exactly as before.
+  Output is re-quantised per stage so a fused chain matches the unfused one. On by default;
+  `-Dvfxweaver.fusion=false` disables it, and the experimental one-tap remaps (`distortion`,
+  `vortex`, `pixelate`, `noise_warp`, `slice_shift`) stay disabled until `-Dvfxweaver.fusion.remap`
+  is set. No datapack, API, wire or UBO change.
+
 ## 2.1.1 - 2026-09-27
 
 ### Added

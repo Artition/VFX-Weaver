@@ -62,6 +62,13 @@ public final class VFXFusionPlanner {
 	 * @return one step per pass or fused run, in chain order
 	 */
 	public static List<Step> plan(final List<StageRef> chain) {
+		if (!VFXFusionPolicy.ENABLED) {
+			final List<Step> steps = new ArrayList<>(chain.size());
+			for (final StageRef stage : chain) {
+				steps.add(new Step.Single(stage));
+			}
+			return steps;
+		}
 		return plan(chain, VFXFusedPrograms::acquire);
 	}
 
@@ -71,12 +78,6 @@ public final class VFXFusionPlanner {
 	 */
 	static List<Step> plan(final List<StageRef> chain, final Function<List<StageRef>, VFXFusedPrograms.FusedProgram> acquire) {
 		final List<Step> steps = new ArrayList<>(chain.size());
-		if (!VFXFusionPolicy.ENABLED) {
-			for (final StageRef stage : chain) {
-				steps.add(new Step.Single(stage));
-			}
-			return steps;
-		}
 		for (final Run run : runs(chain)) {
 			final VFXFusedPrograms.FusedProgram program = run.fusible() && run.stages().size() >= 2
 				? acquire.apply(run.stages())

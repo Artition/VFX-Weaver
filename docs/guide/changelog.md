@@ -5,8 +5,11 @@ documentation changed. A guide revision is not a mod version — the two numbers
 released mod versions are recorded on the **[mod Changelog](../CHANGELOG.md)** instead. Where a guide
 revision shipped with a release, the entry says so (for example `v47 — released as 2.0.0`).
 
-Current guide revision: **v73**. Mod version it documents: **2.1.1**. Which jar to download is in the
+Current guide revision: **v74**. Mod version it documents: **2.1.1**. Which jar to download is in the
 [download table](../index.md#download).
+
+### v74 (unreleased)
+- **Post-chain fusion: how the screen chain is drawn now.** A run of adjacent pointwise screen effects plus each masked effect's coverage consumer is compiled into one generated fragment program, so the frame is read and written once for the run instead of once per pass (`blur`-class effects, the feedback pair `afterimage`/`stop_motion` and anything unannotated cut the chain). The output is unchanged: every fused stage boundary is re-quantised to the RGBA8 the unfused chain wrote. The [effects index](effects/index.md) states it and the two kill switches: `-Dvfxweaver.fusion=false` turns fusion off entirely and `-Dvfxweaver.fusion.remap` (default off) only enables the experimental one-tap remaps (`distortion`, `vortex`, `pixelate`, `noise_warp`, `slice_shift`). No datapack field, UBO, API or wire change. Asserted by `scripts/check-post-fusion.ps1` (the annotation list and the golden generated-source shape); the GLSL cannot compile headless here. **Not verified in game** (the owner tests it).
 
 ### v73 — released as 2.1.1
 - **`order`: the compositing order of screen effects inside a layer.** Screen effects now take an `order` param alongside `screen_layer` — a float, lower runs earlier, default `0`, and effects that leave it alone keep the order they were started in, so no existing pack changes. `screen_layer` stays the outer, semantic axis (which part of the frame the pass belongs to: under the hand, above it, above the GUI) and `order` only sequences the effects that layer already selected; being fractions, `10.5` slots an effect between two at `10` and `11`. It is an ordinary param, so the datapack, the command param-map, `setParam` and keyframes all reach it and the wire format, UBO and `PROTOCOL_VERSION` are untouched. Asserted by `scripts/check-post-layer-order.ps1` (the read with its finite fallback, the stable sort sitting between the layer filter and the chain, the layer semantics untouched). **Not verified in game** (the owner tests it).

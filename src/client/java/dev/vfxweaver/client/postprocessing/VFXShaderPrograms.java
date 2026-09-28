@@ -301,7 +301,7 @@ public final class VFXShaderPrograms {
 				*///?}
 				.build()
 		);
-		maskProgram = new ProgramInfo(maskPipeline, new String[0], 0, PassRole.NORMAL, false, null, true, false);
+		maskProgram = new ProgramInfo(maskPipeline, new String[0], 0, PassRole.NORMAL, false, null, true, false, false, VFXFusionClass.POINT, 1);
 
 		// The block-geometry contribution writes coverage into the geometry scratch; it is drawn by
 		// the manager, not scheduled as an effect-chain ProgramInfo. It draws the selected blocks'
@@ -342,6 +342,40 @@ public final class VFXShaderPrograms {
 				.build()
 		);
 		blockGeometryProgram = new ProgramInfo(blockGeometryPipeline, new String[0], 0, PassRole.NORMAL, false, null, false, false);
+		annotate(VFXEffectType.COLOR_GRADE, VFXFusionClass.POINT, 1);
+		annotate(VFXEffectType.SCREEN_FLASH, VFXFusionClass.POINT, 1);
+		annotate(VFXEffectType.VIGNETTE, VFXFusionClass.POINT, 1);
+		annotate(VFXEffectType.INVERT, VFXFusionClass.POINT, 1);
+		annotate(VFXEffectType.POSTERIZE, VFXFusionClass.POINT, 1);
+		annotate(VFXEffectType.SCANLINES, VFXFusionClass.POINT, 1);
+		annotate(VFXEffectType.FILM_GRAIN, VFXFusionClass.POINT, 1);
+		annotate(VFXEffectType.DISTORTION, VFXFusionClass.UV_REMAP, 2);
+		annotate(VFXEffectType.VORTEX, VFXFusionClass.UV_REMAP, 2);
+		annotate(VFXEffectType.PIXELATE, VFXFusionClass.UV_REMAP, 2);
+		annotate(VFXEffectType.NOISE_WARP, VFXFusionClass.UV_REMAP, 2);
+		annotate(VFXEffectType.SLICE_SHIFT, VFXFusionClass.UV_REMAP, 2);
+	}
+
+	/**
+	 * Re-registers every pass of an effect with the given fusion cost policy. Called once at the end
+	 * of {@link #register()}, after every program exists, so the annotation list is a single
+	 * auditable block (the guard reads it) instead of a per-registration argument.
+	 *
+	 * @param type        the effect whose programs are annotated
+	 * @param fusionClass the fusion cost class ({@link VFXFusionClass#POINT} or {@code UV_REMAP})
+	 * @param prefixEvals the stage's prefix evaluations ({@code 1} pointwise, {@code 2} one-tap remap)
+	 */
+	private static void annotate(final VFXEffectType type, final VFXFusionClass fusionClass, final int prefixEvals) {
+		final List<ProgramInfo> programs = PROGRAMS.get(type);
+		if (programs == null) {
+			throw new IllegalStateException("no program registered for " + type);
+		}
+		final List<ProgramInfo> annotated = new java.util.ArrayList<>(programs.size());
+		for (final ProgramInfo info : programs) {
+			annotated.add(new ProgramInfo(info.pipeline(), info.configParams(), info.configUboSize(), info.role(),
+				info.usesDepth(), info.fieldInput(), info.mask(), info.depthConfig(), info.depthHasCamPos(), fusionClass, prefixEvals));
+		}
+		PROGRAMS.put(type, List.copyOf(annotated));
 	}
 
 	/**
