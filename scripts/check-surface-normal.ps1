@@ -18,7 +18,7 @@ $fieldPath = Join-Path $shaderRoot "include\field.glsl"
 
 $pattern = [System.IO.File]::ReadAllText($patternPath)
 $camera = [System.IO.File]::ReadAllText($cameraPath)
-$field = [System.IO.File]::ReadAllText($fieldPath)
+$field = [System.IO.File]::ReadAllText($fieldPath) + "`n" + [System.IO.File]::ReadAllText((Join-Path (Split-Path $fieldPath -Parent) "field_body.glsl"))
 
 $problems = New-Object System.Collections.Generic.List[string]
 
