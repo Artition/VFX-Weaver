@@ -80,7 +80,7 @@ public final class VFXFusionPlanner {
 	 * @return one step per pass or fused run, in chain order
 	 */
 	public static List<Step> plan(final List<StageRef> chain) {
-		if (!VFXFusionPolicy.ENABLED) {
+		if (!VFXFusionPolicy.enabled()) {
 			final List<Step> steps = new ArrayList<>(chain.size());
 			for (final StageRef stage : chain) {
 				steps.add(new Step.Single(stage));
@@ -123,7 +123,7 @@ public final class VFXFusionPlanner {
 	 * sum clears it; a shorter sequence stays at full resolution.
 	 */
 	private static List<Step> wrapScalableRuns(final List<Step> steps) {
-		if (!VFXChainResolution.HALF) {
+		if (!VFXChainResolution.half()) {
 			return steps;
 		}
 		final List<Step> wrapped = new ArrayList<>(steps.size());
@@ -158,7 +158,7 @@ public final class VFXFusionPlanner {
 	/** A stage that may render inside a half-resolution run: a scalable {@code NORMAL} barrier. */
 	private static boolean scalable(final StageRef stage) {
 		final VFXShaderPrograms.ProgramInfo info = stage.info();
-		return VFXChainResolution.HALF
+		return VFXChainResolution.half()
 			&& info.scalable()
 			&& info.role() == VFXShaderPrograms.PassRole.NORMAL
 			&& !stage.mask()
@@ -294,7 +294,7 @@ public final class VFXFusionPlanner {
 			if (fusionClass == VFXFusionClass.BARRIER) {
 				return false;
 			}
-			if (fusionClass == VFXFusionClass.UV_REMAP && !VFXFusionPolicy.REMAP_ENABLED) {
+			if (fusionClass == VFXFusionClass.UV_REMAP && !VFXFusionPolicy.remapEnabled()) {
 				return false;
 			}
 		}

@@ -1,9 +1,11 @@
 package dev.vfxweaver.platform;
 
+import java.nio.file.Path;
 //? if fabric {
 import net.fabricmc.loader.api.FabricLoader;
 //?} else {
-/*import net.neoforged.fml.ModList;*/
+/*import net.neoforged.fml.ModList;
+import net.neoforged.fml.loading.FMLPaths;*/
 //?}
 
 /**
@@ -23,6 +25,17 @@ public final class VFXPlatform {
 		return FabricLoader.getInstance().isModLoaded(modId);
 		//?} else {
 		/*return ModList.get().isLoaded(modId);*/
+		//?}
+	}
+
+	/**
+	 * @return the game's config directory ({@code <game>/config}), the same folder on both loaders
+	 */
+	public static Path configDir() {
+		//? if fabric {
+		return FabricLoader.getInstance().getConfigDir();
+		//?} else {
+		/*return FMLPaths.CONFIGDIR.get();*/
 		//?}
 	}
 

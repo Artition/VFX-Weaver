@@ -162,18 +162,29 @@ Write-Host "Fusion budget check OK."
 
 # --- chain resolution (Task 4): the switch, the threshold and the new step kinds ------------------
 $resolutionPath = Join-Path $repoRoot "src\client\java\dev\vfxweaver\client\postprocessing\VFXChainResolution.java"
+$settingsPath = Join-Path $repoRoot "src\main\java\dev\vfxweaver\util\VFXSettings.java"
 $resolutionProblems = New-Object System.Collections.Generic.List[string]
 if (-not (Test-Path -LiteralPath $resolutionPath)) {
 	Write-Error "chain resolution check: VFXChainResolution.java is missing."
 	exit 1
 }
+if (-not (Test-Path -LiteralPath $settingsPath)) {
+	Write-Error "chain resolution check: VFXSettings.java is missing."
+	exit 1
+}
 $resolution = [System.IO.File]::ReadAllText($resolutionPath)
-if ($resolution -notmatch 'System\.getProperty\("vfxweaver\.chainres", "0\.5"\)') { $resolutionProblems.Add("SCALE does not read -Dvfxweaver.chainres with default 0.5") }
-if ($resolution -notmatch '"1\.0"\.equals\(raw\)') { $resolutionProblems.Add("SCALE does not accept exactly 1.0") }
-if ($resolution -notmatch '"0\.5"\.equals\(raw\)') { $resolutionProblems.Add("SCALE does not accept exactly 0.5") }
+$settings = [System.IO.File]::ReadAllText($settingsPath)
+if ($resolution -notmatch 'public static float scale\(\)') { $resolutionProblems.Add("VFXChainResolution has no scale() accessor") }
+if ($resolution -notmatch 'VFXSettings\.get\(\)\.chainResolution\(\)') { $resolutionProblems.Add("scale() does not read VFXSettings.chainResolution()") }
+if ($resolution -notmatch 'public static boolean half\(\)') { $resolutionProblems.Add("VFXChainResolution has no half() accessor") }
+if ($resolution -notmatch 'return scale\(\) < 1\.0F;') { $resolutionProblems.Add("half() is not scale() < 1.0F") }
 if ($resolution -notmatch 'MIN_RUN_TAPS = 8;') { $resolutionProblems.Add("MIN_RUN_TAPS is not 8") }
-if ($resolution -notmatch 'HALF = SCALE < 1\.0F;') { $resolutionProblems.Add("HALF is not SCALE < 1.0F") }
-if ($resolution -notmatch 'VFXLog\.warnOnce') { $resolutionProblems.Add("an unknown chainres value is not refused with warn-once") }
+if ($resolution -match 'static final float SCALE' -or $resolution -match 'static final boolean HALF') { $resolutionProblems.Add("VFXChainResolution still exposes the SCALE/HALF constants") }
+if ($settings -notmatch 'System\.getProperty\("vfxweaver\.chainres"\)') { $resolutionProblems.Add("VFXSettings does not read -Dvfxweaver.chainres") }
+if ($settings -notmatch '"1\.0"\.equals\(raw\)') { $resolutionProblems.Add("VFXSettings does not accept exactly 1.0") }
+if ($settings -notmatch '"0\.5"\.equals\(raw\)') { $resolutionProblems.Add("VFXSettings does not accept exactly 0.5") }
+if ($settings -notmatch 'DEFAULT_CHAIN_RESOLUTION = 0\.5F') { $resolutionProblems.Add("the chain resolution default is not 0.5F") }
+if ($settings -notmatch 'VFXLog\.warnOnce') { $resolutionProblems.Add("an unknown chainres value is not refused with warn-once") }
 $plannerSource = [System.IO.File]::ReadAllText((Join-Path $repoRoot "src\client\java\dev\vfxweaver\client\postprocessing\VFXFusionPlanner.java"))
 if ($plannerSource -notmatch 'permits Step\.Single, Step\.Fused, Step\.Down, Step\.Up') { $resolutionProblems.Add("Step does not permit Single/Fused/Down/Up") }
 if ($plannerSource -notmatch 'record Single\(StageRef stage, float resScale\)') { $resolutionProblems.Add("Step.Single has no float resScale component") }
@@ -185,7 +196,7 @@ if ($resolutionProblems.Count -gt 0) {
 	Write-Error "chain resolution check failed ($($resolutionProblems.Count) problem(s))."
 	exit 1
 }
-Write-Host "  chainres 0.5 default (1.0/0.5 only), MIN_RUN_TAPS 8, Step.Down/Up + Step.Single(resScale)"
+Write-Host "  VFXChainResolution.scale()/half() read VFXSettings (chainres default 0.5, 1.0/0.5 only), MIN_RUN_TAPS 8, Step.Down/Up + Step.Single(resScale)"
 
 # --- planner fixtures (Task 4): the pass-level model, computed by the planner itself ---------------
 $plannerPath = Join-Path $repoRoot "src\client\java\dev\vfxweaver\client\postprocessing\VFXFusionPlanner.java"
@@ -241,7 +252,7 @@ public final class FusionPlannerCheck {
 		four_masked_pointwise_plans_as_one_run();
 		at_most_one_run_head_consumer_per_run();
 		sampler_cut_at_six_effects();
-		if (VFXChainResolution.HALF) {
+		if (VFXChainResolution.half()) {
 			heavy_scene_splits_into_two_runs();
 			heavy_scene_with_mask_on_blur_splits_into_three_runs();
 			tap_threshold_is_not_wrapped();

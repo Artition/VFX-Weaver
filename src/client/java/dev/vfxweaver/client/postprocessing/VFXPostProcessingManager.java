@@ -556,7 +556,7 @@ public final class VFXPostProcessingManager {
 	 */
 	private static List<VFXFusionPlanner.Step> planSteps(final List<VFXFusionPlanner.StageRef> stageRefs, final int layer) {
 		try {
-			return VFXFusionPolicy.ENABLED ? VFXFusionPlanner.plan(stageRefs) : singleSteps(stageRefs);
+			return VFXFusionPolicy.enabled() ? VFXFusionPlanner.plan(stageRefs) : singleSteps(stageRefs);
 		} catch (Exception e) {
 			VFXLog.warnOnce(LOGGER, "post:plan:" + layer, "Failed to plan the VFX post chain; rendering plain full-resolution passes", e);
 			return singleSteps(stageRefs);
@@ -582,7 +582,7 @@ public final class VFXPostProcessingManager {
 			}
 			key.append(((VFXFusionPlanner.Step.Single) steps.get(k)).stage().info().pipeline().getLocation().getPath());
 		}
-		return key.append('@').append(VFXChainResolution.SCALE).toString();
+		return key.append('@').append(VFXChainResolution.scale()).toString();
 	}
 
 	/**
@@ -1065,14 +1065,14 @@ public final class VFXPostProcessingManager {
 		// The half pair exists only while the chain-resolution switch is on and some active pass is
 		// scalable; it is released on resize (above) and as soon as the scale returns to 1.0 or no
 		// active pass is scalable any more, so the memory is not held for nothing (spec §7).
-		if (this.halfPingPong == null && VFXChainResolution.HALF && anyScalable) {
+		if (this.halfPingPong == null && VFXChainResolution.half() && anyScalable) {
 			final int halfWidth = Math.max(1, width >> 1);
 			final int halfHeight = Math.max(1, height >> 1);
 			this.halfPingPong = new TextureTarget[] {
 				createTarget("vfxweaver half pingpong 0", halfWidth, halfHeight, false),
 				createTarget("vfxweaver half pingpong 1", halfWidth, halfHeight, false)
 			};
-		} else if (this.halfPingPong != null && (!VFXChainResolution.HALF || !anyScalable)) {
+		} else if (this.halfPingPong != null && (!VFXChainResolution.half() || !anyScalable)) {
 			this.destroyHalfTargets();
 		}
 	}

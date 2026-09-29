@@ -1,14 +1,16 @@
 package dev.vfxweaver.client.postprocessing;
 
 import dev.vfxweaver.effect.VFXFusionBudget;
+import dev.vfxweaver.util.VFXSettings;
 
 /**
  * The post-chain fusion kill switches, budget bounds and canonical sampler names.
  *
- * <p>Stateless. {@link #ENABLED} is on by default and is turned off with
- * {@code -Dvfxweaver.fusion=false}; {@link #REMAP_ENABLED} is off unless
+ * <p>Stateless. {@link #enabled()} is on by default and is turned off with
+ * {@code -Dvfxweaver.fusion=false} (or the in-game setting); {@link #remapEnabled()} is off unless
  * {@code -Dvfxweaver.fusion.remap} is set, so a {@code UV_REMAP} stage stays a barrier until a
- * filter-exact in-game A/B proves the linear-fetch emulation.
+ * filter-exact in-game A/B proves the linear-fetch emulation. Both read {@link VFXSettings} on every
+ * call, so a change applies without a restart.
  */
 public final class VFXFusionPolicy {
 	/**
@@ -18,12 +20,21 @@ public final class VFXFusionPolicy {
 	 * stages cannot fuse into anything, so running the planner over it every frame would only
 	 * allocate grouping objects for a run that is guaranteed to fall back to single passes. Gating
 	 * here means an unannotated build takes exactly the pre-fusion path.
+	 *
+	 * @return whether fusion may run this frame
 	 */
-	public static final boolean ENABLED = Boolean.parseBoolean(System.getProperty("vfxweaver.fusion", "true"))
-		&& VFXShaderPrograms.hasAnnotatedProgram();
+	public static boolean enabled() {
+		return VFXSettings.get().fusion() && VFXShaderPrograms.hasAnnotatedProgram();
+	}
 
-	/** Enables {@code UV_REMAP} stages ({@code -Dvfxweaver.fusion.remap}, default off). */
-	public static final boolean REMAP_ENABLED = Boolean.parseBoolean(System.getProperty("vfxweaver.fusion.remap", "false"));
+	/**
+	 * Enables {@code UV_REMAP} stages ({@code -Dvfxweaver.fusion.remap}, default off).
+	 *
+	 * @return whether the experimental remaps are enabled
+	 */
+	public static boolean remapEnabled() {
+		return VFXSettings.get().remap();
+	}
 
 	/** The linear-evaluation bound, from {@link VFXFusionBudget#MAX_STAGE_EVALS}. */
 	public static final int MAX_STAGE_EVALS = VFXFusionBudget.MAX_STAGE_EVALS;

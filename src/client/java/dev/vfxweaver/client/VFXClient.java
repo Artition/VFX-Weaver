@@ -20,6 +20,7 @@ import dev.vfxweaver.network.VFXSyncPayload;
 import dev.vfxweaver.network.VFXTriggerPayload;
 import dev.vfxweaver.platform.VFXNetwork;
 import dev.vfxweaver.resource.VFXDefinitionManager;
+import dev.vfxweaver.util.VFXSettings;
 import java.util.Map;
 //? if fabric {
 import net.fabricmc.api.ClientModInitializer;
@@ -60,6 +61,7 @@ public class VFXClient {
 	/** Runs the loader-agnostic client setup; invoked by the Fabric entry or the NeoForge client mod. */
 	private void initializeClient() {
 		VFXClientRenderHooks.initClient();
+		VFXSettings.get().load();
 		VFXShaderPrograms.register();
 		VFXWorldOverlayRenderer.register();
 		VFXEntityEffectRenderer.register();

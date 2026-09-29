@@ -17,6 +17,7 @@ $ErrorActionPreference = "Stop"
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $programsPath = Join-Path $repoRoot "src\client\java\dev\vfxweaver\client\postprocessing\VFXShaderPrograms.java"
 $classPath = Join-Path $repoRoot "src\client\java\dev\vfxweaver\client\postprocessing\VFXFusionClass.java"
+$policyPath = Join-Path $repoRoot "src\client\java\dev\vfxweaver\client\postprocessing\VFXFusionPolicy.java"
 
 $problems = New-Object System.Collections.Generic.List[string]
 if (-not (Test-Path -LiteralPath $classPath)) {
@@ -24,6 +25,22 @@ if (-not (Test-Path -LiteralPath $classPath)) {
 }
 $programs = [System.IO.File]::ReadAllText($programsPath)
 $enum = if (Test-Path -LiteralPath $classPath) { [System.IO.File]::ReadAllText($classPath) } else { "" }
+
+# 0) the kill switches are settings-backed accessors, not the old static final ENABLED/REMAP_ENABLED
+#    constants (the values now come from VFXSettings and can change without a restart).
+if (-not (Test-Path -LiteralPath $policyPath)) {
+	$problems.Add("VFXFusionPolicy.java is missing")
+} else {
+	$policy = [System.IO.File]::ReadAllText($policyPath)
+	if ($policy -match 'static final boolean (ENABLED|REMAP_ENABLED)') {
+		$problems.Add("VFXFusionPolicy still exposes the static final ENABLED/REMAP_ENABLED constants")
+	}
+	if ($policy -notmatch 'public static boolean enabled\(\)') { $problems.Add("VFXFusionPolicy has no enabled() accessor") }
+	if ($policy -notmatch 'public static boolean remapEnabled\(\)') { $problems.Add("VFXFusionPolicy has no remapEnabled() accessor") }
+	if ($policy -notmatch 'VFXSettings\.get\(\)\.fusion\(\)' -or $policy -notmatch 'VFXSettings\.get\(\)\.remap\(\)') {
+		$problems.Add("the fusion policy does not read both switches from VFXSettings")
+	}
+}
 
 # 1) the enum: exactly the three constants, in order, and no further one.
 $enumBody = [regex]::Match($enum, '(?s)enum VFXFusionClass\s*\{(.*)\}\s*$').Groups[1].Value
@@ -85,7 +102,7 @@ if ($problems.Count -gt 0) {
 	Write-Error "post fusion class check failed ($($problems.Count) problem(s))."
 	exit 1
 }
-Write-Host "  BARRIER/POINT/UV_REMAP, the fusion pair before the resolution policy, every convenience constructor defaulting to BARRIER/1, no property override; the 12 fusable programs annotated and the multi-tap/feedback ones left BARRIER"
+Write-Host "  BARRIER/POINT/UV_REMAP, the fusion pair before the resolution policy, every convenience constructor defaulting to BARRIER/1, no property override; VFXFusionPolicy.enabled()/remapEnabled() read VFXSettings (no static final switches); the 12 fusable programs annotated and the multi-tap/feedback ones left BARRIER"
 Write-Host "Post fusion class check OK."
 
 # --- golden source (Task 5): the shape of the generated fused program ------------------------------

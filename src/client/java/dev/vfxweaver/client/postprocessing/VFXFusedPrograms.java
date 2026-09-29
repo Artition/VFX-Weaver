@@ -87,7 +87,7 @@ public final class VFXFusedPrograms {
 	 * @return the compiled program, or {@code null} so the caller falls back to {@code Single}s
 	 */
 	public static @Nullable FusedProgram acquire(final List<StageRef> stages) {
-		if (!VFXFusionPolicy.ENABLED) {
+		if (!VFXFusionPolicy.enabled()) {
 			return null;
 		}
 		final VFXFusedShaderGenerator.Generated generated;
