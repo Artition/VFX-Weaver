@@ -90,6 +90,59 @@ foreach ($required in @('downsampleProgram()', 'upsampleProgram()', 'post/downsa
 	}
 }
 
+# E) the manager actually executes a half-resolution run (chain-resolution, Task 5).
+$managerPath = Join-Path $repoRoot "src\client\java\dev\vfxweaver\client\postprocessing\VFXPostProcessingManager.java"
+$manager = Get-Text $managerPath
+
+function Find-Index([string]$text, [string]$needle) {
+	if ($text -eq "") { return -1 }
+	return $text.IndexOf($needle)
+}
+
+if ($manager -ne "") {
+	# A) the chain-resolution switch gates everything.
+	if ($manager -notmatch 'VFXChainResolution\.HALF') {
+		$problems.Add("manager: does not consult VFXChainResolution.HALF")
+	}
+	# B) the half pair is created lazily, only while the switch is on.
+	if ($manager -notmatch [regex]::Escape('if (this.halfPingPong == null && VFXChainResolution.HALF')) {
+		$problems.Add("manager: no lazy half pair creation guarded by 'this.halfPingPong == null && VFXChainResolution.HALF'")
+	}
+	if ($manager -notmatch 'Math\.max\(1, width >> 1\)' -or $manager -notmatch 'Math\.max\(1, height >> 1\)') {
+		$problems.Add("manager: half pair is not sized 'Math.max(1, width >> 1)' / 'Math.max(1, height >> 1)'")
+	}
+	# C) the pair is destroyed on resize and when the scale returns to 1.0 (or nothing scalable).
+	$destroyCount = Count-Text $manager 'this.destroyHalfTargets();'
+	if ($destroyCount -lt 2) {
+		$problems.Add("manager: destroyHalfTargets() is called $destroyCount time(s); expected the resize path and the scale-1.0/no-scalable path")
+	}
+	if ($manager -notmatch [regex]::Escape('!VFXChainResolution.HALF || !anyScalable')) {
+		$problems.Add("manager: the half pair is not destroyed when '!VFXChainResolution.HALF || !anyScalable'")
+	}
+	# D) a run head's captureBefore copy runs from the full-resolution read before the downsample.
+	$captureIndex = Find-Index $manager 'chain.get(entry).captureBefore()'
+	$downIndex = Find-Index $manager 'this.pass(downInfo).execute'
+	if ($captureIndex -lt 0) {
+		$problems.Add("manager: no run-head 'chain.get(entry).captureBefore()' copy")
+	} elseif ($downIndex -ge 0 -and $captureIndex -gt $downIndex) {
+		$problems.Add("manager: the run head's captureBefore copy is not placed before the downsample")
+	}
+	# E) an execution failure poisons the run's composition for the session.
+	if ($manager -notmatch 'poisonedScaledRuns\.add\(runKey\)' -or $manager -notmatch 'poisonedScaledRuns\.contains\(runKey\)') {
+		$problems.Add("manager: execution failures do not poison the run composition (poisonedScaledRuns add/contains)")
+	}
+	if ($manager -notmatch 'post:scaled:') {
+		$problems.Add("manager: a poisoned scaled run is not reported with a 'post:scaled:' warnOnce")
+	}
+	if ($manager -notmatch 'scaledRunKey') {
+		$problems.Add("manager: no composition-based scaled-run key")
+	}
+	# F) pixel-unit parameters are divided by the run scale, only for the names the program lists.
+	if ($manager -notmatch 'this\.pixelParams\.contains\(param\) \? raw / resScale : raw') {
+		$problems.Add("manager: no 'this.pixelParams.contains(param) ? raw / resScale : raw' division")
+	}
+}
+
 Write-Host "Chain-resolution conversions check (static)"
 if ($problems.Count -gt 0) {
 	$problems | ForEach-Object { Write-Host "  - $_" }
@@ -97,5 +150,6 @@ if ($problems.Count -gt 0) {
 	exit 1
 }
 Write-Host "  downsample is the exact 2x2 box average, upsample the clamped manual bilinear; both are four-fetch, implicit-LOD-0, single-pad-Config; downsampleProgram()/upsampleProgram() register post/downsample and post/upsample"
+Write-Host "  the manager creates the half pair only under VFXChainResolution.HALF, destroys it on resize and at scale 1.0, captures the run head before the downsample, poisons a failed run by composition, and divides only the program's pixel parameters by resScale"
 Write-Host "Chain-resolution conversions check OK."
 exit 0

@@ -42,12 +42,13 @@ import dev.vfxweaver.util.VFXReloadSafeCache;
 import dev.vfxweaver.util.VFXSkyAnchor;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-//? if >=26.1 {
 import java.util.Set;
+//? if >=26.1 {
 import java.util.concurrent.ConcurrentHashMap;
 //?}
 //? if >=26.2 {
@@ -95,6 +96,10 @@ public final class VFXPostProcessingManager {
 	private static final int ARENA_INITIAL_CAPACITY = 16;
 
 	private final TextureTarget[] pingPong = new TextureTarget[2];
+	/** Lazily created half-resolution ping-pong pair for scalable runs (spec §7); null when off. */
+	private @Nullable TextureTarget[] halfPingPong;
+	/** Scaled-run compositions whose execution failed this session, keyed {@code a>b@scale} (spec §8). */
+	private final Set<String> poisonedScaledRuns = new HashSet<>();
 	/** Double-buffered history for the feedback effects (afterimage). */
 	private final TextureTarget[] history = new TextureTarget[2];
 	private @Nullable TextureTarget stopMotionHold;
@@ -136,6 +141,7 @@ public final class VFXPostProcessingManager {
 				target.destroyBuffers();
 			}
 		}
+		this.destroyHalfTargets();
 		for (TextureTarget target : this.history) {
 			if (target != null) {
 				target.destroyBuffers();
@@ -302,7 +308,11 @@ public final class VFXPostProcessingManager {
 			return;
 		}
 
-		this.ensureTargets(width, height);
+		boolean anyScalable = false;
+		for (final VFXFusionPlanner.StageRef stage : stageRefs) {
+			anyScalable |= stage.info().scalable();
+		}
+		this.ensureTargets(width, height, anyScalable);
 		this.ensureMaskTargets(width, height, maskEffects);
 		//? if <26.1 {
 /*		if (this.projectionMatrixBuffer == null) {
@@ -328,7 +338,7 @@ public final class VFXPostProcessingManager {
 			// first, then run the chain starting from that buffer.
 			VFXPass copy = this.copyPass();
 			if (!chain.isEmpty()) {
-				copy.execute(encoder, samplerCache, mainTarget, this.pingPong[0], null, null, null, null, null, null);
+				copy.execute(encoder, samplerCache, mainTarget, this.pingPong[0], null, null, null, null, null, null, 1.0F);
 				this.pruneStopMotionSlots(active);
 			}
 
@@ -354,14 +364,103 @@ public final class VFXPostProcessingManager {
 
 			RenderTarget read = this.pingPong[0];
 			int pingPongIndex = 1;
-			final List<VFXFusionPlanner.Step> steps = VFXFusionPolicy.ENABLED
-				? VFXFusionPlanner.plan(stageRefs)
-				: singleSteps(stageRefs);
+			final List<VFXFusionPlanner.Step> steps = planSteps(stageRefs, layer);
 			int entry = 0;
-			for (final VFXFusionPlanner.Step step : steps) {
+			for (int stepIndex = 0; stepIndex < steps.size(); stepIndex++) {
+				final VFXFusionPlanner.Step step = steps.get(stepIndex);
+				if (step instanceof VFXFusionPlanner.Step.Down) {
+					// A half-resolution scalable run (spec §4/§7): Down, the run's stages alternating
+					// inside the half pair, Up. The whole run is consumed here so the fail-closed
+					// boundary (spec §8) covers both a planning miss and an execution failure. The
+					// matching Up is the first Up at or after this Down, found by step index: the run
+					// between them is exactly the wrapped stages. Scanning from the chain cursor would
+					// be wrong once a preceding fused step has made the two indices diverge.
+					final int firstStage = stepIndex + 1;
+					int upIndex = stepIndex;
+					while (upIndex < steps.size() && !(steps.get(upIndex) instanceof VFXFusionPlanner.Step.Up)) {
+						upIndex++;
+					}
+					final int stageCount = upIndex - firstStage;
+					final int runStart = entry;
+					final String runKey = scaledRunKey(steps, firstStage, upIndex);
+					final VFXShaderPrograms.ProgramInfo downInfo = VFXShaderPrograms.downsampleProgram();
+					final VFXShaderPrograms.ProgramInfo upInfo = VFXShaderPrograms.upsampleProgram();
+					// Only the run head's captureBefore is honored inside the scaled path, where the
+					// full-resolution pre-effect image is still in `read` before the downsample. A
+					// non-head captureBefore stage has no full-resolution image to copy (the earlier
+					// stages exist only at half resolution), so such a run stays at full resolution
+					// rather than capturing the wrong image.
+					boolean captureBoundary = false;
+					for (int k = 1; k < stageCount; k++) {
+						captureBoundary |= chain.get(entry + k).captureBefore();
+					}
+					boolean scaled = stageCount > 0 && !captureBoundary
+						&& downInfo != null && upInfo != null
+						&& this.halfPingPong != null
+						&& !this.poisonedScaledRuns.contains(runKey);
+					if (scaled) {
+						try {
+							if (chain.get(entry).captureBefore()) {
+								// The run head's pre-effect image is captured from the full-resolution
+								// input before the downsample replaces the working target (spec §4).
+								copy.execute(encoder, samplerCache, read, this.maskBefore, null, null, null, null, null, null, 1.0F);
+							}
+							this.pass(downInfo).execute(encoder, samplerCache, read, this.halfPingPong[0], null, null, null, null, null, null, 1.0F);
+							RenderTarget halfRead = this.halfPingPong[0];
+							int halfIndex = 1;
+							for (int k = 0; k < stageCount; k++) {
+								final PassRun run = chain.get(entry);
+								final RenderTarget output = this.halfPingPong[halfIndex];
+								run.pass().execute(encoder, samplerCache, halfRead, output, run.effect(), null, null, null, null, null, 2.0F);
+								halfRead = output;
+								halfIndex = 1 - halfIndex;
+								entry++;
+							}
+							final boolean runLast = entry == chain.size();
+							final RenderTarget output = runLast ? mainTarget : this.pingPong[pingPongIndex];
+							this.pass(upInfo).execute(encoder, samplerCache, halfRead, output, null, null, null, null, null, null, 1.0F);
+							read = output;
+							if (!runLast) {
+								pingPongIndex = 1 - pingPongIndex;
+							}
+						} catch (Exception e) {
+							this.poisonedScaledRuns.add(runKey);
+							VFXLog.warnOnce(LOGGER, "post:scaled:" + runKey,
+								"Failed to run a half-resolution VFX post run '{}'; running the rest of the frame at full resolution", runKey, e);
+							entry = runStart;
+							scaled = false;
+						}
+					}
+					if (!scaled) {
+						// A planning miss (missing conversion program or half target), a poisoned
+						// composition, a non-head captureBefore, or a failure after the run started:
+						// the run's stages render this frame as plain full-resolution passes, exactly
+						// as before the run was wrapped, the captureBefore copy included.
+						for (int k = 0; k < stageCount; k++) {
+							final PassRun run = chain.get(entry);
+							final boolean last = entry == chain.size() - 1;
+							if (run.captureBefore()) {
+								copy.execute(encoder, samplerCache, read, this.maskBefore, null, null, null, null, null, null, 1.0F);
+							}
+							final RenderTarget output = last ? mainTarget : this.pingPong[pingPongIndex];
+							run.pass().execute(encoder, samplerCache, read, output, run.effect(), null, null, mainTarget, run.fieldProgram(), null, 1.0F);
+							read = output;
+							if (!last) {
+								pingPongIndex = 1 - pingPongIndex;
+							}
+							entry++;
+						}
+					}
+					stepIndex = upIndex;
+					continue;
+				}
+				if (step instanceof VFXFusionPlanner.Step.Up) {
+					// Consumed by its matching Down above; a stray Up is inert.
+					continue;
+				}
 				if (step instanceof VFXFusionPlanner.Step.Fused fused && canExecuteFused(fused, mainTarget)) {
 					if (fused.stages().get(0).captureBefore()) {
-						copy.execute(encoder, samplerCache, read, this.maskBefore, null, null, null, null, null, null);
+						copy.execute(encoder, samplerCache, read, this.maskBefore, null, null, null, null, null, null, 1.0F);
 					}
 					final boolean runLast = entry + fused.stages().size() == chain.size();
 					final RenderTarget output = runLast ? mainTarget : this.pingPong[pingPongIndex];
@@ -383,12 +482,12 @@ public final class VFXPostProcessingManager {
 					PassRun run = chain.get(entry);
 					if (run.captureBefore()) {
 						// Preserve the pre-effect image so the consumer can blend the coverage into it.
-						copy.execute(encoder, samplerCache, read, this.maskBefore, null, null, null, null, null, null);
+						copy.execute(encoder, samplerCache, read, this.maskBefore, null, null, null, null, null, null, 1.0F);
 					}
 					if (run.mask()) {
 						final TextureTarget coverage = this.coverageTargets.get(run.effect().getId());
 						RenderTarget output = last ? mainTarget : this.pingPong[pingPongIndex];
-						run.pass().execute(encoder, samplerCache, read, output, run.effect(), this.maskBefore, null, null, null, coverage);
+						run.pass().execute(encoder, samplerCache, read, output, run.effect(), this.maskBefore, null, null, null, coverage, 1.0F);
 						read = output;
 						if (!last) {
 							pingPongIndex = 1 - pingPongIndex;
@@ -400,19 +499,19 @@ public final class VFXPostProcessingManager {
 					if (role == VFXShaderPrograms.PassRole.FEEDBACK_UPDATE) {
 						// History update: read the live frame + the previous history, write the next.
 						RenderTarget histPrev = this.historyDirty ? read : this.history[0];
-						run.pass().execute(encoder, samplerCache, read, this.history[1], run.effect(), histPrev, null, null, null, null);
+						run.pass().execute(encoder, samplerCache, read, this.history[1], run.effect(), histPrev, null, null, null, null, 1.0F);
 						this.historyDirty = false;
 						// read stays the live frame for the composite pass.
 					} else {
 						RenderTarget output = last ? mainTarget : this.pingPong[pingPongIndex];
 						if (role == VFXShaderPrograms.PassRole.STOP_MOTION) {
 							float hold = this.updateStopMotionHold(run.effect(), encoder, samplerCache, copy, mainTarget);
-							run.pass().execute(encoder, samplerCache, read, output, run.effect(), this.stopMotionHold, hold, null, null, null);
+							run.pass().execute(encoder, samplerCache, read, output, run.effect(), this.stopMotionHold, hold, null, null, null, 1.0F);
 						} else if (role == VFXShaderPrograms.PassRole.FEEDBACK_COMPOSITE) {
-							run.pass().execute(encoder, samplerCache, read, output, run.effect(), this.history[1], null, null, null, null);
+							run.pass().execute(encoder, samplerCache, read, output, run.effect(), this.history[1], null, null, null, null, 1.0F);
 							this.swapHistory();
 						} else {
-							run.pass().execute(encoder, samplerCache, read, output, run.effect(), null, null, mainTarget, run.fieldProgram(), null);
+							run.pass().execute(encoder, samplerCache, read, output, run.effect(), null, null, mainTarget, run.fieldProgram(), null, 1.0F);
 						}
 						read = output;
 						if (!last) {
@@ -445,6 +544,45 @@ public final class VFXPostProcessingManager {
 			steps.add(new VFXFusionPlanner.Step.Single(stage));
 		}
 		return steps;
+	}
+
+	/**
+	 * Plans the chain, failing closed to plain full-resolution single passes if planning throws
+	 * (spec §8, planning phase): a planner bug must not drop the whole layer for the frame.
+	 *
+	 * @param stageRefs the ordered chain stages
+	 * @param layer     the screen layer being rendered (for the warn-once key)
+	 * @return the planned steps, or single passes when planning failed
+	 */
+	private static List<VFXFusionPlanner.Step> planSteps(final List<VFXFusionPlanner.StageRef> stageRefs, final int layer) {
+		try {
+			return VFXFusionPolicy.ENABLED ? VFXFusionPlanner.plan(stageRefs) : singleSteps(stageRefs);
+		} catch (Exception e) {
+			VFXLog.warnOnce(LOGGER, "post:plan:" + layer, "Failed to plan the VFX post chain; rendering plain full-resolution passes", e);
+			return singleSteps(stageRefs);
+		}
+	}
+
+	/**
+	 * The composition key of a scalable run for the poison set (spec §8): the run's stage program
+	 * paths in order, joined with {@code >}, plus the chain scale (for example
+	 * {@code post/blur_x>post/blur_y@0.5}). It is keyed by composition rather than by effect id, so
+	 * one broken run shape cannot poison an unrelated chain that merely shares an effect.
+	 *
+	 * @param steps the planned steps
+	 * @param start the first stage step of the run
+	 * @param end   the run's closing {@code Up} step index (exclusive of the stages)
+	 * @return the composition key
+	 */
+	private static String scaledRunKey(final List<VFXFusionPlanner.Step> steps, final int start, final int end) {
+		final StringBuilder key = new StringBuilder();
+		for (int k = start; k < end; k++) {
+			if (key.length() > 0) {
+				key.append('>');
+			}
+			key.append(((VFXFusionPlanner.Step.Single) steps.get(k)).stage().info().pipeline().getLocation().getPath());
+		}
+		return key.append('@').append(VFXChainResolution.SCALE).toString();
 	}
 
 	/**
@@ -705,7 +843,7 @@ public final class VFXPostProcessingManager {
 		Integer prev = this.stopMotionSlots.get(effect.getId());
 		this.stopMotionSlots.put(effect.getId(), slot);
 		if (prev == null || prev != slot) {
-			copy.execute(encoder, samplerCache, mainTarget, this.stopMotionHold, null, null, null, null, null, null);
+			copy.execute(encoder, samplerCache, mainTarget, this.stopMotionHold, null, null, null, null, null, null, 1.0F);
 			return 0.0F;
 		}
 		return 1.0F;
@@ -900,7 +1038,7 @@ public final class VFXPostProcessingManager {
 	}
 	//?}
 
-	private void ensureTargets(final int width, final int height) {
+	private void ensureTargets(final int width, final int height, final boolean anyScalable) {
 		if (width != this.lastWidth || height != this.lastHeight) {
 			for (int i = 0; i < this.pingPong.length; i++) {
 				if (this.pingPong[i] != null) {
@@ -920,9 +1058,34 @@ public final class VFXPostProcessingManager {
 			this.stopMotionHold = createTarget("vfxweaver stop motion hold", width, height, false);
 			this.stopMotionSlots.clear();
 			this.historyDirty = true;
+			this.destroyHalfTargets();
 			this.lastWidth = width;
 			this.lastHeight = height;
 		}
+		// The half pair exists only while the chain-resolution switch is on and some active pass is
+		// scalable; it is released on resize (above) and as soon as the scale returns to 1.0 or no
+		// active pass is scalable any more, so the memory is not held for nothing (spec §7).
+		if (this.halfPingPong == null && VFXChainResolution.HALF && anyScalable) {
+			final int halfWidth = Math.max(1, width >> 1);
+			final int halfHeight = Math.max(1, height >> 1);
+			this.halfPingPong = new TextureTarget[] {
+				createTarget("vfxweaver half pingpong 0", halfWidth, halfHeight, false),
+				createTarget("vfxweaver half pingpong 1", halfWidth, halfHeight, false)
+			};
+		} else if (this.halfPingPong != null && (!VFXChainResolution.HALF || !anyScalable)) {
+			this.destroyHalfTargets();
+		}
+	}
+
+	/** Releases the lazily created half-resolution ping-pong pair, if any (spec §7). */
+	private void destroyHalfTargets() {
+		if (this.halfPingPong == null) {
+			return;
+		}
+		for (final TextureTarget target : this.halfPingPong) {
+			target.destroyBuffers();
+		}
+		this.halfPingPong = null;
 	}
 
 	/**
@@ -1034,6 +1197,8 @@ public final class VFXPostProcessingManager {
 		private final boolean depthConfig;
 		/** True when this pass's {@code Config} also declares {@code vec4 cam_pos} after the matrix (sky_pattern). */
 		private final boolean depthHasCamPos;
+		/** The texel-unit parameter names divided by the run scale (chain-resolution, spec §5). */
+		private final Set<String> pixelParams;
 		/** The depth pass's resolved anchor (the shape centre / effect world position / player), reused every frame. */
 		private final Vector3f scratchAnchor = new Vector3f();
 		/**
@@ -1064,6 +1229,7 @@ public final class VFXPostProcessingManager {
 			this.mask = info.mask();
 			this.depthConfig = info.depthConfig();
 			this.depthHasCamPos = info.depthHasCamPos();
+			this.pixelParams = info.pixelParams();
 		}
 
 		VFXShaderPrograms.PassRole role() {
@@ -1094,7 +1260,8 @@ public final class VFXPostProcessingManager {
 			final @Nullable Float hold,
 			final @Nullable RenderTarget depthSource,
 			final @Nullable VFXFieldProgram fieldProgram,
-			final @Nullable RenderTarget coverage
+			final @Nullable RenderTarget coverage,
+			final float resScale
 		) {
 			//? if >=26.1 {
 			if (this.depthConfig) {
@@ -1156,8 +1323,21 @@ public final class VFXPostProcessingManager {
 						} else {
 							raw = effect.getParam(param, 0.0F);
 						}
+						// A pixel-unit parameter holds texels of the input target (spec §5), so at half
+						// resolution its value is divided by the run scale to keep the same on-screen
+						// width. Every other name - the reserved ones included - is written as before.
+						final float value = !reserved && this.pixelParams.contains(param) ? raw / resScale : raw;
 						final float neutral = reserved ? Float.NaN : effect.getType().neutralValue(param);
-						builder.putFloat(Float.isNaN(neutral) ? raw : neutral + (raw - neutral) * weight);
+						builder.putFloat(Float.isNaN(neutral) ? value : neutral + (value - neutral) * weight);
+					}
+					});
+			} else if (this.hasConfig) {
+				// A Config-bearing pass with no effect (the chain-resolution conversion pair): its
+				// declared Config block must still be bound, so upload a zeroed one. The pad is
+				// unused by the shader; the binding is what matters.
+				config = this.arena.write(encoder, builder -> {
+					for (int i = 0; i < this.configParams.length; i++) {
+						builder.putFloat(0.0F);
 					}
 				});
 			}
