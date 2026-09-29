@@ -68,8 +68,8 @@ unchanged: every fused stage boundary is re-quantised to the RGBA8 the unfused c
 `blur`-class effects (anything that samples neighbours, including `bloom`, `vhs` and `motion_blur`),
 `afterimage`/`stop_motion` and every unannotated effect cut the chain and render exactly as before.
 Fusion is on by default; disable it with `-Dvfxweaver.fusion=false`. The one-tap remaps
-(`distortion`, `vortex`, `pixelate`, `noise_warp`, `slice_shift`) stay disabled until
-`-Dvfxweaver.fusion.remap` is set.
+(`distortion`, `vortex`, `pixelate`, `noise_warp`, `slice_shift`) are fused as well; disable them
+with `-Dvfxweaver.fusion.remap=false`.
 
 Separately, a run of the heavy multi-tap passes - `blur` (both its passes), `bloom`,
 `depth_of_field`, `vhs` and `digital_glitch` - can render at half resolution: the run is wrapped in

@@ -8,8 +8,8 @@ import net.minecraft.network.chat.Component;
 
 /**
  * The vanilla in-game settings screen opened by {@code /vfx config}: a cycling button for the chain
- * resolution, a toggle each for fusion and the experimental remap, a short warning label and a Done
- * button. Every change is written straight through {@link VFXSettings}; there are no new
+ * resolution, a toggle each for fusion and the shifted-read remap, a short description label and a
+ * Done button. Every change is written straight through {@link VFXSettings}; there are no new
  * dependencies (no Cloth Config, Mod Menu or YACL).
  */
 public final class VFXSettingsScreen extends Screen {

@@ -23,6 +23,6 @@
 	"vfxweaver.config.remap": "Remap: %s",
 	"vfxweaver.config.on": "On",
 	"vfxweaver.config.off": "Off",
-	"vfxweaver.config.remap_warning": "Remap is experimental and off by default",
+	"vfxweaver.config.remap_warning": "Fuses effects that read the chain at shifted uvs; can slightly soften edges",
 	"vfxweaver.config.done": "Done"
 }

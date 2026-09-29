@@ -18,8 +18,8 @@ change.
 
 - **`/vfx config` — an in-game settings screen.** A vanilla screen (no Cloth Config, Mod Menu or
   YACL, no new dependency) edits the three post-chain settings: **chain resolution** (Full / Half,
-  default **Half**), **fusion** (default **On**) and the experimental **remap** (default **Off**,
-  with a warning label). Changes apply without a restart and persist to `config/vfxweaver.json`; a JVM
+  default **Half**), **fusion** (default **On**) and the **remap** (default **On**, with a
+  description label). Changes apply without a restart and persist to `config/vfxweaver.json`; a JVM
   system property still overrides the file. Operator-only and client-only - a dedicated server replies
   that there is no client. No datapack, API, wire or UBO change.
 
@@ -30,9 +30,10 @@ change.
   `blur`-class effects (anything that samples neighbours, including `bloom`, `vhs` and `motion_blur`),
   `afterimage`/`stop_motion` and every unannotated effect cut the chain and render exactly as before.
   Output is re-quantised per stage so a fused chain matches the unfused one. On by default;
-  `-Dvfxweaver.fusion=false` disables it, and the experimental one-tap remaps (`distortion`,
-  `vortex`, `pixelate`, `noise_warp`, `slice_shift`) stay disabled until `-Dvfxweaver.fusion.remap`
-  is set. No datapack, API, wire or UBO change.
+  `-Dvfxweaver.fusion=false` disables it. The one-tap remaps (`distortion`, `vortex`, `pixelate`,
+  `noise_warp`, `slice_shift`) are fused too, on by default now that the owner's in-game A/B showed
+  no visible difference; `-Dvfxweaver.fusion.remap=false` disables them. No datapack, API, wire or
+  UBO change.
 
 - **Half-resolution effect runs.** A run of the heavy multi-tap screen passes (`blur`'s two passes,
   `bloom`, `depth_of_field`, `vhs` and `digital_glitch`) can render at half resolution, wrapped in an

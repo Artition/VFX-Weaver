@@ -87,10 +87,10 @@ settings and writes them to `config/vfxweaver.json` immediately:
 |---|---|---|---|
 | **Chain Resolution** | Full / Half | **Half** | Runs of the heavy multi-tap screen passes render at half resolution when the run's summed tap count reaches 8. |
 | **Fusion** | On / Off | **On** | Compiles adjacent pointwise screen effects into one shader pass. |
-| **Remap** | On / Off | **Off** | Enables the experimental one-tap remaps (`distortion`, `vortex`, `pixelate`, `noise_warp`, `slice_shift`). Off until a filter-exact in-game A/B proves them. |
+| **Remap** | On / Off | **On** | Fuses the one-tap remaps (`distortion`, `vortex`, `pixelate`, `noise_warp`, `slice_shift`) into the chain by re-evaluating the prefix at shifted uvs; this can slightly soften edges. |
 
 A JVM system property overrides the file (`-Dvfxweaver.chainres=1.0` or `0.5`,
-`-Dvfxweaver.fusion=false`, `-Dvfxweaver.fusion.remap`), and the file overrides the default; an
+`-Dvfxweaver.fusion=false`, `-Dvfxweaver.fusion.remap=false`), and the file overrides the default; an
 in-game change applies without restarting.
 
 ```

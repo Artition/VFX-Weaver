@@ -7,10 +7,11 @@ import dev.vfxweaver.util.VFXSettings;
  * The post-chain fusion kill switches, budget bounds and canonical sampler names.
  *
  * <p>Stateless. {@link #enabled()} is on by default and is turned off with
- * {@code -Dvfxweaver.fusion=false} (or the in-game setting); {@link #remapEnabled()} is off unless
- * {@code -Dvfxweaver.fusion.remap} is set, so a {@code UV_REMAP} stage stays a barrier until a
- * filter-exact in-game A/B proves the linear-fetch emulation. Both read {@link VFXSettings} on every
- * call, so a change applies without a restart.
+ * {@code -Dvfxweaver.fusion=false} (or the in-game setting); {@link #remapEnabled()} is also on by
+ * default now that the filter-exact in-game A/B passed (a frozen frame with {@code color_grade} then
+ * {@code distortion}, off versus on, showed no visible difference), so a {@code UV_REMAP} stage is
+ * fused unless {@code -Dvfxweaver.fusion.remap=false} (or the in-game setting) turns it off. Both
+ * read {@link VFXSettings} on every call, so a change applies without a restart.
  */
 public final class VFXFusionPolicy {
 	/**
@@ -28,9 +29,9 @@ public final class VFXFusionPolicy {
 	}
 
 	/**
-	 * Enables {@code UV_REMAP} stages ({@code -Dvfxweaver.fusion.remap}, default off).
+	 * Enables {@code UV_REMAP} stages ({@code -Dvfxweaver.fusion.remap=false} disables; default on).
 	 *
-	 * @return whether the experimental remaps are enabled
+	 * @return whether the remaps are enabled
 	 */
 	public static boolean remapEnabled() {
 		return VFXSettings.get().remap();

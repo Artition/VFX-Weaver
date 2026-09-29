@@ -13,17 +13,19 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * The in-game settings holder for the post chain: chain resolution, fusion and the experimental
+ * The in-game settings holder for the post chain: chain resolution, fusion and the shifted-read
  * remap. A singleton with no client and no loader import; the config file lives at
  * {@code <config>/vfxweaver.json} ({@link VFXPlatform#configDir()} is the loader's config directory,
  * the game directory's {@code config} folder on both loaders).
  *
  * <p>Each value is read through a getter that applies the precedence <b>JVM system property over
  * file over default</b>: {@code -Dvfxweaver.chainres} ({@code "1.0"} or {@code "0.5"}),
- * {@code -Dvfxweaver.fusion} ({@code "false"} disables) and {@code -Dvfxweaver.fusion.remap}. A
- * malformed or absent value falls through to the next source, with a warn-once for a malformed one,
- * so a typo cannot silently change or disable a path. The file defaults - {@code 0.5F}, {@code true}
- * and {@code false} - are the shipped behaviour.
+ * {@code -Dvfxweaver.fusion} ({@code "false"} disables) and {@code -Dvfxweaver.fusion.remap}
+ * ({@code "false"} disables). A malformed or absent value falls through to the next source, with a
+ * warn-once for a malformed one, so a typo cannot silently change or disable a path. The file
+ * defaults - {@code 0.5F}, {@code true} and {@code true} - are the shipped behaviour; the remap
+ * default was flipped to on after the owner's in-game A/B (a frozen frame with {@code color_grade}
+ * followed by {@code distortion}, off versus on) found no visible difference.
  *
  * <p>The file is read once at client init ({@link #load()}) and written by every setter.
  */
@@ -36,8 +38,13 @@ public final class VFXSettings {
 	private static final float DEFAULT_CHAIN_RESOLUTION = 0.5F;
 	/** The default fusion switch: on. */
 	private static final boolean DEFAULT_FUSION = true;
-	/** The default remap switch: off (experimental). */
-	private static final boolean DEFAULT_REMAP = false;
+	/**
+	 * The default remap switch: on. The owner's in-game A/B (a frozen frame with {@code color_grade}
+	 * followed by {@code distortion}, remap off versus on) found no visible difference, so the
+	 * filter-exact gate is passed; {@code -Dvfxweaver.fusion.remap=false} or the settings screen turns
+	 * it off.
+	 */
+	private static final boolean DEFAULT_REMAP = true;
 
 	private float chainResolution = DEFAULT_CHAIN_RESOLUTION;
 	private boolean fusion = DEFAULT_FUSION;
@@ -136,7 +143,8 @@ public final class VFXSettings {
 	}
 
 	/**
-	 * @return whether the experimental {@code UV_REMAP} fusion is on ({@code -Dvfxweaver.fusion.remap})
+	 * @return whether the {@code UV_REMAP} fusion is on (default on; {@code -Dvfxweaver.fusion.remap=false}
+	 *         disables it, as does the settings screen)
 	 */
 	public boolean remap() {
 		return parseSwitch("vfxweaver.fusion.remap", this.remap);
