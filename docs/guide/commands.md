@@ -77,6 +77,26 @@ Dry-run health check: prints how many definitions loaded and lists every broken 
 its parse error (optionally filtered by namespace, tab-completed). Operator-only. Useful for datapack
 development and server admin checks without digging through logs.
 
+## `/vfx config`
+
+Opens the client settings screen (operator-only). It is **client-only** - on a dedicated server
+there is no client to open it and the command replies so. The screen edits the three post-chain
+settings and writes them to `config/vfxweaver.json` immediately:
+
+| Setting | Values | Default | What it does |
+|---|---|---|---|
+| **Chain Resolution** | Full / Half | **Half** | Runs of the heavy multi-tap screen passes render at half resolution when the run's summed tap count reaches 8. |
+| **Fusion** | On / Off | **On** | Compiles adjacent pointwise screen effects into one shader pass. |
+| **Remap** | On / Off | **Off** | Enables the experimental one-tap remaps (`distortion`, `vortex`, `pixelate`, `noise_warp`, `slice_shift`). Off until a filter-exact in-game A/B proves them. |
+
+A JVM system property overrides the file (`-Dvfxweaver.chainres=1.0` or `0.5`,
+`-Dvfxweaver.fusion=false`, `-Dvfxweaver.fusion.remap`), and the file overrides the default; an
+in-game change applies without restarting.
+
+```
+/vfx config
+```
+
 ## Notes
 
 - **Param-map limits:** the param-map overrides *params only* - `duration` and `fade_ticks` are
