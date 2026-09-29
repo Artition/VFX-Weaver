@@ -9,9 +9,9 @@ import org.slf4j.LoggerFactory;
  * resolution, wrapped in a downsample/upsample conversion pair.
  *
  * <p>Stateless. {@link #SCALE} is read once from {@code -Dvfxweaver.chainres} (default
- * {@code "1.0"}, i.e. off); the only accepted values are exactly {@code "1.0"} and {@code "0.5"}.
- * Any other value is refused with a warn-once and treated as {@code 1.0}, so the default path never
- * changes until the owner flips the switch after the in-game A/B.
+ * {@code "0.5"}, i.e. on); the only accepted values are exactly {@code "1.0"} and {@code "0.5"}.
+ * {@code "1.0"} disables the half-resolution runs; any other value is refused with a warn-once and
+ * treated as the default {@code "0.5"}, so a typo cannot silently disable the path.
  */
 public final class VFXChainResolution {
 	private static final Logger LOGGER = LoggerFactory.getLogger("vfxweaver/post");
@@ -40,15 +40,15 @@ public final class VFXChainResolution {
 	public static final int MIN_RUN_TAPS = 8;
 
 	private static float parseScale() {
-		final String raw = System.getProperty("vfxweaver.chainres", "1.0");
+		final String raw = System.getProperty("vfxweaver.chainres", "0.5");
 		if ("1.0".equals(raw)) {
 			return 1.0F;
 		}
 		if ("0.5".equals(raw)) {
 			return 0.5F;
 		}
-		VFXLog.warnOnce(LOGGER, "chainres:value", "Unknown vfxweaver.chainres value '{}'; only 1.0 and 0.5 are accepted, using 1.0", raw);
-		return 1.0F;
+		VFXLog.warnOnce(LOGGER, "chainres:value", "Unknown vfxweaver.chainres value '{}'; only 1.0 and 0.5 are accepted, using the default 0.5", raw);
+		return 0.5F;
 	}
 
 	private VFXChainResolution() {

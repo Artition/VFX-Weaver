@@ -168,7 +168,7 @@ if (-not (Test-Path -LiteralPath $resolutionPath)) {
 	exit 1
 }
 $resolution = [System.IO.File]::ReadAllText($resolutionPath)
-if ($resolution -notmatch 'System\.getProperty\("vfxweaver\.chainres", "1\.0"\)') { $resolutionProblems.Add("SCALE does not read -Dvfxweaver.chainres with default 1.0") }
+if ($resolution -notmatch 'System\.getProperty\("vfxweaver\.chainres", "0\.5"\)') { $resolutionProblems.Add("SCALE does not read -Dvfxweaver.chainres with default 0.5") }
 if ($resolution -notmatch '"1\.0"\.equals\(raw\)') { $resolutionProblems.Add("SCALE does not accept exactly 1.0") }
 if ($resolution -notmatch '"0\.5"\.equals\(raw\)') { $resolutionProblems.Add("SCALE does not accept exactly 0.5") }
 if ($resolution -notmatch 'MIN_RUN_TAPS = 8;') { $resolutionProblems.Add("MIN_RUN_TAPS is not 8") }
@@ -185,7 +185,7 @@ if ($resolutionProblems.Count -gt 0) {
 	Write-Error "chain resolution check failed ($($resolutionProblems.Count) problem(s))."
 	exit 1
 }
-Write-Host "  chainres 1.0/0.5 only, MIN_RUN_TAPS 8, Step.Down/Up + Step.Single(resScale)"
+Write-Host "  chainres 0.5 default (1.0/0.5 only), MIN_RUN_TAPS 8, Step.Down/Up + Step.Single(resScale)"
 
 # --- planner fixtures (Task 4): the pass-level model, computed by the planner itself ---------------
 $plannerPath = Join-Path $repoRoot "src\client\java\dev\vfxweaver\client\postprocessing\VFXFusionPlanner.java"

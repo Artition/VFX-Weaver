@@ -33,8 +33,8 @@ change.
   `digital_glitch` carry four taps each, so they scale only beside another scalable pass). Nothing
   else about the chain changes: pointwise and fused stages, mask consumers and their coverage, the
   pre-effect image, `afterimage`/`stop_motion` and every unlisted effect render exactly as before.
-  Off by default; `-Dvfxweaver.chainres=1.0` is the default and `-Dvfxweaver.chainres=0.5` enables
-  it. Only those two values are accepted - anything else warns once and is treated as `1.0`. Inside a
+  On by default; `-Dvfxweaver.chainres=0.5` is the default and `-Dvfxweaver.chainres=1.0` disables
+  it. Only those two values are accepted - anything else warns once and is treated as `0.5`. Inside a
   scaled pass the output is slightly softer, which is the point. No datapack, API, wire or UBO
   change.
 
