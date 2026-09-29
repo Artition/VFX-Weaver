@@ -2988,9 +2988,9 @@ qualifies when it is heavy enough (the passes' taps must sum to at least 8, so <
 <code>digital_glitch</code> - four taps each - join a scaled run only beside another scalable pass). Nothing
 else about the chain changes: pointwise and fused stages, mask consumers and mask coverage, the
 pre-effect image, the <code>afterimage</code>/<code>stop_motion</code> pair and every other effect render exactly as
-before. It is off by default; enable it with the JVM property <code>-Dvfxweaver.chainres=0.5</code>
-(<code>-Dvfxweaver.chainres=1.0</code> is the default). Only those two values are accepted - anything else
-warns once and is treated as <code>1.0</code>. The result inside a scaled pass is slightly softer, which is the
+before. It is on by default; disable it with <code>-Dvfxweaver.chainres=1.0</code>
+(<code>-Dvfxweaver.chainres=0.5</code> is the default). Only those two values are accepted - anything else
+warns once and is treated as <code>0.5</code>. The result inside a scaled pass is slightly softer, which is the
 point.</p>
 <ul>
 <li><a href="screen/chromatic-aberration/">chromatic_aberration</a> - RGB channel fringing towards the edges</li>
