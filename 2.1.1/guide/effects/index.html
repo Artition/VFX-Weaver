@@ -2981,6 +2981,17 @@ unchanged: every fused stage boundary is re-quantised to the RGBA8 the unfused c
 Fusion is on by default; disable it with <code>-Dvfxweaver.fusion=false</code>. The one-tap remaps
 (<code>distortion</code>, <code>vortex</code>, <code>pixelate</code>, <code>noise_warp</code>, <code>slice_shift</code>) stay disabled until
 <code>-Dvfxweaver.fusion.remap</code> is set.</p>
+<p>Separately, a run of the heavy multi-tap passes - <code>blur</code> (both its passes), <code>bloom</code>,
+<code>depth_of_field</code>, <code>vhs</code> and <code>digital_glitch</code> - can render at half resolution: the run is wrapped in
+an exact downsample and upsample, and its passes run on a quarter of the pixels. A run only
+qualifies when it is heavy enough (the passes' taps must sum to at least 8, so <code>vhs</code> and
+<code>digital_glitch</code> - four taps each - join a scaled run only beside another scalable pass). Nothing
+else about the chain changes: pointwise and fused stages, mask consumers and mask coverage, the
+pre-effect image, the <code>afterimage</code>/<code>stop_motion</code> pair and every other effect render exactly as
+before. It is off by default; enable it with the JVM property <code>-Dvfxweaver.chainres=0.5</code>
+(<code>-Dvfxweaver.chainres=1.0</code> is the default). Only those two values are accepted - anything else
+warns once and is treated as <code>1.0</code>. The result inside a scaled pass is slightly softer, which is the
+point.</p>
 <ul>
 <li><a href="screen/chromatic-aberration/">chromatic_aberration</a> - RGB channel fringing towards the edges</li>
 <li><a href="screen/color-grade/">color_grade</a> - saturation, contrast, brightness and tint</li>
