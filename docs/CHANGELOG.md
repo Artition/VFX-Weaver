@@ -27,6 +27,17 @@ change.
   `vortex`, `pixelate`, `noise_warp`, `slice_shift`) stay disabled until `-Dvfxweaver.fusion.remap`
   is set. No datapack, API, wire or UBO change.
 
+- **Half-resolution effect runs.** A run of the heavy multi-tap screen passes (`blur`'s two passes,
+  `bloom`, `depth_of_field`, `vhs` and `digital_glitch`) can render at half resolution, wrapped in an
+  exact downsample/upsample pair, once the run's summed tap count reaches 8 (`vhs` and
+  `digital_glitch` carry four taps each, so they scale only beside another scalable pass). Nothing
+  else about the chain changes: pointwise and fused stages, mask consumers and their coverage, the
+  pre-effect image, `afterimage`/`stop_motion` and every unlisted effect render exactly as before.
+  Off by default; `-Dvfxweaver.chainres=1.0` is the default and `-Dvfxweaver.chainres=0.5` enables
+  it. Only those two values are accepted - anything else warns once and is treated as `1.0`. Inside a
+  scaled pass the output is slightly softer, which is the point. No datapack, API, wire or UBO
+  change.
+
 ## 2.1.1 - 2026-09-27
 
 ### Added

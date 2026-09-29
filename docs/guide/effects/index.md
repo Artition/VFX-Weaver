@@ -71,6 +71,18 @@ Fusion is on by default; disable it with `-Dvfxweaver.fusion=false`. The one-tap
 (`distortion`, `vortex`, `pixelate`, `noise_warp`, `slice_shift`) stay disabled until
 `-Dvfxweaver.fusion.remap` is set.
 
+Separately, a run of the heavy multi-tap passes - `blur` (both its passes), `bloom`,
+`depth_of_field`, `vhs` and `digital_glitch` - can render at half resolution: the run is wrapped in
+an exact downsample and upsample, and its passes run on a quarter of the pixels. A run only
+qualifies when it is heavy enough (the passes' taps must sum to at least 8, so `vhs` and
+`digital_glitch` - four taps each - join a scaled run only beside another scalable pass). Nothing
+else about the chain changes: pointwise and fused stages, mask consumers and mask coverage, the
+pre-effect image, the `afterimage`/`stop_motion` pair and every other effect render exactly as
+before. It is off by default; enable it with the JVM property `-Dvfxweaver.chainres=0.5`
+(`-Dvfxweaver.chainres=1.0` is the default). Only those two values are accepted - anything else
+warns once and is treated as `1.0`. The result inside a scaled pass is slightly softer, which is the
+point.
+
 - [chromatic_aberration](screen/chromatic-aberration.md) - RGB channel fringing towards the edges
 - [color_grade](screen/color-grade.md) - saturation, contrast, brightness and tint
 - [distortion](screen/distortion.md) - barrel/pincushion warp
