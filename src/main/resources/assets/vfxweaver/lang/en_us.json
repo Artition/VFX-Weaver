@@ -12,5 +12,17 @@
 	"commands.vfxweaver.list_count": "%s VFX definition(s) loaded",
 	"commands.vfxweaver.list_errors": "§c%s broken datapack definition(s):",
 	"commands.vfxweaver.validated": "%s VFX definition(s) checked, %s broken:",
-	"commands.vfxweaver.validated_clean": "%s VFX definition(s) checked, no broken definitions"
+	"commands.vfxweaver.validated_clean": "%s VFX definition(s) checked, no broken definitions",
+	"commands.vfxweaver.config_opened": "Opened the VFX Weaver settings screen",
+	"commands.vfxweaver.config_client_only": "The VFX settings screen is client-only; there is no client to open it on",
+	"vfxweaver.config.title": "VFX Weaver Settings",
+	"vfxweaver.config.chainres": "Chain Resolution: %s",
+	"vfxweaver.config.full": "Full",
+	"vfxweaver.config.half": "Half",
+	"vfxweaver.config.fusion": "Fusion: %s",
+	"vfxweaver.config.remap": "Remap: %s",
+	"vfxweaver.config.on": "On",
+	"vfxweaver.config.off": "Off",
+	"vfxweaver.config.remap_warning": "Remap is experimental and off by default",
+	"vfxweaver.config.done": "Done"
 }
