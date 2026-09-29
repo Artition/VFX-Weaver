@@ -5119,6 +5119,14 @@ change.</p>
 <h3 id="added">Added<a class="headerlink" href="#added" title="Permanent link">&para;</a></h3>
 <ul>
 <li>
+<p><strong><code>/vfx config</code> — an in-game settings screen.</strong> A vanilla screen (no Cloth Config, Mod Menu or
+  YACL, no new dependency) edits the three post-chain settings: <strong>chain resolution</strong> (Full / Half,
+  default <strong>Half</strong>), <strong>fusion</strong> (default <strong>On</strong>) and the experimental <strong>remap</strong> (default <strong>Off</strong>,
+  with a warning label). Changes apply without a restart and persist to <code>config/vfxweaver.json</code>; a JVM
+  system property still overrides the file. Operator-only and client-only - a dedicated server replies
+  that there is no client. No datapack, API, wire or UBO change.</p>
+</li>
+<li>
 <p><strong>Post-chain fusion: a run of pointwise screen effects renders as one shader pass.</strong> Adjacent
   <code>POINT</code> screen effects (<code>color_grade</code>, <code>screen_flash</code>, <code>vignette</code>, <code>invert</code>, <code>posterize</code>,
   <code>scanlines</code>, <code>film_grain</code>) and each masked effect's coverage consumer are compiled into a single

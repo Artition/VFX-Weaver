@@ -2246,6 +2246,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#vfx-config" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        /vfx config
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#notes" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2865,6 +2876,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#vfx-config" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        /vfx config
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#notes" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2956,6 +2978,45 @@ player with a selector (<code>@p</code>/<code>@a</code>) or a name that is not a
 <p>Dry-run health check: prints how many definitions loaded and lists every broken datapack file with
 its parse error (optionally filtered by namespace, tab-completed). Operator-only. Useful for datapack
 development and server admin checks without digging through logs.</p>
+<h2 id="vfx-config"><code>/vfx config</code><a class="headerlink" href="#vfx-config" title="Permanent link">&para;</a></h2>
+<p>Opens the client settings screen (operator-only). It is <strong>client-only</strong> - on a dedicated server
+there is no client to open it and the command replies so. The screen edits the three post-chain
+settings and writes them to <code>config/vfxweaver.json</code> immediately:</p>
+<table>
+<thead>
+<tr>
+<th>Setting</th>
+<th>Values</th>
+<th>Default</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Chain Resolution</strong></td>
+<td>Full / Half</td>
+<td><strong>Half</strong></td>
+<td>Runs of the heavy multi-tap screen passes render at half resolution when the run's summed tap count reaches 8.</td>
+</tr>
+<tr>
+<td><strong>Fusion</strong></td>
+<td>On / Off</td>
+<td><strong>On</strong></td>
+<td>Compiles adjacent pointwise screen effects into one shader pass.</td>
+</tr>
+<tr>
+<td><strong>Remap</strong></td>
+<td>On / Off</td>
+<td><strong>Off</strong></td>
+<td>Enables the experimental one-tap remaps (<code>distortion</code>, <code>vortex</code>, <code>pixelate</code>, <code>noise_warp</code>, <code>slice_shift</code>). Off until a filter-exact in-game A/B proves them.</td>
+</tr>
+</tbody>
+</table>
+<p>A JVM system property overrides the file (<code>-Dvfxweaver.chainres=1.0</code> or <code>0.5</code>,
+<code>-Dvfxweaver.fusion=false</code>, <code>-Dvfxweaver.fusion.remap</code>), and the file overrides the default; an
+in-game change applies without restarting.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>/vfx config
+</code></pre></div>
 <h2 id="notes">Notes<a class="headerlink" href="#notes" title="Permanent link">&para;</a></h2>
 <ul>
 <li><strong>Param-map limits:</strong> the param-map overrides <em>params only</em> - <code>duration</code> and <code>fade_ticks</code> are
