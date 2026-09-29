@@ -5121,8 +5121,8 @@ change.</p>
 <li>
 <p><strong><code>/vfx config</code> — an in-game settings screen.</strong> A vanilla screen (no Cloth Config, Mod Menu or
   YACL, no new dependency) edits the three post-chain settings: <strong>chain resolution</strong> (Full / Half,
-  default <strong>Half</strong>), <strong>fusion</strong> (default <strong>On</strong>) and the experimental <strong>remap</strong> (default <strong>Off</strong>,
-  with a warning label). Changes apply without a restart and persist to <code>config/vfxweaver.json</code>; a JVM
+  default <strong>Half</strong>), <strong>fusion</strong> (default <strong>On</strong>) and the <strong>remap</strong> (default <strong>On</strong>, with a
+  description label). Changes apply without a restart and persist to <code>config/vfxweaver.json</code>; a JVM
   system property still overrides the file. Operator-only and client-only - a dedicated server replies
   that there is no client. No datapack, API, wire or UBO change.</p>
 </li>
@@ -5134,9 +5134,10 @@ change.</p>
   <code>blur</code>-class effects (anything that samples neighbours, including <code>bloom</code>, <code>vhs</code> and <code>motion_blur</code>),
   <code>afterimage</code>/<code>stop_motion</code> and every unannotated effect cut the chain and render exactly as before.
   Output is re-quantised per stage so a fused chain matches the unfused one. On by default;
-  <code>-Dvfxweaver.fusion=false</code> disables it, and the experimental one-tap remaps (<code>distortion</code>,
-  <code>vortex</code>, <code>pixelate</code>, <code>noise_warp</code>, <code>slice_shift</code>) stay disabled until <code>-Dvfxweaver.fusion.remap</code>
-  is set. No datapack, API, wire or UBO change.</p>
+  <code>-Dvfxweaver.fusion=false</code> disables it. The one-tap remaps (<code>distortion</code>, <code>vortex</code>, <code>pixelate</code>,
+  <code>noise_warp</code>, <code>slice_shift</code>) are fused too, on by default now that the owner's in-game A/B showed
+  no visible difference; <code>-Dvfxweaver.fusion.remap=false</code> disables them. No datapack, API, wire or
+  UBO change.</p>
 </li>
 <li>
 <p><strong>Half-resolution effect runs.</strong> A run of the heavy multi-tap screen passes (<code>blur</code>'s two passes,

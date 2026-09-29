@@ -3007,13 +3007,13 @@ settings and writes them to <code>config/vfxweaver.json</code> immediately:</p>
 <tr>
 <td><strong>Remap</strong></td>
 <td>On / Off</td>
-<td><strong>Off</strong></td>
-<td>Enables the experimental one-tap remaps (<code>distortion</code>, <code>vortex</code>, <code>pixelate</code>, <code>noise_warp</code>, <code>slice_shift</code>). Off until a filter-exact in-game A/B proves them.</td>
+<td><strong>On</strong></td>
+<td>Fuses the one-tap remaps (<code>distortion</code>, <code>vortex</code>, <code>pixelate</code>, <code>noise_warp</code>, <code>slice_shift</code>) into the chain by re-evaluating the prefix at shifted uvs; this can slightly soften edges.</td>
 </tr>
 </tbody>
 </table>
 <p>A JVM system property overrides the file (<code>-Dvfxweaver.chainres=1.0</code> or <code>0.5</code>,
-<code>-Dvfxweaver.fusion=false</code>, <code>-Dvfxweaver.fusion.remap</code>), and the file overrides the default; an
+<code>-Dvfxweaver.fusion=false</code>, <code>-Dvfxweaver.fusion.remap=false</code>), and the file overrides the default; an
 in-game change applies without restarting.</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>/vfx config
 </code></pre></div>
