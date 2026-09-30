@@ -3,19 +3,27 @@ package dev.vfxweaver.client.config;
 import dev.vfxweaver.util.VFXSettings;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.components.Button;
+//? if <26.1 {
+/*import net.minecraft.client.gui.GuiGraphics;
+*///?} else {
+import net.minecraft.client.gui.GuiGraphicsExtractor;
+//?}
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 
 /**
- * The vanilla in-game settings screen opened by {@code /vfx config}: a cycling button for the chain
- * resolution, a toggle each for fusion and the shifted-read remap, a short description label and a
- * Done button. Every change is written straight through {@link VFXSettings}; there are no new
- * dependencies (no Cloth Config, Mod Menu or YACL).
+ * The vanilla in-game settings screen opened by {@code /vfx config}: the title is drawn above a
+ * self-describing cycling button for the chain resolution and a toggle each for fusion and the
+ * shifted-read remap, followed by a Done button. Each button's own label carries the setting name,
+ * its current value and a few words on what it does, so no separate description widget is needed.
+ * Every change is written straight through {@link VFXSettings}; there are no new dependencies (no
+ * Cloth Config, Mod Menu or YACL).
  */
 public final class VFXSettingsScreen extends Screen {
 	private static final int WIDGET_WIDTH = 220;
 	private static final int WIDGET_HEIGHT = 20;
 	private static final int GAP = 6;
+	private static final int TITLE_Y = 15;
 
 	private Button chainResolutionButton;
 	private Button fusionButton;
@@ -64,13 +72,6 @@ public final class VFXSettingsScreen extends Screen {
 				this.remapButton.setMessage(remapLabel());
 			}).bounds(x, y, WIDGET_WIDTH, WIDGET_HEIGHT).build()
 		);
-		y += WIDGET_HEIGHT + GAP;
-
-		final Button warning = this.addRenderableWidget(
-			Button.builder(Component.translatable("vfxweaver.config.remap_warning"), button -> {
-			}).bounds(x, y, WIDGET_WIDTH, WIDGET_HEIGHT).build()
-		);
-		warning.active = false;
 
 		this.addRenderableWidget(
 			Button.builder(Component.translatable("vfxweaver.config.done"), button -> this.onClose())
@@ -78,28 +79,44 @@ public final class VFXSettingsScreen extends Screen {
 		);
 	}
 
+	//? if <26.1 {
+	/*@Override
+	public void render(final GuiGraphics graphics, final int mouseX, final int mouseY, final float partialTick) {
+		super.render(graphics, mouseX, mouseY, partialTick);
+		graphics.drawCenteredString(this.font, this.title, this.width / 2, TITLE_Y, 0xFFFFFF);
+	}
+	*///?} else {
+	@Override
+	public void extractRenderState(final GuiGraphicsExtractor graphics, final int mouseX, final int mouseY, final float partialTick) {
+		super.extractRenderState(graphics, mouseX, mouseY, partialTick);
+		graphics.centeredText(this.font, this.title, this.width / 2, TITLE_Y, 0xFFFFFF);
+	}
+	//?}
+
 	@Override
 	public void onClose() {
 		VFXSettings.get().save();
 		super.onClose();
 	}
 
-	private Component chainResolutionLabel() {
+	private static Component chainResolutionLabel() {
 		return Component.translatable(
 			"vfxweaver.config.chainres",
-			Component.translatable(VFXSettings.get().chainResolution() < 1.0F ? "vfxweaver.config.half" : "vfxweaver.config.full")
+			Component.translatable(VFXSettings.get().chainResolution() < 1.0F ? "vfxweaver.config.chainres_half" : "vfxweaver.config.chainres_full")
 		);
 	}
 
-	private Component fusionLabel() {
-		return Component.translatable("vfxweaver.config.fusion", onOff(VFXSettings.get().fusion()));
+	private static Component fusionLabel() {
+		return Component.translatable(
+			"vfxweaver.config.fusion",
+			Component.translatable(VFXSettings.get().fusion() ? "vfxweaver.config.fusion_on" : "vfxweaver.config.fusion_off")
+		);
 	}
 
-	private Component remapLabel() {
-		return Component.translatable("vfxweaver.config.remap", onOff(VFXSettings.get().remap()));
-	}
-
-	private static Component onOff(final boolean value) {
-		return Component.translatable(value ? "vfxweaver.config.on" : "vfxweaver.config.off");
+	private static Component remapLabel() {
+		return Component.translatable(
+			"vfxweaver.config.remap",
+			Component.translatable(VFXSettings.get().remap() ? "vfxweaver.config.remap_on" : "vfxweaver.config.remap_off")
+		);
 	}
 }
