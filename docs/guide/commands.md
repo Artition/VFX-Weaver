@@ -1,7 +1,9 @@
 # Commands
 
-Every command is under `/vfx`. **Permissions:** `/vfx play`, `/vfx playat`, `/vfx playentity`,
-`/vfx stop` and `/vfx set` need operator rights (gamemaster level); `/vfx list` is open to everyone.
+Every server command is under `/vfx`. **Permissions:** `/vfx play`, `/vfx playat`,
+`/vfx playentity`, `/vfx stop` and `/vfx set` need operator rights (gamemaster level); `/vfx list`
+is open to everyone. `/vfxconfig` is a separate **client-only** command (see below) - it is not sent
+to the server, so it needs no permission and is available to every player on any server.
 
 ## `/vfx play <effect> [{[param:value],...}] [players]`
 
@@ -77,11 +79,12 @@ Dry-run health check: prints how many definitions loaded and lists every broken 
 its parse error (optionally filtered by namespace, tab-completed). Operator-only. Useful for datapack
 development and server admin checks without digging through logs.
 
-## `/vfx config`
+## `/vfxconfig`
 
-Opens the client settings screen (operator-only). It is **client-only** - on a dedicated server
-there is no client to open it and the command replies so. The screen edits the three post-chain
-settings and writes them to `config/vfxweaver.json` immediately:
+Opens the client settings screen. This is a **client-side** command: it is registered on the
+client, never reaches the server, needs no permission and works on any server (including a dedicated
+one). Its root is `vfxconfig`, not `vfx`, so it cannot shadow the server's `/vfx` tree. The screen
+edits the three post-chain settings and writes them to `config/vfxweaver.json` immediately:
 
 | Setting | Values | Default | What it does |
 |---|---|---|---|
@@ -94,7 +97,7 @@ A JVM system property overrides the file (`-Dvfxweaver.chainres=1.0` or `0.5`,
 in-game change applies without restarting.
 
 ```
-/vfx config
+/vfxconfig
 ```
 
 ## Notes

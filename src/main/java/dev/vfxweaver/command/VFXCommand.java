@@ -14,7 +14,6 @@ import dev.vfxweaver.api.VFXAPI;
 import dev.vfxweaver.effect.VFXDefinition;
 import dev.vfxweaver.network.VFXTriggerPayload;
 import dev.vfxweaver.resource.VFXDefinitionManager;
-import dev.vfxweaver.util.VFXSettingsScreens;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
@@ -45,8 +44,6 @@ import org.slf4j.LoggerFactory;
  * {@code /vfx stop <effect> [<targets>]} stops it, {@code /vfx stop [<player>]} stops every
  * effect of a player (default: the executor) and {@code /vfx list} lists known effects.
  * {@code /vfx validate [namespace]} prints a dry-run health report of datapack definitions.
- * {@code /vfx config} opens the client settings screen (client-only; on a dedicated server it
- * replies that there is no client).
  */
 public final class VFXCommand {
 	private static final Logger LOGGER = LoggerFactory.getLogger("vfxweaver/command");
@@ -187,11 +184,6 @@ public final class VFXCommand {
 							.suggests(VFXCommand::suggestNamespaces)
 							.executes(context2 -> validate(context2, StringArgumentType.getString(context2, "namespace")))
 						)
-				)
-				.then(
-					Commands.literal("config")
-						.requires(VFXCommand::requirePermission)
-						.executes(VFXCommand::config)
 				)
 		);
 	}
@@ -419,21 +411,6 @@ public final class VFXCommand {
 				.sendSuccess(() -> Component.literal(error.getKey().toString() + ": " + error.getValue()), false);
 		}
 		return broken.size();
-	}
-
-	/**
-	 * Opens the client settings screen through the main-side bridge. On a dedicated server no
-	 * client has registered an opener, so the command only reports that the screen is client-only.
-	 *
-	 * @return {@code 1} when the screen was opened, {@code 0} when there is no client
-	 */
-	private static int config(final CommandContext<CommandSourceStack> context) {
-		if (VFXSettingsScreens.open()) {
-			context.getSource().sendSuccess(() -> Component.translatable("commands.vfxweaver.config_opened"), false);
-			return 1;
-		}
-		context.getSource().sendFailure(Component.translatable("commands.vfxweaver.config_client_only"));
-		return 0;
 	}
 
 	private static CompletableFuture<Suggestions> suggestEffects(final CommandContext<CommandSourceStack> context, final SuggestionsBuilder builder) {

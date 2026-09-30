@@ -12,12 +12,12 @@ import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 
 /**
- * The vanilla in-game settings screen opened by {@code /vfx config}: the title is drawn above a
- * self-describing cycling button for the chain resolution and a toggle each for fusion and the
- * shifted-read remap, followed by a Done button. Each button's own label carries the setting name,
- * its current value and a few words on what it does, so no separate description widget is needed.
- * Every change is written straight through {@link VFXSettings}; there are no new dependencies (no
- * Cloth Config, Mod Menu or YACL).
+ * The vanilla in-game settings screen opened by the client-only {@code /vfxconfig} command: the
+ * title is drawn above a self-describing cycling button for the chain resolution and a toggle each
+ * for fusion and the shifted-read remap, followed by a Done button. Each button's own label carries
+ * the setting name, its current value and a few words on what it does, so no separate description
+ * widget is needed. Every change is written straight through {@link VFXSettings}; there are no new
+ * dependencies (no Cloth Config, Mod Menu or YACL).
  */
 public final class VFXSettingsScreen extends Screen {
 	private static final int WIDGET_WIDTH = 220;
@@ -34,8 +34,8 @@ public final class VFXSettingsScreen extends Screen {
 	}
 
 	/**
-	 * Opens this screen on the client thread. Registered with {@code VFXSettingsScreens} as the
-	 * {@code /vfx config} hook, so the command only enqueues on the render thread.
+	 * Opens this screen on the client thread. Called by the client-only {@code /vfxconfig}
+	 * command, so the command only enqueues on the render thread.
 	 */
 	public static void open() {
 		final Minecraft minecraft = Minecraft.getInstance();

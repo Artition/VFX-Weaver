@@ -1,10 +1,10 @@
 package dev.vfxweaver.client;
 
 import dev.vfxweaver.api.VFXAPI;
-import dev.vfxweaver.client.config.VFXSettingsScreen;
 import dev.vfxweaver.client.effect.VFXEffectManager;
 import dev.vfxweaver.client.compat.iris.VfxIrisCompat;
 import dev.vfxweaver.client.flashback.FlashbackCompat;
+import dev.vfxweaver.client.platform.VFXClientCommands;
 import dev.vfxweaver.client.platform.VFXClientRenderHooks;
 import dev.vfxweaver.client.postprocessing.VFXMaskShaderVariants;
 import dev.vfxweaver.client.postprocessing.VFXShaderPrograms;
@@ -22,7 +22,6 @@ import dev.vfxweaver.network.VFXTriggerPayload;
 import dev.vfxweaver.platform.VFXNetwork;
 import dev.vfxweaver.resource.VFXDefinitionManager;
 import dev.vfxweaver.util.VFXSettings;
-import dev.vfxweaver.util.VFXSettingsScreens;
 import java.util.Map;
 //? if fabric {
 import net.fabricmc.api.ClientModInitializer;
@@ -68,7 +67,7 @@ public class VFXClient {
 		VFXWorldOverlayRenderer.register();
 		VFXEntityEffectRenderer.register();
 		VFXAPI.setLocalDispatcher(new VFXClientAPI());
-		VFXSettingsScreens.setOpener(VFXSettingsScreen::open);
+		VFXClientCommands.register();
 		VFXShapeRegistry.get().setChangeListener(VFXMaskShaderVariants::invalidate);
 		VFXWorldBindings.setScoreboardReader(VFXClient::readScoreboard);
 		VFXWorldBindings.setEntityReader(new VFXClientEntityReader());

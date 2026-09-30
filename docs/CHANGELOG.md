@@ -16,12 +16,13 @@ change.
 
 ### Added
 
-- **`/vfx config` — an in-game settings screen.** A vanilla screen (no Cloth Config, Mod Menu or
+- **`/vfxconfig` — an in-game settings screen.** A vanilla screen (no Cloth Config, Mod Menu or
   YACL, no new dependency) edits the three post-chain settings: **chain resolution** (Full / Half,
   default **Half**), **fusion** (default **On**) and the **remap** (default **On**, with a
   description label). Changes apply without a restart and persist to `config/vfxweaver.json`; a JVM
-  system property still overrides the file. Operator-only and client-only - a dedicated server replies
-  that there is no client. No datapack, API, wire or UBO change.
+  system property still overrides the file. Client-side and available to every player (no operator
+  rights): the command is registered on the client and never reaches the server, so it works on any
+  server, including a dedicated one. No datapack, API, wire or UBO change.
 
 - **Post-chain fusion: a run of pointwise screen effects renders as one shader pass.** Adjacent
   `POINT` screen effects (`color_grade`, `screen_flash`, `vignette`, `invert`, `posterize`,

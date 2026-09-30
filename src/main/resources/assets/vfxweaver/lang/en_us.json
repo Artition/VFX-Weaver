@@ -13,8 +13,6 @@
 	"commands.vfxweaver.list_errors": "§c%s broken datapack definition(s):",
 	"commands.vfxweaver.validated": "%s VFX definition(s) checked, %s broken:",
 	"commands.vfxweaver.validated_clean": "%s VFX definition(s) checked, no broken definitions",
-	"commands.vfxweaver.config_opened": "Opened the VFX Weaver settings screen",
-	"commands.vfxweaver.config_client_only": "The VFX settings screen is client-only; there is no client to open it on",
 	"vfxweaver.config.title": "VFX Weaver Settings",
 	"vfxweaver.config.chainres": "Chain resolution: %s",
 	"vfxweaver.config.chainres_full": "Full - sharper, slower",
