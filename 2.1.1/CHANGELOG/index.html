@@ -5119,12 +5119,13 @@ change.</p>
 <h3 id="added">Added<a class="headerlink" href="#added" title="Permanent link">&para;</a></h3>
 <ul>
 <li>
-<p><strong><code>/vfx config</code> — an in-game settings screen.</strong> A vanilla screen (no Cloth Config, Mod Menu or
+<p><strong><code>/vfxconfig</code> — an in-game settings screen.</strong> A vanilla screen (no Cloth Config, Mod Menu or
   YACL, no new dependency) edits the three post-chain settings: <strong>chain resolution</strong> (Full / Half,
   default <strong>Half</strong>), <strong>fusion</strong> (default <strong>On</strong>) and the <strong>remap</strong> (default <strong>On</strong>, with a
   description label). Changes apply without a restart and persist to <code>config/vfxweaver.json</code>; a JVM
-  system property still overrides the file. Operator-only and client-only - a dedicated server replies
-  that there is no client. No datapack, API, wire or UBO change.</p>
+  system property still overrides the file. Client-side and available to every player (no operator
+  rights): the command is registered on the client and never reaches the server, so it works on any
+  server, including a dedicated one. No datapack, API, wire or UBO change.</p>
 </li>
 <li>
 <p><strong>Post-chain fusion: a run of pointwise screen effects renders as one shader pass.</strong> Adjacent

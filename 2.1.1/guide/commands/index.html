@@ -2246,10 +2246,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#vfx-config" class="md-nav__link">
+  <a href="#vfxconfig" class="md-nav__link">
     <span class="md-ellipsis">
       
-        /vfx config
+        /vfxconfig
       
     </span>
   </a>
@@ -2876,10 +2876,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#vfx-config" class="md-nav__link">
+  <a href="#vfxconfig" class="md-nav__link">
     <span class="md-ellipsis">
       
-        /vfx config
+        /vfxconfig
       
     </span>
   </a>
@@ -2929,8 +2929,10 @@
 
 
 <h1 id="commands">Commands<a class="headerlink" href="#commands" title="Permanent link">&para;</a></h1>
-<p>Every command is under <code>/vfx</code>. <strong>Permissions:</strong> <code>/vfx play</code>, <code>/vfx playat</code>, <code>/vfx playentity</code>,
-<code>/vfx stop</code> and <code>/vfx set</code> need operator rights (gamemaster level); <code>/vfx list</code> is open to everyone.</p>
+<p>Every server command is under <code>/vfx</code>. <strong>Permissions:</strong> <code>/vfx play</code>, <code>/vfx playat</code>,
+<code>/vfx playentity</code>, <code>/vfx stop</code> and <code>/vfx set</code> need operator rights (gamemaster level); <code>/vfx list</code>
+is open to everyone. <code>/vfxconfig</code> is a separate <strong>client-only</strong> command (see below) - it is not sent
+to the server, so it needs no permission and is available to every player on any server.</p>
 <h2 id="vfx-play-effect-paramvalue-players"><code>/vfx play &lt;effect&gt; [{[param:value],...}] [players]</code><a class="headerlink" href="#vfx-play-effect-paramvalue-players" title="Permanent link">&para;</a></h2>
 <p>Play an effect (default: to yourself). The optional param-map overrides the definition's default
 params, including world coordinates (<code>pos_x/y/z</code>) - like <code>overrides</code> in the Java API. Tab
@@ -2978,10 +2980,11 @@ player with a selector (<code>@p</code>/<code>@a</code>) or a name that is not a
 <p>Dry-run health check: prints how many definitions loaded and lists every broken datapack file with
 its parse error (optionally filtered by namespace, tab-completed). Operator-only. Useful for datapack
 development and server admin checks without digging through logs.</p>
-<h2 id="vfx-config"><code>/vfx config</code><a class="headerlink" href="#vfx-config" title="Permanent link">&para;</a></h2>
-<p>Opens the client settings screen (operator-only). It is <strong>client-only</strong> - on a dedicated server
-there is no client to open it and the command replies so. The screen edits the three post-chain
-settings and writes them to <code>config/vfxweaver.json</code> immediately:</p>
+<h2 id="vfxconfig"><code>/vfxconfig</code><a class="headerlink" href="#vfxconfig" title="Permanent link">&para;</a></h2>
+<p>Opens the client settings screen. This is a <strong>client-side</strong> command: it is registered on the
+client, never reaches the server, needs no permission and works on any server (including a dedicated
+one). Its root is <code>vfxconfig</code>, not <code>vfx</code>, so it cannot shadow the server's <code>/vfx</code> tree. The screen
+edits the three post-chain settings and writes them to <code>config/vfxweaver.json</code> immediately:</p>
 <table>
 <thead>
 <tr>
@@ -3015,7 +3018,7 @@ settings and writes them to <code>config/vfxweaver.json</code> immediately:</p>
 <p>A JVM system property overrides the file (<code>-Dvfxweaver.chainres=1.0</code> or <code>0.5</code>,
 <code>-Dvfxweaver.fusion=false</code>, <code>-Dvfxweaver.fusion.remap=false</code>), and the file overrides the default; an
 in-game change applies without restarting.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>/vfx config
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>/vfxconfig
 </code></pre></div>
 <h2 id="notes">Notes<a class="headerlink" href="#notes" title="Permanent link">&para;</a></h2>
 <ul>
