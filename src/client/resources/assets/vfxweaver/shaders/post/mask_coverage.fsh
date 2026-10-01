@@ -263,8 +263,9 @@ float vfx_aura_cover(float d, float tEnter, float tExit, float chordEps, float s
 //   * a near-zero direction component is replaced by 1e-8, so a zero component can only widen the
 //     interval: a false accept costs a march that finds nothing, a false reject costs pixels;
 //   * tNear/tFar are the max/min over the per-axis min/max pairs.
-// A miss is tFar < tNear, or tFar < 0 when the padded box is behind the camera. No caller yet: the
-// march still runs the sphere path alone, so nothing in the render path reads this.
+// A miss is tFar < tNear, or tFar < 0 when the padded box is behind the camera. Both callers read
+// the padded interval from here - the skip branch advances tStart from it and the box branch clamps
+// tStart/tLimit and culls from it - so neither may test a bare box.
 void vfx_aura_box_interval(vec3 bmin, vec3 bmax, vec3 viewDir, float softness, out float tNear, out float tFar) {
     vec3 reach = vec3(VFX_PLUGIN_AURA_MAX_RANGE);
     vec3 lo = clamp(bmin, camPos.xyz - reach, camPos.xyz + reach);
@@ -355,6 +356,50 @@ void main() {
                         occDist = sceneDist;
                     }
                     float tStart = 0.0;
+                    // One verdict for the whole broad phase. Each branch below compiles alone - a
+                    // variant may declare the skip box, the containment box, both or neither - so
+                    // the verdict cannot live inside one of them; the sphere path folds its own
+                    // boundsHit into it at the end.
+                    bool broadHit = true;
+#ifdef VFX_CUSTOM_HAS_SKIP_BOUNDS
+                    // Skip bounds, consulted first (spec P0 priority: skip -> box -> sphere -> none).
+                    // The box lies ENTIRELY in the hole, so [0, tFarSkip] holds no coverage entry -
+                    // only the near-miss band, which the pad and the tail clamp below cover. Only
+                    // from inside: a camera outside the box may have a coverage segment BEFORE it,
+                    // which the advance must not jump over.
+                    vec3 skipMin;
+                    vec3 skipMax;
+                    if (vfx_custom_skip_bounds(i, skipMin, skipMax)) {
+                        float tNearSkip;
+                        float tFarSkip;
+                        vfx_aura_box_interval(skipMin, skipMax, viewDir, softness, tNearSkip, tFarSkip);
+                        if (tNearSkip <= 0.0 && tFarSkip > 0.0) {
+                            tStart = max(tStart, clamp(tFarSkip - softness, 0.0, max(tLimit - softness, 0.0)));
+                        }
+                    }
+#endif
+#ifdef VFX_CUSTOM_HAS_BOX_BOUNDS
+                    // Containment bounds: the box CONTAINS the whole region where the field is <= 0,
+                    // so outside its padded interval nothing can contribute. Padded, never bare: a
+                    // ray passing within softness/2 of a dense face has coverage up to
+                    // 0.5 - g/softness, and culling that would cut a cliff no tStart/tLimit padding
+                    // can repair - it is unreachable for a culled ray.
+                    vec3 boxMin;
+                    vec3 boxMax;
+                    if (vfx_custom_box_bounds(i, boxMin, boxMax)) {
+                        float tNearBox;
+                        float tFarBox;
+                        vfx_aura_box_interval(boxMin, boxMax, viewDir, softness, tNearBox, tFarBox);
+                        if (tFarBox < 0.0 || tFarBox < tNearBox) {
+                            // A miss on the padded interval: nothing outside it can contribute, so
+                            // the leaf drops out below without a march.
+                            broadHit = false;
+                        } else {
+                            tStart = max(tNearBox - softness, 0.0);
+                            tLimit = min(tLimit, tFarBox + softness);
+                        }
+                    }
+#else
                     vec4 bounds = vfx_custom_bounds();
                     bool boundsHit = true;
                     if (bounds.w >= 0.0) {
@@ -378,7 +423,9 @@ void main() {
                             }
                         }
                     }
-                    if (!boundsHit || tStart >= tLimit) {
+                    broadHit = boundsHit;
+#endif
+                    if (!broadHit || tStart >= tLimit) {
                         cov = 0.0;
                     } else {
                         float lip = max(VFX_CUSTOM_FIELD_LIPSCHITZ, 1.0);

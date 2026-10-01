@@ -26,6 +26,14 @@
 # below - sentinel_clamp, cull_pad, robust_inverse, skip_tail_clamp - because Gradle does not compile
 # GLSL and there is no GPU here, so nothing here claims a shader compiles.
 #
+# Task 4 asserts the broad phase wired into the march: both branches sit after the occDist/tLimit
+# computation and before the march loop (the occlusion opt-out raises MAX_RANGE first, so a bounds
+# branch above it would clamp the wrong range), in the priority order skip -> box -> sphere -> none,
+# the skip advance only from inside the box, and the cull on the PADDED interval - a bare-box cull
+# would cut a cliff of up to 0.5 coverage at a face, which no tStart/tLimit padding can repair
+# because it is unreachable for a culled ray. The five ray classes are simulated on the CPU below,
+# with SDF evaluation counts as the metric.
+#
 # Usage: powershell -NoProfile -ExecutionPolicy Bypass -File scripts/check-aura-bounds.ps1
 $ErrorActionPreference = "Stop"
 $repoRoot = Split-Path -Parent $PSScriptRoot
@@ -344,12 +352,21 @@ if ($helperBody -eq $null) {
 #     is a new path beside it, not a rewrite of it: vfx_shape_custom_bounds() keeps its meaning.
 $headLines = @(& git -C $repoRoot show "HEAD:src/client/resources/assets/vfxweaver/shaders/post/mask_coverage.fsh")
 $sphereFrom = '                    vec4 bounds = vfx_custom_bounds();'
-$sphereTo = '                    if (!boundsHit || tStart >= tLimit) {'
+$sphereTo = '                    }'
 if ($headLines.Count -eq 0) {
 	$problems.Add("aura bounds check: cannot read mask_coverage.fsh at HEAD (is git available?)")
 } else {
 	$headFrom = [Array]::IndexOf($headLines, $sphereFrom)
-	$headTo = [Array]::IndexOf($headLines, $sphereTo)
+	# The block ends at its own closing brace - the first line indented exactly like the `if` that opens
+	# it, every inner brace being deeper. Anchoring on the line after the block would not survive this
+	# task's own commit, which changes what follows it.
+	$headTo = -1
+	for ($i = $headFrom + 1; $i -lt $headLines.Count; $i++) {
+		if ($headLines[$i] -eq $sphereTo) {
+			$headTo = $i
+			break
+		}
+	}
 	if ($headFrom -lt 0 -or $headTo -le $headFrom) {
 		$problems.Add("mask_coverage.fsh at HEAD has no sphere broad phase between its two anchors - the untouched-sphere check cannot run")
 	} else {
@@ -357,6 +374,118 @@ if ($headLines.Count -eq 0) {
 		if (-not $shader.Contains($block)) {
 			$problems.Add("the sphere broad phase in mask_coverage.fsh is no longer byte-identical to HEAD (boundOffset / boundB / boundC through the end of its if)")
 		}
+	}
+}
+
+# 12) Task 4: the broad phase inside the march. Ordered anchors first, because the whole point of this
+#     section is where the branches sit: after the tLimit computation (the occlusion opt-out raises
+#     MAX_RANGE, so a bounds branch placed above it would clamp the wrong range) and before the march
+#     loop, in the spec's priority order skip -> box -> sphere -> none.
+$occLimitLine = '                        tLimit = min(sceneDist + sceneDist * 2.0e-3 + 0.5 * softness, VFX_PLUGIN_AURA_MAX_RANGE);'
+$skipBranchLine = '                    if (vfx_custom_skip_bounds(i, skipMin, skipMax)) {'
+$boxBranchLine = '                    if (vfx_custom_box_bounds(i, boxMin, boxMax)) {'
+$sphereLine = '                    vec4 bounds = vfx_custom_bounds();'
+$marchLine = '                        for (int s = 0; s < VFX_PLUGIN_AURA_ENTRY_STEPS + VFX_PLUGIN_AURA_EXIT_STEPS; s++) {'
+$order = @(
+	@('the occDist/tLimit computation', $occLimitLine),
+	@('the skip branch', $skipBranchLine),
+	@('the box branch', $boxBranchLine),
+	@('the sphere broad phase', $sphereLine),
+	@('the march loop', $marchLine))
+$previousAt = -1
+foreach ($step in $order) {
+	$at = $shader.IndexOf($step[1])
+	if ($at -lt 0) {
+		$problems.Add("mask_coverage.fsh has no $($step[0]) - looked for: $($step[1])")
+		continue
+	}
+	if ($at -le $previousAt) {
+		$problems.Add("mask_coverage.fsh $($step[0]) does not sit after the previous step - the order is fixed: occDist/tLimit -> skip -> box -> sphere -> march")
+	}
+	$previousAt = $at
+}
+
+# 13) the two #ifdef names are the ones Task 2's generator emits, read back from it rather than
+#     retyped here: a renamed define would leave the branch silently uncompiled.
+$boxDefineName = [regex]::Match($variants, '#define (VFX_CUSTOM_HAS_\w*BOX_BOUNDS) 1').Groups[1].Value
+$skipDefineName = [regex]::Match($variants, '#define (VFX_CUSTOM_HAS_\w*SKIP_BOUNDS) 1').Groups[1].Value
+foreach ($defined in @(@('box', $boxDefineName), @('skip', $skipDefineName))) {
+	if ($defined[1] -eq '') {
+		$problems.Add("VFXMaskShaderVariants emits no $($defined[0]) bounds define - the shader's #ifdef name cannot be checked")
+		continue
+	}
+	if (-not $shader.Contains("#ifdef $($defined[1])")) {
+		$problems.Add("mask_coverage.fsh has no '#ifdef $($defined[1])' - the $($defined[0]) branch must compile only for a variant that declares it")
+	}
+}
+
+# 14) the skip advance: only from inside, and with the tail clamp exactly as the spec writes it. A
+#     camera outside the box may have a coverage segment BEFORE it, which a bare advance jumps over;
+#     the clamp keeps the last softness before tLimit sampled.
+foreach ($literal in @(
+	'if (tNearSkip <= 0.0 && tFarSkip > 0.0) {',
+	'tStart = max(tStart, clamp(tFarSkip - softness, 0.0, max(tLimit - softness, 0.0)));')) {
+	if (-not $shader.Contains($literal)) {
+		$problems.Add("mask_coverage.fsh is missing the skip advance literal: $literal")
+	}
+}
+
+# 15) the box branch: the padded helper, both interval ends used, and the two span formulas. The cull
+#     must read the helper's tNear/tFar - a second, bare slab test in the branch would cut the
+#     near-miss cliff - so the helper call is asserted whole, softness included.
+foreach ($literal in @(
+	'vfx_aura_box_interval(boxMin, boxMax, viewDir, softness, tNearBox, tFarBox);',
+	'if (tFarBox < 0.0 || tFarBox < tNearBox) {',
+	'tStart = max(tNearBox - softness, 0.0);',
+	'tLimit = min(tLimit, tFarBox + softness);')) {
+	if (-not $shader.Contains($literal)) {
+		$problems.Add("mask_coverage.fsh is missing the box branch literal: $literal")
+	}
+}
+$sphereAt = $shader.IndexOf($sphereLine)
+$marchAt = $shader.IndexOf($marchLine)
+$boxAt = $shader.IndexOf($boxBranchLine)
+$skipAt = $shader.IndexOf($skipBranchLine)
+if ($boxAt -ge 0 -and $sphereAt -gt $boxAt) {
+	if (($shader.Substring($boxAt, $sphereAt - $boxAt)) -notmatch "(?m)^#else$") {
+		$problems.Add("mask_coverage.fsh: the sphere path is not the #else of the box branch - the priority is skip -> box -> sphere -> none, so a declared containment box replaces the sphere broad phase")
+	}
+	if ($skipAt -gt 0) {
+		# The skip branch is a pure tStart advance: it may not cull and it may not shorten the range -
+		# a hole is not a bound, the coverage region can be anywhere.
+		$skipBranch = $shader.Substring($skipAt, $boxAt - $skipAt)
+		if ($skipBranch -match 'tLimit =' -or $skipBranch -match '= false') {
+			$problems.Add("mask_coverage.fsh: the skip branch culls or shortens the range - a skip box lies in the hole and can only advance tStart")
+		}
+	}
+}
+if ($boxAt -ge 0 -and $marchAt -gt $sphereAt) {
+	if (($shader.Substring($sphereAt, $marchAt - $sphereAt)) -notmatch "(?m)^#endif$") {
+		$problems.Add("mask_coverage.fsh: the sphere path is not closed by an #endif - a variant with no box bounds must still compile")
+	}
+}
+$boxIfdefAt = $shader.IndexOf("#ifdef $boxDefineName")
+$skipIfdefAt = $shader.IndexOf("#ifdef $skipDefineName")
+if ($skipIfdefAt -ge 0 -and $boxIfdefAt -ge 0) {
+	if ($skipIfdefAt -gt $boxIfdefAt) {
+		$problems.Add("mask_coverage.fsh: the skip branch is nested after the box branch - skip is consulted first")
+	}
+	if ($shader.IndexOf('#endif', $skipIfdefAt) -gt $boxIfdefAt) {
+		$problems.Add("mask_coverage.fsh: the skip branch's #endif comes after the box #ifdef - the two branches are siblings")
+	}
+}
+
+# 16) the single broad-phase verdict. Each branch compiles alone (a variant may declare either bound,
+#     both or neither), so the verdict cannot live inside one of them: the box branch sets it, the
+#     sphere path folds its own boundsHit into it, and the emptiness test below is what turns a miss
+#     into cov 0 with no march.
+foreach ($literal in @(
+	'                    bool broadHit = true;',
+	'                            broadHit = false;',
+	'                    broadHit = boundsHit;',
+	'                    if (!broadHit || tStart >= tLimit) {')) {
+	if (-not $shader.Contains($literal)) {
+		$problems.Add("mask_coverage.fsh is missing the broad-phase verdict literal: $literal")
 	}
 }
 
@@ -373,6 +502,8 @@ Write-Host "  the variant generator emits VFX_CUSTOM_HAS_BOX_BOUNDS / VFX_CUSTOM
 Write-Host "  the existing sphere (VFX_CUSTOM_HAS_BOUNDS) and VFX_CUSTOM_FIELD_LIPSCHITZ emission is byte-identical to HEAD"
 Write-Host "  mask_coverage.fsh: vfx_aura_box_interval does clamp sentinels -> pad by 0.5 * softness -> robust inversion -> min/max tNear/tFar, in that order, and says why in a comment"
 Write-Host "  the sphere broad phase in mask_coverage.fsh (boundOffset / boundB / boundC) is byte-identical to HEAD"
+Write-Host "  mask_coverage.fsh runs the skip and box branches after occDist/tLimit and before the march loop, in that order, with the sphere path as the box branch's #else"
+Write-Host "  the skip advance is guarded by 'tNearSkip <= 0.0 && tFarSkip > 0.0' and clamps to max(tLimit - softness, 0.0); the box branch culls on the PADDED interval only"
 Write-Host "Aura bounds plugin check OK."
 
 # --- runnable: the four slab fixtures, the arithmetic of vfx_aura_box_interval on the CPU ---------
@@ -571,15 +702,562 @@ public final class SlabIntervalCheck {
 '@
 [System.IO.File]::WriteAllText($slabSrc, $slabJava, [System.Text.UTF8Encoding]::new($false))
 
+# --- runnable: the five ray classes, the broad phase and the march over synthetic fields ----------
+# The march, the cone envelope, the step boost and the cover factors below mirror mask_coverage.fsh;
+# the occlusion term is a constant 1 because every ray here runs the occlusion opt-out (occDist =
+# 1.0e9), which is also the case the branch ordering exists for: the opt-out raises tLimit to
+# MAX_RANGE before the bounds minimum is applied. The metric is SDF evaluation counts per ray.
+$broadSrc = Join-Path $slabDir "AuraBroadPhaseCheck.java"
+$broadJava = @'
+/**
+ * The Task 4 ray-class fixtures: the aura march and the broad phase Task 4 wires into it, over
+ * synthetic fields, with SDF evaluation counts as the metric.
+ */
+public final class AuraBroadPhaseCheck {
+	private static final double MAX_RANGE = 1024.0;
+	private static final int STEPS = 40 + 16;
+	private static final double MIN_STEP = 0.5;
+	private static final double MAX_STEP = 64.0;
+	private static final double STEP_BOOST = 0.2;
+	private static final double SOFTNESS = 4.0;
+	private static final double CHORD_EPS = 1.0e-4;
+	/**
+	 * Two rays that sample the same field from different starts may differ by the envelope's own fat:
+	 * a bracket with both samples outside keeps dCross &gt;= -B/2 and the Lipschitz envelope never
+	 * reports thinner than the truth, so the ceiling on a coverage delta is STEP_BOOST/2.
+	 */
+	private static final double COVER_EPS = 0.5 * STEP_BOOST;
+
+	/** A plugin's field: the raw world-space SDF the aura march samples (f &lt;= 0 is coverage). */
+	private interface Field {
+		double sdf(double x, double y, double z);
+	}
+
+	/** One marched ray: its coverage, its cost, and the first entry the occlusion ramp would use. */
+	private static final class Result {
+		double cov;
+		int evals;
+		double tEnter = -1.0;
+		boolean saturated;
+	}
+
+	/** The broad phase's verdict for one ray, as the shader's branches leave it. */
+	private static final class Span {
+		double tStart;
+		double tLimit;
+		boolean hit = true;
+	}
+
+	/**
+	 * The reporter's wall: coverage is the exterior of two overlapping discs, cut from above by a cap.
+	 * Both terms are one-Lipschitz, like the built-in aura fields. Their overlap (a lens around the
+	 * origin) is the hole, and an honest containment box for this field is unbounded in XZ - the
+	 * reporter's sentinel box - so this is the field where the skip box is the lever and a containment
+	 * box buys nothing. The travel ray below is exactly the reporter's shape of spend.
+	 */
+	private static Field wall() {
+		return (x, y, z) -> Math.max(50.0 - Math.min(Math.hypot(x, z - 45.0), Math.hypot(x, z + 45.0)), y - 40.0);
+	}
+
+	/** A bounded slab, so the containment box has a region it can actually cull. */
+	private static Field slab() {
+		return (x, y, z) -> {
+			final double qx = Math.abs(x) - 4.0;
+			final double qy = Math.abs(y) - 4.0;
+			final double qz = Math.abs(z) - 4.0;
+			final double ox = Math.max(qx, 0.0);
+			final double oy = Math.max(qy, 0.0);
+			final double oz = Math.max(qz, 0.0);
+			return Math.sqrt(ox * ox + oy * oy + oz * oz) + Math.min(Math.max(qx, Math.max(qy, qz)), 0.0);
+		};
+	}
+
+	/** A plugin's skip box: the inscribed part of the hole, with the reporter's y sentinel. */
+	private static final double[] WALL_SKIP_MIN = {-12.0, -1.0e9, -1.0};
+	private static final double[] WALL_SKIP_MAX = {12.0, 40.0, 1.0};
+	/** A plugin's containment box for the wall: unbounded in XZ, capped above. */
+	private static final double[] WALL_BOX_MIN = {-1.0e9, -1.0e9, -1.0e9};
+	private static final double[] WALL_BOX_MAX = {1.0e9, 40.0, 1.0e9};
+	/** A plugin's containment box for the slab: the slab itself. */
+	private static final double[] SLAB_BOX_MIN = {-4.0, -4.0, -4.0};
+	private static final double[] SLAB_BOX_MAX = {4.0, 4.0, 4.0};
+
+	/** The padded slab arithmetic of vfx_aura_box_interval: clamp the sentinels, pad, invert, min/max. */
+	private static double[] interval(final double[] cam, final double[] bmin, final double[] bmax,
+			final double[] viewDir, final double softness) {
+		final double pad = 0.5 * softness;
+		double tNear = -1.0e30;
+		double tFar = 1.0e30;
+		for (int a = 0; a < 3; a++) {
+			final double lo = clamp(bmin[a], cam[a] - MAX_RANGE, cam[a] + MAX_RANGE) - pad;
+			final double hi = clamp(bmax[a], cam[a] - MAX_RANGE, cam[a] + MAX_RANGE) + pad;
+			final double dir = Math.abs(viewDir[a]) < 1.0e-8 ? 1.0e-8 : viewDir[a];
+			final double t0 = (lo - cam[a]) / dir;
+			final double t1 = (hi - cam[a]) / dir;
+			tNear = Math.max(tNear, Math.min(t0, t1));
+			tFar = Math.min(tFar, Math.max(t0, t1));
+		}
+		return new double[] {tNear, tFar};
+	}
+
+	/** The march loop of mask_coverage.fsh (lip = 1 on these fields) plus the cover factors after it. */
+	private static Result march(final Field field, final double[] cam, final double[] dir,
+			final double tStart, final double tLimit) {
+		final Result r = new Result();
+		double t = tStart;
+		double tPrev = tStart;
+		double dPrev = 0.0;
+		boolean havePrev = false;
+		boolean inside = false;
+		double dBound = 1.0e9;
+		double tBound = tStart;
+		final double stepBoost = STEP_BOOST * SOFTNESS;
+		for (int s = 0; s < STEPS; s++) {
+			final double d = field.sdf(cam[0] + dir[0] * t, cam[1] + dir[1] * t, cam[2] + dir[2] * t);
+			r.evals++;
+			if (havePrev) {
+				final double dCross = 0.5 * (dPrev + d - (t - tPrev));
+				if (dCross < dBound) {
+					dBound = dCross;
+					tBound = tPrev + (dPrev - dCross);
+				}
+			}
+			if (d < dBound) {
+				dBound = d;
+				tBound = t;
+			}
+			if (d <= 0.0) {
+				if (!inside) {
+					inside = true;
+					if (r.tEnter < 0.0) {
+						r.tEnter = havePrev ? tPrev + (t - tPrev) * dPrev / Math.max(dPrev - d, 1.0e-4) : t;
+					}
+				}
+				if (d <= -0.5 * SOFTNESS) {
+					r.saturated = true;
+					break;
+				}
+			} else if (inside) {
+				inside = false;
+			}
+			final double dive = d - (tLimit - t);
+			if (dive > 0.5 * SOFTNESS || dive >= dBound) {
+				break;
+			}
+			havePrev = true;
+			tPrev = t;
+			dPrev = d;
+			t += clamp(Math.abs(d) + stepBoost, MIN_STEP, MAX_STEP);
+			if (t >= tLimit) {
+				break;
+			}
+		}
+		// A miss is the envelope bound on a chord shrunk to its closest approach; an entered ray keeps
+		// the still-inside chord, so tExit is the limit (the refine loop only shortens a chord that
+		// ended, which no fixture here does).
+		r.cov = r.tEnter < 0.0 ? cover(dBound, tBound) : cover(dBound, tLimit);
+		return r;
+	}
+
+	/** vfx_aura_cover with the occlusion term at its constant 1 (the occlusion opt-out). */
+	private static double cover(final double d, final double tExit) {
+		if (tExit <= CHORD_EPS) {
+			return 0.0;
+		}
+		return clamp(0.5 - d / SOFTNESS, 0.0, 1.0) * clamp((tExit - CHORD_EPS) / SOFTNESS, 0.0, 1.0);
+	}
+
+	/**
+	 * The broad phase exactly as the shader orders it: the skip advance first, then the box, which also
+	 * holds the cull (a null pair means the plugin declared nothing of that kind). The box overwrites
+	 * tStart, which is what "box before sphere" and "skip before box" both mean here.
+	 */
+	private static Span broad(final double[] cam, final double[] dir, final double tLimit,
+			final double[] skipMin, final double[] skipMax, final double[] boxMin, final double[] boxMax) {
+		final Span span = new Span();
+		span.tStart = 0.0;
+		span.tLimit = tLimit;
+		if (skipMin != null) {
+			final double[] skip = interval(cam, skipMin, skipMax, dir, SOFTNESS);
+			if (skip[0] <= 0.0 && skip[1] > 0.0) {
+				span.tStart = Math.max(span.tStart,
+					clamp(skip[1] - SOFTNESS, 0.0, Math.max(span.tLimit - SOFTNESS, 0.0)));
+			}
+		}
+		if (boxMin != null) {
+			final double[] box = interval(cam, boxMin, boxMax, dir, SOFTNESS);
+			if (box[1] < 0.0 || box[1] < box[0]) {
+				span.hit = false;
+			} else {
+				span.tStart = Math.max(box[0] - SOFTNESS, 0.0);
+				span.tLimit = Math.min(span.tLimit, box[1] + SOFTNESS);
+			}
+		}
+		return span;
+	}
+
+	/** The shader's if/else: a culled or empty span contributes nothing and never marches. */
+	private static Result run(final Field field, final double[] cam, final double[] dir, final Span span) {
+		if (!span.hit || span.tStart >= span.tLimit) {
+			return new Result();
+		}
+		return march(field, cam, dir, span.tStart, span.tLimit);
+	}
+
+	/** The field's true closest approach along the ray, sampled finely; coverage is 0 at or below softness/2. */
+	private static double gap(final Field field, final double[] cam, final double[] dir, final double tLimit) {
+		double best = 1.0e30;
+		for (double t = 0.0; t <= tLimit; t += 0.02) {
+			best = Math.min(best, field.sdf(cam[0] + dir[0] * t, cam[1] + dir[1] * t, cam[2] + dir[2] * t));
+		}
+		return best;
+	}
+
+	public static void main(final String[] args) {
+		inside();
+		away();
+		travel();
+		boxCullZeroCoverage();
+		skipOnlyFromInside();
+	}
+
+	/** Ray class inside: the camera starts in the volume, so the first sample saturates and the bounds change nothing. */
+	private static void inside() {
+		final Field field = slab();
+		final double[] cam = {0.0, 0.0, 0.0};
+		final double[] dir = unit(0.3, 0.9, 0.3);
+		final Result ref = march(field, cam, dir, 0.0, MAX_RANGE);
+		final Span span = broad(cam, dir, MAX_RANGE, null, null, SLAB_BOX_MIN, SLAB_BOX_MAX);
+		final Result got = run(field, cam, dir, span);
+		if (ref.evals > 2 || !ref.saturated) {
+			throw new AssertionError("inside: the reference ray must saturate on its first sample, got "
+				+ ref.evals + " evaluations, saturated " + ref.saturated);
+		}
+		if (span.tStart != 0.0) {
+			throw new AssertionError("inside: the containment box moved tStart to " + span.tStart);
+		}
+		if (got.evals != ref.evals || got.cov != ref.cov || got.saturated != ref.saturated) {
+			throw new AssertionError("inside: the bounds changed a saturated ray (" + ref.evals + "/" + ref.cov
+				+ " -> " + got.evals + "/" + got.cov + ")");
+		}
+		System.out.println("  inside: " + got.evals + " evaluation(s), cov " + got.cov
+			+ " - a saturated ray is identical with and without the bounds (reference " + ref.evals + ")");
+	}
+
+	/**
+	 * Ray class away: the camera sits above a bounded coverage region and the ray never re-enters it.
+	 * Today the march crawls to the range cap; the containment box culls it before the first sample.
+	 */
+	private static void away() {
+		final Field field = slab();
+		final double[] dir = {0.0, 1.0, 0.0};
+		int culledRays = 0;
+		int cheapest = Integer.MAX_VALUE;
+		int dearest = 0;
+		for (final double clearance : new double[] {2.5, 3.0, 4.0, 6.0, 9.0}) {
+			final double[] cam = {0.0, 4.0 + clearance, 0.0};
+			final Result ref = march(field, cam, dir, 0.0, MAX_RANGE);
+			final Span span = broad(cam, dir, MAX_RANGE, null, null, SLAB_BOX_MIN, SLAB_BOX_MAX);
+			final Result got = run(field, cam, dir, span);
+			if (span.hit) {
+				throw new AssertionError("away: a ray " + clearance + " above the slab must be culled by the padded box");
+			}
+			if (got.evals != 0 || got.cov != 0.0) {
+				throw new AssertionError("away: a culled ray marched " + got.evals + " times for cov " + got.cov);
+			}
+			if (ref.evals < 4) {
+				throw new AssertionError("away: the reference ray cost only " + ref.evals
+					+ " evaluations - the fixture is meant to measure a crawl, not an inside-class ray");
+			}
+			culledRays++;
+			cheapest = Math.min(cheapest, ref.evals);
+			dearest = Math.max(dearest, ref.evals);
+		}
+		System.out.println("  away: " + culledRays + " rays above the slab culled to 0 evaluations, against " + cheapest
+			+ "-" + dearest + " today - the containment box is what buys this");
+	}
+
+	/**
+	 * Ray class travel: the camera sits inside the hole, inside the skip box, and the ray crosses it
+	 * toward a distant coverage region - the reporter's case. The sweep then covers the rim and the
+	 * rays that never enter: no ray may lose coverage beyond the envelope's own fat, a saturated ray
+	 * must stay saturated, and no ray may cost more than before.
+	 */
+	private static void travel() {
+		final Field field = wall();
+		final double[] cam = {11.0, 0.0, 0.0};
+		final double[] dir = {-1.0, 0.0, 0.0};
+		final Result ref = march(field, cam, dir, 0.0, MAX_RANGE);
+		final Span span = broad(cam, dir, MAX_RANGE, WALL_SKIP_MIN, WALL_SKIP_MAX, null, null);
+		final Result got = run(field, cam, dir, span);
+		if (span.tStart <= 0.0) {
+			throw new AssertionError("travel: the skip advance did not move tStart off the camera");
+		}
+		if (got.evals >= ref.evals) {
+			throw new AssertionError("travel: " + got.evals + " evaluations against " + ref.evals + " before the skip");
+		}
+		if (Math.abs(got.tEnter - ref.tEnter) > SOFTNESS) {
+			throw new AssertionError("travel: tEnter moved by " + Math.abs(got.tEnter - ref.tEnter)
+				+ " blocks, more than the softness " + SOFTNESS + " the pad covers");
+		}
+		int rays = 0;
+		int saturated = 0;
+		int misses = 0;
+		double worstDelta = 0.0;
+		int cheapest = Integer.MAX_VALUE;
+		int dearest = 0;
+		for (final double pitch : new double[] {0.8, 0.4, 0.12, 0.0, -0.12, -0.4, -0.8}) {
+			for (int yawStep = 0; yawStep < 8; yawStep++) {
+				final double yaw = Math.PI * yawStep / 4.0;
+				final double[] ray = unit(Math.cos(yaw), pitch, Math.sin(yaw));
+				final Result before = march(field, cam, ray, 0.0, MAX_RANGE);
+				final Result after = run(field, cam, ray,
+					broad(cam, ray, MAX_RANGE, WALL_SKIP_MIN, WALL_SKIP_MAX, null, null));
+				final double delta = Math.abs(after.cov - before.cov);
+				if (delta > COVER_EPS) {
+					throw new AssertionError("travel: a rim/saturated ray lost " + delta + " of coverage ("
+						+ before.cov + " -> " + after.cov + ") - the ceiling is " + COVER_EPS);
+				}
+				if (before.saturated && !after.saturated) {
+					throw new AssertionError("travel: a saturated ray stopped saturating");
+				}
+				if (after.evals > before.evals) {
+					throw new AssertionError("travel: a ray cost more (" + after.evals + " against " + before.evals + ")");
+				}
+				if (before.saturated) {
+					saturated++;
+				} else {
+					misses++;
+				}
+				worstDelta = Math.max(worstDelta, delta);
+				cheapest = Math.min(cheapest, after.evals);
+				dearest = Math.max(dearest, after.evals);
+				rays++;
+			}
+		}
+		if (saturated < 4 || misses < 4 || rays < 40) {
+			throw new AssertionError("travel: the sweep covered " + rays + " rays (" + saturated + " saturated, "
+				+ misses + " never entering) - too few to say anything");
+		}
+		System.out.println("  travel: " + ref.evals + " -> " + got.evals + " evaluations, tStart 0 -> " + span.tStart
+			+ ", tEnter " + fmt(ref.tEnter) + " -> " + fmt(got.tEnter) + " (within the softness " + SOFTNESS + ")");
+		System.out.println("         " + rays + " swept hole rays (" + saturated + " saturated, " + misses
+			+ " never entering): worst coverage delta " + fmt(worstDelta) + " (ceiling " + COVER_EPS
+			+ "), evaluations " + cheapest + "-" + dearest);
+	}
+
+	/**
+	 * The envelope's floor on the reported distance for a ray whose true closest approach is g:
+	 * lip * step &lt;= |d| + B gives dCross &gt;= 0.5 * (g - B), and the envelope never reports
+	 * thinner than the truth, so that is where dBound can bottom out - a cull has to preserve the
+	 * coverage that comes with it. Past g &gt;= softness + B that floor is past softness/2, so the
+	 * silhouette is exactly 0 and the march must report 0.
+	 */
+	private static double envelopeCeiling(final double trueGap) {
+		return 0.5 - 0.5 * (trueGap - STEP_BOOST * SOFTNESS) / SOFTNESS;
+	}
+
+	/**
+	 * Fixture box_cull_zero_coverage: every ray the padded slab culls must have the full march's
+	 * coverage at ~0, and every near-miss ray it keeps must keep its coverage. A coverage predicate,
+	 * not a silhouette predicate: the near-miss band inside the pad has no hit at all, which a
+	 * silhouette test is blind to, and a bare-box cull would cut it to 0.
+	 */
+	private static void boxCullZeroCoverage() {
+		final Field field = slab();
+		final double[] up = {0.0, 1.0, 0.0};
+		int cleared = 0;
+		int boundary = 0;
+		int kept = 0;
+		double worstCleared = 0.0;
+		double worstBoundary = 0.0;
+		double worstKept = 0.0;
+		// Vertical rays at a known clearance over the top face: the field reads exactly that clearance,
+		// so what each ray really covers is known and the tiers below are exact.
+		for (final double clearance : new double[] {0.5, 1.0, 1.5, 1.9, 2.1, 2.5, 3.0, 4.0, 6.0, 9.0}) {
+			final double[] cam = {0.0, 4.0 + clearance, 0.0};
+			final double trueGap = gap(field, cam, up, MAX_RANGE);
+			if (broad(cam, up, MAX_RANGE, null, null, SLAB_BOX_MIN, SLAB_BOX_MAX).hit) {
+				if (trueGap >= SOFTNESS / 2) {
+					throw new AssertionError("box_cull_zero_coverage: a ray at gap " + trueGap
+						+ " is outside the pad and must be culled");
+				}
+				continue;
+			}
+			final double cov = checkCull(field, cam, up, trueGap);
+			if (trueGap >= SOFTNESS + STEP_BOOST * SOFTNESS) {
+				cleared++;
+				worstCleared = Math.max(worstCleared, cov);
+			} else {
+				boundary++;
+				worstBoundary = Math.max(worstBoundary, cov);
+			}
+		}
+		// Diagonals from outside, where a ray misses the padded box by a corner rather than by a face.
+		for (int yawStep = 0; yawStep < 12; yawStep++) {
+			final double yaw = 2.0 * Math.PI * yawStep / 12.0;
+			for (final double pitch : new double[] {-0.5, -0.2, 0.2, 0.5}) {
+				final double[] cam = {14.0 + 3.0 * Math.cos(yaw), 9.0, 3.0 * Math.sin(yaw)};
+				final double[] ray = unit(-Math.cos(yaw), pitch, -Math.sin(yaw));
+				if (broad(cam, ray, MAX_RANGE, null, null, SLAB_BOX_MIN, SLAB_BOX_MAX).hit) {
+					continue;
+				}
+				final double trueGap = gap(field, cam, ray, MAX_RANGE);
+				final double cov = checkCull(field, cam, ray, trueGap);
+				if (trueGap >= SOFTNESS + STEP_BOOST * SOFTNESS) {
+					cleared++;
+					worstCleared = Math.max(worstCleared, cov);
+				} else {
+					boundary++;
+					worstBoundary = Math.max(worstBoundary, cov);
+				}
+			}
+		}
+		// The near-miss band inside the pad: real coverage, no hit, and the box branch must keep all of
+		// it. These rays graze the slab's corner, so their true closest approach sits in the middle of
+		// the march - a ray whose minimum is AT the camera fades out on tExit <= chordEps and has no
+		// coverage to lose, which would make the fixture vacuous.
+		for (final double g : new double[] {0.25, 0.5, 1.0, 1.5, 1.9}) {
+			final double[] cam = grazingRay(g);
+			final Span span = broad(cam, GRAZE_DIR, MAX_RANGE, null, null, SLAB_BOX_MIN, SLAB_BOX_MAX);
+			if (!span.hit) {
+				throw new AssertionError("box_cull_zero_coverage: a ray whose closest approach is " + g
+					+ " was culled - its coverage is 0.5 - " + g + "/" + SOFTNESS + " = " + (0.5 - g / SOFTNESS));
+			}
+			final Result ref = march(field, cam, GRAZE_DIR, 0.0, MAX_RANGE);
+			final Result got = run(field, cam, GRAZE_DIR, span);
+			if (ref.cov <= 0.0) {
+				throw new AssertionError("box_cull_zero_coverage: the fixture ray at gap " + g
+					+ " has no coverage to preserve");
+			}
+			if (Math.abs(got.cov - ref.cov) > COVER_EPS) {
+				throw new AssertionError("box_cull_zero_coverage: a near-miss ray lost coverage ("
+					+ ref.cov + " -> " + got.cov + ") - the cliff the padded cull exists to avoid");
+			}
+			worstKept = Math.max(worstKept, Math.abs(got.cov - ref.cov));
+			kept++;
+		}
+		// Grazing rays past the pad: culled, and their coverage is 0 by construction.
+		for (final double g : new double[] {3.0, 4.0, 6.0, 9.0}) {
+			final double[] cam = grazingRay(g);
+			if (broad(cam, GRAZE_DIR, MAX_RANGE, null, null, SLAB_BOX_MIN, SLAB_BOX_MAX).hit) {
+				throw new AssertionError("box_cull_zero_coverage: a ray whose closest approach is " + g
+					+ " is outside the pad (softness/2 = " + (SOFTNESS / 2) + ") and must be culled");
+			}
+			final double cov = checkCull(field, cam, GRAZE_DIR, gap(field, cam, GRAZE_DIR, MAX_RANGE));
+			if (g >= SOFTNESS + STEP_BOOST * SOFTNESS) {
+				cleared++;
+				worstCleared = Math.max(worstCleared, cov);
+			} else {
+				boundary++;
+				worstBoundary = Math.max(worstBoundary, cov);
+			}
+		}
+		if (cleared < 3 || boundary < 6 || kept < 5) {
+			throw new AssertionError("box_cull_zero_coverage: only " + cleared + " cleared, " + boundary
+				+ " boundary and " + kept + " kept rays - the fixture must exercise both sides of the pad");
+		}
+		System.out.println("  box_cull_zero_coverage: " + cleared
+			+ " rays at least " + (SOFTNESS + STEP_BOOST * SOFTNESS)
+			+ " blocks away reach cov 0.0 after the full march (worst " + fmt(worstCleared)
+			+ "), " + boundary + " culled inside the envelope's fat reach stay under its ceiling "
+			+ fmt(envelopeCeiling(SOFTNESS / 2)) + " (worst " + fmt(worstBoundary) + "), " + kept
+			+ " near-miss rays inside the pad keep their coverage (worst delta " + fmt(worstKept) + ")");
+	}
+
+	/**
+	 * One culled ray, checked both ways: the pad guarantees a true gap of at least softness/2, so its
+	 * coverage is exactly 0, and what is left to bound is the envelope's own fat. Returns the coverage
+	 * the full march reported for it.
+	 */
+	private static double checkCull(final Field field, final double[] cam, final double[] dir, final double trueGap) {
+		if (trueGap < SOFTNESS / 2) {
+			throw new AssertionError("box_cull_zero_coverage: a ray culled at gap " + trueGap
+				+ " has real coverage (0.5 - " + trueGap + "/" + SOFTNESS + ") - the pad is softness/2");
+		}
+		final double cov = march(field, cam, dir, 0.0, MAX_RANGE).cov;
+		if (trueGap >= SOFTNESS + STEP_BOOST * SOFTNESS) {
+			if (cov > 1.0e-9) {
+				throw new AssertionError("box_cull_zero_coverage: a ray " + (SOFTNESS + STEP_BOOST * SOFTNESS)
+					+ " blocks away (gap " + trueGap + ") marched to cov " + cov + " - culling it costs nothing");
+			}
+		} else if (cov > envelopeCeiling(trueGap) + 1.0e-9) {
+			throw new AssertionError("box_cull_zero_coverage: a ray culled at gap " + trueGap + " marched to cov "
+				+ cov + ", past the envelope's own ceiling " + envelopeCeiling(trueGap));
+		}
+		return cov;
+	}
+
+	/** Fixture skip_only_from_inside: with the camera outside the skip box, tStart must not move. */
+	private static void skipOnlyFromInside() {
+		final Field field = wall();
+		// Inside the coverage region, outside the skip box, with the box ahead on the ray: a naive
+		// unconditional advance would jump this saturated ray's whole chord.
+		final double[] cam = {-30.0, 0.0, 0.0};
+		final double[] dir = {1.0, 0.0, 0.0};
+		final Result ref = march(field, cam, dir, 0.0, MAX_RANGE);
+		final Span span = broad(cam, dir, MAX_RANGE, WALL_SKIP_MIN, WALL_SKIP_MAX, null, null);
+		final Result got = run(field, cam, dir, span);
+		final double[] padded = interval(cam, WALL_SKIP_MIN, WALL_SKIP_MAX, dir, SOFTNESS);
+		// What the branch would have advanced to without the inside test - the hazard the test exists
+		// for: the box is ahead of the camera, so its exit sits in the middle of a live chord.
+		final double wouldAdvance = clamp(padded[1] - SOFTNESS, 0.0, MAX_RANGE - SOFTNESS);
+		if (padded[0] <= 0.0) {
+			throw new AssertionError("skip_only_from_inside: the camera is inside the padded skip box - the fixture no longer poses the hazard");
+		}
+		if (span.tStart != 0.0) {
+			throw new AssertionError("skip_only_from_inside: tStart moved to " + span.tStart
+				+ " with the camera outside the skip box");
+		}
+		if (got.evals != ref.evals || got.cov != ref.cov || got.tEnter != ref.tEnter) {
+			throw new AssertionError("skip_only_from_inside: the ray changed (" + ref.evals + "/" + ref.cov
+				+ " -> " + got.evals + "/" + got.cov + ")");
+		}
+		if (wouldAdvance <= 0.0) {
+			throw new AssertionError("skip_only_from_inside: the fixture no longer poses the hazard - an unconditional advance would skip nothing");
+		}
+		System.out.println("  skip_only_from_inside: camera outside the skip box, tStart stays 0.0 (an unconditional advance would have jumped to "
+			+ fmt(wouldAdvance) + "); cov " + got.cov + " over " + got.evals + " evaluations");
+	}
+
+	private static double[] unit(final double x, final double y, final double z) {
+		final double len = Math.sqrt(x * x + y * y + z * z);
+		return new double[] {x / len, y / len, z / len};
+	}
+
+	/** A ray that grazes the slab's (4, 4, -4) corner at exactly g, reaching that closest approach at t = 20. */
+	private static final double[] GRAZE_DIR = unit(-1.0, 1.0, 0.0);
+
+	/** The camera that launches {@link #GRAZE_DIR} so the ray's closest approach to the slab is exactly g. */
+	private static double[] grazingRay(final double g) {
+		final double c = g / Math.sqrt(2.0);
+		return new double[] {4.0 + c + 10.0 * Math.sqrt(2.0), 4.0 + c - 10.0 * Math.sqrt(2.0), -4.0};
+	}
+
+	private static double clamp(final double v, final double lo, final double hi) {
+		return v < lo ? lo : (v > hi ? hi : v);
+	}
+
+	private static String fmt(final double v) {
+		return String.format(java.util.Locale.ROOT, "%.4f", v);
+	}
+}
+'@
+[System.IO.File]::WriteAllText($broadSrc, $broadJava, [System.Text.UTF8Encoding]::new($false))
+
 Write-Host "Aura slab interval check (CPU simulation)"
 Push-Location $repoRoot
 try {
-	& $javac "@$slabCpFile" -d $slabDir $slabSrc
+	& $javac "@$slabCpFile" -d $slabDir $slabSrc $broadSrc
 	if ($LASTEXITCODE -ne 0) { throw "javac failed" }
 	& $java "@$slabCpFile" SlabIntervalCheck
 	if ($LASTEXITCODE -ne 0) { throw "SlabIntervalCheck failed" }
+	Write-Host "Aura broad phase check (CPU simulation)"
+	& $java "@$slabCpFile" AuraBroadPhaseCheck
+	if ($LASTEXITCODE -ne 0) { throw "AuraBroadPhaseCheck failed" }
 } finally {
 	Pop-Location
 }
 Write-Host "Aura slab interval check OK."
+Write-Host "Aura broad phase check OK."
 exit 0
