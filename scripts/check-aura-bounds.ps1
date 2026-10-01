@@ -19,8 +19,12 @@
 # globals and then call the plugin - so a variant of two plugins where only one provides a box still
 # emits the define, and the other leaf reports "not provided" rather than borrowing the box.
 #
-# Static assertions only: Gradle does not compile GLSL and there is no GPU here, so nothing here
-# claims a shader compiles.
+# Task 3 asserts the shared slab helper in the coverage shader: the four spec steps (clamp the
+# sentinel axes to the reachable range, pad by the near-miss band, invert the direction robustly,
+# take tNear/tFar from min/max pairs) in the order the spec fixes, and the sphere broad phase beside
+# it byte-identical to HEAD. Those four are pure arithmetic, so they are also simulated on the CPU
+# below - sentinel_clamp, cull_pad, robust_inverse, skip_tail_clamp - because Gradle does not compile
+# GLSL and there is no GPU here, so nothing here claims a shader compiles.
 #
 # Usage: powershell -NoProfile -ExecutionPolicy Bypass -File scripts/check-aura-bounds.ps1
 $ErrorActionPreference = "Stop"
@@ -265,6 +269,97 @@ if ($headSource.Count -eq 0) {
 	}
 }
 
+# 10) Task 3: the shared padded slab helper in the coverage shader. Its four steps are the spec's four
+#     mandatory conditions (P0), asserted as literal text AND in the order the spec fixes (clamp the
+#     sentinels -> expand -> slab test), and the sphere broad phase beside it must be byte-identical to
+#     HEAD: this task only adds a helper, so any edit to the sphere maths is an accident.
+$shaderPath = Join-Path $repoRoot "src\client\resources\assets\vfxweaver\shaders\post\mask_coverage.fsh"
+if (-not (Test-Path -LiteralPath $shaderPath)) {
+	Write-Error "aura bounds check: missing src\client\resources\assets\vfxweaver\shaders\post\mask_coverage.fsh"
+	exit 1
+}
+$shader = ([System.IO.File]::ReadAllText($shaderPath)) -replace "`r`n", "`n"
+$helperSignature = 'void vfx_aura_box_interval(vec3 bmin, vec3 bmax, vec3 viewDir, float softness, out float tNear, out float tFar)'
+$helperBody = Get-Body $shader $helperSignature
+if ($helperBody -eq $null) {
+	$problems.Add("mask_coverage.fsh has no '$helperSignature' - one padded slab helper serves both the containment branch and the skip branch")
+} else {
+	# name, then the literals of that step. The clamp needs its reach named so the reachable range is
+	# the shader's own MAX_RANGE constant and not a number typed twice.
+	$steps = @(
+		@('the sentinel clamp to the reachable range',
+			'vec3 reach = vec3(VFX_PLUGIN_AURA_MAX_RANGE);',
+			'clamp(bmin, camPos.xyz - reach, camPos.xyz + reach)',
+			'clamp(bmax, camPos.xyz - reach, camPos.xyz + reach)'),
+		@('the near-miss pad',
+			'float pad = 0.5 * softness;',
+			'lo -= vec3(pad);',
+			'hi += vec3(pad);'),
+		@('the robust direction inversion',
+			'invDir = 1.0 / mix(viewDir, vec3(1.0e-8), lessThan(abs(viewDir), vec3(1.0e-8)))'),
+		@('the min/max tNear and tFar pairs',
+			'tNear = max(max(', ', tn.z);',
+			'tFar = min(min(', ', tf.z);'))
+	$spans = @()
+	$stepIndex = 0
+	foreach ($step in $steps) {
+		$name = $step[0]
+		$first = -1
+		$last = -1
+		for ($literalIndex = 1; $literalIndex -lt $step.Count; $literalIndex++) {
+			$literal = $step[$literalIndex]
+			$at = $helperBody.IndexOf($literal)
+			if ($at -lt 0) {
+				$problems.Add("mask_coverage.fsh vfx_aura_box_interval is missing ${name}: '$literal'")
+				continue
+			}
+			if ($first -lt 0 -or $at -lt $first) { $first = $at }
+			if ($at -gt $last) { $last = $at }
+		}
+		if ($first -ge 0) { $spans += , @($stepIndex, $first, $last, $name) }
+		$stepIndex++
+	}
+	for ($i = 1; $i -lt $spans.Count; $i++) {
+		if ($spans[$i][1] -le $spans[$i - 1][2]) {
+			$problems.Add("mask_coverage.fsh vfx_aura_box_interval does $($spans[$i][3]) after $($spans[$i - 1][3]) - the spec fixes the order clamp sentinels -> expand -> slab test")
+		}
+	}
+	# The comment above the helper must carry the four reasons; a bare helper invites the next edit to
+	# drop the pad or the robust inversion as "noise".
+	$head = $shader.Substring(0, $shader.IndexOf($helperSignature)).TrimEnd()
+	$headLines = $head -split "`n"
+	$doc = @()
+	for ($i = $headLines.Count - 1; $i -ge 0; $i--) {
+		if ($headLines[$i].TrimStart().StartsWith('//')) { $doc = @($headLines[$i].Trim()) + $doc } else { break }
+	}
+	$doc = $doc -join ' '
+	foreach ($phrase in @('lossless', 'softness/2', 'widen')) {
+		if (-not $doc.Contains($phrase)) {
+			$problems.Add("the comment above vfx_aura_box_interval does not say '$phrase' - each step is there for a reason and the reason is the contract")
+		}
+	}
+}
+
+# 11) the sphere broad phase (boundOffset / boundB / boundC) is byte-identical to HEAD. The padded box
+#     is a new path beside it, not a rewrite of it: vfx_shape_custom_bounds() keeps its meaning.
+$headLines = @(& git -C $repoRoot show "HEAD:src/client/resources/assets/vfxweaver/shaders/post/mask_coverage.fsh")
+$sphereFrom = '                    vec4 bounds = vfx_custom_bounds();'
+$sphereTo = '                    if (!boundsHit || tStart >= tLimit) {'
+if ($headLines.Count -eq 0) {
+	$problems.Add("aura bounds check: cannot read mask_coverage.fsh at HEAD (is git available?)")
+} else {
+	$headFrom = [Array]::IndexOf($headLines, $sphereFrom)
+	$headTo = [Array]::IndexOf($headLines, $sphereTo)
+	if ($headFrom -lt 0 -or $headTo -le $headFrom) {
+		$problems.Add("mask_coverage.fsh at HEAD has no sphere broad phase between its two anchors - the untouched-sphere check cannot run")
+	} else {
+		$block = ($headLines[$headFrom..($headTo - 1)]) -join "`n"
+		if (-not $shader.Contains($block)) {
+			$problems.Add("the sphere broad phase in mask_coverage.fsh is no longer byte-identical to HEAD (boundOffset / boundB / boundC through the end of its if)")
+		}
+	}
+}
+
 Write-Host "Aura bounds plugin check (static)"
 if ($problems.Count -gt 0) {
 	$problems | ForEach-Object { Write-Host "  - $_" }
@@ -276,5 +371,215 @@ Write-Host "  Javadoc: the box CONTAINS the whole field <= 0 region; the skip bo
 Write-Host "  VFXMaskShapeGlsl is still @FunctionalInterface (String glsl() only); VFXAPI keeps exactly its two registerMaskShapeGlsl overloads and no steps overload"
 Write-Host "  the variant generator emits VFX_CUSTOM_HAS_BOX_BOUNDS / VFX_CUSTOM_HAS_SKIP_BOUNDS per variant, and vfx_custom_box_bounds(int leaf, out vec3 bmin, out vec3 bmax) / vfx_custom_skip_bounds(...) per leaf, each publishing the leaf's globals before calling the plugin"
 Write-Host "  the existing sphere (VFX_CUSTOM_HAS_BOUNDS) and VFX_CUSTOM_FIELD_LIPSCHITZ emission is byte-identical to HEAD"
+Write-Host "  mask_coverage.fsh: vfx_aura_box_interval does clamp sentinels -> pad by 0.5 * softness -> robust inversion -> min/max tNear/tFar, in that order, and says why in a comment"
+Write-Host "  the sphere broad phase in mask_coverage.fsh (boundOffset / boundB / boundC) is byte-identical to HEAD"
 Write-Host "Aura bounds plugin check OK."
+
+# --- runnable: the four slab fixtures, the arithmetic of vfx_aura_box_interval on the CPU ---------
+# The helper is pure arithmetic, so it is simulated here rather than in GLSL: Gradle does not compile
+# GLSL and there is no GPU on this box, so the shape of the source above is all the shader can be
+# held to, and the numbers are all these four can be held to.
+$jdkHome = $env:JAVA_HOME
+$javac = if ($jdkHome -and (Test-Path (Join-Path $jdkHome "bin\javac.exe"))) { Join-Path $jdkHome "bin\javac.exe" } else { $null }
+$java = if ($jdkHome -and (Test-Path (Join-Path $jdkHome "bin\java.exe"))) { Join-Path $jdkHome "bin\java.exe" } else { $null }
+if (-not $javac) {
+	$candidate = Get-ChildItem (Join-Path $env:ProgramFiles "Java") -Directory -ErrorAction SilentlyContinue |
+		Where-Object { $_.Name -match 'jdk' } | Sort-Object Name -Descending | Select-Object -First 1
+	if ($candidate) { $javac = Join-Path $candidate.FullName "bin\javac.exe"; $java = Join-Path $candidate.FullName "bin\java.exe" }
+}
+if (-not $javac -or -not (Test-Path $javac)) {
+	Write-Error "aura bounds check: no JDK found (set JAVA_HOME); the static contracts passed."
+	exit 1
+}
+$mainClasses = Join-Path $repoRoot "versions\26.1.2\build\classes\java\main"
+if (-not (Test-Path $mainClasses)) {
+	Write-Error "aura bounds check: build :26.1.2 first (missing $mainClasses)."
+	exit 1
+}
+$slabDir = Join-Path $env:TEMP "vfxweaver-aura-slab-check"
+New-Item -ItemType Directory -Force -Path $slabDir | Out-Null
+$slabSrc = Join-Path $slabDir "SlabIntervalCheck.java"
+$slabCpFile = Join-Path $slabDir "cp.txt"
+$slabCp = "versions/26.1.2/build/classes/java/main;$($slabDir.Replace('\', '/'))"
+[System.IO.File]::WriteAllText($slabCpFile, "-cp `"$slabCp`"", [System.Text.UTF8Encoding]::new($false))
+$slabJava = @'
+/** The four spec fixtures for the padded slab arithmetic of vfx_aura_box_interval (Task 3). */
+public final class SlabIntervalCheck {
+	private static final double MAX_RANGE = 1024.0;
+	private static final double DIR_EPS = 1.0e-8;
+
+	/**
+	 * The helper's arithmetic, step for step: clamp the sentinels to the reachable range, pad, invert
+	 * the direction, take tNear/tFar from min/max pairs. Returns {tNear, tFar}; a miss is tFar &lt; tNear
+	 * (or tFar &lt; 0 when the box is behind the camera).
+	 */
+	private static double[] interval(final double[] cam, final double[] bmin, final double[] bmax,
+			final double[] viewDir, final double softness) {
+		final double pad = 0.5 * softness;
+		final double[] near = new double[3];
+		final double[] far = new double[3];
+		for (int a = 0; a < 3; a++) {
+			final double lo = clamp(bmin[a], cam[a] - MAX_RANGE, cam[a] + MAX_RANGE) - pad;
+			final double hi = clamp(bmax[a], cam[a] - MAX_RANGE, cam[a] + MAX_RANGE) + pad;
+			final double dir = Math.abs(viewDir[a]) < DIR_EPS ? DIR_EPS : viewDir[a];
+			final double invDir = 1.0 / dir;
+			final double t0 = (lo - cam[a]) * invDir;
+			final double t1 = (hi - cam[a]) * invDir;
+			near[a] = Math.min(t0, t1);
+			far[a] = Math.max(t0, t1);
+		}
+		return new double[] {Math.max(Math.max(near[0], near[1]), near[2]),
+			Math.min(Math.min(far[0], far[1]), far[2])};
+	}
+
+	public static void main(final String[] args) {
+		sentinel_clamp();
+		cull_pad();
+		robust_inverse();
+		skip_tail_clamp();
+	}
+
+	/** Spec fixture sentinel_clamp: a box with y = -1e9 is the post-clamp box [camY - 1024, top]. */
+	private static void sentinel_clamp() {
+		final double[] cam = {0.0, 64.0, 0.0};
+		final double[] down = {0.0, -1.0, 0.0};
+		final double[] bmin = {-50.0, -1.0e9, -50.0};
+		final double[] bmax = {50.0, 40.0, 50.0};
+		final double[] got = interval(cam, bmin, bmax, down, 0.0);
+		final double[] clamped = interval(cam, new double[] {-50.0, cam[1] - MAX_RANGE, -50.0}, bmax, down, 0.0);
+		same(got, clamped, "sentinel_clamp: y = -1e9 must equal the post-clamp box");
+		near(got[0], 24.0, "sentinel_clamp tNear (the box top, 24 below the camera)");
+		near(got[1], MAX_RANGE, "sentinel_clamp tFar (the reachable range, not the sentinel)");
+		// The same box with XZ sentinels instead: the XZ faces must not be reachable either.
+		final double[] xz = interval(cam, new double[] {-1.0e9, -1.0e9, -1.0e9}, new double[] {1.0e9, 40.0, 1.0e9}, down, 0.0);
+		near(xz[1], MAX_RANGE, "sentinel_clamp tFar with XZ sentinels");
+		System.out.println("  sentinel_clamp: y = -1e9 == [camY - 1024, 40]; a downward ray gets ["
+			+ got[0] + ", " + got[1] + "] instead of a million blocks");
+	}
+
+	/**
+	 * Spec fixture cull_pad: a ray whose closest approach to a dense box face is g &lt; softness/2 has
+	 * real coverage (0.5 - g/softness) and must not be culled; culling on a bare box would cut that
+	 * cliff, and tStart/tLimit padding cannot help because it is unreachable for a culled ray.
+	 */
+	private static void cull_pad() {
+		final double softness = 4.0;
+		final double pad = 0.5 * softness;
+		final double[] dir = {1.0, 0.0, 0.0};
+		final double[] bmin = {0.0, 0.0, 0.0};
+		final double[] bmax = {10.0, 10.0, 10.0};
+		for (final double g : new double[] {0.5, 1.0, 0.9 * pad}) {
+			final double[] ray = {-20.0, 10.0 + g, 5.0};
+			if (interval(ray, bmin, bmax, dir, 0.0)[1] >= 0.0) {
+				throw new AssertionError("cull_pad: the bare box must cull a miss at g = " + g);
+			}
+			if (culled(interval(ray, bmin, bmax, dir, softness))) {
+				throw new AssertionError("cull_pad: the padded box culls g = " + g
+					+ " - a real coverage of " + (0.5 - g / softness) + " would be cut to 0");
+			}
+		}
+		// The ray that grazes the face exactly is a hit either way, and just past the pad the padded
+		// box may cull again - the pad is a near-miss band, not a blanket.
+		if (culled(interval(new double[] {-20.0, 10.0, 5.0}, bmin, bmax, dir, softness))) {
+			throw new AssertionError("cull_pad: a ray exactly on the face must not be culled");
+		}
+		if (!culled(interval(new double[] {-20.0, 10.0 + 1.01 * pad, 5.0}, bmin, bmax, dir, softness))) {
+			throw new AssertionError("cull_pad: a miss past softness/2 must still be culled");
+		}
+		System.out.println("  cull_pad: bare culls a g < " + pad + " miss, padded does not, past " + pad + " it culls again");
+	}
+
+	/** Spec fixture robust_inverse: an exact zero direction component widens the interval, never NaN. */
+	private static void robust_inverse() {
+		final double[] cam = {0.0, 64.0, 0.0};
+		final double[] side = {1.0, 0.0, 0.0};
+		// A face exactly on the camera: the naive 1.0/viewDir is 0 * Infinity there (NaN), the 1e-8
+		// inversion is a plain 0, and the box is entered at t = 0.
+		final double[] onFace = interval(cam, new double[] {-10.0, 64.0, -10.0}, new double[] {10.0, 74.0, 10.0}, side, 0.0);
+		finite(onFace, "a face exactly on the camera");
+		near(onFace[0], 0.0, "on-face tNear");
+		near(onFace[1], 10.0, "on-face tFar");
+		// A box far along x with the camera inside its y/z range, so the parallel axis is a pure
+		// constraint: a larger epsilon turns it into one and rejects a ray that really hits, which is
+		// the expensive direction - it costs pixels, where a false accept only costs a march.
+		final double[] far = interval(cam, new double[] {100.0, 54.0, -10.0}, new double[] {110.0, 74.0, 10.0}, side, 0.0);
+		finite(far, "a far box with a parallel component");
+		near(far[0], 100.0, "far tNear");
+		near(far[1], 110.0, "far tFar");
+		// The other orientations: finite, and never narrowed to a miss by the widened axis.
+		for (final double[] dir : new double[][] {{0.0, 0.6, -0.8}, {-1.0, 0.0, 0.0}}) {
+			final double[] t = interval(cam, new double[] {-10.0, 54.0, -10.0}, new double[] {10.0, 74.0, 10.0}, dir, 2.0);
+			finite(t, "dir (" + dir[0] + ", " + dir[1] + ", " + dir[2] + ")");
+			if (t[1] < t[0]) {
+				throw new AssertionError("robust_inverse: dir (" + dir[0] + ", " + dir[1] + ", " + dir[2]
+					+ ") narrowed to a miss [" + t[0] + ", " + t[1] + "] - a zero component may only widen");
+			}
+		}
+		System.out.println("  robust_inverse: a face on the camera and a far box stay finite (never NaN), a zero component only widens");
+	}
+
+	/**
+	 * Spec fixture skip_tail_clamp: clamp(tFarSkip - softness, 0, max(tLimit - softness, 0)) never
+	 * exceeds tLimit - softness, so the last softness before tLimit is still sampled - the boundary at
+	 * a skip exit can sit within near-miss reach of tLimit.
+	 */
+	private static void skip_tail_clamp() {
+		final double softness = 4.0;
+		for (final double tLimit : new double[] {0.0, 1.0, 3.9, 8.0, 400.0, MAX_RANGE}) {
+			final double tail = Math.max(tLimit - softness, 0.0);
+			for (final double tFarSkip : new double[] {-1.0e9, -5.0, 0.0, 1.0, tLimit, tLimit + 1.0, 1.0e9}) {
+				final double advance = clamp(tFarSkip - softness, 0.0, tail);
+				if (advance > tail || advance < 0.0) {
+					throw new AssertionError("skip_tail_clamp: tFarSkip " + tFarSkip + ", tLimit " + tLimit
+						+ " -> " + advance + ", outside [0, " + tail + "]");
+				}
+			}
+		}
+		near(clamp(MAX_RANGE - softness, 0.0, Math.max(8.0 - softness, 0.0)), 4.0, "skip_tail_clamp advance");
+		near(clamp(1.0 - softness, 0.0, Math.max(1.0 - softness, 0.0)), 0.0, "skip_tail_clamp under a short tLimit");
+		System.out.println("  skip_tail_clamp: the advance stays in [0, max(tLimit - softness, 0)] for every tFarSkip");
+	}
+
+	private static boolean culled(final double[] t) {
+		return t[1] < 0.0 || t[1] < t[0];
+	}
+
+	private static void finite(final double[] t, final String what) {
+		for (final double v : t) {
+			if (Double.isNaN(v) || Double.isInfinite(v)) {
+				throw new AssertionError("robust_inverse: " + what + " produced " + v);
+			}
+		}
+	}
+
+	private static double clamp(final double v, final double lo, final double hi) {
+		return v < lo ? lo : (v > hi ? hi : v);
+	}
+
+	private static void same(final double[] a, final double[] b, final String what) {
+		for (int i = 0; i < a.length; i++) {
+			near(a[i], b[i], what);
+		}
+	}
+
+	private static void near(final double actual, final double want, final String what) {
+		if (Double.isNaN(actual) || Math.abs(actual - want) > 1.0e-9) {
+			throw new AssertionError(what + " = " + actual + ", want " + want);
+		}
+	}
+}
+'@
+[System.IO.File]::WriteAllText($slabSrc, $slabJava, [System.Text.UTF8Encoding]::new($false))
+
+Write-Host "Aura slab interval check (CPU simulation)"
+Push-Location $repoRoot
+try {
+	& $javac "@$slabCpFile" -d $slabDir $slabSrc
+	if ($LASTEXITCODE -ne 0) { throw "javac failed" }
+	& $java "@$slabCpFile" SlabIntervalCheck
+	if ($LASTEXITCODE -ne 0) { throw "SlabIntervalCheck failed" }
+} finally {
+	Pop-Location
+}
+Write-Host "Aura slab interval check OK."
 exit 0

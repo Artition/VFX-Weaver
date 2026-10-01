@@ -248,6 +248,39 @@ float vfx_aura_cover(float d, float tEnter, float tExit, float chordEps, float s
     return silhouette * occluded * horizonFade;
 }
 
+// Padded ray-box interval for the optional plugin-declared boxes (spec P0), one piece of maths for
+// both the containment branch and the skip branch. Four steps, in this order, each for a reason:
+//   * the sentinel axes are clamped to the reachable range first. Along a unit ray every axis
+//     satisfies |p - camPos| <= t <= tLimit <= MAX_RANGE, so nothing outside camPos +- MAX_RANGE can
+//     change the result - the clamp is lossless, and it also keeps the arithmetic finite: an
+//     unclamped -1e9 face times the 1e-8 inversion below is a 1e17 float32 whose mantissa no longer
+//     decides tNear/tFar;
+//   * the box is then expanded by the near-miss pad, 0.5 * softness. Coverage reaches 0 at
+//     d = softness/2, and the Lipschitz envelope's conservatism and the step-boost fat of about
+//     0.1 * softness fit inside that with margin. Culling a bare box would cut a cliff of up to 0.5
+//     coverage at the face, and tStart/tLimit padding cannot help - it is unreachable for a culled
+//     ray;
+//   * a near-zero direction component is replaced by 1e-8, so a zero component can only widen the
+//     interval: a false accept costs a march that finds nothing, a false reject costs pixels;
+//   * tNear/tFar are the max/min over the per-axis min/max pairs.
+// A miss is tFar < tNear, or tFar < 0 when the padded box is behind the camera. No caller yet: the
+// march still runs the sphere path alone, so nothing in the render path reads this.
+void vfx_aura_box_interval(vec3 bmin, vec3 bmax, vec3 viewDir, float softness, out float tNear, out float tFar) {
+    vec3 reach = vec3(VFX_PLUGIN_AURA_MAX_RANGE);
+    vec3 lo = clamp(bmin, camPos.xyz - reach, camPos.xyz + reach);
+    vec3 hi = clamp(bmax, camPos.xyz - reach, camPos.xyz + reach);
+    float pad = 0.5 * softness;
+    lo -= vec3(pad);
+    hi += vec3(pad);
+    vec3 invDir = 1.0 / mix(viewDir, vec3(1.0e-8), lessThan(abs(viewDir), vec3(1.0e-8)));
+    vec3 t0 = (lo - camPos.xyz) * invDir;
+    vec3 t1 = (hi - camPos.xyz) * invDir;
+    vec3 tn = min(t0, t1);
+    vec3 tf = max(t0, t1);
+    tNear = max(max(tn.x, tn.y), tn.z);
+    tFar = min(min(tf.x, tf.y), tf.z);
+}
+
 void main() {
     vec3 world = vec3(0.0);
     // Distance to the visible surface, used by the aura mode's occlusion test. Sky/far reconstructs
