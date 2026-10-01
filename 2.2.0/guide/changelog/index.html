@@ -2552,6 +2552,17 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#unreleased" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Unreleased
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#v74-released-as-220" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3338,6 +3349,17 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#unreleased" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Unreleased
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#v74-released-as-220" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -4035,6 +4057,11 @@ released mod versions are recorded on the <strong><a href="../../CHANGELOG/">mod
 revision shipped with a release, the entry says so (for example <code>v47 — released as 2.0.0</code>).</p>
 <p>Current guide revision: <strong>v74</strong>. Mod version it documents: <strong>2.2.0</strong>. Which jar to download is in the
 <a href="../../#download">download table</a>.</p>
+<h3 id="unreleased">Unreleased<a class="headerlink" href="#unreleased" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Two optional box bounds for a GLSL mask shape: a containment box and a skip box.</strong> A world plugin leaf on <code>"volume": "aura"</code> may declare an axis-aligned box as its broad phase, in two further optional functions (<code>vfx_shape_custom_bounds_box</code>, <code>vfx_shape_custom_skip_bounds</code>), dispatched per leaf after the existing sphere's. The <strong>containment box</strong> must contain the whole region where the field is <code>&lt;= 0</code>; the <strong>skip box</strong> must lie entirely inside a region where the field is <code>&gt; 0</code> and be <em>inscribed</em> in that hole — the AABB of a set of circles does not qualify, because its corners sit in the coverage region and would skip real coverage. Swapping the two is a declaration bug rather than a cull: it buys nothing, because the coverage region outside such a box is unbounded. A miss on the containment box's padded interval culls the leaf with no march, and a camera inside the skip box starts the march at its far side instead of at the camera; the slab test is padded by <code>softness / 2</code> and the skip keeps the last <code>softness</code> before the range limit sampled, so no cliff appears at a box face and the plugin never has to know <code>softness</code>. Both are optional and a plugin that declares none of them renders exactly as before. Additive: two default methods on <code>VFXMaskShapeGlsl</code>, no new <code>VFXAPI</code> overload, no datapack field, no wire or UBO layout change, <code>PROTOCOL_VERSION</code> unchanged. Documented in the <a href="../../API/#custom-mask-shapes-client-local">API</a> and in the mod <a href="../../CHANGELOG/#unreleased">Changelog</a>. Asserted by <code>scripts/check-aura-bounds.ps1</code> (the two contracts checked against a sampled field, the padded cull, the skip advance with its tail clamp, and the CPU ray classes); the GLSL cannot compile headless here. <strong>Not verified in game</strong> (the owner tests it).</li>
+<li><strong><code>aura_steps</code>: an optional per-leaf cap on a custom aura leaf's march.</strong> The march budget is an upper bound a typical ray never approaches — it leaves early on a saturated sample, on the dive bound and on the range limit, spending 1 to 20 of the loop's 40 + 16 iterations on the check's ray classes — so the new field is a <strong>cap, not a spend</strong>: a last resort for a leaf that really does burn the budget, with a declared broad phase as the real lever. Accepted only on a custom leaf with <code>"volume": "aura"</code> (a parse error naming the shape elsewhere, since only a plugin leaf has a march to bound), a negative value is a parse error, a value above the compiled budget is clamped to it, and absent or <code>0</code> means no cap — the leaf is then identical to today, ray for ray. A truncated march is best-effort and never saturates; because a march cut short while still inside meets the shipped <code>tExit = tLimit</code> rule, a low cap can read slightly <em>higher</em> than uncapped (measured: +0.23 at a cap of 2, bounded by the uncapped silhouette factor), which is a softer rim and never a fabricated bright one. Additive: one new optional leaf field on an existing reserved slot, no UBO or Config field added, no field renamed, <code>PROTOCOL_VERSION</code> unchanged. Documented on <a href="../datapack/masks/">masks</a> and in the mod <a href="../../CHANGELOG/#unreleased">Changelog</a>. Asserted by <code>scripts/check-aura-bounds.ps1</code> (the gate, the clamp, cap 0 against the uncapped march ray for ray, and the best-effort truncation); the GLSL cannot compile headless here. <strong>Not verified in game</strong> (the owner tests it).</li>
+</ul>
 <h3 id="v74-released-as-220">v74 — released as 2.2.0<a class="headerlink" href="#v74-released-as-220" title="Permanent link">&para;</a></h3>
 <ul>
 <li><strong><code>/vfxconfig</code>: the in-game settings screen.</strong> A vanilla screen (no Cloth Config / Mod Menu / YACL, no new dependency) edits the three post-chain settings - chain resolution (<strong>Full</strong>/<strong>Half</strong>, default <strong>Half</strong>), fusion (default <strong>On</strong>) and the remap (default <strong>On</strong>, with a description label) - and writes them to <code>config/vfxweaver.json</code> immediately, so a change applies without a restart. A JVM system property still overrides the file. Client-side and available to every player (no operator rights): the command is registered on the client and never reaches the server, so it works on any server, including a dedicated one. No datapack field, UBO, API or wire change. Documented on <a href="../commands/#vfxconfig">Commands</a> and in the mod <a href="../../CHANGELOG/#220---2026-09-29">Changelog</a>. <strong>Not verified in game</strong> (the owner tests it).</li>
