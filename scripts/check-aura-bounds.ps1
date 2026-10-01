@@ -1,4 +1,5 @@
-# Dev-only guard for the aura-mask skip/box bounds plugin contract (Task 1).
+# Dev-only guard for the aura-mask skip/box bounds plugin contract (Task 1) and for the per-leaf
+# dispatchers the mask shader variants emit for them (Task 2).
 #
 # The spec (2026-10-01-aura-mask-budget-and-bounds-design.md, P0) fixes two contracts that an
 # earlier revision got wrong, so they are asserted here as literal text:
@@ -12,6 +13,11 @@
 # so every existing plugin (a lambda over String glsl()) keeps compiling and behaves exactly as
 # before. VFXAPI's two registerMaskShapeGlsl overloads must be untouched, and it must NOT gain a
 # steps overload: the per-leaf march cap rides a reserved UBO slot (spec P1).
+#
+# Task 2 asserts the generator side: the two variant-level defines are emitted only when some plugin
+# provided the function, and the two per-leaf dispatchers take the leaf index, publish that leaf's
+# globals and then call the plugin - so a variant of two plugins where only one provides a box still
+# emits the define, and the other leaf reports "not provided" rather than borrowing the box.
 #
 # Static assertions only: Gradle does not compile GLSL and there is no GPU here, so nothing here
 # claims a shader compiles.
@@ -147,6 +153,118 @@ if ($api -match 'aura_steps') {
 	$problems.Add("VFXAPI mentions aura_steps - the cap is a datapack leaf field plus a UBO slot, not an API parameter")
 }
 
+# 8) the variant generator (Task 2): the two defines, and the per-leaf dispatchers. The define is
+#    per variant - emitted as soon as ONE plugin in the variant provided the function - while the
+#    dispatch is per leaf: the dispatcher takes the leaf index, republishes that leaf's globals and
+#    only then calls the plugin, and returns "not provided" for a leaf with no plugin bounds.
+$variantsPath = Join-Path $repoRoot "src\client\java\dev\vfxweaver\client\postprocessing\VFXMaskShaderVariants.java"
+if (-not (Test-Path -LiteralPath $variantsPath)) {
+	Write-Error "aura bounds check: missing src\client\java\dev\vfxweaver\client\postprocessing\VFXMaskShaderVariants.java"
+	exit 1
+}
+$variants = [System.IO.File]::ReadAllText($variantsPath)
+
+# kind, the define, the emitted-source constant, the plugin method, the plugin GLSL function.
+$dispatchers = @(
+	@('box', 'VFX_CUSTOM_HAS_BOX_BOUNDS', 'BOX_DISPATCHER', 'customBoundsBox', 'vfx_shape_custom_bounds_box'),
+	@('skip', 'VFX_CUSTOM_HAS_SKIP_BOUNDS', 'SKIP_DISPATCHER', 'customSkipBounds', 'vfx_shape_custom_skip_bounds'))
+foreach ($dispatcher in $dispatchers) {
+	$kind = $dispatcher[0]
+	$define = $dispatcher[1]
+	$constant = $dispatcher[2]
+	$method = $dispatcher[3]
+	$pluginFunction = $dispatcher[4]
+
+	# a) the define is emitted conditionally, exactly like the sphere define it sits beside: a variant
+	#    whose plugins provide neither function must compile byte-identically to today.
+	if ($variants -notmatch ([regex]::Escape($define) + ' 1"\s*:\s*""')) {
+		$problems.Add("VFXMaskShaderVariants: $define is not emitted conditionally (a variant with no such plugin must not see it)")
+	}
+	# b) the per-plugin answer is OR-ed over EVERY plugin of the variant, so two plugins of which only
+	#    one provides the function still emit the define (spec P0: the define is per variant, the
+	#    dispatch is per leaf - the per-leaf "not provided" path is what makes that safe).
+	if ($variants -notmatch ('(?m)^\s*\w+ \|= shape\.' + $method + '\(plugin\);')) {
+		$problems.Add("VFXMaskShaderVariants: the per-plugin $method result is not OR-ed into the variant (two plugins, one providing, must still emit $define)")
+	}
+	# c) the dispatcher source is emitted only alongside its own define (an emitted dispatcher whose
+	#    define is absent would reference an undeclared plugin function).
+	if ($variants -notmatch ([regex]::Escape($constant) + '\s*:\s*""')) {
+		$problems.Add("VFXMaskShaderVariants: $constant is not emitted conditionally - it must travel with $define")
+	}
+
+	$declaration = "private static final String $constant ="
+	$start = $variants.IndexOf($declaration)
+	if ($start -lt 0) {
+		$problems.Add("VFXMaskShaderVariants: no '$constant' emitted-source constant")
+		continue
+	}
+	# The statement ends on the closing brace line of the emitted GLSL, so the emitted text can be
+	# asserted as written rather than reconstructed.
+	$end = $variants.IndexOf('"}\n";', $start)
+	if ($end -lt 0) {
+		$problems.Add("VFXMaskShaderVariants: $constant has no readable end (the emitted GLSL must close its brace)")
+		continue
+	}
+	$emitted = $variants.Substring($start, $end + 5 - $start)
+
+	# d) the dispatcher takes the leaf index and the leaf's params/data globals - the convention the
+	#    coverage loop already sets up for vfx_shape_custom.
+	$signature = "bool vfx_custom_${kind}_bounds(int leaf, out vec3 bmin, out vec3 bmax)"
+	if (-not $emitted.Contains('"' + $signature + ' {\n"')) {
+		$problems.Add("VFXMaskShaderVariants: $constant does not declare '$signature'")
+	}
+	$reach = @(
+		'vfx_shape_data_base = leaf * (MASK_MAX_LEAF_DATA_VEC4 * 4);',
+		'vfx_shape_params0 = shape_params0[leaf];',
+		'vfx_shape_params1 = shape_params1[leaf];',
+		"return $pluginFunction(bmin, bmax);")
+	$previous = -1
+	foreach ($line in $reach) {
+		$at = $emitted.IndexOf($line)
+		if ($at -lt 0) {
+			$problems.Add("VFXMaskShaderVariants: $constant does not emit '$line'")
+			break
+		}
+		if ($at -le $previous) {
+			$problems.Add("VFXMaskShaderVariants: $constant emits '$line' after the plugin call - the leaf's globals must be set BEFORE the plugin runs")
+			break
+		}
+		$previous = $at
+	}
+	# e) the per-leaf "not provided" path: a leaf that is not a plugin leaf has no plugin bounds to
+	#    report, and the out parameters are defined on it (the sphere wrapper's own fallback does the
+	#    same). It must be decided before the plugin call, never after it.
+	$notProvided = $emitted.IndexOf('return false;')
+	if ($notProvided -lt 0) {
+		$problems.Add("VFXMaskShaderVariants: $constant has no 'return false;' - a leaf whose plugin provides no bounds must report 'not provided'")
+	} elseif ($notProvided -gt $emitted.IndexOf('return vfx_shape_custom_')) {
+		$problems.Add("VFXMaskShaderVariants: $constant reaches the plugin before deciding 'not provided'")
+	}
+	if (-not $emitted.Contains('"    bmin = vec3(0.0);\n"') -or -not $emitted.Contains('"    bmax = vec3(0.0);\n"')) {
+		$problems.Add("VFXMaskShaderVariants: $constant leaves bmin/bmax undefined on the 'not provided' path")
+	}
+}
+
+# 9) the pre-existing sphere and Lipschitz emission is untouched, byte for byte, against HEAD: this
+#    task is additive, and the sphere (vfx_shape_custom_bounds) keeps its meaning.
+$headSource = @(& git -C $repoRoot show "HEAD:src/client/java/dev/vfxweaver/client/postprocessing/VFXMaskShaderVariants.java")
+if ($headSource.Count -eq 0) {
+	$problems.Add("aura bounds check: cannot read VFXMaskShaderVariants.java at HEAD (is git available?)")
+} else {
+	foreach ($needle in @('CUSTOM_BOUNDS_PATTERN = Pattern.compile', 'final String boundsDefine =', 'final String lipschitzDefine =')) {
+		$before = @($headSource | Where-Object { $_.Contains($needle) } | ForEach-Object { $_.Trim() })
+		if ($before.Count -eq 0) {
+			$problems.Add("VFXMaskShaderVariants at HEAD has no line containing '$needle' - the untouched-handling check cannot run")
+			continue
+		}
+		foreach ($line in $before) {
+			if (-not $variants.Contains($line)) {
+				$problems.Add("VFXMaskShaderVariants changed existing sphere/Lipschitz handling: $line")
+			}
+		}
+	}
+}
+
 Write-Host "Aura bounds plugin check (static)"
 if ($problems.Count -gt 0) {
 	$problems | ForEach-Object { Write-Host "  - $_" }
@@ -156,5 +274,7 @@ if ($problems.Count -gt 0) {
 Write-Host "  both bounds methods default to 'not provided' (false, nothing appended), so every existing plugin keeps compiling"
 Write-Host "  Javadoc: the box CONTAINS the whole field <= 0 region; the skip box lies ENTIRELY in field > 0 and is inscribed in the hole (a circles' AABB does not qualify)"
 Write-Host "  VFXMaskShapeGlsl is still @FunctionalInterface (String glsl() only); VFXAPI keeps exactly its two registerMaskShapeGlsl overloads and no steps overload"
+Write-Host "  the variant generator emits VFX_CUSTOM_HAS_BOX_BOUNDS / VFX_CUSTOM_HAS_SKIP_BOUNDS per variant, and vfx_custom_box_bounds(int leaf, out vec3 bmin, out vec3 bmax) / vfx_custom_skip_bounds(...) per leaf, each publishing the leaf's globals before calling the plugin"
+Write-Host "  the existing sphere (VFX_CUSTOM_HAS_BOUNDS) and VFX_CUSTOM_FIELD_LIPSCHITZ emission is byte-identical to HEAD"
 Write-Host "Aura bounds plugin check OK."
 exit 0

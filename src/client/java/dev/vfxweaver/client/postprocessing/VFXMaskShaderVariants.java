@@ -41,7 +41,8 @@ import net.minecraft.client.renderer.ShaderManager;
  *
  * <p>How a variant is compiled (26.1+): the coverage fragment source is taken from the live
  * {@code ShaderManager} (already preprocessed, so {@code #moj_import} is resolved), the marked
- * {@code vfx_mask_custom_inject} region is replaced by the concatenated plugin sources, and a
+ * {@code vfx_mask_custom_inject} region is replaced by the concatenated plugin sources plus a
+ * per-leaf dispatcher for each optional bounds function those plugins provided, and a
  * coverage pipeline under a distinct {@code post/mask_coverage_v<k>} fragment id is compiled with
  * that source through a per-variant {@code ShaderSource}. The variant is not registered as a static
  * pipeline (a shader reload would precompile it from the default source and fail); the device
@@ -59,6 +60,47 @@ public final class VFXMaskShaderVariants {
 	private static final String INJECT_BEGIN = "// >>> vfx_mask_custom_inject:begin";
 	private static final String INJECT_END = "// <<< vfx_mask_custom_inject:end";
 	private static final Pattern CUSTOM_BOUNDS_PATTERN = Pattern.compile("(?m)^\\s*vec4\\s+vfx_shape_custom_bounds\\s*\\(");
+	/**
+	 * The per-leaf dispatcher for the optional plugin containment box, emitted next to the plugin
+	 * sources and only with {@code VFX_CUSTOM_HAS_BOX_BOUNDS}: the define is per variant, this
+	 * dispatch is per leaf, and it calls a function only the plugin that provided it declares. It
+	 * republishes the leaf's globals the way the coverage loop does for {@code vfx_shape_custom}, so
+	 * one plugin source serves every leaf, and reports "not provided" for a leaf that carries no
+	 * plugin bounds.
+	 *
+	 * <p>The one per-leaf fact the Config UBO does not carry is <em>which</em> plugin a leaf uses, so
+	 * a leaf whose own plugin omits the function while a sibling plugin of the same variant provides
+	 * it cannot be told apart here from the provider's leaf - the single-provider limit the sphere
+	 * broad phase has always had. Nothing can reach it: two plugins of one variant collide on
+	 * {@code vfx_shape_custom} long before these bounds, so such a variant never compiles.
+	 */
+	private static final String BOX_DISPATCHER = "\n// The optional plugin containment box, dispatched per leaf (a leaf with no plugin bounds reports not provided).\n"
+		+ "bool vfx_custom_box_bounds(int leaf, out vec3 bmin, out vec3 bmax) {\n"
+		+ "    bmin = vec3(0.0);\n"
+		+ "    bmax = vec3(0.0);\n"
+		+ "    int row = int(shape_misc[leaf].w + 0.5);\n"
+		+ "    if (row < 0 || row >= MASK_MAX_CUSTOM_LEAVES || int(custom_op[row].x + 0.5) != 1) {\n"
+		+ "        return false;\n"
+		+ "    }\n"
+		+ "    vfx_shape_data_base = leaf * (MASK_MAX_LEAF_DATA_VEC4 * 4);\n"
+		+ "    vfx_shape_params0 = shape_params0[leaf];\n"
+		+ "    vfx_shape_params1 = shape_params1[leaf];\n"
+		+ "    return vfx_shape_custom_bounds_box(bmin, bmax);\n"
+		+ "}\n";
+	/** {@link #BOX_DISPATCHER} for the skip box: the same per-leaf dispatch onto the plugin's {@code vfx_shape_custom_skip_bounds}. */
+	private static final String SKIP_DISPATCHER = "\n// The optional plugin skip box, dispatched per leaf (a leaf with no plugin bounds reports not provided).\n"
+		+ "bool vfx_custom_skip_bounds(int leaf, out vec3 bmin, out vec3 bmax) {\n"
+		+ "    bmin = vec3(0.0);\n"
+		+ "    bmax = vec3(0.0);\n"
+		+ "    int row = int(shape_misc[leaf].w + 0.5);\n"
+		+ "    if (row < 0 || row >= MASK_MAX_CUSTOM_LEAVES || int(custom_op[row].x + 0.5) != 1) {\n"
+		+ "        return false;\n"
+		+ "    }\n"
+		+ "    vfx_shape_data_base = leaf * (MASK_MAX_LEAF_DATA_VEC4 * 4);\n"
+		+ "    vfx_shape_params0 = shape_params0[leaf];\n"
+		+ "    vfx_shape_params1 = shape_params1[leaf];\n"
+		+ "    return vfx_shape_custom_skip_bounds(bmin, bmax);\n"
+		+ "}\n";
 
 	private static final Map<String, VFXShaderPrograms.@Nullable ProgramInfo> VARIANTS = new HashMap<>();
 	/** The injected fragment source per variant key, so the device cache can be re-seeded after a reload. */
@@ -186,6 +228,8 @@ public final class VFXMaskShaderVariants {
 		}
 		final StringBuilder plugin = new StringBuilder();
 		float lipschitz = 1.0F;
+		boolean boxBounds = false;
+		boolean skipBounds = false;
 		for (final String id : key.split(",")) {
 			final @Nullable VFXMaskShapeGlsl shape = VFXShapeRegistry.get().plugin(id);
 			if (shape == null) {
@@ -197,13 +241,25 @@ public final class VFXMaskShaderVariants {
 				lipschitz = Math.max(lipschitz, declared);
 			}
 			plugin.append("\n// mask custom shape '").append(id).append("'\n").append(shape.glsl()).append('\n');
+			// Both optional bounds functions append into the same builder and are optional per plugin,
+			// so the variant answer is their OR: one plugin providing the box emits the variant-level
+			// define, and every leaf without plugin bounds reports "not provided" through the per-leaf
+			// dispatcher instead of borrowing the provider's box.
+			boxBounds |= shape.customBoundsBox(plugin);
+			skipBounds |= shape.customSkipBounds(plugin);
 		}
 		final String boundsDefine = CUSTOM_BOUNDS_PATTERN.matcher(plugin).find() ? "\n#define VFX_CUSTOM_HAS_BOUNDS 1" : "";
 		// The march and the Lipschitz cone-envelope both scale by the field's declared gradient bound;
 		// a variant of several plugins compiles against the max, and an undeclared (conservative) set
 		// gets no define at all so an existing plugin's compiled source is byte-identical.
 		final String lipschitzDefine = lipschitz > 1.0F ? "\n#define VFX_CUSTOM_FIELD_LIPSCHITZ " + lipschitz : "";
-		return base.substring(0, begin + INJECT_BEGIN.length()) + boundsDefine + lipschitzDefine + plugin + base.substring(end);
+		// A dispatcher is emitted only with its own define, because it calls a function the plugin
+		// declares and the base shader knows nothing about; a variant whose plugins provide neither
+		// compiles byte-identically to today.
+		final String boxDefine = boxBounds ? "\n#define VFX_CUSTOM_HAS_BOX_BOUNDS 1" : "";
+		final String skipDefine = skipBounds ? "\n#define VFX_CUSTOM_HAS_SKIP_BOUNDS 1" : "";
+		return base.substring(0, begin + INJECT_BEGIN.length()) + boundsDefine + lipschitzDefine + boxDefine + skipDefine
+			+ plugin + (boxBounds ? BOX_DISPATCHER : "") + (skipBounds ? SKIP_DISPATCHER : "") + base.substring(end);
 		//?}
 	}
 
