@@ -68,4 +68,61 @@ public interface VFXMaskShapeGlsl {
 	 * @return GLSL 330 source defining {@code float vfx_shape_custom(vec3, vec2, vec4, vec4)}
 	 */
 	String glsl();
+
+	/**
+	 * The optional containment box for the aura march, emitted into the same builder the variant
+	 * generator already collects plugin GLSL in. Append this plugin's source for
+	 *
+	 * <pre>{@code
+	 * bool vfx_shape_custom_bounds_box(out vec3 bmin, out vec3 bmax);
+	 * }</pre>
+	 *
+	 * <p><b>Contract: the box must CONTAIN the whole region where the field is {@code <= 0}.</b>
+	 * Anything the box leaves out is real coverage the march would no longer find. A box around a
+	 * hole (the inverse of this contract) is a declaration bug, not a cull: it buys nothing, because
+	 * the coverage region outside it is unbounded. Unbounded axes are declared with sentinels
+	 * ({@code -1e9} / {@code +1e9}); the shader clamps them to the reachable range.
+	 *
+	 * <p>The two contracts are mirrors, and swapping them is the inversion that made an earlier
+	 * revision of the design a lie: {@link #customSkipBounds(StringBuilder)} declares a box that lies
+	 * entirely inside the region where the field is {@code > 0} - a hole - and must be inscribed in it,
+	 * so the AABB of a set of circles does not qualify (its corners lie in the {@code <= 0} region).
+	 *
+	 * <p>Precedence is skip box, then this box, then {@link #glsl()}'s
+	 * {@code vfx_shape_custom_bounds()} sphere, then no bounds, so this box is worth declaring only
+	 * for a bounded coverage region.
+	 *
+	 * @param out the builder the variant generator collects plugin GLSL in
+	 * @return {@code true} when this plugin appended its function, {@code false} for "not provided"
+	 *         (the default, which appends nothing and leaves today's behaviour untouched)
+	 */
+	default boolean customBoundsBox(final StringBuilder out) {
+		return false;
+	}
+
+	/**
+	 * The optional skip box for the aura march, emitted into the same builder the variant generator
+	 * already collects plugin GLSL in. Append this plugin's source for
+	 *
+	 * <pre>{@code
+	 * bool vfx_shape_custom_skip_bounds(out vec3 bmin, out vec3 bmax);
+	 * }</pre>
+	 *
+	 * <p><b>Contract: the box must lie ENTIRELY inside the region where the field is {@code > 0}</b>
+	 * - a hole - and must be <em>inscribed</em> in it. The AABB of a set of circles does <em>not</em>
+	 * qualify: its corners lie outside the circles, i.e. inside the coverage region
+	 * ({@code field <= 0}), and would skip real coverage. The inscribed square of the largest circle
+	 * does qualify. The shader only advances the march when the camera is inside the box and pads
+	 * the slab test, so a plugin does not need to know {@code softness}.
+	 *
+	 * <p>This is the lever that fits an exterior field (unbounded coverage): the march may then start
+	 * at the box's far side instead of at the camera.
+	 *
+	 * @param out the builder the variant generator collects plugin GLSL in
+	 * @return {@code true} when this plugin appended its function, {@code false} for "not provided"
+	 *         (the default, which appends nothing and leaves today's behaviour untouched)
+	 */
+	default boolean customSkipBounds(final StringBuilder out) {
+		return false;
+	}
 }
