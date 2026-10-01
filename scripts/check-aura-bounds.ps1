@@ -436,7 +436,7 @@ foreach ($literal in @(
 foreach ($literal in @(
 	'vfx_aura_box_interval(boxMin, boxMax, viewDir, softness, tNearBox, tFarBox);',
 	'if (tFarBox < 0.0 || tFarBox < tNearBox) {',
-	'tStart = max(tNearBox - softness, 0.0);',
+	'tStart = max(tStart, max(tNearBox - softness, 0.0));',
 	'tLimit = min(tLimit, tFarBox + softness);')) {
 	if (-not $shader.Contains($literal)) {
 		$problems.Add("mask_coverage.fsh is missing the box branch literal: $literal")
@@ -487,6 +487,19 @@ foreach ($literal in @(
 	if (-not $shader.Contains($literal)) {
 		$problems.Add("mask_coverage.fsh is missing the broad-phase verdict literal: $literal")
 	}
+}
+
+# 15b) the box branch may only RAISE the start, never lower it. A leaf that declares both bounds runs
+#      the skip branch first and the box branch second, so a bare assignment resets tStart to the box
+#      and throws the skip advance away - and it does so exactly when the camera is inside the box,
+#      where tNear is <= 0 and the reset is always to 0. The skip is the tighter starting point; the
+#      box is only the outer bound, so the far end keeps its own min() (lowering it is the box's
+#      whole purpose) and the near end takes a max against what is already there.
+if ($shader.Contains('tStart = max(tNearBox - softness, 0.0);')) {
+	$problems.Add("mask_coverage.fsh assigns 'tStart = max(tNearBox - softness, 0.0)' in the box branch - a leaf that declares both bounds loses the skip advance the branch above just computed (the camera is inside the box, so tNear <= 0 and the reset is always to 0)")
+}
+if (-not $shader.Contains('tStart = max(tStart, max(tNearBox - softness, 0.0));')) {
+	$problems.Add("mask_coverage.fsh is missing 'tStart = max(tStart, max(tNearBox - softness, 0.0));' - the box branch may only raise the start")
 }
 
 Write-Host "Aura bounds plugin check (static)"
@@ -869,8 +882,10 @@ public final class AuraBroadPhaseCheck {
 
 	/**
 	 * The broad phase exactly as the shader orders it: the skip advance first, then the box, which also
-	 * holds the cull (a null pair means the plugin declared nothing of that kind). The box overwrites
-	 * tStart, which is what "box before sphere" and "skip before box" both mean here.
+	 * holds the cull (a null pair means the plugin declared nothing of that kind). The box may only
+	 * RAISE the start - the skip above it is the tighter one, so a bare assignment would throw its
+	 * advance away for every camera inside the box - while it does lower the far end, which is the box's
+	 * whole purpose.
 	 */
 	private static Span broad(final double[] cam, final double[] dir, final double tLimit,
 			final double[] skipMin, final double[] skipMax, final double[] boxMin, final double[] boxMax) {
@@ -889,7 +904,7 @@ public final class AuraBroadPhaseCheck {
 			if (box[1] < 0.0 || box[1] < box[0]) {
 				span.hit = false;
 			} else {
-				span.tStart = Math.max(box[0] - SOFTNESS, 0.0);
+				span.tStart = Math.max(span.tStart, Math.max(box[0] - SOFTNESS, 0.0));
 				span.tLimit = Math.min(span.tLimit, box[1] + SOFTNESS);
 			}
 		}
@@ -919,6 +934,56 @@ public final class AuraBroadPhaseCheck {
 		travel();
 		boxCullZeroCoverage();
 		skipOnlyFromInside();
+		skipAndBoxSameLeaf();
+	}
+
+	/**
+	 * Fixture skip_and_box_same_leaf: a leaf declaring BOTH bounds must keep the skip advance. The skip
+	 * branch runs first and the box branch second, and the box contains this camera, so tNear is &lt;= 0
+	 * and a bare assignment would reset tStart to 0 - throwing away exactly the win the skip bought.
+	 * The travel ray is the reporter's: camera in the hole (inside the skip box), a distant coverage
+	 * region past it, and the honest unbounded containment box around it.
+	 */
+	private static void skipAndBoxSameLeaf() {
+		final Field field = wall();
+		final double[] cam = {11.0, 0.0, 0.0};
+		final double[] dir = {-1.0, 0.0, 0.0};
+		final Span skipOnly = broad(cam, dir, MAX_RANGE, WALL_SKIP_MIN, WALL_SKIP_MAX, null, null);
+		final Span boxOnly = broad(cam, dir, MAX_RANGE, null, null, WALL_BOX_MIN, WALL_BOX_MAX);
+		final Span both = broad(cam, dir, MAX_RANGE, WALL_SKIP_MIN, WALL_SKIP_MAX, WALL_BOX_MIN, WALL_BOX_MAX);
+		final Result skipOnlyRay = run(field, cam, dir, skipOnly);
+		final Result boxOnlyRay = run(field, cam, dir, boxOnly);
+		final Result bothRay = run(field, cam, dir, both);
+		if (skipOnly.tStart <= 0.0) {
+			throw new AssertionError("skip_and_box_same_leaf: the fixture no longer advances - the skip box must hold the camera");
+		}
+		if (boxOnly.tStart != 0.0) {
+			throw new AssertionError("skip_and_box_same_leaf: the box-only branch starts at " + boxOnly.tStart
+				+ " - the camera is inside the containment box, so its tNear is <= 0");
+		}
+		if (boxOnlyRay.evals <= skipOnlyRay.evals) {
+			throw new AssertionError("skip_and_box_same_leaf: the box-only branch costs " + boxOnlyRay.evals
+				+ " evaluations against the skip's " + skipOnlyRay.evals + " - the fixture cannot see the bug");
+		}
+		if (both.tStart != skipOnly.tStart) {
+			throw new AssertionError("skip_and_box_same_leaf: tStart is " + both.tStart + " with both bounds, not the skip's "
+				+ skipOnly.tStart + " - the box branch reset the skip advance");
+		}
+		if (bothRay.evals != skipOnlyRay.evals) {
+			throw new AssertionError("skip_and_box_same_leaf: " + bothRay.evals + " evaluations with both bounds, not the skip's "
+				+ skipOnlyRay.evals + " (the box branch's own " + boxOnlyRay.evals + ")");
+		}
+		if (bothRay.cov != skipOnlyRay.cov || bothRay.tEnter != skipOnlyRay.tEnter) {
+			throw new AssertionError("skip_and_box_same_leaf: the ray changed (cov " + skipOnlyRay.cov + "/tEnter "
+				+ skipOnlyRay.tEnter + " -> " + bothRay.cov + "/" + bothRay.tEnter + ")");
+		}
+		if (both.tLimit != skipOnly.tLimit) {
+			throw new AssertionError("skip_and_box_same_leaf: the containment box shortened tLimit to " + both.tLimit
+				+ " (the skip-only limit is " + skipOnly.tLimit + ") - this field's box is unbounded, so it must not");
+		}
+		System.out.println("  skip_and_box_same_leaf: tStart 0 -> " + both.tStart + " (the skip's value, box-only would give "
+			+ boxOnly.tStart + "), evaluations " + skipOnlyRay.evals + " (skip-only) / " + boxOnlyRay.evals
+			+ " (box-only) / " + bothRay.evals + " (both), tLimit " + fmt(both.tLimit) + ", cov " + bothRay.cov);
 	}
 
 	/** Ray class inside: the camera starts in the volume, so the first sample saturates and the bounds change nothing. */

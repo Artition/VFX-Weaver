@@ -395,7 +395,10 @@ void main() {
                             // the leaf drops out below without a march.
                             broadHit = false;
                         } else {
-                            tStart = max(tNearBox - softness, 0.0);
+                            // Only ever raised: the skip branch above may have moved the start
+                            // further in, and the skip is the tighter of the two - a bare assignment
+                            // would reset it to 0 for every camera inside the box.
+                            tStart = max(tStart, max(tNearBox - softness, 0.0));
                             tLimit = min(tLimit, tFarBox + softness);
                         }
                     }
