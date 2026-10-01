@@ -80,7 +80,7 @@ layout(std140) uniform Config {
     vec4 shape_center[MASK_MAX_PRIMITIVES];   // xyz=centre, w=rotation
     vec4 shape_params0[MASK_MAX_PRIMITIVES];  // p0..p3
     vec4 shape_params1[MASK_MAX_PRIMITIVES];  // p4..p7
-    vec4 shape_misc[MASK_MAX_PRIMITIVES];     // x=fill, y=stroke_width, z=leaf index, w=custom row (-1 if none)
+    vec4 shape_misc[MASK_MAX_PRIMITIVES];     // x=fill, y=stroke_width, z=aura_steps cap (0 = no cap), w=custom row (-1 if none)
     vec4 shape_volume[MASK_MAX_PRIMITIVES];   // x=world-volume mode (0 surface, 1 aura); yzw unused
     vec4 custom_op[MASK_MAX_CUSTOM_LEAVES];             // x=family(0 composed,1 plugin), y=part count, z/w=op codes
     vec4 custom_kind[MASK_MAX_CUSTOM_LEAVES * MASK_MAX_CUSTOM_PARTS];   // x=kind, y=space, z=rounding, w=repeat
@@ -473,7 +473,18 @@ void main() {
                         // fabricate a bright spot. Multiplicative relaxation (lambda*d) has no such
                         // uniform bound - not used.
                         float stepBoost = VFX_PLUGIN_AURA_STEP_BOOST * softness;
+                        // This leaf's own iteration cap ("aura_steps", shape_misc[i].z), written clamped to
+                        // ENTRY + EXIT by VFXMaskUniforms. 0 - the default - is no cap at all, which is the
+                        // constant-bound loop below exactly as it is today.
+                        int stepCap = int(shape_misc[i].z + 0.5);
                         for (int s = 0; s < VFX_PLUGIN_AURA_ENTRY_STEPS + VFX_PLUGIN_AURA_EXIT_STEPS; s++) {
+                            // One more early out beside the saturation certificate, the dive bound and the
+                            // tLimit test, and best-effort like them: the cone envelope and tEnter keep
+                            // whatever the march got, nothing is saturated, no coverage is clamped. The
+                            // bound stays the constant expression above - a dynamic bound is the one thing
+                            // that would change this loop's structure, and a cap that runs out only ever
+                            // shortens the ray's tail.
+                            if (stepCap > 0 && s >= stepCap) break;
                             float d = vfx_shape_custom(camPos.xyz + viewDir * t, texCoord, shape_params0[i], shape_params1[i]);
                             if (havePrev) {
                                 float dCross = 0.5 * (dPrev + d - lip * (t - tPrev));

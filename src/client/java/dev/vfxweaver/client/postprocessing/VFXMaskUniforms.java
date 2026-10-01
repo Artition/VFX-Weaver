@@ -29,7 +29,28 @@ import org.jspecify.annotations.Nullable;
  * layout.
  */
 public final class VFXMaskUniforms {
+	/**
+	 * The ceiling of the per-leaf aura march cap: the compiled loop budget of
+	 * {@code post/mask_coverage.fsh}, {@code VFX_PLUGIN_AURA_ENTRY_STEPS + VFX_PLUGIN_AURA_EXIT_STEPS}
+	 * (40 + 16 = 56). A leaf's {@code "aura_steps"} is clamped to it, because a cap above the loop's own
+	 * bound asks for iterations that do not exist - unreachable budget, not an author error. Mirrors the
+	 * two defines; change them together.
+	 */
+	public static final int AURA_MAX_STEPS = 56;
+
 	private VFXMaskUniforms() {
+	}
+
+	/**
+	 * One leaf's aura march cap as the shader's {@code int(shape_misc[i].z + 0.5)} reads it: rounded, then
+	 * clamped to {@code [0, AURA_MAX_STEPS]}. A leaf that authored no cap resolves {@code 0}, which the
+	 * shader reads as "no cap" - the constant-bound loop, so an existing pack is pixel-identical.
+	 *
+	 * @param cap the slot's resolved value
+	 * @return the iterations this leaf's march may spend
+	 */
+	private static int clampCap(final float cap) {
+		return Math.min(AURA_MAX_STEPS, Math.max(0, Math.round(cap)));
 	}
 
 	/**
@@ -277,7 +298,12 @@ public final class VFXMaskUniforms {
 			}
 			rows[i][3] = new float[]{parameters[0], parameters[1], parameters[2], parameters[3]};
 			rows[i][4] = new float[]{parameters[4], parameters[5], parameters[6], parameters[7]};
-			rows[i][5] = new float[]{primitive.fill().ordinal(), slotValue(mask, effect, primitive.strokeSlot(), primitive.strokeDefault()), i, customRow == null ? -1.0F : customRow};
+			// z = this leaf's aura march cap ("aura_steps"), clamped to the compiled loop budget: 0 - the
+			// default, and what every leaf that does not march or does not author it resolves to - means "no
+			// cap", which is the constant-bound loop the shader has always run. The slot it used to hold (the
+			// leaf index) was read by no shader: the loop index i is the leaf index already.
+			rows[i][5] = new float[]{primitive.fill().ordinal(), slotValue(mask, effect, primitive.strokeSlot(), primitive.strokeDefault()),
+				clampCap(slotValue(mask, effect, VFXMask.auraStepsSlot(i), 0.0F)), customRow == null ? -1.0F : customRow};
 			// x = world-volume mode (0 surface, 1 aura); only a world sphere/box ever sets 1.
 			// y = 1 when this leaf's world binding could not be resolved (the shader drops its coverage).
 			// z = 1 when the author asked this aura leaf to ignore the scene depth entirely

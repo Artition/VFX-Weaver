@@ -39,6 +39,20 @@ public final class VFXMask {
 	public record MaskSlot(String name, float defaultValue, @Nullable String graphNode, @Nullable BoundParam binding) {
 	}
 
+	/**
+	 * The aura march cap slot of primitive {@code i} ({@code "aura_steps"}), read by the coverage shader
+	 * out of the reserved {@code shape_misc[i].z}. Only a custom leaf with {@code "volume": "aura"}
+	 * registers one, and no slot (or the default {@code 0}) means "no cap" - the shader's constant-bound
+	 * loop, exactly as it is today. The name is built here so the parser that registers it and the
+	 * uniform writer that reads it cannot drift apart.
+	 *
+	 * @param i the leaf index
+	 * @return the reserved slot name
+	 */
+	public static String auraStepsSlot(final int i) {
+		return "mask.p" + i + ".aura_steps";
+	}
+
 	private final boolean invert;
 	private final List<VFXMaskPrimitive> primitives;
 	private final List<VFXMaskOp> ops;

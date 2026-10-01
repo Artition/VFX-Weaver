@@ -408,6 +408,32 @@ public final class VFXMaskParser {
 			occlusionSoftnessSlot = VFXMaskSlots.occSoft(i);
 			occlusionSoftnessDefault = number(slots, occlusionSoftnessSlot, json.get("occlusion_softness"), WORLD_DEFAULT_SOFTNESS);
 		}
+		// The cap this leaf puts on the aura march, in iterations ("aura_steps"). Gated narrower than the
+		// two keys above on purpose: only a custom leaf with 'volume': "aura" marches at all - a built-in
+		// sphere/box aura leaf samples one chord midpoint and a surface leaf classifies a point - so on
+		// every other leaf there is no march for a cap to bound and the key means nothing. Absent (the
+		// default) the slot stays 0, which the shader reads as "no cap": its constant-bound loop, exactly
+		// as it is today. The value is a budget, not a spend - a typical ray early-outs long before it.
+		if (json.has("aura_steps") && !json.get("aura_steps").isJsonNull()) {
+			if (customDefinition == null) {
+				throw new IllegalArgumentException("mask: 'aura_steps' is only valid on a custom aura leaf ('" + shapeName + "' is not a custom shape)");
+			}
+			if (volumeMode != VFXMaskVolumeMode.AURA) {
+				throw new IllegalArgumentException("mask: 'aura_steps' is only valid on a custom leaf with 'volume': 'aura'");
+			}
+			if (!json.get("aura_steps").isJsonPrimitive() || !json.get("aura_steps").getAsJsonPrimitive().isNumber()) {
+				throw new IllegalArgumentException("mask: 'aura_steps' must be a number");
+			}
+			if (json.get("aura_steps").getAsFloat() < 0.0F) {
+				throw new IllegalArgumentException("mask: 'aura_steps' must be >= 0 (0 is no cap, the loop's own budget)");
+			}
+			// Rounded here, because the shader reads the slot as int(x + 0.5) and a fractional count must
+			// not be one thing in the writer and another in the shader. The upper clamp is the writer's
+			// (VFXMaskUniforms): a value above the compiled entry+exit total asks for iterations the loop
+			// does not have, which is unreachable budget rather than an author error.
+			final String auraStepsSlot = VFXMask.auraStepsSlot(i);
+			slots.put(auraStepsSlot, new VFXMask.MaskSlot(auraStepsSlot, Math.round(json.get("aura_steps").getAsFloat()), null, null));
+		}
 		final VFXMaskPrimitive primitive = new VFXMaskPrimitive(shape, space, centerSlots, centerDefaults, rotationSlot, rotationDefault,
 			parameterSlots, parameterDefaults, fill, strokeSlot, strokeDefault, softnessSlot, softnessDefault, volumeMode,
 			field, fieldAmountSlot, fieldAmountDefault, fieldScaleSlot, fieldScaleDefault, i * 17.0F + 1.0F,

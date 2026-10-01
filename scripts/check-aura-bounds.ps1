@@ -510,6 +510,156 @@ if (-not $shader.Contains('tStart = max(tStart, max(tNearBox - softness, 0.0));'
 	$problems.Add("mask_coverage.fsh is missing 'tStart = max(tStart, max(tNearBox - softness, 0.0));' - the box branch may only raise the start")
 }
 
+# 17) Task 6, the per-leaf aura march cap (spec P1). Four contracts, and each one has bitten before:
+#     the PARSER GATE is narrower than the `occlusion` gate beside it (only a custom-shape leaf with
+#     'volume': "aura" marches at all - a built-in sphere/box aura leaf samples one chord midpoint, a
+#     surface leaf classifies a point - so on any other leaf there is no march for a cap to bound and
+#     the key must not even be read); the value rides the RESERVED shape_misc[i].z slot; the shader
+#     gains exactly ONE early break, inside the loop; and the loop bound stays the constant expression
+#     (a dynamic bound is the one thing that would change the loop's structure).
+$parserPath = Join-Path $repoRoot "src\main\java\dev\vfxweaver\mask\VFXMaskParser.java"
+$maskPath = Join-Path $repoRoot "src\main\java\dev\vfxweaver\mask\VFXMask.java"
+$uniformsPath = Join-Path $repoRoot "src\client\java\dev\vfxweaver\client\postprocessing\VFXMaskUniforms.java"
+foreach ($source in @($parserPath, $maskPath, $uniformsPath)) {
+	if (-not (Test-Path -LiteralPath $source)) {
+		Write-Error "aura bounds check: missing $($source.Substring($repoRoot.Length + 1))"
+		exit 1
+	}
+}
+$parser = [System.IO.File]::ReadAllText($parserPath)
+$mask = [System.IO.File]::ReadAllText($maskPath)
+$uniforms = [System.IO.File]::ReadAllText($uniformsPath)
+
+$gateLine = 'if (json.has("aura_steps") && !json.get("aura_steps").isJsonNull()) {'
+$gateStart = $parser.IndexOf($gateLine)
+$gateBody = if ($gateStart -lt 0) { $null } else { Get-Body $parser $gateLine }
+if ($gateBody -eq $null) {
+	$problems.Add("VFXMaskParser never reads 'aura_steps' - the per-leaf march cap has no source (spec P1)")
+} else {
+	# a) both halves of the narrow gate, as written: a custom shape AND an aura volume.
+	foreach ($condition in @('customDefinition == null', 'volumeMode != VFXMaskVolumeMode.AURA')) {
+		if (-not $gateBody.Contains($condition)) {
+			$problems.Add("the 'aura_steps' gate does not test '$condition' - only a custom leaf with 'volume': 'aura' marches, so only it has a cap to bound")
+		}
+	}
+	# b) each half is an error, not a silent drop. 'occlusion' and 'occlusion_softness' both throw on
+	#    the wrong family, and a pack that typed the key on the wrong leaf has to hear about it - an
+	#    ignored key is a cap the author believes in and never gets.
+	if ([regex]::Matches($gateBody, 'throw new IllegalArgumentException\("mask: ''aura_steps''').Count -lt 2) {
+		$problems.Add("the 'aura_steps' gate does not raise IllegalArgumentException for both conditions - the wrong leaf is an error, like 'occlusion' and 'occlusion_softness'")
+	}
+	# c) the value itself: a type error and a range error, the shape every other numeric key here has.
+	foreach ($message in @("'aura_steps' must be a number", "'aura_steps' must be >= 0")) {
+		if (-not $gateBody.Contains($message)) {
+			$problems.Add("the 'aura_steps' gate does not say `"$message`" - a non-number and a negative count are both author errors")
+		}
+	}
+	# d) the value is registered as leaf i's reserved slot, rounded - it reaches the shader through the
+	#    same slot mechanism as every other mask number, so an authored cap is one slotValue() away.
+	if (-not $gateBody.Contains('VFXMask.auraStepsSlot(i)')) {
+		$problems.Add("the 'aura_steps' gate does not register VFXMask.auraStepsSlot(i) - the cap must ride the reserved per-leaf slot, not a new carrier")
+	}
+	if (-not $gateBody.Contains('Math.round(')) {
+		$problems.Add("the 'aura_steps' gate does not round the authored value - the shader reads it as int(shape_misc[i].z + 0.5), so a fractional count must be rounded here")
+	}
+	# e) the key is read NOWHERE else: the gate is what decides whether the key means anything, so a
+	#    second read above it (in the shared leaf prologue) would let a surface leaf see it.
+	$gateEnd = $gateStart + $gateLine.Length + $gateBody.Length
+	$outsideGate = $parser.Substring(0, $gateStart) + $parser.Substring($gateEnd)
+	if ($outsideGate -match 'json\.(has|get)\("aura_steps"\)') {
+		$problems.Add("'aura_steps' is read outside its gate in VFXMaskParser - a leaf that fails the gate must never look at the key")
+	}
+}
+# f) the reserved slot name lives in one place, so the parser and the writer cannot drift apart.
+if ($mask -notmatch '(?m)^\tpublic static String auraStepsSlot\(final int i\) \{') {
+	$problems.Add("VFXMask has no 'public static String auraStepsSlot(final int i)' - the parser and VFXMaskUniforms must resolve the slot name through one method")
+} else {
+	$slotName = Get-Body $mask 'public static String auraStepsSlot(final int i) {'
+	if ($null -eq $slotName -or $slotName -notmatch 'mask\.p' -or $slotName -notmatch '\.aura_steps') {
+		$problems.Add("VFXMask.auraStepsSlot does not build the reserved 'mask.p<N>.aura_steps' name - it must follow VFXMaskSlots' naming convention")
+	}
+}
+# g) the writer: the cap is clamped to the COMPILED total, and the compiled total is the shader's two
+#    defines, not a number typed twice. Both are read back here, so changing either budget alone fails.
+$entryDefine = [regex]::Match($shader, '#define VFX_PLUGIN_AURA_ENTRY_STEPS (\d+)').Groups[1].Value
+$exitDefine = [regex]::Match($shader, '#define VFX_PLUGIN_AURA_EXIT_STEPS (\d+)').Groups[1].Value
+if ($entryDefine -eq '' -or $exitDefine -eq '') {
+	$problems.Add("mask_coverage.fsh declares no VFX_PLUGIN_AURA_ENTRY_STEPS / _EXIT_STEPS - the cap clamp must be checked against the compiled loop budget")
+} else {
+	$compiledTotal = [int]$entryDefine + [int]$exitDefine
+	$maxSteps = [regex]::Match($uniforms, 'AURA_MAX_STEPS = (\d+);').Groups[1].Value
+	if ($maxSteps -eq '') {
+		$problems.Add("VFXMaskUniforms declares no AURA_MAX_STEPS - the cap is written clamped to the compiled ENTRY + EXIT total")
+	} elseif ([int]$maxSteps -ne $compiledTotal) {
+		$problems.Add("VFXMaskUniforms.AURA_MAX_STEPS is $maxSteps but the shader's march runs $entryDefine + $exitDefine = $compiledTotal iterations - a cap above the bound is unreachable budget")
+	}
+	$clampBody = Get-Body $uniforms 'private static int clampCap(final float cap) {'
+	if ($null -eq $clampBody) {
+		$problems.Add("VFXMaskUniforms has no 'private static int clampCap(final float cap)' - the cap is rounded and clamped to [0, AURA_MAX_STEPS] in one place")
+	} else {
+		if ($clampBody -notmatch 'Math\.round\(') {
+			$problems.Add("VFXMaskUniforms.clampCap does not round - the shader reads int(x + 0.5), so a fractional authored count must land on an integer")
+		}
+		if ($clampBody -notmatch 'Math\.max\(0,' -or $clampBody -notmatch 'Math\.min\(AURA_MAX_STEPS,') {
+			$problems.Add("VFXMaskUniforms.clampCap does not clamp both ends to [0, AURA_MAX_STEPS] - below 0 means 'no cap' and above the compiled bound is unreachable")
+		}
+	}
+	# The cap goes into the RESERVED third component of the shape_misc row, next to the slot read, and
+	# the leaf index it used to hold is gone: nothing in any shader reads shape_misc[i].z, and the loop
+	# index i is the leaf index already.
+	$miscRow = [regex]::Match($uniforms, '(?s)rows\[i\]\[5\] = new float\[\]\{(?<body>.*?)\};').Groups['body'].Value -replace '\s+', ' '
+	if ($miscRow -eq '') {
+		$problems.Add("VFXMaskUniforms has no readable 'rows[i][5] = new float[]{...}' - the shape_misc row (the one shape_misc[i] is written from) cannot be checked")
+	} elseif (-not $miscRow.Contains(', clampCap(slotValue(mask, effect, VFXMask.auraStepsSlot(i), 0.0F)), ')) {
+		# The third component, pinned as written: x is the fill and y the stroke, so the cap has to be the
+		# literal third argument - a fallback to the fill or the stroke would cap every leaf by accident.
+		$problems.Add("the shape_misc row does not carry the clamped cap in its third component (got: $($miscRow.Trim())) - shape_misc[i].z is the reserved slot the shader reads")
+	} elseif ($miscRow -match ',\s*i,\s') {
+		$problems.Add("the shape_misc row still carries the leaf index in .z - that slot is the cap now (no shader ever read the index: the loop index i is the leaf)")
+	} elseif (-not $miscRow.Contains('customRow == null ? -1.0F : customRow')) {
+		$problems.Add("the shape_misc row's custom-row component (w) is gone - only z is the cap; w still carries the custom row the shader reads")
+	}
+	if (-not $uniforms.Contains('VFXMask.auraStepsSlot(i)')) {
+		$problems.Add("VFXMaskUniforms never reads VFXMask.auraStepsSlot(i) - the parsed cap must reach the UBO row through the same reserved slot the parser registered")
+	}
+}
+# h) the shader: the cap is read from the reserved slot, breaks once, inside the constant-bound loop,
+#    and touches nothing else - a one-statement break cannot saturate, clamp or flag.
+$miscDecl = [regex]::Match($shader, '(?m)^\s*vec4 shape_misc\[[A-Z_]+\];(?<tail>.*)$').Groups['tail'].Value
+if ($miscDecl -notmatch 'aura_steps') {
+	$problems.Add("the shape_misc declaration in mask_coverage.fsh does not document .z as the 'aura_steps' cap - the comment beside the slot is the contract for the next editor")
+}
+$readCap = 'int stepCap = int(shape_misc[i].z + 0.5);'
+$breakCap = 'if (stepCap > 0 && s >= stepCap) break;'
+foreach ($literal in @($readCap, $breakCap)) {
+	if (-not $shader.Contains($literal)) {
+		$problems.Add("mask_coverage.fsh is missing the aura march cap literal: $literal")
+	}
+}
+if ([regex]::Matches($shader, [regex]::Escape($breakCap)).Count -ne 1) {
+	$problems.Add("mask_coverage.fsh has $(([regex]::Matches($shader, [regex]::Escape($breakCap))).Count) cap breaks - the cap is ONE more early out, not a dynamic bound")
+}
+$loopBody = Get-Body $shader $marchLine
+if ($null -eq $loopBody) {
+	$problems.Add("mask_coverage.fsh has no readable march loop body - the cap's placement cannot be checked")
+} else {
+	if (-not $loopBody.Contains($breakCap)) {
+		$problems.Add("the aura march cap break is not inside the constant-bound march loop - a break outside it would leave the loop structure alone and cap nothing")
+	}
+	if ($marchLine -match 'stepCap') {
+		$problems.Add("the march loop's bound mentions stepCap - the bound stays the constant expression ENTRY + EXIT (spec P1)")
+	}
+	# The refine loop is untouched: it is a separate, uncapped refinement of a chord the march already
+	# bracketed, and capping it would change what a completed march reports.
+	$refineLine = 'for (int s = 0; s < VFX_PLUGIN_AURA_REFINE_STEPS; s++) {'
+	$refineBody = Get-Body $shader $refineLine
+	if ($null -eq $refineBody) {
+		$problems.Add("mask_coverage.fsh has no readable refine loop - the cap must not touch it, and that cannot be checked")
+	} elseif ($refineBody -match 'stepCap|shape_misc\[i\]\.z') {
+		$problems.Add("the refine loop reads the step cap - it is not capped (spec P1: the refine loop is untouched)")
+	}
+}
+
 Write-Host "Aura bounds plugin check (static)"
 if ($problems.Count -gt 0) {
 	$problems | ForEach-Object { Write-Host "  - $_" }
@@ -525,6 +675,9 @@ Write-Host "  mask_coverage.fsh: vfx_aura_box_interval does clamp sentinels -> p
 Write-Host "  the sphere broad phase in mask_coverage.fsh (boundOffset / boundB / boundC) is byte-identical to HEAD"
 Write-Host "  mask_coverage.fsh runs the skip and box branches after occDist/tLimit and before the march loop, in that order, with the sphere path as the box branch's #else"
 Write-Host "  the skip advance is guarded by 'tNearSkip <= 0.0 && tFarSkip > 0.0' and clamps to max(tLimit - softness, 0.0); the box branch culls on the PADDED interval only"
+Write-Host "  'aura_steps' is gated to a custom leaf with 'volume': 'aura' only (a builtin aura leaf has no march), is read nowhere else, and rides the reserved mask.p<N>.aura_steps slot"
+Write-Host "  VFXMaskUniforms rounds and clamps the cap into shape_misc[i].z, against the shader's own ENTRY + EXIT total; 0 stays 'no cap'"
+Write-Host "  the shader gains exactly one cap break inside the constant-bound march loop: the bound is still ENTRY + EXIT and the refine loop never reads the cap"
 Write-Host "Aura bounds plugin check OK."
 
 # --- runnable: the four slab fixtures, the arithmetic of vfx_aura_box_interval on the CPU ---------
@@ -1530,19 +1683,429 @@ public final class AuraBroadPhaseCheck {
 '@
 [System.IO.File]::WriteAllText($broadSrc, $broadJava, [System.Text.UTF8Encoding]::new($false))
 
+# --- runnable: the march cap fixtures, aura_steps on the CPU -------------------------------------
+# The march below is the loop of mask_coverage.fsh with the one early break the cap adds, mirrored
+# step for step: the cone envelope, the step boost, the dive bound, the saturation certificate, the
+# uncapped refine loop and the two cover factors that survive the occlusion opt-out (a constant 1).
+# The occluded term is 1 because occDist is the 1.0e9 opt-out sentinel here, and no leaf authors a
+# stroke or a field, so the coverage is silhouette(dBound) * horizonFade(chord end) and nothing else.
+$budgetSrc = Join-Path $slabDir "AuraBudgetCheck.java"
+$budgetJava = @'
+/**
+ * The Task 6 fixtures for the per-leaf aura march cap (aura_steps): the aura march with the one early
+ * break the cap adds, over synthetic fields, and what that break may and may not do to the answer.
+ */
+public final class AuraBudgetCheck {
+	/** The compiled loop budget, VFX_PLUGIN_AURA_ENTRY_STEPS + VFX_PLUGIN_AURA_EXIT_STEPS. */
+	private static final int ENTRY_STEPS = 40;
+	private static final int EXIT_STEPS = 16;
+	private static final int REFINE_STEPS = 4;
+	private static final int STEPS = ENTRY_STEPS + EXIT_STEPS;
+	/** VFXMaskUniforms.AURA_MAX_STEPS: the writer clamps the cap to the compiled total. */
+	private static final int MAX_STEPS = STEPS;
+	private static final double MAX_RANGE = 1024.0;
+	private static final double MIN_STEP = 0.5;
+	private static final double MAX_STEP = 64.0;
+	private static final double STEP_BOOST = 0.2;
+	private static final double SOFTNESS = 4.0;
+	private static final double CHORD_EPS = 1.0e-4;
+	private static final double EPS = 1.0e-12;
+	/** 0 (the default) is the loop as it is; the rest straddle the compiled total on purpose. */
+	private static final int[] CAPS = {0, 1, 2, 3, 4, 8, 16, 24, 40, 55, STEPS, STEPS + 1, 1000};
+
+	/** A plugin's field: the raw world-space SDF the aura march samples (f <= 0 is coverage). */
+	private interface Field {
+		double sdf(double x, double y, double z);
+	}
+
+	/** One marched ray: its field, where it starts, where it looks. */
+	private static final class Ray {
+		private final String name;
+		private final Field field;
+		private final double[] cam;
+		private final double[] dir;
+
+		private Ray(final String name, final Field field, final double[] cam, final double[] dir) {
+			this.name = name;
+			this.field = field;
+			this.cam = cam;
+			this.dir = dir;
+		}
+	}
+
+	/** One marched ray's answer: its coverage, its cost, and the state the cover factors read. */
+	private static final class Result {
+		private double cov;
+		private int evals;
+		private int refineEvals;
+		private double tEnter = -1.0;
+		private double dBound = 1.0e9;
+		private boolean saturated;
+	}
+
+	/** A bounded sphere: coverage is its interior, so a camera inside it saturates on the first sample. */
+	private static Field sphere(final double r) {
+		return (x, y, z) -> Math.sqrt(x * x + y * y + z * z) - r;
+	}
+
+	/** A bounded slab, so an entered ray really exits and the refine loop really runs. */
+	private static Field slab() {
+		return (x, y, z) -> {
+			final double qx = Math.abs(x) - 4.0;
+			final double qy = Math.abs(y) - 4.0;
+			final double qz = Math.abs(z) - 4.0;
+			final double ox = Math.max(qx, 0.0);
+			final double oy = Math.max(qy, 0.0);
+			final double oz = Math.max(qz, 0.0);
+			return Math.sqrt(ox * ox + oy * oy + oz * oz) + Math.min(Math.max(qx, Math.max(qy, qz)), 0.0);
+		};
+	}
+
+	/** The reporter's wall: the exterior of two discs, cut from above, so the coverage region is unbounded. */
+	private static Field wall() {
+		return (x, y, z) -> Math.max(50.0 - Math.min(Math.hypot(x, z - 45.0), Math.hypot(x, z + 45.0)), y - 40.0);
+	}
+
+	/** An infinite cylinder along x: a ray that skims it crawls on the step floor for the whole budget. */
+	private static Field cylinder(final double r) {
+		return (x, y, z) -> Math.hypot(y - 20.0, z) - r;
+	}
+
+	/**
+	 * The ray set, one per cost class. The spread matters: a saturated ray finishes in one sample (a cap
+	 * can only waste its first), a crawler spends the whole compiled budget (the only ray a cap below the
+	 * bound can actually cut), and a near chord is where a truncated march can still read HIGHER than
+	 * the full one, because a march cut short while inside declares the chord open to tLimit.
+	 */
+	private static final Ray[] RAYS = {
+		new Ray("inside a sphere", sphere(50.0), new double[] {0.0, 0.0, 0.0}, new double[] {1.0, 0.0, 0.0}),
+		new Ray("near chord", sphere(1.0), new double[] {-1.4, 0.0, 0.0}, new double[] {1.0, 0.0, 0.0}),
+		new Ray("near miss", sphere(10.0), new double[] {-30.0, 11.0, 0.0}, new double[] {1.0, 0.0, 0.0}),
+		new Ray("slab crossing", slab(), new double[] {-30.0, 0.0, 0.0}, new double[] {1.0, 0.0, 0.0}),
+		new Ray("wall travel", wall(), new double[] {11.0, 0.0, 0.0}, new double[] {-1.0, 0.0, 0.0}),
+		new Ray("cylinder skimmer", cylinder(6.0), new double[] {0.0, 26.1, 0.0}, new double[] {1.0, 0.0, 0.0})};
+
+	/**
+	 * The march loop of mask_coverage.fsh (lip = 1 on these fields) plus the cap break, and the cover
+	 * factors after it. The only line that is not the shipped loop is the one the cap owns.
+	 */
+	private static Result march(final Ray ray, final int stepCap) {
+		final Result r = new Result();
+		final double[] cam = ray.cam;
+		final double[] dir = ray.dir;
+		final double tLimit = MAX_RANGE;
+		double t = 0.0;
+		double tPrev = 0.0;
+		double dPrev = 0.0;
+		boolean havePrev = false;
+		boolean inside = false;
+		double dBound = 1.0e9;
+		double tBound = 0.0;
+		double tInside = -1.0;
+		double tExitAfter = -1.0;
+		final double stepBoost = STEP_BOOST * SOFTNESS;
+		for (int s = 0; s < STEPS; s++) {
+			// The leaf's own cap, as the shader writes it: one more early out, before the sample, so a
+			// cap of N is N samples. stepCap <= 0 (the default 0, meaning "no cap") can never fire.
+			if (stepCap > 0 && s >= stepCap) {
+				break;
+			}
+			final double d = ray.field.sdf(cam[0] + dir[0] * t, cam[1] + dir[1] * t, cam[2] + dir[2] * t);
+			r.evals++;
+			if (havePrev) {
+				final double dCross = 0.5 * (dPrev + d - (t - tPrev));
+				if (dCross < dBound) {
+					dBound = dCross;
+					tBound = tPrev + (dPrev - dCross);
+				}
+			}
+			if (d < dBound) {
+				dBound = d;
+				tBound = t;
+			}
+			if (d <= 0.0) {
+				if (!inside) {
+					inside = true;
+					if (r.tEnter < 0.0) {
+						r.tEnter = havePrev ? tPrev + (t - tPrev) * dPrev / Math.max(dPrev - d, 1.0e-4) : t;
+					}
+				}
+				tInside = t;
+				tExitAfter = -1.0;
+				if (d <= -0.5 * SOFTNESS) {
+					r.saturated = true;
+					break;
+				}
+			} else if (inside) {
+				inside = false;
+				tExitAfter = t;
+			}
+			final double dive = d - (tLimit - t);
+			if (dive > 0.5 * SOFTNESS || dive >= dBound) {
+				break;
+			}
+			havePrev = true;
+			tPrev = t;
+			dPrev = d;
+			t += clamp(Math.abs(d) + stepBoost, MIN_STEP, MAX_STEP);
+			if (t >= tLimit) {
+				break;
+			}
+		}
+		r.dBound = dBound;
+		if (r.tEnter < 0.0) {
+			// Near-miss fade: the envelope bound on a chord shrunk to its closest approach.
+			r.cov = cover(dBound, tBound);
+		} else if (r.saturated || tExitAfter < 0.0) {
+			// Still inside at the end (or saturated): the chord extends at least this far. A march the
+			// cap cut short lands here as well, which is the point - a budget that runs out mid-volume
+			// must not fade the volume away.
+			r.cov = cover(dBound, tLimit);
+		} else {
+			// The refine loop, uncapped: it bisects a chord the march already bracketed, so it runs
+			// exactly as it does for an uncapped march that reached the same bracket.
+			for (int s = 0; s < REFINE_STEPS; s++) {
+				final double tMid = 0.5 * (tInside + tExitAfter);
+				final double dMid = ray.field.sdf(cam[0] + dir[0] * tMid, cam[1] + dir[1] * tMid, cam[2] + dir[2] * tMid);
+				r.refineEvals++;
+				if (dMid <= 0.0) {
+					tInside = tMid;
+				} else {
+					tExitAfter = tMid;
+				}
+			}
+			r.cov = cover(dBound, tExitAfter);
+		}
+		return r;
+	}
+
+	/** vfx_aura_cover with the occlusion term at its constant 1 (the occlusion opt-out). */
+	private static double cover(final double d, final double tExit) {
+		if (tExit <= CHORD_EPS) {
+			return 0.0;
+		}
+		return silhouette(d) * clamp((tExit - CHORD_EPS) / SOFTNESS, 0.0, 1.0);
+	}
+
+	private static double silhouette(final double d) {
+		return clamp(0.5 - d / SOFTNESS, 0.0, 1.0);
+	}
+
+	/** The writer's clamp, mirrored: round, then trim to [0, AURA_MAX_STEPS]. */
+	private static int clampCap(final double cap) {
+		return Math.min(MAX_STEPS, Math.max(0, (int) Math.round(cap)));
+	}
+
+	public static void main(final String[] args) {
+		clampRange();
+		defaultCapIsNoCap();
+		capNeverExceedsItself();
+		capHighEnoughIsInvisible();
+		truncatedIsBestEffort();
+	}
+
+	/**
+	 * The writer's clamp over the values a pack can author, and the shader's read of what comes out of
+	 * it. 0 (the default) means "no cap"; a value above the compiled ENTRY + EXIT total is trimmed
+	 * rather than rejected, because it asks for iterations the loop does not have and the extra budget
+	 * is unreachable, not an error; a negative one is not a cap at all, so it lands on the same 0 the
+	 * default does (the parser rejects a negative outright, and the clamp is the second line).
+	 */
+	private static void clampRange() {
+		final double[][] cases = {
+			{0.0, 0.0}, {1.0, 1.0}, {23.6, 24.0}, {0.4, 0.0}, {24.0, 24.0}, {55.0, 55.0},
+			{56.0, 56.0}, {57.0, 56.0}, {1.0e9, 56.0}, {-5.0, 0.0}};
+		for (final double[] pair : cases) {
+			final int clamped = clampCap(pair[0]);
+			if (clamped != (int) pair[1]) {
+				throw new AssertionError("clamp_range: aura_steps " + pair[0] + " -> " + clamped + ", want " + (int) pair[1]);
+			}
+			// What the shader reads back: int(x + 0.5) must land on the same integer, or the rounding
+			// that happens here and the rounding that happens there disagree about the cap.
+			if ((int) (clamped + 0.5) != clamped) {
+				throw new AssertionError("clamp_range: the shader's int(x + 0.5) reads " + (int) (clamped + 0.5) + " from " + clamped);
+			}
+			if (clamped < 0 || clamped > MAX_STEPS) {
+				throw new AssertionError("clamp_range: " + clamped + " is outside [0, " + MAX_STEPS + "]");
+			}
+		}
+		System.out.println("  clamp_range: aura_steps 0 -> 0 (no cap), 23.6 -> 24, " + STEPS + " -> " + STEPS
+			+ ", 57 and 1e9 -> " + MAX_STEPS + ", -5 -> 0; int(x + 0.5) reads every one back as itself");
+	}
+
+	/**
+	 * budget_default: the default (0) is the loop it has always been, and a cap the loop cannot reach is
+	 * the same loop. Compared bit for bit - iterations, coverage, first entry, envelope bound, the
+	 * saturation flag and the refine samples - and the per-ray cost is printed, because the fixture's
+	 * whole point is that the compiled budget is a cap and not a spend.
+	 */
+	private static void defaultCapIsNoCap() {
+		final StringBuilder costs = new StringBuilder();
+		for (final Ray ray : RAYS) {
+			final Result ref = march(ray, 0);
+			if (ref.evals < 1 || ref.evals > STEPS) {
+				throw new AssertionError("budget_default: " + ray.name + " cost " + ref.evals + " iterations, outside [1, " + STEPS + "]");
+			}
+			same(ref, march(ray, STEPS), ray.name, "a cap of exactly the compiled total");
+			same(ref, march(ray, STEPS + 1), ray.name, "a cap one above the compiled total");
+			same(ref, march(ray, 1000), ray.name, "a cap far above the compiled total");
+			costs.append("\n           ").append(ray.name).append(": ").append(ref.evals).append(" of ").append(STEPS)
+				.append(", cov ").append(fmt(ref.cov));
+		}
+		System.out.println("  budget_default: cap 0 and every cap >= " + STEPS + " are the same march, ray for ray:" + costs);
+	}
+
+	/**
+	 * budget_cap: a cap of N never costs more than N samples, on any ray, and never more than the
+	 * uncapped march did. The refine loop is not the march loop, so its samples are counted apart: a
+	 * capped march still refines a chord it actually bracketed.
+	 */
+	private static void capNeverExceedsItself() {
+		int cut = 0;
+		for (final Ray ray : RAYS) {
+			final Result ref = march(ray, 0);
+			for (final int cap : CAPS) {
+				if (cap <= 0) {
+					continue;
+				}
+				final Result got = march(ray, cap);
+				if (got.evals > Math.min(cap, STEPS) || got.evals > ref.evals) {
+					throw new AssertionError("budget_cap: " + ray.name + " with cap " + cap + " cost " + got.evals
+						+ " samples, against the cap's " + cap + " and the uncapped " + ref.evals);
+				}
+				if (got.refineEvals > REFINE_STEPS) {
+					throw new AssertionError("budget_cap: " + ray.name + " with cap " + cap + " ran " + got.refineEvals
+						+ " refine samples - the refine loop is not capped");
+				}
+				if (Double.isNaN(got.cov) || got.cov < 0.0 || got.cov > 1.0) {
+					throw new AssertionError("budget_cap: " + ray.name + " with cap " + cap + " reported cov " + got.cov);
+				}
+				if (got.evals == cap && cap < ref.evals) {
+					cut++;
+				}
+			}
+		}
+		if (cut == 0) {
+			throw new AssertionError("budget_cap: no ray was ever cut short - a fixture that cannot see a cap is no fixture");
+		}
+		System.out.println("  budget_cap: " + cut + " (ray, cap) pairs stopped exactly at the cap; no ray ever spent more than the cap allowed, and no refine sample above " + REFINE_STEPS);
+	}
+
+	/**
+	 * budget_complete: a cap high enough to finish the ray's own march reproduces the uncapped answer
+	 * exactly - even a cap well below the compiled total, because a typical ray uses a fraction of it.
+	 * This is what makes the default invisible and the knob safe to raise: it can only trim the tail of
+	 * a ray that was going to use every iteration anyway.
+	 */
+	private static void capHighEnoughIsInvisible() {
+		for (final Ray ray : RAYS) {
+			final Result ref = march(ray, 0);
+			if (ref.evals >= STEPS) {
+				continue;
+			}
+			for (final int cap : new int[] {ref.evals, ref.evals + 1, STEPS - 1}) {
+				if (cap < 1) {
+					continue;
+				}
+				same(ref, march(ray, cap), ray.name, "cap " + cap + " finishes the ray but is not the default");
+			}
+			System.out.println("  budget_complete: " + ray.name + ": cap " + ref.evals + " of " + STEPS
+				+ " already reproduces cov " + fmt(ref.cov) + " exactly");
+		}
+	}
+
+	/**
+	 * budget_truncate: an exhausted budget is best-effort, never saturation. A capped march samples a
+	 * PREFIX of the same ray, so its cone envelope is a subset minimum: its penetration bound is never
+	 * deeper than the full march's, so its coverage can only be a LOWER bound on what the uncapped
+	 * march would report - never a fabricated or clamped one, and the saturation flag is a per-sample
+	 * certificate a cap can never grant. The one term that can still read higher is the chord: a march
+	 * cut short while still inside extends the chord to tLimit (the shader's own rule, so a live volume
+	 * is not faded away), so the ceiling asserted here is the full march's own silhouette factor.
+	 */
+	private static void truncatedIsBestEffort() {
+		int cut = 0;
+		double worstRise = -1.0;
+		String worstRay = "";
+		for (final Ray ray : RAYS) {
+			final Result ref = march(ray, 0);
+			final double ceiling = silhouette(ref.dBound);
+			for (final int cap : CAPS) {
+				if (cap <= 0) {
+					continue;
+				}
+				final Result got = march(ray, cap);
+				if (got.evals >= ref.evals) {
+					continue;
+				}
+				cut++;
+				if (got.dBound < ref.dBound - EPS) {
+					throw new AssertionError("budget_truncate: " + ray.name + " with cap " + cap + " reports dBound " + got.dBound
+						+ ", deeper than the full march's " + ref.dBound + " - a prefix of the same samples cannot penetrate further");
+				}
+				if (got.saturated && !ref.saturated) {
+					throw new AssertionError("budget_truncate: " + ray.name + " with cap " + cap
+						+ " saturated - saturation is a per-sample certificate and the cap never grants one");
+				}
+				if (got.cov > ceiling + 1.0e-9) {
+					throw new AssertionError("budget_truncate: " + ray.name + " with cap " + cap + " reported cov " + got.cov
+						+ ", above the full march's own silhouette " + ceiling);
+				}
+				if (got.tEnter >= 0.0 && ref.tEnter >= 0.0 && got.tEnter != ref.tEnter) {
+					throw new AssertionError("budget_truncate: " + ray.name + " with cap " + cap + " entered at " + got.tEnter
+						+ ", not the full march's " + ref.tEnter + " - the first entry is a prefix property");
+				}
+				if (got.cov - ref.cov > worstRise) {
+					worstRise = got.cov - ref.cov;
+					worstRay = ray.name + " at cap " + cap;
+				}
+			}
+		}
+		if (cut == 0) {
+			throw new AssertionError("budget_truncate: no march was ever cut short");
+		}
+		System.out.println("  budget_truncate: " + cut + " truncated marches, all best-effort - the envelope bound never deepened, none saturated, none exceeded the uncapped silhouette"
+			+ " (largest rise " + fmt(worstRise) + " at " + worstRay + ": a cut-short march still inside reports its chord open to tLimit)");
+	}
+
+	private static void same(final Result a, final Result b, final String ray, final String what) {
+		if (a.evals != b.evals || a.refineEvals != b.refineEvals || a.cov != b.cov || a.tEnter != b.tEnter
+			|| a.dBound != b.dBound || a.saturated != b.saturated) {
+			throw new AssertionError("budget_default: " + what + " changed " + ray + " (" + a.evals + " samples, cov "
+				+ fmt(a.cov) + ", dBound " + fmt(a.dBound) + " -> " + b.evals + " samples, cov " + fmt(b.cov)
+				+ ", dBound " + fmt(b.dBound) + ") - a cap that cannot bind must be invisible");
+		}
+	}
+
+	private static double clamp(final double v, final double lo, final double hi) {
+		return v < lo ? lo : (v > hi ? hi : v);
+	}
+
+	private static String fmt(final double v) {
+		return String.format(java.util.Locale.ROOT, "%.4f", v);
+	}
+}
+'@
+[System.IO.File]::WriteAllText($budgetSrc, $budgetJava, [System.Text.UTF8Encoding]::new($false))
+
+
 Write-Host "Aura slab interval check (CPU simulation)"
 Push-Location $repoRoot
 try {
-	& $javac "@$slabCpFile" -d $slabDir $slabSrc $broadSrc
+	& $javac "@$slabCpFile" -d $slabDir $slabSrc $broadSrc $budgetSrc
 	if ($LASTEXITCODE -ne 0) { throw "javac failed" }
 	& $java "@$slabCpFile" SlabIntervalCheck
 	if ($LASTEXITCODE -ne 0) { throw "SlabIntervalCheck failed" }
 	Write-Host "Aura broad phase check (CPU simulation)"
 	& $java "@$slabCpFile" AuraBroadPhaseCheck
 	if ($LASTEXITCODE -ne 0) { throw "AuraBroadPhaseCheck failed" }
+	Write-Host "Aura march cap check (CPU simulation)"
+	& $java "@$slabCpFile" AuraBudgetCheck
+	if ($LASTEXITCODE -ne 0) { throw "AuraBudgetCheck failed" }
 } finally {
 	Pop-Location
 }
 Write-Host "Aura slab interval check OK."
 Write-Host "Aura broad phase check OK (six ray classes plus the field_vs_declaration contract fixture)."
+Write-Host "Aura march cap check OK (clamp range, cap 0, cap N, a cap that finishes the ray, and best-effort exhaustion)."
 exit 0
