@@ -12,7 +12,7 @@ times this documentation has been revised. The authoritative record of guide rev
 the [download table](index.md#download). Add new entries at the top, in the same PR as the behaviour
 change.
 
-## Unreleased
+## 2.2.1 - 2026-10-01
 
 ### Added
 
