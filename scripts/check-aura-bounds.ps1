@@ -34,6 +34,14 @@
 # because it is unreachable for a culled ray. The five ray classes are simulated on the CPU below,
 # with SDF evaluation counts as the metric.
 #
+# Task 5 adds the mandatory contract fixture, field_vs_declaration: a synthetic field is grid-sampled
+# and each DECLARATION is held to the two contracts above - every field <= 0 sample inside the
+# containment box, every sample inside the skip box with field > 0. It is the only check that catches
+# an inverted declaration before the game, so it carries two negative cases it must REJECT by name:
+# the containment box with bmin/bmax swapped, and the AABB of a set of circles used as a skip box
+# (the mistake an earlier revision of the spec shipped - its corners lie in the coverage region). A
+# fixture that rejected nothing would be theatre, so both rejections are asserted.
+#
 # Usage: powershell -NoProfile -ExecutionPolicy Bypass -File scripts/check-aura-bounds.ps1
 $ErrorActionPreference = "Stop"
 $repoRoot = Split-Path -Parent $PSScriptRoot
@@ -785,6 +793,11 @@ public final class AuraBroadPhaseCheck {
 		};
 	}
 
+	/** A bounded sphere: coverage is its interior, so the honest containment box is the cube on r. */
+	private static Field sphere(final double r) {
+		return (x, y, z) -> Math.sqrt(x * x + y * y + z * z) - r;
+	}
+
 	/** A plugin's skip box: the inscribed part of the hole, with the reporter's y sentinel. */
 	private static final double[] WALL_SKIP_MIN = {-12.0, -1.0e9, -1.0};
 	private static final double[] WALL_SKIP_MAX = {12.0, 40.0, 1.0};
@@ -794,6 +807,27 @@ public final class AuraBroadPhaseCheck {
 	/** A plugin's containment box for the slab: the slab itself. */
 	private static final double[] SLAB_BOX_MIN = {-4.0, -4.0, -4.0};
 	private static final double[] SLAB_BOX_MAX = {4.0, 4.0, 4.0};
+	/** The honest containment box for the Task 5 sphere: its own cube. */
+	private static final double[] SPHERE_BOX_MIN = {-6.0, -6.0, -6.0};
+	private static final double[] SPHERE_BOX_MAX = {6.0, 6.0, 6.0};
+	/**
+	 * The circles' AABB, offered as the wall's skip box: the proposal an earlier revision of the spec
+	 * made. It is a containment-looking box around a hole, and its corners lie outside the circles,
+	 * i.e. inside the coverage region, so it would skip real coverage.
+	 */
+	private static final double[] CIRCLE_AABB_MIN = {-50.0, -1.0e9, -95.0};
+	private static final double[] CIRCLE_AABB_MAX = {50.0, 40.0, 95.0};
+	/** The contract fixture's grid: one block, finer than every margin the declarations turn on. */
+	private static final double GRID = 1.0;
+	/** The sphere's window: the field, a ring of hole around it, and room for a wrong box to reach. */
+	private static final double[] SPHERE_WINDOW_MIN = {-12.0, -12.0, -12.0};
+	private static final double[] SPHERE_WINDOW_MAX = {12.0, 12.0, 12.0};
+	/**
+	 * The wall's window: the shader's own reachable volume, which is exactly where the sentinel clamp
+	 * of vfx_aura_box_interval leaves off (nothing outside camPos +- MAX_RANGE can change a result).
+	 */
+	private static final double[] WALL_WINDOW_MIN = {-MAX_RANGE, -MAX_RANGE, -MAX_RANGE};
+	private static final double[] WALL_WINDOW_MAX = {MAX_RANGE, 40.0, MAX_RANGE};
 
 	/** The padded slab arithmetic of vfx_aura_box_interval: clamp the sentinels, pad, invert, min/max. */
 	private static double[] interval(final double[] cam, final double[] bmin, final double[] bmax,
@@ -935,6 +969,7 @@ public final class AuraBroadPhaseCheck {
 		boxCullZeroCoverage();
 		skipOnlyFromInside();
 		skipAndBoxSameLeaf();
+		fieldVsDeclaration();
 	}
 
 	/**
@@ -984,6 +1019,191 @@ public final class AuraBroadPhaseCheck {
 		System.out.println("  skip_and_box_same_leaf: tStart 0 -> " + both.tStart + " (the skip's value, box-only would give "
 			+ boxOnly.tStart + "), evaluations " + skipOnlyRay.evals + " (skip-only) / " + boxOnlyRay.evals
 			+ " (box-only) / " + bothRay.evals + " (both), tLimit " + fmt(both.tLimit) + ", cov " + bothRay.cov);
+	}
+
+	/**
+	 * Spec fixture field_vs_declaration: four declarations held against two sampled fields. A bounded
+	 * field (a sphere) with its own cube as the containment box must pass, and the same cube with
+	 * bmin/bmax swapped must be REJECTED. The reporter's wall with the inscribed skip box must pass, and
+	 * the circles' AABB offered as that skip box must be REJECTED - its corners lie in the coverage
+	 * region, which is the mistake an earlier revision of the spec shipped. Both rejections are asserted
+	 * by name: a fixture that rejected nothing would be theatre.
+	 */
+	private static void fieldVsDeclaration() {
+		final Field bounded = sphere(6.0);
+		final int covered = countCovered(bounded, SPHERE_WINDOW_MIN, SPHERE_WINDOW_MAX);
+		final String honestBox = containmentOffender(bounded, SPHERE_BOX_MIN, SPHERE_BOX_MAX);
+		if (honestBox != null) {
+			throw new AssertionError("field_vs_declaration: the sphere's own cube does not contain its coverage: " + honestBox);
+		}
+		final String inverted = containmentOffender(bounded, SPHERE_BOX_MAX, SPHERE_BOX_MIN);
+		if (inverted == null) {
+			throw new AssertionError("field_vs_declaration: inverted_containment_box (bmin/bmax swapped) was ACCEPTED"
+				+ " - a containment check that cannot fail is theatre");
+		}
+		final Field exterior = wall();
+		final int clear = gridSize(WALL_SKIP_MIN, WALL_SKIP_MAX);
+		final String inscribed = skipOffender(exterior, WALL_SKIP_MIN, WALL_SKIP_MAX);
+		if (inscribed != null) {
+			throw new AssertionError("field_vs_declaration: the inscribed skip box reaches coverage: " + inscribed);
+		}
+		final String aabb = skipOffender(exterior, CIRCLE_AABB_MIN, CIRCLE_AABB_MAX);
+		if (aabb == null) {
+			throw new AssertionError("field_vs_declaration: circles_aabb_skip_box (the AABB of a set of circles as a"
+				+ " skip box) was ACCEPTED - its corners lie in the coverage region and it would skip real coverage");
+		}
+		// The declarations are also held to the image: an honest containment box changes the cost of a
+		// ray, never its coverage, so a sweep of rays over the bounded field must report the same coverage
+		// with and without it. Restricting the sample range can only raise the envelope bound and cut the
+		// chord, so the bounds are held to one-sided equality within the envelope's own fat.
+		double worstDelta = 0.0;
+		int rays = 0;
+		int culled = 0;
+		for (final double[] cam : new double[][] {{0.0, 0.0, 0.0}, {5.0, 1.0, 0.0}, {7.0, 3.0, 0.0}, {20.0, 20.0, 5.0}}) {
+			for (int yawStep = 0; yawStep < 8; yawStep++) {
+				final double yaw = Math.PI * yawStep / 4.0;
+				for (final double pitch : new double[] {-0.6, -0.2, 0.0, 0.2, 0.6}) {
+					final double[] ray = unit(Math.cos(yaw), pitch, Math.sin(yaw));
+					final Result before = run(bounded, cam, ray, broad(cam, ray, MAX_RANGE, null, null, null, null));
+					final Span span = broad(cam, ray, MAX_RANGE, null, null, SPHERE_BOX_MIN, SPHERE_BOX_MAX);
+					final Result after = run(bounded, cam, ray, span);
+					if (after.cov > before.cov + 1.0e-12) {
+						throw new AssertionError("field_vs_declaration: the containment box INVENTED coverage ("
+							+ fmt(before.cov) + " -> " + fmt(after.cov) + ") - it may only remove the travel");
+					}
+					worstDelta = Math.max(worstDelta, before.cov - after.cov);
+					if (!span.hit) {
+						culled++;
+					}
+					rays++;
+				}
+			}
+		}
+		if (worstDelta > COVER_EPS) {
+			throw new AssertionError("field_vs_declaration: the honest containment box cost " + fmt(worstDelta)
+				+ " of coverage, past the envelope's own ceiling " + COVER_EPS);
+		}
+		System.out.println("  field_vs_declaration: " + covered + " covered samples of the sphere on its window grid,"
+			+ " every one inside the declared cube [-6, 6]^3; the swapped cube is REJECTED at " + inverted);
+		System.out.println("         " + clear + " samples inside the wall's inscribed skip box all read field > 0;"
+			+ " the circles' AABB is REJECTED at " + aabb);
+		System.out.println("         " + rays + " rays over the sphere (" + culled + " culled by the box): coverage with the"
+			+ " box minus without it, worst " + fmt(worstDelta) + " (one-sided, ceiling " + COVER_EPS + ")");
+	}
+
+	/**
+	 * The containment contract, on a grid: every sample where the field is &lt;= 0 lies inside the
+	 * declared box. Returns the DEEPEST sample the declaration leaves out - with its own field value, so
+	 * a rejection names a coordinate and a depth, not just a "no", and a rejection that sat on the
+	 * silhouette would be visible as such - or null when the box contains all of them. The caller decides
+	 * which of the two it expected; that is what lets one predicate serve the honest and the deliberately
+	 * broken declaration. A window with no coverage at all is an error, not a pass: the fixture would be
+	 * vacuous.
+	 */
+	private static String containmentOffender(final Field field, final double[] bmin, final double[] bmax) {
+		double[] worst = null;
+		double worstD = 0.0;
+		for (int ix = 0; ix <= steps(SPHERE_WINDOW_MIN[0], SPHERE_WINDOW_MAX[0]); ix++) {
+			final double x = SPHERE_WINDOW_MIN[0] + ix * GRID;
+			for (int iy = 0; iy <= steps(SPHERE_WINDOW_MIN[1], SPHERE_WINDOW_MAX[1]); iy++) {
+				final double y = SPHERE_WINDOW_MIN[1] + iy * GRID;
+				for (int iz = 0; iz <= steps(SPHERE_WINDOW_MIN[2], SPHERE_WINDOW_MAX[2]); iz++) {
+					final double z = SPHERE_WINDOW_MIN[2] + iz * GRID;
+					final double d = field.sdf(x, y, z);
+					if (d <= 0.0 && !within(x, y, z, bmin, bmax) && (worst == null || d < worstD)) {
+						worst = new double[] {x, y, z};
+						worstD = d;
+					}
+				}
+			}
+		}
+		if (worst == null) {
+			return null;
+		}
+		return "covered sample (" + fmt(worst[0]) + ", " + fmt(worst[1]) + ", " + fmt(worst[2]) + ") at field "
+			+ fmt(worstD) + " is outside the containment box";
+	}
+
+	/**
+	 * The skip contract, on a grid over the declared box CLIPPED to the shader's reachable window (the
+	 * clip is done first, not inside the loop: a sentinel axis runs to -1e9, and nothing outside
+	 * camPos +- MAX_RANGE can change a result anyway): every sample inside reads field &gt; 0, so the
+	 * whole box is hole and no coverage is skipped. Returns the DEEPEST sample that breaks it - the one
+	 * whose loss of coverage would cost the most - or null when the box is honest; a box that puts no
+	 * sample in the window is an error, not a pass.
+	 */
+	private static String skipOffender(final Field field, final double[] bmin, final double[] bmax) {
+		final double[] lo = new double[3];
+		final double[] hi = new double[3];
+		for (int a = 0; a < 3; a++) {
+			lo[a] = Math.max(bmin[a], WALL_WINDOW_MIN[a]);
+			hi[a] = Math.min(bmax[a], WALL_WINDOW_MAX[a]);
+		}
+		if (lo[0] > hi[0] || lo[1] > hi[1] || lo[2] > hi[2]) {
+			throw new AssertionError("field_vs_declaration: the skip box put no sample in the reachable window -"
+				+ " the fixture is vacuous");
+		}
+		double[] worst = null;
+		double worstD = 0.0;
+		for (int ix = 0; ix <= steps(lo[0], hi[0]); ix++) {
+			final double x = lo[0] + ix * GRID;
+			for (int iy = 0; iy <= steps(lo[1], hi[1]); iy++) {
+				final double y = lo[1] + iy * GRID;
+				for (int iz = 0; iz <= steps(lo[2], hi[2]); iz++) {
+					final double z = lo[2] + iz * GRID;
+					final double d = field.sdf(x, y, z);
+					if (d <= 0.0 && (worst == null || d < worstD)) {
+						worst = new double[] {x, y, z};
+						worstD = d;
+					}
+				}
+			}
+		}
+		if (worst == null) {
+			return null;
+		}
+		return "sample (" + fmt(worst[0]) + ", " + fmt(worst[1]) + ", " + fmt(worst[2]) + ") inside the skip box reads field "
+			+ fmt(worstD) + " - the skip would cut real coverage";
+	}
+
+	/** How many samples of a window the field reads as coverage; zero would make a containment pass vacuous. */
+	private static int countCovered(final Field field, final double[] lo, final double[] hi) {
+		int covered = 0;
+		for (int ix = 0; ix <= steps(lo[0], hi[0]); ix++) {
+			final double x = lo[0] + ix * GRID;
+			for (int iy = 0; iy <= steps(lo[1], hi[1]); iy++) {
+				final double y = lo[1] + iy * GRID;
+				for (int iz = 0; iz <= steps(lo[2], hi[2]); iz++) {
+					if (field.sdf(x, y, lo[2] + iz * GRID) <= 0.0) {
+						covered++;
+					}
+				}
+			}
+		}
+		if (covered == 0) {
+			throw new AssertionError("field_vs_declaration: the window holds no coverage at all -"
+				+ " a containment check over it would pass without checking anything");
+		}
+		return covered;
+	}
+
+	/** How many samples the skip grid decides about, so a pass can quote its own size. */
+	private static int gridSize(final double[] bmin, final double[] bmax) {
+		final double[] lo = new double[3];
+		final double[] hi = new double[3];
+		for (int a = 0; a < 3; a++) {
+			lo[a] = Math.max(bmin[a], WALL_WINDOW_MIN[a]);
+			hi[a] = Math.min(bmax[a], WALL_WINDOW_MAX[a]);
+		}
+		return (steps(lo[0], hi[0]) + 1) * (steps(lo[1], hi[1]) + 1) * (steps(lo[2], hi[2]) + 1);
+	}
+
+	private static int steps(final double lo, final double hi) {
+		return (int) Math.floor((hi - lo) / GRID + 0.5);
+	}
+
+	private static boolean within(final double x, final double y, final double z, final double[] bmin, final double[] bmax) {
+		return x >= bmin[0] && x <= bmax[0] && y >= bmin[1] && y <= bmax[1] && z >= bmin[2] && z <= bmax[2];
 	}
 
 	/** Ray class inside: the camera starts in the volume, so the first sample saturates and the bounds change nothing. */
@@ -1324,5 +1544,5 @@ try {
 	Pop-Location
 }
 Write-Host "Aura slab interval check OK."
-Write-Host "Aura broad phase check OK."
+Write-Host "Aura broad phase check OK (six ray classes plus the field_vs_declaration contract fixture)."
 exit 0
