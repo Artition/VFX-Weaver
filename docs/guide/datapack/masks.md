@@ -297,6 +297,45 @@ terrain block edge falls from 0.0223 to 0.0074, below what an 8-bit target can s
 horizon — hundreds of blocks per pixel — no world-space ramp can stay smooth and the edge stays hard;
 that is by design, since widening further would erase the occlusion altogether.
 
+#### `"aura_steps"` — a cap on one leaf's march budget { data-toc-label="aura_steps" }
+
+The march on a custom aura leaf runs on a budget of 40 + 16 = 56 iterations. `"aura_steps"` is an
+optional number on the leaf that puts a **lower ceiling** on it, and changes nothing else:
+
+```json
+"a": { "shape": "mymod:zone_sdf", "space": "world", "volume": "aura",
+       "center": [0, 64, 0], "softness": 0.5, "aura_steps": 24 }
+```
+
+It is accepted **only** on a custom leaf with `"volume": "aura"`, and anywhere else it is a per-file
+parse error naming the shape. That gate is deliberately narrower than `occlusion` /
+`occlusion_softness` above, which any aura leaf may take: only a plugin leaf has a march to bound, since
+a built-in `sphere`/`box` aura leaf samples one chord midpoint and a `surface` leaf classifies a point.
+A **negative value is a parse error**; a value **above the loop's own 56 is clamped to it**, because a
+cap the loop cannot reach is unreachable budget rather than an author error. **Absent — or `0` — is no
+cap at all**, and the leaf is then identical to today, ray for ray. The field bounds the march loop
+only; the 4 refine steps that follow it are untouched.
+
+**The budget is a cap, not a cost.** The march already leaves early on a saturated sample, on the dive
+bound and on the range limit, so the 56 is an upper bound it rarely approaches: measured across the
+ray classes `scripts/check-aura-bounds.ps1` simulates, a ray spends 1 (already inside the volume) to
+20, and only a ray skimming a thin shell spends the lot. Expect a handful of evaluations on a typical
+ray, and treat a cap as a **last resort** for a leaf that really does burn the budget — not as a way to
+make an ordinary aura many times cheaper. Capping a leaf whose rays already finished in 16 buys nothing
+measurable and costs silhouette. If a mask is what a frame is paying for, the lever is the plugin's
+declared broad phase (`vfx_shape_custom_bounds()`, see the [Java API](../../API.md) and the cost notes
+below), not this field.
+
+What a cap costs is a softer rim, and it is **best-effort — never a saturation**. A truncated march
+keeps whatever the cone envelope and the entry distance had reached, and it does not light up as a
+false bright patch the way an unbounded march would. One consequence is worth knowing before tuning it:
+a march that runs out of budget **while still inside** the volume falls into the shipped
+`tExit = tLimit` rule — a short fake chord would fade a live volume — so the chord is reported as open
+to the range limit, and on a soft leaf whose chord ends within `softness` of the camera a low cap can
+therefore read **slightly higher** than uncapped (measured: +0.23 at a cap of 2, bounded by the
+uncapped march's own silhouette factor). That is the declared behaviour of that rule, not a saturation
+and not a clamp, and no coverage is invented beyond what the penetration depth allows.
+
 #### The `depth` leaf — coverage from the scene distance { data-toc-label="depth leaf" }
 
 `"shape": "depth"` is a leaf whose coverage is a function of the pixel's reconstructed scene distance

@@ -289,6 +289,52 @@ SDF calls, and a hit starts the march at the sphere's near point. The bound may 
 values through `vfx_mask_data`, so it can follow moving geometry; a bound that is too small clips the
 aura.
 
+**Two more optional bounds, as boxes.** A sphere is a poor fit for a field whose coverage region is
+unbounded, so a plugin may declare either of two axis-aligned boxes instead. They are optional in the
+same way (each is honoured only when the source declares that exact signature) and they are consulted
+per leaf in the order **skip box → containment box → the sphere above → no bounds at all**, so a plugin
+that declares none of the three keeps today's sphere behaviour exactly:
+
+```glsl
+bool vfx_shape_custom_bounds_box(out vec3 bmin, out vec3 bmax);   // CONTAINS the coverage region
+bool vfx_shape_custom_skip_bounds(out vec3 bmin, out vec3 bmax);  // lies inside a hole
+```
+
+The two contracts are mirrors of each other, and swapping them is the mistake that silently buys
+nothing:
+
+- **The containment box must CONTAIN the whole region where the field is `<= 0`.** Anything it leaves
+  out is real coverage the march would no longer find. A box drawn around a *hole* — the inverse of
+  this contract — is a declaration bug rather than a cull: it buys nothing at all, because the coverage
+  region outside it is unbounded. So it is only worth declaring for a **bounded** coverage region, and
+  an unbounded axis is declared with sentinels (`-1e9` / `+1e9`), which the shader clamps to the
+  reachable range.
+- **The skip box must lie ENTIRELY inside the region where the field is `> 0`** — a hole — and must be
+  *inscribed* in it. The AABB of a set of circles does **not** qualify: its corners lie outside the
+  circles, i.e. inside the coverage region (`field <= 0`), and would skip real coverage. The inscribed
+  square of the largest circle does. This is the lever that fits an exterior (unbounded) field: the
+  march then starts at the box's far side instead of at the camera.
+
+Both are read through one shared slab test that runs after `occDist`/`tLimit` are known and is padded
+by `softness / 2`, so no cliff appears at a box face and **a plugin never has to know `softness`**.
+Either may read the leaf's own values, exactly like the sphere bound above — the dispatcher republishes
+`vfx_mask_data` and the leaf's `vfx_shape_params0`/`vfx_shape_params1` before each call. A miss on the
+containment box's padded interval culls the leaf with no march at all; that box may also only ever
+*raise* the march's start, so a leaf declaring both keeps the skip; and the skip advance applies **only
+when the camera is inside the skip box** (a camera outside it may have a coverage segment *before* the
+box, which the advance must not jump over) and keeps the last `softness` before `tLimit` sampled. All
+of that is the shader's business — the plugin only has to get the two contracts right.
+
+**A per-leaf cap: `aura_steps`.** An optional mask-leaf field puts a ceiling on that leaf's march
+iterations. It is gated to a **custom leaf with `"volume": "aura"`** — a built-in `sphere`/`box` aura
+leaf samples one chord midpoint and a surface leaf classifies a point, so there is no march for a cap
+to bound — and anywhere else it is a per-file parse error naming the shape. A negative value is a
+per-file parse error too; a value above the compiled loop budget (40 + 16) is clamped to it, since
+asking for iterations the loop does not have is unreachable budget rather than an author error. `0`,
+the default and what every leaf that does not march resolves to, means **no cap**: the leaf is
+bit-identical to today's. A cap trades silhouette for speed, and one high enough for the leaf's own
+worst ray is invisible — it is a last resort, not a lever. See [masks](guide/datapack/masks.md).
+
 A composed custom leaf has no raw SDF to march, so `"volume": "aura"` on one is a per-file parse error
 naming the shape (no silent fallback), and a screen-space plugin leaf is rejected the same way (a
 uv-space distance cannot be marched in world units). The march covers the **first** chord only. In

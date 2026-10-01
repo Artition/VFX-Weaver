@@ -12,6 +12,44 @@ times this documentation has been revised. The authoritative record of guide rev
 the [download table](index.md#download). Add new entries at the top, in the same PR as the behaviour
 change.
 
+## Unreleased
+
+### Added
+
+- **Two optional box bounds for a GLSL mask shape — a containment box and a skip box.** A world
+  plugin leaf on `"volume": "aura"` may now declare an axis-aligned box as its broad phase, in two
+  further optional functions (`vfx_shape_custom_bounds_box`, `vfx_shape_custom_skip_bounds`).
+  The **containment box** must contain the whole region where the field is `<= 0`; the **skip box**
+  must lie entirely inside a region where the field is `> 0` and be *inscribed* in that hole — the
+  AABB of a set of circles does not qualify, because its corners sit in the coverage region and
+  would skip real coverage. Getting the two the wrong way round is a declaration bug rather than a
+  cull: it buys nothing, because the coverage region outside such a box is unbounded. A miss on the
+  containment box's padded interval culls the leaf with no march at all, and a camera inside the skip
+  box starts the march at its far side instead of at the camera. The slab test is padded by
+  `softness / 2` and the skip keeps the last `softness` before the range limit sampled, so no cliff
+  appears at a box face and the plugin never has to know `softness`. Both are optional and consulted
+  per leaf (skip, then box, then the existing sphere, then no bounds), so a plugin that declares none
+  of them renders exactly as before. Additive: two default methods on `VFXMaskShapeGlsl`, no new
+  `VFXAPI` overload, no datapack field, no wire or UBO layout change, `PROTOCOL_VERSION` unchanged.
+  See [API](API.md). **Not verified in game** (the owner tests it); the contracts and the arithmetic
+  are asserted by `scripts/check-aura-bounds.ps1` — the GLSL cannot compile headless here.
+
+- **`"aura_steps"` on a custom aura mask leaf — an optional per-leaf cap on the march.** The march
+  budget is an upper bound a typical ray never approaches (it leaves early on a saturated sample, on
+  the dive bound and on the range limit, and spends 1 to 20 of the loop's 40 + 16 iterations on the
+  check's ray classes), so the new number is a **cap, not a spend** — a last resort for a leaf that
+  really does burn the budget, and a declared broad phase is the real lever. Accepted only on a custom
+  leaf with `"volume": "aura"` (a parse error naming the shape anywhere else, since only a plugin
+  leaf has a march to bound); a negative value is a parse error, and a value above the compiled
+  budget is clamped to it. Absent, or `0`, means no cap and the leaf is identical to today. A
+  truncated march is best-effort and never saturates; because a march cut short while still inside
+  meets the shipped `tExit = tLimit` rule, a low cap can read slightly *higher* than uncapped
+  (measured: +0.23 at a cap of 2, bounded by the uncapped silhouette factor). Additive: one new
+  optional leaf field on an existing reserved slot, no UBO or Config field added, no field renamed,
+  `PROTOCOL_VERSION` unchanged. See [masks](guide/datapack/masks.md). **Not verified in game** (the
+  owner tests it); asserted by `scripts/check-aura-bounds.ps1` — the GLSL cannot compile headless
+  here.
+
 ## 2.2.0 - 2026-09-29
 
 ### Added
