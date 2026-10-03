@@ -103,6 +103,10 @@ public enum VFXEffectType {
 	SURFACE_PATTERN("surface_pattern"),
 	/** A shape/texture pattern drawn on the sky dome in equirectangular dome UV, gated to far-depth sky pixels (post pass at screen layer 0). */
 	SKY_PATTERN("sky_pattern"),
+	/** Opens a named client-side OS picture window (frameless, transparent, click-through) for the effect's lifetime, never a post pass. */
+	WINDOW_CREATE("window_create"),
+	/** Moves, animates and retitles an existing aux window by name, never a post pass. */
+	WINDOW_CONTROL("window_control"),
 	/** Not an effect itself: plays a list of child effects with per-child delays. */
 	COLLECTION("collection");
 
@@ -124,7 +128,7 @@ public enum VFXEffectType {
 	 * True for the effect types that render a fullscreen post-processing pass.
 	 */
 	public boolean isPostProcessing() {
-		return this != CAMERA_SHAKE && this != CAMERA_ROLL && this != BLOCK_OUTLINE && this != BLOCK_TINT && this != ENTITY_TINT && this != ENTITY_OUTLINE && this != ENTITY_DISPLACE && this != FOV_MODIFIER && this != FOG_MODIFIER && this != COLLECTION;
+		return this != CAMERA_SHAKE && this != CAMERA_ROLL && this != BLOCK_OUTLINE && this != BLOCK_TINT && this != ENTITY_TINT && this != ENTITY_OUTLINE && this != ENTITY_DISPLACE && this != FOV_MODIFIER && this != FOG_MODIFIER && this != WINDOW_CREATE && this != WINDOW_CONTROL && this != COLLECTION;
 	}
 
 	/**
