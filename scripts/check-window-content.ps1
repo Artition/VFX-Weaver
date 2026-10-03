@@ -7,7 +7,10 @@
 # frame. Its shape is pinned here as literal text:
 #   * the produced interface is exactly load(Identifier, int), drawFrame(int) and reload();
 #   * load/reload funnel through one private uploadSource() that decodes (NativeImage) and uploads
-#     (glGenTextures/glTexImage2D); drawFrame never decodes or uploads - no per-frame readback/upload;
+#     (glGenTextures/glTexImage2D); neither drawFrame nor drawCurrent decodes or uploads - no
+#     per-frame readback/upload (both bodies are scanned, so a moved upload is caught);
+#   * a closed window makes load/reload/drawFrame no-ops, so nothing calls GLFW/GL on a destroyed
+#     handle;
 #   * every GL call happens with the aux context current: glfwGetCurrentContext is saved and
 #     glfwMakeContextCurrent restores it, so the game's context is never leaked;
 #   * a frame is selected row-major (frame % columns, frame / columns) and mapped to a UV rect, so the
@@ -103,9 +106,6 @@ if ($current -eq $null) {
 	# never 0x0: the viewport comes from the actual framebuffer size, clamped away from 0.
 	Assert-Contains $current 'GLFW.glfwGetFramebufferSize(this.window.handle(), width, height);' "drawCurrent() does not read the actual framebuffer size"
 	Assert-Contains $current 'GL11.glViewport(0, 0, Math.max(1, width[0]), Math.max(1, height[0]));' "drawCurrent() does not clamp the viewport away from 0x0"
-	if ($current.Contains('GL11.glTexImage2D')) {
-		$problems.Add("drawCurrent() uploads the texture (glTexImage2D) - uploading must happen once, in uploadSource(), never per frame")
-	}
 	Assert-Contains $current 'GL11.glBindTexture(' "drawCurrent() does not bind the uploaded texture"
 }
 
@@ -142,16 +142,35 @@ if ($upload -eq $null) {
 	Assert-Contains $upload 'imageHeight < rows' "uploadSource() does not refuse an image too small for its frame count (imageHeight < rows)"
 }
 
-# 5) the resource is never decoded or uploaded inside drawFrame.
-if ($draw -ne $null) {
+# 5) the resource is never decoded or uploaded on either per-frame body: drawFrame delegates and
+#    drawCurrent does the actual GL work, so the forbidden set must be absent from BOTH (checking
+#    only drawFrame would let a moved upload through).
+foreach ($pair in @(
+	@('drawFrame', $draw),
+	@('drawCurrent', $current))) {
+	$name = $pair[0]
+	$body = $pair[1]
+	if ($body -eq $null) { continue }
 	foreach ($forbidden in @('NativeImage', 'glGenTextures', 'glTexImage2D', 'uploadSource')) {
-		if ($draw.Contains($forbidden)) {
-			$problems.Add("drawFrame() contains '$forbidden' - the resource must be decoded/uploaded once in uploadSource(), never per frame")
+		if ($body.Contains($forbidden)) {
+			$problems.Add("$name() contains '$forbidden' - the resource must be decoded/uploaded once in uploadSource(), never per frame")
 		}
 	}
 }
 
-# 6) the render-thread-only rule is documented, because GL/GLFW are not thread-safe.
+# 6) a closed window is a no-op: no GLFW/GL call may run on a destroyed handle.
+foreach ($entry in @(
+	@('load', $load),
+	@('reload', $reload),
+	@('drawFrame', $draw))) {
+	$name = $entry[0]
+	$body = $entry[1]
+	if ($body -ne $null -and -not $body.Contains('this.window.closed()')) {
+		$problems.Add("$name() does not return early when the window is closed (this.window.closed()) - a post-close call would hit a destroyed handle")
+	}
+}
+
+# 7) the render-thread-only rule is documented, because GL/GLFW are not thread-safe.
 if ($source -notmatch 'render thread') {
 	$problems.Add("VFXWindowContent does not document that its GL/GLFW calls are render-thread only")
 }
@@ -165,7 +184,8 @@ if ($problems.Count -gt 0) {
 Write-Host "  VFXWindowContent is a final loader-agnostic per-window picture owner"
 Write-Host "  load(Identifier, int)/drawFrame(int)/reload() are the produced interface"
 Write-Host "  the frame is addressed row-major (frame % columns, frame / columns) into a UV rect, reusing the surface_pattern sheet math"
-Write-Host "  load()/reload() decode and upload once through uploadSource(); drawFrame() only binds and shifts the UVs"
+Write-Host "  load()/reload() decode and upload once through uploadSource(); neither drawFrame() nor drawCurrent() decodes or uploads"
+Write-Host "  a closed window is a no-op for load()/reload()/drawFrame() - no GLFW/GL call on a destroyed handle"
 Write-Host "  every GL call runs with the aux context current and restores the previous one; the viewport is never 0x0"
 Write-Host "  a missing/undecodable/too-small source keeps the last frame and warns once"
 Write-Host "Window content check OK."

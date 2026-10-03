@@ -24,9 +24,13 @@ import org.slf4j.LoggerFactory;
  * ground-image effect addresses it: an {@link Identifier} (a {@code .png} texture completed when the
  * suffix is missing) whose sheet is read row-major, frame 0 top-left, frame
  * {@code columns * rows - 1} bottom-right. Only the addressing is reused - the game's texture lives
- * in its own backend, so the pixels are decoded here and uploaded into this window's context. The
- * frame count comes from the caller; the sheet is a single horizontal strip, so {@code columns}
- * equals the frame count and {@code rows} is 1.
+ * in its own backend, so the pixels are decoded here and uploaded into this window's context.
+ *
+ * <p><b>Sheet layout.</b> The {@code surface_pattern} ground-image source takes an explicit
+ * {@code sheet: [columns, rows]} from the datapack, but this content's caller carries only a frame
+ * count, so the sheet is a single horizontal strip: {@link #SHEET_ROWS} rows and {@code columns}
+ * equal to the frame count. That is the one layout the given field supports; a multi-row sheet
+ * would need a columns field this content deliberately does not invent.
  *
  * <p><b>One upload per source.</b> {@link #load(Identifier, int)} and {@link #reload()} funnel
  * through one decode-and-upload path; {@link #drawFrame(int)} only binds the uploaded texture and
@@ -39,6 +43,10 @@ import org.slf4j.LoggerFactory;
  * current, does its work, and restores the saved one, so the game's context is never leaked. The
  * texture dies with the context when the window is closed.
  *
+ * <p><b>Closed window.</b> All three entry points are no-ops once {@link VFXWindow#closed()} is
+ * true, so a stale draw or reload after the window's context was destroyed cannot call GLFW or GL on
+ * a dead handle.
+ *
  * <p><b>Render thread only.</b> Every method calls GLFW and/or GL, so every method must run on the
  * render thread; GLFW is not thread-safe and a context may only be current on one thread at a time.
  */
@@ -46,14 +54,18 @@ public final class VFXWindowContent {
 
 	private static final Logger LOGGER = LoggerFactory.getLogger("vfxweaver/window");
 
+	/**
+	 * The one row of the single-strip sheet layout: this content's caller carries only a frame count,
+	 * so the sheet is one horizontal strip of {@code frameCount} columns.
+	 */
+	private static final int SHEET_ROWS = 1;
+
 	private final VFXWindow window;
 	private Identifier sourceId;
 	private int requestedFrames;
 	private int frameCount;
 	private int columns;
 	private int rows;
-	private int frameWidth;
-	private int frameHeight;
 	private int texture;
 
 	/**
@@ -75,6 +87,9 @@ public final class VFXWindowContent {
 	 * @param frames    the number of frames in the horizontal strip; clamped to at least 1
 	 */
 	public void load(final Identifier textureId, final int frames) {
+		if (this.window.closed()) {
+			return;
+		}
 		this.sourceId = textureId;
 		this.requestedFrames = Math.max(1, frames);
 		uploadSource();
@@ -86,7 +101,7 @@ public final class VFXWindowContent {
 	 * keeps the last uploaded frame. Must run on the render thread.
 	 */
 	public void reload() {
-		if (this.sourceId == null) {
+		if (this.window.closed() || this.sourceId == null) {
 			return;
 		}
 		uploadSource();
@@ -100,6 +115,9 @@ public final class VFXWindowContent {
 	 * @param frameIndex the frame to draw; negative values wrap from the end
 	 */
 	public void drawFrame(final int frameIndex) {
+		if (this.window.closed()) {
+			return;
+		}
 		final long previous = GLFW.glfwGetCurrentContext();
 		GLFW.glfwMakeContextCurrent(this.window.handle());
 		try {
@@ -164,13 +182,11 @@ public final class VFXWindowContent {
 		}
 		final int frames = Math.max(1, this.requestedFrames);
 		final int columns = frames;
-		final int rows = 1;
+		final int rows = SHEET_ROWS;
 		if (imageWidth <= 0 || imageHeight <= 0 || imageWidth < columns || imageHeight < rows) {
 			VFXLog.warnOnce(LOGGER, "window:texture:" + pngId, "window texture '{}' is too small for {} frame(s); keeping the last frame", pngId, frames);
 			return;
 		}
-		final int frameWidth = imageWidth / columns;
-		final int frameHeight = imageHeight / rows;
 		final ByteBuffer buffer = MemoryUtil.memAlloc(imageWidth * imageHeight * 4);
 		final long previous = GLFW.glfwGetCurrentContext();
 		GLFW.glfwMakeContextCurrent(this.window.handle());
@@ -196,8 +212,6 @@ public final class VFXWindowContent {
 			this.frameCount = columns;
 			this.columns = columns;
 			this.rows = rows;
-			this.frameWidth = frameWidth;
-			this.frameHeight = frameHeight;
 		} finally {
 			MemoryUtil.memFree(buffer);
 			GLFW.glfwMakeContextCurrent(previous);

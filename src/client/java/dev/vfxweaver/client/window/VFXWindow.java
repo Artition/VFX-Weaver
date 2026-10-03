@@ -85,6 +85,15 @@ public final class VFXWindow {
 	}
 
 	/**
+	 * Whether the window (and therefore its GL context and its textures) has been destroyed.
+	 *
+	 * @return true once {@link #close()} ran; render-thread-only like every other method here
+	 */
+	public boolean closed() {
+		return this.closed;
+	}
+
+	/**
 	 * Sets the window title. Must run on the render thread.
 	 *
 	 * @param title the new title; {@code null} becomes an empty title
