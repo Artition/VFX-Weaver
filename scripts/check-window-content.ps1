@@ -1,0 +1,172 @@
+# Dev-only guard for the picture content of the custom-windows subsystem (Task 3).
+#
+# VFXWindowContent is the one place that owns an aux window's picture: it reuses the surface_pattern
+# ground-image addressing (the Identifier plus the cols/rows/frame -> UV-rect math, row-major and
+# frame 0 top-left), decodes the resource and uploads it into the aux context's own GL texture once
+# per load/reload, and drawFrame only binds that texture and shifts the UV rect to the requested
+# frame. Its shape is pinned here as literal text:
+#   * the produced interface is exactly load(Identifier, int), drawFrame(int) and reload();
+#   * load/reload funnel through one private uploadSource() that decodes (NativeImage) and uploads
+#     (glGenTextures/glTexImage2D); drawFrame never decodes or uploads - no per-frame readback/upload;
+#   * every GL call happens with the aux context current: glfwGetCurrentContext is saved and
+#     glfwMakeContextCurrent restores it, so the game's context is never leaked;
+#   * a frame is selected row-major (frame % columns, frame / columns) and mapped to a UV rect, so the
+#     addressing is the same math the shader's vfx_texture_sheet_uv uses;
+#   * never 0x0: the viewport draws from the actual framebuffer size clamped away from 0, and an image
+#     too small for its frame count is refused rather than uploaded;
+#   * a missing/undecodable source keeps the last uploaded frame and warns once, never crashes.
+# It also rejects any loader import (src/client stays loader-agnostic), because GLSL is never compiled
+# and there is no GPU here, nothing here claims a pixel or a shader works.
+#
+# Usage: powershell -NoProfile -ExecutionPolicy Bypass -File scripts/check-window-content.ps1
+$ErrorActionPreference = "Stop"
+$repoRoot = Split-Path -Parent $PSScriptRoot
+$classPath = Join-Path $repoRoot "src\client\java\dev\vfxweaver\client\window\VFXWindowContent.java"
+
+$problems = New-Object System.Collections.Generic.List[string]
+if (-not (Test-Path -LiteralPath $classPath)) {
+	Write-Error "window content check: missing src\client\java\dev\vfxweaver\client\window\VFXWindowContent.java"
+	exit 1
+}
+$source = [System.IO.File]::ReadAllText($classPath)
+
+function Get-Body([string]$text, [string]$signature) {
+	$start = $text.IndexOf($signature)
+	if ($start -lt 0) { return $null }
+	$open = $text.IndexOf('{', $start)
+	if ($open -lt 0) { return $null }
+	$depth = 0
+	for ($i = $open; $i -lt $text.Length; $i++) {
+		if ($text[$i] -eq '{') { $depth++ }
+		elseif ($text[$i] -eq '}') { $depth--; if ($depth -eq 0) { return $text.Substring($open + 1, $i - $open - 1) } }
+	}
+	return $null
+}
+
+function Assert-Contains([string]$body, [string]$literal, [string]$message) {
+	if ($body -eq $null -or -not $body.Contains($literal)) {
+		$problems.Add($message)
+	}
+}
+
+# 0) the content is a final per-window owner and stays loader-agnostic.
+if ($source -notmatch '(?m)^public final class VFXWindowContent \{') {
+	$problems.Add("VFXWindowContent is not 'public final class'")
+}
+if ($source -match 'net\.fabricmc|net\.neoforged') {
+	$problems.Add("VFXWindowContent imports a loader package - src/client must stay loader-agnostic")
+}
+
+# 1) the exact produced interface.
+foreach ($signature in @(
+	'public void load(final Identifier textureId, final int frames) {',
+	'public void drawFrame(final int frameIndex) {',
+	'public void reload() {')) {
+	if ($source.IndexOf($signature) -lt 0) {
+		$problems.Add("VFXWindowContent is missing '$($signature.TrimEnd(' {'))'")
+	}
+}
+
+# 2) the addressing is reused: an Identifier and the cols/rows/frame -> UV-rect math.
+if ($source -notmatch 'Identifier') {
+	$problems.Add("VFXWindowContent does not address the source by an Identifier")
+}
+$draw = Get-Body $source 'public void drawFrame(final int frameIndex) {'
+if ($draw -eq $null) {
+	$problems.Add("VFXWindowContent has no readable 'public void drawFrame(final int frameIndex)'")
+} else {
+	# drawFrame only flips the GL context and delegates; the actual quad lives in drawCurrent.
+	Assert-Contains $draw 'drawCurrent(frameIndex)' "drawFrame() does not draw through drawCurrent(frameIndex)"
+	Assert-Contains $draw 'GLFW.glfwGetCurrentContext()' "drawFrame() does not save the previously current context (glfwGetCurrentContext)"
+	Assert-Contains $draw 'GLFW.glfwMakeContextCurrent(this.window.handle());' "drawFrame() does not make the window's own context current"
+	Assert-Contains $draw 'GLFW.glfwMakeContextCurrent(previous);' "drawFrame() does not restore the previously current context - the game's context would leak"
+}
+
+# 3) the selected frame is addressed row-major and mapped to a UV rect (the surface_pattern math).
+$current = Get-Body $source 'private void drawCurrent(final int frameIndex) {'
+if ($current -eq $null) {
+	$problems.Add("VFXWindowContent has no readable 'private void drawCurrent(final int frameIndex)'")
+} else {
+	foreach ($literal in @(
+		'this.frameCount',
+		'this.columns',
+		'this.rows',
+		'Math.floorMod(frameIndex, this.frameCount)',
+		'frame % this.columns',
+		'frame / this.columns',
+		'(float) column / (float) this.columns',
+		'(float) row / (float) this.rows',
+		'(float) (column + 1) / (float) this.columns',
+		'(float) (row + 1) / (float) this.rows')) {
+		Assert-Contains $current $literal "drawCurrent() is missing the addressing literal: $literal"
+	}
+	# never 0x0: the viewport comes from the actual framebuffer size, clamped away from 0.
+	Assert-Contains $current 'GLFW.glfwGetFramebufferSize(this.window.handle(), width, height);' "drawCurrent() does not read the actual framebuffer size"
+	Assert-Contains $current 'GL11.glViewport(0, 0, Math.max(1, width[0]), Math.max(1, height[0]));' "drawCurrent() does not clamp the viewport away from 0x0"
+	if ($current.Contains('GL11.glTexImage2D')) {
+		$problems.Add("drawCurrent() uploads the texture (glTexImage2D) - uploading must happen once, in uploadSource(), never per frame")
+	}
+	Assert-Contains $current 'GL11.glBindTexture(' "drawCurrent() does not bind the uploaded texture"
+}
+
+# 4) load/reload funnel through one uploadSource() that decodes and uploads; drawFrame must not.
+$load = Get-Body $source 'public void load(final Identifier textureId, final int frames) {'
+if ($load -eq $null) {
+	$problems.Add("VFXWindowContent has no readable 'public void load(final Identifier textureId, final int frames)'")
+} else {
+	Assert-Contains $load 'uploadSource()' "load() does not decode/upload once through uploadSource()"
+	Assert-Contains $load 'Math.max(1, frames)' "load() does not keep the frame count away from 0 (Math.max(1, frames))"
+}
+$reload = Get-Body $source 'public void reload() {'
+if ($reload -eq $null) {
+	$problems.Add("VFXWindowContent has no readable 'public void reload()'")
+} else {
+	Assert-Contains $reload 'uploadSource()' "reload() does not re-decode/re-upload through uploadSource()"
+}
+$upload = Get-Body $source 'private void uploadSource() {'
+if ($upload -eq $null) {
+	$problems.Add("VFXWindowContent has no readable 'private void uploadSource()'")
+} else {
+	# the resource is read + decoded + uploaded exactly here.
+	Assert-Contains $upload 'Minecraft.getInstance().getResourceManager().getResource(' "uploadSource() does not read the resource through the resource manager"
+	Assert-Contains $upload 'NativeImage.read(' "uploadSource() does not decode the resource (NativeImage.read)"
+	Assert-Contains $upload 'GL11.glGenTextures()' "uploadSource() does not create the GL texture"
+	Assert-Contains $upload 'GL11.glTexImage2D(' "uploadSource() does not upload the GL texture"
+	# created/uploaded with the aux context current, restored around it.
+	Assert-Contains $upload 'GLFW.glfwGetCurrentContext()' "uploadSource() does not save the previously current context"
+	Assert-Contains $upload 'GLFW.glfwMakeContextCurrent(this.window.handle());' "uploadSource() does not make the window's own context current"
+	Assert-Contains $upload 'GLFW.glfwMakeContextCurrent(previous);' "uploadSource() does not restore the previously current context"
+	# missing/short source: refused, keeping the last frame instead of crashing.
+	Assert-Contains $upload 'resource.isEmpty()' "uploadSource() does not handle a missing resource (resource.isEmpty()) without crashing"
+	Assert-Contains $upload 'imageWidth < columns' "uploadSource() does not refuse an image too small for its frame count (imageWidth < columns)"
+	Assert-Contains $upload 'imageHeight < rows' "uploadSource() does not refuse an image too small for its frame count (imageHeight < rows)"
+}
+
+# 5) the resource is never decoded or uploaded inside drawFrame.
+if ($draw -ne $null) {
+	foreach ($forbidden in @('NativeImage', 'glGenTextures', 'glTexImage2D', 'uploadSource')) {
+		if ($draw.Contains($forbidden)) {
+			$problems.Add("drawFrame() contains '$forbidden' - the resource must be decoded/uploaded once in uploadSource(), never per frame")
+		}
+	}
+}
+
+# 6) the render-thread-only rule is documented, because GL/GLFW are not thread-safe.
+if ($source -notmatch 'render thread') {
+	$problems.Add("VFXWindowContent does not document that its GL/GLFW calls are render-thread only")
+}
+
+Write-Host "Window content check (static)"
+if ($problems.Count -gt 0) {
+	$problems | ForEach-Object { Write-Host "  - $_" }
+	Write-Error "window content check failed ($($problems.Count) problem(s))."
+	exit 1
+}
+Write-Host "  VFXWindowContent is a final loader-agnostic per-window picture owner"
+Write-Host "  load(Identifier, int)/drawFrame(int)/reload() are the produced interface"
+Write-Host "  the frame is addressed row-major (frame % columns, frame / columns) into a UV rect, reusing the surface_pattern sheet math"
+Write-Host "  load()/reload() decode and upload once through uploadSource(); drawFrame() only binds and shifts the UVs"
+Write-Host "  every GL call runs with the aux context current and restores the previous one; the viewport is never 0x0"
+Write-Host "  a missing/undecodable/too-small source keeps the last frame and warns once"
+Write-Host "Window content check OK."
+exit 0
