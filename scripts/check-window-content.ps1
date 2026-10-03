@@ -3,12 +3,17 @@
 # VFXWindowContent is the one place that owns an aux window's picture: it reuses the surface_pattern
 # ground-image addressing (the Identifier plus the cols/rows/frame -> UV-rect math, row-major and
 # frame 0 top-left), decodes the resource and uploads it into the aux context's own GL texture once
-# per load/reload, and drawFrame only binds that texture and shifts the UV rect to the requested
-# frame. Its shape is pinned here as literal text:
-#   * the produced interface is exactly load(Identifier, int), drawFrame(int) and reload();
+# per load/reload, and drawFrame only binds that texture, shifts the UV rect to the requested frame
+# and scales the quad into the requested normalized sub-rect of the canvas. Its shape is pinned here
+# as literal text:
+#   * the produced interface is exactly load(Identifier, int),
+#     drawFrame(int, float, float, float, float) and reload();
 #   * load/reload funnel through one private uploadSource() that decodes (NativeImage) and uploads
 #     (glGenTextures/glTexImage2D); neither drawFrame nor drawCurrent decodes or uploads - no
 #     per-frame readback/upload (both bodies are scanned, so a moved upload is caught);
+#   * the four rect values are normalized [0, 1] window coordinates with the origin at the
+#     bottom-left, mapped to NDC with rect * 2 - 1, so the picture lands in the mapped sub-canvas
+#     rectangle instead of filling the canvas;
 #   * a closed window makes load/reload/drawFrame no-ops, so nothing calls GLFW/GL on a destroyed
 #     handle;
 #   * every GL call happens with the aux context current: glfwGetCurrentContext is saved and
@@ -63,7 +68,7 @@ if ($source -match 'net\.fabricmc|net\.neoforged') {
 # 1) the exact produced interface.
 foreach ($signature in @(
 	'public void load(final Identifier textureId, final int frames) {',
-	'public void drawFrame(final int frameIndex) {',
+	'public void drawFrame(final int frameIndex, final float rectX, final float rectY, final float rectW, final float rectH) {',
 	'public void reload() {')) {
 	if ($source.IndexOf($signature) -lt 0) {
 		$problems.Add("VFXWindowContent is missing '$($signature.TrimEnd(' {'))'")
@@ -74,21 +79,21 @@ foreach ($signature in @(
 if ($source -notmatch 'Identifier') {
 	$problems.Add("VFXWindowContent does not address the source by an Identifier")
 }
-$draw = Get-Body $source 'public void drawFrame(final int frameIndex) {'
+$draw = Get-Body $source 'public void drawFrame(final int frameIndex, final float rectX, final float rectY, final float rectW, final float rectH) {'
 if ($draw -eq $null) {
-	$problems.Add("VFXWindowContent has no readable 'public void drawFrame(final int frameIndex)'")
+	$problems.Add("VFXWindowContent has no readable 'public void drawFrame(final int frameIndex, final float rectX, final float rectY, final float rectW, final float rectH)'")
 } else {
 	# drawFrame only flips the GL context and delegates; the actual quad lives in drawCurrent.
-	Assert-Contains $draw 'drawCurrent(frameIndex)' "drawFrame() does not draw through drawCurrent(frameIndex)"
+	Assert-Contains $draw 'drawCurrent(frameIndex, rectX, rectY, rectW, rectH)' "drawFrame() does not draw through drawCurrent(frameIndex, rectX, rectY, rectW, rectH)"
 	Assert-Contains $draw 'GLFW.glfwGetCurrentContext()' "drawFrame() does not save the previously current context (glfwGetCurrentContext)"
 	Assert-Contains $draw 'GLFW.glfwMakeContextCurrent(this.window.handle());' "drawFrame() does not make the window's own context current"
 	Assert-Contains $draw 'GLFW.glfwMakeContextCurrent(previous);' "drawFrame() does not restore the previously current context - the game's context would leak"
 }
 
 # 3) the selected frame is addressed row-major and mapped to a UV rect (the surface_pattern math).
-$current = Get-Body $source 'private void drawCurrent(final int frameIndex) {'
+$current = Get-Body $source 'private void drawCurrent(final int frameIndex, final float rectX, final float rectY, final float rectW, final float rectH) {'
 if ($current -eq $null) {
-	$problems.Add("VFXWindowContent has no readable 'private void drawCurrent(final int frameIndex)'")
+	$problems.Add("VFXWindowContent has no readable 'private void drawCurrent(final int frameIndex, final float rectX, final float rectY, final float rectW, final float rectH)'")
 } else {
 	foreach ($literal in @(
 		'this.frameCount',
@@ -102,6 +107,20 @@ if ($current -eq $null) {
 		'(float) (column + 1) / (float) this.columns',
 		'(float) (row + 1) / (float) this.rows')) {
 		Assert-Contains $current $literal "drawCurrent() is missing the addressing literal: $literal"
+	}
+	# the requested normalized rect (bottom-left origin) is scaled into NDC with rect * 2 - 1.
+	foreach ($literal in @(
+		'rectW <= 0.0F',
+		'rectH <= 0.0F',
+		'rectX * 2.0F - 1.0F',
+		'(rectX + rectW) * 2.0F - 1.0F',
+		'rectY * 2.0F - 1.0F',
+		'(rectY + rectH) * 2.0F - 1.0F',
+		'GL11.glVertex2f(left, bottom);',
+		'GL11.glVertex2f(right, bottom);',
+		'GL11.glVertex2f(right, top);',
+		'GL11.glVertex2f(left, top);')) {
+		Assert-Contains $current $literal "drawCurrent() is missing the rect-to-NDC literal: $literal"
 	}
 	# never 0x0: the viewport comes from the actual framebuffer size, clamped away from 0.
 	Assert-Contains $current 'GLFW.glfwGetFramebufferSize(this.window.handle(), width, height);' "drawCurrent() does not read the actual framebuffer size"
@@ -182,8 +201,9 @@ if ($problems.Count -gt 0) {
 	exit 1
 }
 Write-Host "  VFXWindowContent is a final loader-agnostic per-window picture owner"
-Write-Host "  load(Identifier, int)/drawFrame(int)/reload() are the produced interface"
+Write-Host "  load(Identifier, int)/drawFrame(int, float, float, float, float)/reload() are the produced interface"
 Write-Host "  the frame is addressed row-major (frame % columns, frame / columns) into a UV rect, reusing the surface_pattern sheet math"
+Write-Host "  the picture is drawn into the normalized bottom-left sub-rect (rect * 2 - 1), not the full canvas"
 Write-Host "  load()/reload() decode and upload once through uploadSource(); neither drawFrame() nor drawCurrent() decodes or uploads"
 Write-Host "  a closed window is a no-op for load()/reload()/drawFrame() - no GLFW/GL call on a destroyed handle"
 Write-Host "  every GL call runs with the aux context current and restores the previous one; the viewport is never 0x0"

@@ -33,10 +33,17 @@ import org.slf4j.LoggerFactory;
  * would need a columns field this content deliberately does not invent.
  *
  * <p><b>One upload per source.</b> {@link #load(Identifier, int)} and {@link #reload()} funnel
- * through one decode-and-upload path; {@link #drawFrame(int)} only binds the uploaded texture and
- * shifts its UV rect, so there is no per-frame readback or upload. A missing, undecodable or
+ * through one decode-and-upload path; {@link #drawFrame(int, float, float, float, float)} only
+ * binds the uploaded texture and shifts its UV rect, so there is no per-frame readback or upload. A missing, undecodable or
  * too-small source leaves the last successfully uploaded frame in place and warns once - it never
  * throws.
+ *
+ * <p><b>Placement.</b> {@link #drawFrame(int, float, float, float, float)} draws the picture into a
+ * sub-rectangle of the canvas instead of filling it: the four values are normalized window
+ * coordinates in {@code [0, 1]} with the origin at the <b>bottom-left</b> ({@code x} from the left
+ * edge, {@code y} from the bottom edge), which maps to NDC with {@code ndc = rect * 2 - 1}. The
+ * caller (the controller) owns the work-area mapping and hands this method the already-mapped,
+ * already-flipped rect.
  *
  * <p><b>Own context.</b> This window has its own GL context (see {@link VFXWindow}); every GL call
  * here saves the current context with {@code glfwGetCurrentContext}, makes the window's context
@@ -108,33 +115,38 @@ public final class VFXWindowContent {
 	}
 
 	/**
-	 * Draws one frame of the picture, filling the window. The frame is wrapped into the frame count,
-	 * so any index is safe. Nothing is decoded or uploaded here - only the UV rect shifts. Must run
-	 * on the render thread.
+	 * Draws one frame of the picture into a sub-rectangle of the canvas. The frame is wrapped into
+	 * the frame count, so any index is safe. Nothing is decoded or uploaded here - only the UV rect
+	 * and the quad's rectangle change. Must run on the render thread.
 	 *
 	 * @param frameIndex the frame to draw; negative values wrap from the end
+	 * @param rectX      the rectangle's left edge, a normalized {@code [0, 1]} window coordinate
+	 * @param rectY      the rectangle's bottom edge, a normalized {@code [0, 1]} window coordinate
+	 *                   (the origin is the bottom-left of the canvas)
+	 * @param rectW      the rectangle's width, a normalized {@code [0, 1]} window coordinate
+	 * @param rectH      the rectangle's height, a normalized {@code [0, 1]} window coordinate
 	 */
-	public void drawFrame(final int frameIndex) {
+	public void drawFrame(final int frameIndex, final float rectX, final float rectY, final float rectW, final float rectH) {
 		if (this.window.closed()) {
 			return;
 		}
 		final long previous = GLFW.glfwGetCurrentContext();
 		GLFW.glfwMakeContextCurrent(this.window.handle());
 		try {
-			drawCurrent(frameIndex);
+			drawCurrent(frameIndex, rectX, rectY, rectW, rectH);
 		} finally {
 			GLFW.glfwMakeContextCurrent(previous);
 		}
 	}
 
-	private void drawCurrent(final int frameIndex) {
+	private void drawCurrent(final int frameIndex, final float rectX, final float rectY, final float rectW, final float rectH) {
 		final int[] width = new int[1];
 		final int[] height = new int[1];
 		GLFW.glfwGetFramebufferSize(this.window.handle(), width, height);
 		GL11.glViewport(0, 0, Math.max(1, width[0]), Math.max(1, height[0]));
 		GL11.glClearColor(0.0F, 0.0F, 0.0F, 0.0F);
 		GL11.glClear(GL11.GL_COLOR_BUFFER_BIT);
-		if (this.texture == 0 || this.frameCount <= 0 || this.columns <= 0 || this.rows <= 0) {
+		if (this.texture == 0 || this.frameCount <= 0 || this.columns <= 0 || this.rows <= 0 || rectW <= 0.0F || rectH <= 0.0F) {
 			return;
 		}
 		final int frame = Math.floorMod(frameIndex, this.frameCount);
@@ -144,19 +156,23 @@ public final class VFXWindowContent {
 		final float v0 = (float) row / (float) this.rows;
 		final float u1 = (float) (column + 1) / (float) this.columns;
 		final float v1 = (float) (row + 1) / (float) this.rows;
+		final float left = rectX * 2.0F - 1.0F;
+		final float right = (rectX + rectW) * 2.0F - 1.0F;
+		final float bottom = rectY * 2.0F - 1.0F;
+		final float top = (rectY + rectH) * 2.0F - 1.0F;
 		GL11.glEnable(GL11.GL_BLEND);
 		GL11.glBlendFunc(GL11.GL_ONE, GL11.GL_ONE_MINUS_SRC_ALPHA);
 		GL11.glEnable(GL11.GL_TEXTURE_2D);
 		GL11.glBindTexture(GL11.GL_TEXTURE_2D, this.texture);
 		GL11.glBegin(GL11.GL_QUADS);
 		GL11.glTexCoord2f(u0, v1);
-		GL11.glVertex2f(-1.0F, -1.0F);
+		GL11.glVertex2f(left, bottom);
 		GL11.glTexCoord2f(u1, v1);
-		GL11.glVertex2f(1.0F, -1.0F);
+		GL11.glVertex2f(right, bottom);
 		GL11.glTexCoord2f(u1, v0);
-		GL11.glVertex2f(1.0F, 1.0F);
+		GL11.glVertex2f(right, top);
 		GL11.glTexCoord2f(u0, v0);
-		GL11.glVertex2f(-1.0F, 1.0F);
+		GL11.glVertex2f(left, top);
 		GL11.glEnd();
 		GL11.glDisable(GL11.GL_TEXTURE_2D);
 		GL11.glDisable(GL11.GL_BLEND);
