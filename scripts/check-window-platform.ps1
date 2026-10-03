@@ -7,8 +7,10 @@
 #     bundle/version differences cannot be assumed);
 #   * every probe that touches a GLFW symbol wraps its body in try { ... } catch (Throwable) and has
 #     a return false; failure path, so an older LWJGL degrades instead of throwing;
-#   * the three has* probes each name the GLFW attribute symbol they gate and probe it through
-#     GLFW.glfwGetWindowAttrib.
+#   * the three has* probes gate on the bundled GLFW version returned by GLFW.glfwGetVersion, so an
+#     attribute the running GLFW does not implement is reported unsupported. glfwGetWindowAttrib
+#     cannot do that: it returns 0 for an unknown attribute instead of throwing, so a supported and
+#     an unsupported attribute are indistinguishable.
 # Gradle does not compile GLSL and there is no GPU here, so nothing here claims a window works.
 #
 # Usage: powershell -NoProfile -ExecutionPolicy Bypass -File scripts/check-window-platform.ps1
@@ -64,25 +66,26 @@ if ($wayland -eq $null) {
 	}
 }
 
-# 2) the three has* probes: each names the attribute symbol it gates and probes it through
-#    GLFW.glfwGetWindowAttrib, inside a try whose catch returns false.
+# 2) the three has* probes: each reads the bundled GLFW version through GLFW.glfwGetVersion and
+#    gates on the minor version that introduced its attribute (focus-on-show 3.3; transparent
+#    framebuffer and mouse passthrough 3.4), inside a try whose catch returns false.
 $probes = @(
-	@('hasPassthrough', 'GLFW_MOUSE_PASSTHROUGH'),
-	@('hasTransparentFramebuffer', 'GLFW_TRANSPARENT_FRAMEBUFFER'),
-	@('hasFocusOnShow', 'GLFW_FOCUS_ON_SHOW'))
+	@('hasPassthrough', 4),
+	@('hasTransparentFramebuffer', 4),
+	@('hasFocusOnShow', 3))
 foreach ($probe in $probes) {
 	$name = $probe[0]
-	$symbol = $probe[1]
+	$minor = $probe[1]
 	$body = Get-Body $source "public static boolean $name() {"
 	if ($body -eq $null) {
 		$problems.Add("VFXWindowPlatform has no readable 'public static boolean $name()'")
 		continue
 	}
-	if ($body -notmatch 'GLFW\.glfwGetWindowAttrib\(') {
-		$problems.Add("$name() does not probe its attribute through GLFW.glfwGetWindowAttrib")
+	if ($body -notmatch 'GLFW\.glfwGetVersion\(') {
+		$problems.Add("$name() does not read the bundled GLFW version through GLFW.glfwGetVersion")
 	}
-	if ($body -notmatch [regex]::Escape("GLFW.$symbol")) {
-		$problems.Add("$name() does not name GLFW.$symbol - it must gate that attribute")
+	if ($body -notmatch [regex]::Escape("major[0] == 3 && minor[0] >= $minor")) {
+		$problems.Add("$name() does not gate on GLFW >= 3.$minor - a version gate is the only form that tells an unsupported attribute from a supported one")
 	}
 	if ($body -notmatch 'catch\s*\(final Throwable') {
 		$problems.Add("$name() is not guarded by catch (Throwable) - an older LWJGL would throw instead of returning false")
@@ -90,6 +93,11 @@ foreach ($probe in $probes) {
 	if ($body -notmatch 'return false;') {
 		$problems.Add("$name() has no 'return false;' failure path")
 	}
+}
+# 3) the always-true attribute form is gone: glfwGetWindowAttrib returns 0 for an unknown attribute,
+#    so it can never distinguish a supported attribute from an unsupported one.
+if ($source -match 'GLFW\.glfwGetWindowAttrib\(') {
+	$problems.Add("VFXWindowPlatform still probes attributes with glfwGetWindowAttrib - an unknown attribute returns 0, not an error, so that form cannot tell support from non-support")
 }
 
 Write-Host "Window platform check (static)"
@@ -100,6 +108,6 @@ if ($problems.Count -gt 0) {
 }
 Write-Host "  VFXWindowPlatform is a final stateless helper with a private constructor"
 Write-Host "  wayland() compares GLFW.glfwGetPlatform() to GLFW_PLATFORM_WAYLAND, with the XDG_SESSION_TYPE fallback"
-Write-Host "  hasPassthrough()/hasTransparentFramebuffer()/hasFocusOnShow() name and probe their GLFW attribute under catch (Throwable), degrading to false"
+Write-Host "  hasPassthrough()/hasTransparentFramebuffer()/hasFocusOnShow() gate on the bundled GLFW version (>= 3.4 / >= 3.4 / >= 3.3) under catch (Throwable), degrading to false"
 Write-Host "Window platform check OK."
 exit 0
