@@ -1,6 +1,5 @@
 package dev.vfxweaver.client.effect;
 
-import dev.vfxweaver.client.window.VFXWindowManager;
 import dev.vfxweaver.effect.AnimatedValue;
 import dev.vfxweaver.effect.EasingFunction;
 import dev.vfxweaver.effect.EasingType;
@@ -217,10 +216,6 @@ public class VFXEffectManager {
 			effect.update(this.clock);
 		}
 		this.rebuildEntityEffectsIndex();
-		// Reconcile the aux windows against the live set: a window_create opens its window and a
-		// window whose creator has stopped or expired is closed here (all removals converge on this
-		// per-frame update). Runs on the render thread, like every window call.
-		VFXWindowManager.get().reconcile(this.active);
 	}
 
 	/**

@@ -23,14 +23,16 @@ import org.lwjgl.glfw.GLFW;
  * window itself) and drives them from the running effects.
  *
  * <p><b>Open / close, driven by the active set.</b> {@link #reconcile(List)} is called once per
- * frame from {@code VFXEffectManager.update()}, the one point where a play, a stop and an expiry all
- * converge. For every active {@code window_create} whose definition carries a {@link VFXWindowSpec}
- * it opens the registry window under the spec's {@code id} (pinned to the game window's monitor work
- * area, titled by the animated {@code title_index} and loaded with the spec's texture/{@code frames});
- * it then closes every window whose creating effect is no longer active and reaps the stopped entries
- * through {@link VFXWindowRegistry#prune()}. Because it reconciles against the live set, every removal
- * path (stop, fade-out expiry, {@code stopAll}, a replay seek) closes the window without each path
- * having to know about windows.
+ * frame from {@code VFXEffectManager.update()} and directly from the stop path (so a world exit,
+ * where {@code update()} does not run because there is no level, still closes the windows): for
+ * every active {@code window_create} that is not fading out (a stopped creator must not reopen its
+ * window) and whose definition carries a {@link VFXWindowSpec} it opens the registry window under
+ * the spec's {@code id} (pinned to the game window's monitor work area, titled by the animated
+ * {@code title_index} and loaded with the spec's texture/{@code frames}); it then closes every window
+ * whose creating effect is no longer active and reaps the stopped entries through
+ * {@link VFXWindowRegistry#prune()}. Because it reconciles against the live set, every removal path
+ * (stop, fade-out expiry, {@code stopAll}, a replay seek) closes the window without each path having
+ * to know about windows.
  *
  * <p><b>Per-frame drive.</b> {@link #apply()} is called once per frame after the game's own present
  * (see {@code MinecraftMixin}). For each bound window it walks the live {@code window_create} and
@@ -73,7 +75,7 @@ public final class VFXWindowManager {
 	public void reconcile(final List<VFXActiveEffect> active) {
 		final Map<String, VFXActiveEffect> owners = new HashMap<>();
 		for (final VFXActiveEffect effect : active) {
-			if (effect.getType() != VFXEffectType.WINDOW_CREATE) {
+			if (effect.getType() != VFXEffectType.WINDOW_CREATE || effect.isFadingOut()) {
 				continue;
 			}
 			final VFXWindowSpec spec = spec(effect.getId());
@@ -117,16 +119,19 @@ public final class VFXWindowManager {
 	}
 
 	/**
-	 * Drives every bound window for the current frame: reads the live creator/controller parameters
+	 * Drives every bound window for the current frame: reconciles the bindings against the live set
+	 * (closing a window whose creator stopped, world exit included), then reads the live
+	 * creator/controller parameters
 	 * (creator first, each control last-writer-wins) and applies them through the window's
 	 * controller, then retitles the window when the animated title changed. A no-op when no window is
 	 * bound. Must run on the render thread and after the game's own present.
 	 */
 	public void apply() {
+		final List<VFXActiveEffect> active = VFXEffectManager.get().getActive();
+		reconcile(active);
 		if (this.bindings.isEmpty()) {
 			return;
 		}
-		final List<VFXActiveEffect> active = VFXEffectManager.get().getActive();
 		for (final Map.Entry<String, Binding> entry : this.bindings.entrySet()) {
 			final String name = entry.getKey();
 			final Binding binding = entry.getValue();

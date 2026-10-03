@@ -145,15 +145,23 @@ if ($apply -eq $null) {
 	}
 }
 
-# 5) VFXEffectManager drives reconcile from update(), the point where play, stop and expiry converge.
-if ($effectManager -notmatch 'VFXWindowManager\.get\(\)\.reconcile\(') {
-	$problems.Add("VFXEffectManager.update() is not wired to VFXWindowManager.reconcile(...)")
-}
-$update = Get-Body $effectManager 'public void update() {'
-if ($update -eq $null) {
-	$problems.Add("VFXEffectManager has no readable update()")
+# 5) reconcile must be reachable on a level-less frame: VFXEffectManager.update() only runs while a
+#    level exists, so the close side lives in apply() (the per-frame post-present hook), which runs
+#    every frame. A window whose creator stopped - including on a world exit - is closed.
+$applySig = 'public void apply() {'
+$apply = Get-Body $manager $applySig
+if ($apply -eq $null) {
+	$problems.Add("VFXWindowManager has no readable apply()")
 } else {
-	Assert-Contains $update 'VFXWindowManager.get().reconcile(' "VFXEffectManager.update() does not call VFXWindowManager.reconcile(...)"
+	Assert-Contains $apply 'reconcile(active);' "VFXWindowManager.apply() does not reconcile the bindings - a stopped creator would leave its window open over the menu"
+	$reconcileAt = $apply.IndexOf('reconcile(active);')
+	$emptyAt = $apply.IndexOf('this.bindings.isEmpty()')
+	if ($reconcileAt -ge 0 -and $emptyAt -ge 0 -and $reconcileAt -gt $emptyAt) {
+		$problems.Add("VFXWindowManager.apply() returns early on an empty binding set before reconciling - a creator that just stopped is never closed")
+	}
+}
+if ($effectManager -match 'VFXWindowManager\.get\(\)\.reconcile\(') {
+	$problems.Add("VFXEffectManager still drives reconcile() from update(), which only runs while a level exists - the close side must live in apply()")
 }
 
 # 6) the per-frame application runs after the game's own present, on the render thread: a mixin at
@@ -202,7 +210,7 @@ if ($problems.Count -gt 0) {
 Write-Host "  VFXWindowManager is a final render-thread singleton, loader-agnostic"
 Write-Host "  reconcile(active) opens for every active window_create and closes when the creator is gone; prune() reaps stopped windows"
 Write-Host "  apply() reads the live params and drives window_control windows through the controller; no-op with no bound window"
-Write-Host "  VFXEffectManager.update() is where play/stop/expire converge on reconcile"
+Write-Host "  apply() reconciles every frame, so a stopped creator closes its window even with no level"
 Write-Host "  MinecraftMixin presents the aux windows at TAIL of the game's own present (renderFrame/runTick), on the render thread"
 Write-Host "  MinecraftMixin is registered; the client dispose closes and prunes the aux windows"
 Write-Host "Window lifecycle check OK."
