@@ -8,7 +8,8 @@
 #   * every probe that touches a GLFW symbol wraps its body in try { ... } catch (Throwable) and has
 #     a return false; failure path, so an older LWJGL degrades instead of throwing;
 #   * the three has* probes gate on the bundled GLFW version returned by GLFW.glfwGetVersion, so an
-#     attribute the running GLFW does not implement is reported unsupported. glfwGetWindowAttrib
+#     attribute the running GLFW does not implement is reported unsupported (focus-on-show and the
+#     transparent framebuffer since 3.3, mouse passthrough since 3.4). glfwGetWindowAttrib
 #     cannot do that: it returns 0 for an unknown attribute instead of throwing, so a supported and
 #     an unsupported attribute are indistinguishable.
 # Gradle does not compile GLSL and there is no GPU here, so nothing here claims a window works.
@@ -67,11 +68,11 @@ if ($wayland -eq $null) {
 }
 
 # 2) the three has* probes: each reads the bundled GLFW version through GLFW.glfwGetVersion and
-#    gates on the minor version that introduced its attribute (focus-on-show 3.3; transparent
-#    framebuffer and mouse passthrough 3.4), inside a try whose catch returns false.
+#    gates on the minor version that introduced its attribute (focus-on-show and the transparent
+#    framebuffer 3.3; mouse passthrough 3.4), inside a try whose catch returns false.
 $probes = @(
 	@('hasPassthrough', 4),
-	@('hasTransparentFramebuffer', 4),
+	@('hasTransparentFramebuffer', 3),
 	@('hasFocusOnShow', 3))
 foreach ($probe in $probes) {
 	$name = $probe[0]
@@ -108,6 +109,6 @@ if ($problems.Count -gt 0) {
 }
 Write-Host "  VFXWindowPlatform is a final stateless helper with a private constructor"
 Write-Host "  wayland() compares GLFW.glfwGetPlatform() to GLFW_PLATFORM_WAYLAND, with the XDG_SESSION_TYPE fallback"
-Write-Host "  hasPassthrough()/hasTransparentFramebuffer()/hasFocusOnShow() gate on the bundled GLFW version (>= 3.4 / >= 3.4 / >= 3.3) under catch (Throwable), degrading to false"
+Write-Host "  hasPassthrough()/hasTransparentFramebuffer()/hasFocusOnShow() gate on the bundled GLFW version (>= 3.4 / >= 3.3 / >= 3.3) under catch (Throwable), degrading to false"
 Write-Host "Window platform check OK."
 exit 0

@@ -51,9 +51,9 @@ public final class VFXWindowPlatform {
 
 	/**
 	 * Whether this node can give a window a transparent framebuffer
-	 * ({@code GLFW_TRANSPARENT_FRAMEBUFFER}), which the bundled GLFW provides from 3.4.
+	 * ({@code GLFW_TRANSPARENT_FRAMEBUFFER}), which the bundled GLFW provides from 3.3.
 	 *
-	 * @return true when the bundled GLFW runtime is at least 3.4; false when it is older or its
+	 * @return true when the bundled GLFW runtime is at least 3.3; false when it is older or its
 	 *         version cannot be read
 	 */
 	public static boolean hasTransparentFramebuffer() {
@@ -61,7 +61,7 @@ public final class VFXWindowPlatform {
 			final int[] major = new int[1];
 			final int[] minor = new int[1];
 			GLFW.glfwGetVersion(major, minor, new int[1]);
-			return major[0] > 3 || (major[0] == 3 && minor[0] >= 4);
+			return major[0] > 3 || (major[0] == 3 && minor[0] >= 3);
 		} catch (final Throwable ignored) {
 			return false;
 		}
