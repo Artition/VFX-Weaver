@@ -4,6 +4,7 @@
 	"compatibilityLevel": "${compatibilityLevel}",
 	"client": [
 		"GameRendererMixin",
+		"MinecraftMixin",
 		"CameraMixin",
 		"FogRendererMixin",
 		"ItemInHandRendererMixin",

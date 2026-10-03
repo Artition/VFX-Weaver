@@ -4,6 +4,7 @@ import dev.vfxweaver.client.VFXScoreboardCache;
 import dev.vfxweaver.client.flashback.FlashbackCompat;
 import dev.vfxweaver.client.postprocessing.VFXPostProcessingManager;
 import dev.vfxweaver.client.render.VFXWorldOverlayRenderer;
+import dev.vfxweaver.client.window.VFXWindowManager;
 import dev.vfxweaver.effect.VFXWorldBindings;
 import net.minecraft.client.Minecraft;
 //? if <26.1 {
@@ -107,6 +108,7 @@ public final class VFXClientRenderHooks {
 	private static void onClientStopping() {
 		VFXWorldOverlayRenderer.freeGpuResources();
 		VFXPostProcessingManager.get().freeGpuResources();
+		VFXWindowManager.get().closeAll();
 	}
 
 	/**
