@@ -66,8 +66,8 @@ the `/vfx play` param-map and live `setParam`:
 | `size_w` | float | 1 | Picture width, 0..1 of the smaller work-area side. `size_w : size_h` are the **picture's own proportions**, not fractions of the monitor's axes (see below) |
 | `size_h` | float | 1 | Picture height, 0..1 of the smaller work-area side |
 | `opacity` | float | 1 | OS window opacity, 0..1 - animate it for a fade |
-| `frames` | float | 1 | How many frames the picture is split into, at least 1. Read **once, when the window opens**; `1` = a still image |
-| `frame_time` | float | 0 | Ticks per frame. `0` (the default) means no stepping - the picture holds frame 0 |
+| `frames` | float | 1 | How many frames the picture is split into, at least 1. Read **once, when the window opens**; `1` = a still image. Ignored when the PNG has a sibling `.mcmeta` (see below) |
+| `frame_time` | float | 0 | Ticks per frame for a PNG without a `.mcmeta`. `0` (the default) means no stepping - the picture holds frame 0 |
 | `title_index` | float | 0 | Which entry of `titles` the OS title shows |
 
 Notes on the numbers, because the defaults are not the intuitive ones:
@@ -83,14 +83,22 @@ Notes on the numbers, because the defaults are not the intuitive ones:
   picture fills that box (there is no aspect fit of the source), so `size_w:size_h` is exactly the
   on-screen width:height and you can animate a stretch by driving the two out of step. `size_h = 1`
   is as tall as the smaller screen dimension; the values are clamped into `0..1`.
-- **`frames` splits the image into a horizontal strip.** The sheet is read row-major with frame 0
+- **A resource-pack PNG with a sibling `.mcmeta` animates by the vanilla format.** If the `texture`
+  resolves to a pack file that has a `.png.mcmeta` next to it (the vanilla animation format:
+  optional `frameWidth`/`frameHeight`, a `frames` list with per-frame `time`, `defaultFrameTime`),
+  the window plays that animation - the sheet is the whole grid (multi-row is fine), each frame shows
+  for its own time (milliseconds, rounded to ticks, at least one) and the loop wraps. For that
+  picture `frames` and `frame_time` are ignored. `interpolate: true` is not supported - frames switch
+  without blending.
+- **`frames` splits the image into a horizontal strip (a PNG without a `.mcmeta`).** The sheet is read row-major with frame 0
   top-left, which for a strip means the image is split into `frames` equal columns left to right. The
   PNG must therefore be at least `frames` pixels wide; a narrower one is refused with a one-time
   warning and the window keeps its last good picture. `frames` is read at creation, so animating it
   does nothing - change it and replay the effect. Any `frame_index` the animation produces is wrapped,
   so it never draws outside the sheet.
 - **`frame_time` is in ticks** (20 ticks = 1 s), so `frame_time: 4` is 5 fps and `2` is 10 fps. It is
-  independent of the effect's `duration` and `easing`: it counts real elapsed ticks.
+  independent of the effect's `duration` and `easing`: it counts real elapsed ticks. It applies only
+  to a PNG without a `.mcmeta`.
 - **`title_index` is rounded and clamped.** `0.6` picks entry 1, a negative index picks the first
   title and an index past the end picks the last, so an out-of-range value never fails - keyframes can
   step through the list without a bounds check. The index is read from the `window_create` and every

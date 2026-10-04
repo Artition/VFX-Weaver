@@ -7,7 +7,7 @@
 # and scales the quad into the requested normalized sub-rect of the canvas. Its shape is pinned here
 # as literal text:
 #   * the produced interface is exactly load(Identifier, int),
-#     drawFrame(int, float, float, float, float) and reload();
+#     drawFrame(long, float, float, float, float, float) and reload();
 #   * load/reload funnel through one private uploadSource() that decodes (NativeImage) and uploads
 #     (glGenTextures/glTexImage2D); neither drawFrame nor drawCurrent decodes or uploads - no
 #     per-frame readback/upload (both bodies are scanned, so a moved upload is caught);
@@ -18,8 +18,10 @@
 #     handle;
 #   * every GL call happens with the aux context current: glfwGetCurrentContext is saved and
 #     glfwMakeContextCurrent restores it, so the game's context is never leaked;
-#   * a frame is selected row-major (frame % columns, frame / columns) and mapped to a UV rect, so the
-#     addressing is the same math the shader's vfx_texture_sheet_uv uses;
+#   * a frame is picked by elapsed ticks (a .mcmeta sheet walks its table via VFXWindowFrames.frameAt,
+#     a plain strip advances every frame_time) and is addressed row-major (frame % columns,
+#     frame / columns) into a UV rect sized in frameWidth/frameHeight pixels, so the addressing is the
+#     same math the shader's vfx_texture_sheet_uv uses;
 #   * never 0x0: the viewport draws from the actual framebuffer size clamped away from 0, and an image
 #     too small for its frame count is refused rather than uploaded;
 #   * a missing/undecodable source keeps the last uploaded frame and warns once, never crashes.
@@ -68,7 +70,7 @@ if ($source -match 'net\.fabricmc|net\.neoforged') {
 # 1) the exact produced interface.
 foreach ($signature in @(
 	'public void load(final Identifier textureId, final int frames) {',
-	'public void drawFrame(final int frameIndex, final float rectX, final float rectY, final float rectW, final float rectH) {',
+	'public void drawFrame(final long timeTicks, final float frameTime, final float rectX, final float rectY, final float rectW, final float rectH) {',
 	'public void reload() {')) {
 	if ($source.IndexOf($signature) -lt 0) {
 		$problems.Add("VFXWindowContent is missing '$($signature.TrimEnd(' {'))'")
@@ -79,12 +81,12 @@ foreach ($signature in @(
 if ($source -notmatch 'Identifier') {
 	$problems.Add("VFXWindowContent does not address the source by an Identifier")
 }
-$draw = Get-Body $source 'public void drawFrame(final int frameIndex, final float rectX, final float rectY, final float rectW, final float rectH) {'
+$draw = Get-Body $source 'public void drawFrame(final long timeTicks, final float frameTime, final float rectX, final float rectY, final float rectW, final float rectH) {'
 if ($draw -eq $null) {
-	$problems.Add("VFXWindowContent has no readable 'public void drawFrame(final int frameIndex, final float rectX, final float rectY, final float rectW, final float rectH)'")
+	$problems.Add("VFXWindowContent has no readable 'public void drawFrame(final long timeTicks, final float frameTime, final float rectX, final float rectY, final float rectW, final float rectH)'")
 } else {
 	# drawFrame only flips the GL context and delegates; the actual quad lives in drawCurrent.
-	Assert-Contains $draw 'drawCurrent(frameIndex, rectX, rectY, rectW, rectH)' "drawFrame() does not draw through drawCurrent(frameIndex, rectX, rectY, rectW, rectH)"
+	Assert-Contains $draw 'drawCurrent(timeTicks, frameTime, rectX, rectY, rectW, rectH)' "drawFrame() does not draw through drawCurrent(timeTicks, frameTime, rectX, rectY, rectW, rectH)"
 	Assert-Contains $draw 'GLFW.glfwGetCurrentContext()' "drawFrame() does not save the previously current context (glfwGetCurrentContext)"
 	Assert-Contains $draw 'GLFW.glfwMakeContextCurrent(this.window.handle());' "drawFrame() does not make the window's own context current"
 	Assert-Contains $draw 'GLFW.glfwMakeContextCurrent(previous);' "drawFrame() does not restore the previously current context - the game's context would leak"
@@ -96,21 +98,24 @@ if ($draw -eq $null) {
 }
 
 # 3) the selected frame is addressed row-major and mapped to a UV rect (the surface_pattern math).
-$current = Get-Body $source 'private void drawCurrent(final int frameIndex, final float rectX, final float rectY, final float rectW, final float rectH) {'
+$current = Get-Body $source 'private void drawCurrent(final long timeTicks, final float frameTime, final float rectX, final float rectY, final float rectW, final float rectH) {'
 if ($current -eq $null) {
-	$problems.Add("VFXWindowContent has no readable 'private void drawCurrent(final int frameIndex, final float rectX, final float rectY, final float rectW, final float rectH)'")
+	$problems.Add("VFXWindowContent has no readable 'private void drawCurrent(final long timeTicks, final float frameTime, final float rectX, final float rectY, final float rectW, final float rectH)'")
 } else {
 	foreach ($literal in @(
-		'this.frameCount',
-		'this.columns',
-		'this.rows',
-		'Math.floorMod(frameIndex, this.frameCount)',
-		'frame % this.columns',
-		'frame / this.columns',
-		'(float) column / (float) this.columns',
-		'(float) row / (float) this.rows',
-		'(float) (column + 1) / (float) this.columns',
-		'(float) (row + 1) / (float) this.rows')) {
+		'this.sheet',
+		'this.sheet.columns()',
+		'this.sheet.rows()',
+		'this.sheet.frameAt(timeTicks)',
+		'this.sheet.animated()',
+		'(int) (timeTicks / frameTime)',
+		'Math.floorMod(frame, this.sheet.frameCount())',
+		'wrapped % columns',
+		'wrapped / columns',
+		'(float) (column * this.frameWidth) / (float) this.sheet.imageWidth()',
+		'(float) (row * this.frameHeight) / (float) this.sheet.imageHeight()',
+		'(float) (column * this.frameWidth + this.frameWidth) / (float) this.sheet.imageWidth()',
+		'(float) (row * this.frameHeight + this.frameHeight) / (float) this.sheet.imageHeight()')) {
 		Assert-Contains $current $literal "drawCurrent() is missing the addressing literal: $literal"
 	}
 	# the requested normalized rect (bottom-left origin) is filled into NDC with rect * 2 - 1; the
@@ -168,11 +173,32 @@ if ($upload -eq $null) {
 	Assert-Contains $upload '((pixel >>> 16) & 0xFF)' "uploadSource() does not read the red channel from bits 16-23 (ARGB) - reading the low byte swaps red and blue"
 	# missing/short source: refused, keeping the last frame instead of crashing.
 	Assert-Contains $upload 'resource.isEmpty()' "uploadSource() does not handle a missing resource (resource.isEmpty()) without crashing"
-	Assert-Contains $upload 'imageWidth < columns' "uploadSource() does not refuse an image too small for its frame count (imageWidth < columns)"
-	Assert-Contains $upload 'imageHeight < rows' "uploadSource() does not refuse an image too small for its frame count (imageHeight < rows)"
+	Assert-Contains $upload 'sheet.imageWidth() <= 0' "uploadSource() does not refuse a sheet with a non-positive image width"
+	Assert-Contains $upload 'sheet.frameWidth() <= 0' "uploadSource() does not refuse a sheet with a non-positive frame width"
+	# the decoded picture becomes a VFXWindowFrames: a pack texture through readPack() (which reads the
+	# .mcmeta), a caller image or a plain pack PNG as a strip/still.
+	Assert-Contains $upload 'this.readPack(' "uploadSource() does not read a pack texture's frames through readPack()"
+	Assert-Contains $upload 'VFXWindowFrames.strip(' "uploadSource() does not build the no-.mcmeta strip via VFXWindowFrames.strip()"
+	Assert-Contains $upload 'VFXWindowFrames.still(' "uploadSource() does not build a still via VFXWindowFrames.still()"
 	# a caller-supplied image (VFXAPI.registerImage) has no pack file: it is resolved from the
 	# registry first so a registered id wins, and it uploads through this same path.
 	Assert-Contains $upload 'VFXImageRegistry.get().get(' "uploadSource() does not resolve a caller-supplied image from the registry before the pack"
+}
+
+# 4b) readPack() reads the sibling .mcmeta and turns it into an animated VFXWindowFrames; without a
+#     .mcmeta it falls back to the frame_time strip/still unchanged.
+$readPack = Get-Body $source 'private VFXWindowFrames readPack('
+if ($readPack -eq $null) {
+	$problems.Add("VFXWindowContent has no readable 'private VFXWindowFrames readPack(...)'")
+} else {
+	Assert-Contains $readPack 'resource.get().metadata().getSection(AnimationMetadataSection.TYPE)' "readPack() does not read the sibling .mcmeta (AnimationMetadataSection.TYPE) through the resource metadata"
+	Assert-Contains $readPack 'VFXWindowFrames.animated(' "readPack() does not build a .mcmeta sheet via VFXWindowFrames.animated()"
+	Assert-Contains $readPack 'VFXWindowFrames.strip(' "readPack() does not fall back to VFXWindowFrames.strip() without a .mcmeta"
+	Assert-Contains $readPack 'VFXWindowFrames.still(' "readPack() does not fall back to VFXWindowFrames.still() without a .mcmeta"
+	# per-frame times are milliseconds in vanilla: ms -> ticks is /50, clamped to at least 1.
+	Assert-Contains $readPack 'f.timeOr(defaultMs) / 50' "readPack() does not convert a per-frame time from ms to ticks (timeOr(defaultMs) / 50)"
+	Assert-Contains $readPack 'defaultMs / 50' "readPack() does not convert the default frame time from ms to ticks (defaultMs / 50)"
+	Assert-Contains $readPack 'Math.max(1,' "readPack() does not clamp a frame time to at least 1 tick"
 }
 
 # 5) the resource is never decoded or uploaded on either per-frame body: drawFrame delegates and
@@ -215,8 +241,9 @@ if ($problems.Count -gt 0) {
 	exit 1
 }
 Write-Host "  VFXWindowContent is a final loader-agnostic per-window picture owner"
-Write-Host "  load(Identifier, int)/drawFrame(int, float, float, float, float)/reload() are the produced interface"
-Write-Host "  the frame is addressed row-major (frame % columns, frame / columns) into a UV rect, reusing the surface_pattern sheet math"
+Write-Host "  load(Identifier, int)/drawFrame(long, float, float, float, float, float)/reload() are the produced interface"
+Write-Host "  a frame is picked by elapsed ticks (frameAt for .mcmeta, frame_time otherwise) and addressed row-major into a frameWidth/frameHeight UV rect via VFXWindowFrames"
+Write-Host "  readPack() reads the sibling .mcmeta (AnimationMetadataSection.TYPE) and converts per-frame ms to ticks (/50, min 1)"
 Write-Host "  the picture is drawn into the normalized bottom-left sub-rect (rect * 2 - 1), not the full canvas"
 Write-Host "  load()/reload() decode and upload once through uploadSource(); neither drawFrame() nor drawCurrent() decodes or uploads"
 Write-Host "  a closed window is a no-op for load()/reload()/drawFrame() - no GLFW/GL call on a destroyed handle"
