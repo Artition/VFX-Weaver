@@ -55,6 +55,7 @@ public class VFXDefinition {
 	private final @Nullable VFXSurfaceSelection surface;
 	private final @Nullable CelestialAnchor anchor;
 	private final @Nullable VFXWindowSpec window;
+	private final @Nullable VFXScreenImageSpec screenImage;
 
 	private VFXDefinition(
 		final Identifier id,
@@ -81,7 +82,8 @@ public class VFXDefinition {
 		final @Nullable VFXShape pattern,
 		final @Nullable VFXSurfaceSelection surface,
 		final @Nullable CelestialAnchor anchor,
-		final @Nullable VFXWindowSpec window
+		final @Nullable VFXWindowSpec window,
+		final @Nullable VFXScreenImageSpec screenImage
 	) {
 		this.id = id;
 		this.type = type;
@@ -108,6 +110,7 @@ public class VFXDefinition {
 		this.surface = surface;
 		this.anchor = anchor;
 		this.window = window;
+		this.screenImage = screenImage;
 	}
 
 	/**
@@ -176,7 +179,7 @@ public class VFXDefinition {
 		final @Nullable Identifier sound,
 		final @Nullable String entitySelector
 	) {
-		return new VFXDefinition(id, type, defaultDuration, defaultEasing, params, persistent, loop, fadeTicks, children, positions, List.of(), sound, entitySelector, null, null, null, null, null, Map.of(), Map.of(), null, null, null, null, null);
+		return new VFXDefinition(id, type, defaultDuration, defaultEasing, params, persistent, loop, fadeTicks, children, positions, List.of(), sound, entitySelector, null, null, null, null, null, Map.of(), Map.of(), null, null, null, null, null, null);
 	}
 
 	/**
@@ -371,6 +374,11 @@ public class VFXDefinition {
 			window = VFXWindowSpec.parse(json);
 		}
 
+		VFXScreenImageSpec screenImage = null;
+		if (type == VFXEffectType.SCREEN_IMAGE) {
+			screenImage = VFXScreenImageSpec.parse(json);
+		}
+
 		// A surface_pattern is anchored at a world point, never at a live entity: resolveAnchor
 		// deliberately skips entity-anchored position slots, which would silently fall back to the
 		// player. Reject the combination instead of rendering at the wrong place.
@@ -378,7 +386,7 @@ public class VFXDefinition {
 			throw new IllegalArgumentException("surface_pattern: entity-anchored 'positions' entries are not supported; the anchor is a world point (use a literal [x,y,z] position, pattern.center, or the pos_x/pos_y/pos_z params)");
 		}
 
-		return new VFXDefinition(id, type, duration, easing, params, persistent, loop, fadeTicks, children, positions, entityAnchors, sound, entitySelector, particleId, shape, blockId, itemId, graph, graphInputs, fields, mask, pattern, surface, anchor, window);
+		return new VFXDefinition(id, type, duration, easing, params, persistent, loop, fadeTicks, children, positions, entityAnchors, sound, entitySelector, particleId, shape, blockId, itemId, graph, graphInputs, fields, mask, pattern, surface, anchor, window, screenImage);
 	}
 
 	/**
@@ -666,7 +674,7 @@ public class VFXDefinition {
 		}
 		Map<String, ParamSpec> merged = new LinkedHashMap<>(this.params);
 		merged.putAll(overrides);
-		return new VFXDefinition(this.id, this.type, this.defaultDuration, this.defaultEasing, merged, this.persistent, this.loop, this.fadeTicks, this.children, this.positions, this.entityAnchors, this.sound, this.entitySelector, this.particleId, this.shape, this.blockId, this.itemId, this.graph, this.graphInputs, this.fields, this.mask, this.pattern, this.surface, this.anchor, this.window);
+		return new VFXDefinition(this.id, this.type, this.defaultDuration, this.defaultEasing, merged, this.persistent, this.loop, this.fadeTicks, this.children, this.positions, this.entityAnchors, this.sound, this.entitySelector, this.particleId, this.shape, this.blockId, this.itemId, this.graph, this.graphInputs, this.fields, this.mask, this.pattern, this.surface, this.anchor, this.window, this.screenImage);
 	}
 
 	/**
@@ -924,6 +932,15 @@ public class VFXDefinition {
 	 */
 	public @Nullable VFXWindowSpec getWindow() {
 		return this.window;
+	}
+
+	/**
+	 * The top-level {@code texture} of a {@code screen_image} definition, or {@code null} for every
+	 * other effect type. The animatable geometry/opacity/frame numbers stay in the ordinary
+	 * {@code params}.
+	 */
+	public @Nullable VFXScreenImageSpec getScreenImage() {
+		return this.screenImage;
 	}
 
 	/**

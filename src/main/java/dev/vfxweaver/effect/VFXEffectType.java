@@ -103,6 +103,8 @@ public enum VFXEffectType {
 	SURFACE_PATTERN("surface_pattern"),
 	/** A shape/texture pattern drawn on the sky dome in equirectangular dome UV, gated to far-depth sky pixels (post pass at screen layer 0). */
 	SKY_PATTERN("sky_pattern"),
+	/** Draws a resource-pack or caller image onto the game's own framebuffer at a screen layer. */
+	SCREEN_IMAGE("screen_image"),
 	/** Opens a named client-side OS picture window (frameless, transparent, click-through) for the effect's lifetime, never a post pass. */
 	WINDOW_CREATE("window_create"),
 	/** Moves, animates and retitles an existing aux window by name, never a post pass. */
@@ -201,6 +203,7 @@ public enum VFXEffectType {
 		case STOP_MOTION -> "fps".equals(parameter) ? 0.0F : Float.NaN;
 		case SURFACE_PATTERN -> "opacity".equals(parameter) || "frame".equals(parameter) || "texture_tint".equals(parameter) ? 0.0F : Float.NaN;
 		case SKY_PATTERN -> "opacity".equals(parameter) || "frame".equals(parameter) || "texture_tint".equals(parameter) ? 0.0F : Float.NaN;
+		case SCREEN_IMAGE -> "opacity".equals(parameter) ? 0.0F : Float.NaN;
 		default -> Float.NaN;
 		};
 	}
