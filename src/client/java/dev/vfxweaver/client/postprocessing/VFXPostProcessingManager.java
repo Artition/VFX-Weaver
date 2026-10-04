@@ -24,6 +24,7 @@ import com.mojang.blaze3d.textures.FilterMode;
 import com.mojang.blaze3d.textures.GpuTextureView;
 import dev.vfxweaver.client.effect.VFXEffectManager;
 import dev.vfxweaver.client.flashback.FlashbackCompat;
+import dev.vfxweaver.client.window.VFXWindowFrames;
 import dev.vfxweaver.effect.CelestialAnchor;
 import dev.vfxweaver.effect.VFXActiveEffect;
 import dev.vfxweaver.effect.VFXDefinition;
@@ -1197,6 +1198,8 @@ public final class VFXPostProcessingManager {
 		private final boolean depthConfig;
 		/** True when this pass's {@code Config} also declares {@code vec4 cam_pos} after the matrix (sky_pattern). */
 		private final boolean depthHasCamPos;
+		/** True for the {@code screen_image} pass: it writes the picture rect/frame UBO and binds {@code ImageSampler}. */
+		private final boolean screenImage;
 		/** The texel-unit parameter names divided by the run scale (chain-resolution, spec §5). */
 		private final Set<String> pixelParams;
 		/** The depth pass's resolved anchor (the shape centre / effect world position / player), reused every frame. */
@@ -1229,6 +1232,7 @@ public final class VFXPostProcessingManager {
 			this.mask = info.mask();
 			this.depthConfig = info.depthConfig();
 			this.depthHasCamPos = info.depthHasCamPos();
+			this.screenImage = info.screenImage();
 			this.pixelParams = info.pixelParams();
 		}
 
@@ -1286,8 +1290,46 @@ public final class VFXPostProcessingManager {
 			final PatternTexture patternTexture = this.depthConfig && effect != null
 				? resolvePatternTexture(shape == null ? null : shape.texture(), effect.getId())
 				: PatternTexture.ABSENT;
+			VFXScreenImageTextures.Resolved image = null;
 			GpuBufferSlice config = null;
-			if (this.hasConfig && effect != null) {
+			if (this.screenImage && effect != null) {
+				image = VFXScreenImageTextures.get().resolve(effect);
+				final float weight = effect.getWeight();
+				final float opacity = Mth.clamp(effect.getParam("opacity", 1.0F), 0.0F, 1.0F) * weight;
+				final VFXWindowFrames frames = image.frames();
+				final int cols = frames.columns();
+				final int rows = frames.rows();
+				final int rawFrame = frames.animated()
+					? frames.frameAt((long) effect.getElapsed())
+					: (effect.getParam("frame_time", 0.0F) > 0.0F
+						? (int) (effect.getElapsed() / effect.getParam("frame_time", 0.0F)) : 0);
+				final int frame = Math.floorMod(rawFrame, Math.max(1, cols * rows));
+				final int column = frame % cols;
+				final int row = frame / cols;
+				final float fw = frames.frameWidth();
+				final float fh = frames.frameHeight();
+				final float imgW = Math.max(1, frames.imageWidth());
+				final float imgH = Math.max(1, frames.imageHeight());
+				final float u0 = column * fw / imgW;
+				final float v0 = row * fh / imgH;
+				final float u1 = (column + 1) * fw / imgW;
+				final float v1 = (row + 1) * fh / imgH;
+				final float base = Math.max(1.0F, Math.min(output.width, output.height));
+				final float picW = Mth.clamp(effect.getParam("size_w", 1.0F), 0.0F, 1.0F) * base;
+				final float picH = Mth.clamp(effect.getParam("size_h", 1.0F), 0.0F, 1.0F) * base;
+				final float picX = Mth.clamp(effect.getParam("pos_x", 0.0F), 0.0F, 1.0F) * Math.max(0.0F, output.width - picW);
+				final float picY = Mth.clamp(effect.getParam("pos_y", 0.0F), 0.0F, 1.0F) * Math.max(0.0F, output.height - picH);
+				final float rx0 = picX / output.width;
+				final float ry0 = picY / output.height;
+				final float rx1 = (picX + picW) / output.width;
+				final float ry1 = (picY + picH) / output.height;
+				final float flags = image.view() != null ? 1.0F : 0.0F;
+				config = this.arena.write(encoder, builder -> builder
+					.putVec4(rx0, ry0, rx1, ry1)
+					.putVec4(u0, v0, u1, v1)
+					.putFloat(opacity)
+					.putFloat(flags));
+			} else if (this.hasConfig && effect != null) {
 				final float weight = effect.getWeight();
 				if (this.depthConfig) {
 					this.resolveAnchor(effect, shape, definition);
@@ -1373,6 +1415,12 @@ public final class VFXPostProcessingManager {
 					renderPass.setUniform("Config", config);
 				}
 				renderPass.bindTexture("InSampler", input.getColorTextureView(), samplerCache.getClampToEdge(FilterMode.LINEAR));
+				if (this.screenImage) {
+					final com.mojang.blaze3d.textures.GpuTextureView imageView = image != null ? image.view() : null;
+					renderPass.bindTexture("ImageSampler",
+						imageView == null ? input.getColorTextureView() : imageView,
+						samplerCache.getClampToEdge(FilterMode.NEAREST));
+				}
 				if (history != null) {
 					renderPass.bindTexture("HistSampler", history.getColorTextureView(), samplerCache.getClampToEdge(FilterMode.LINEAR));
 				}

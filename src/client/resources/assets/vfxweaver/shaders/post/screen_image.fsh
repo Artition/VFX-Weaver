@@ -31,6 +31,12 @@ void main() {
     }
     vec2 lo = min(rect.xy, rect.zw);
     vec2 hi = max(rect.xy, rect.zw);
+    // A zero-area rect (size_w/size_h animated to 0, a zero pixel box) would divide by zero below
+    // and sample NaN coordinates; fail closed as a passthrough instead.
+    if (hi.x - lo.x <= 0.0 || hi.y - lo.y <= 0.0) {
+        fragColor = base;
+        return;
+    }
     if (texCoord.x < lo.x || texCoord.x > hi.x || texCoord.y < lo.y || texCoord.y > hi.y) {
         fragColor = base;
         return;
