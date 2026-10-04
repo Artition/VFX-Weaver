@@ -185,20 +185,17 @@ if ($upload -eq $null) {
 	Assert-Contains $upload 'VFXImageRegistry.get().get(' "uploadSource() does not resolve a caller-supplied image from the registry before the pack"
 }
 
-# 4b) readPack() reads the sibling .mcmeta and turns it into an animated VFXWindowFrames; without a
-#     .mcmeta it falls back to the frame_time strip/still unchanged.
+# 4b) readPack() reads the sibling .mcmeta and hands it to VFXWindowFrames.fromMetadata() (which owns
+#     the vanilla sizing, the frame table and the ms->tick conversion); without a .mcmeta it falls
+#     back to the frame_time strip/still unchanged.
 $readPack = Get-Body $source 'private VFXWindowFrames readPack('
 if ($readPack -eq $null) {
 	$problems.Add("VFXWindowContent has no readable 'private VFXWindowFrames readPack(...)'")
 } else {
 	Assert-Contains $readPack 'resource.get().metadata().getSection(AnimationMetadataSection.TYPE)' "readPack() does not read the sibling .mcmeta (AnimationMetadataSection.TYPE) through the resource metadata"
-	Assert-Contains $readPack 'VFXWindowFrames.animated(' "readPack() does not build a .mcmeta sheet via VFXWindowFrames.animated()"
+	Assert-Contains $readPack 'VFXWindowFrames.fromMetadata(' "readPack() does not build the frames through VFXWindowFrames.fromMetadata()"
 	Assert-Contains $readPack 'VFXWindowFrames.strip(' "readPack() does not fall back to VFXWindowFrames.strip() without a .mcmeta"
 	Assert-Contains $readPack 'VFXWindowFrames.still(' "readPack() does not fall back to VFXWindowFrames.still() without a .mcmeta"
-	# per-frame times are milliseconds in vanilla: ms -> ticks is /50, clamped to at least 1.
-	Assert-Contains $readPack 'f.timeOr(defaultMs) / 50' "readPack() does not convert a per-frame time from ms to ticks (timeOr(defaultMs) / 50)"
-	Assert-Contains $readPack 'defaultMs / 50' "readPack() does not convert the default frame time from ms to ticks (defaultMs / 50)"
-	Assert-Contains $readPack 'Math.max(1,' "readPack() does not clamp a frame time to at least 1 tick"
 }
 
 # 5) the resource is never decoded or uploaded on either per-frame body: drawFrame delegates and
@@ -243,7 +240,7 @@ if ($problems.Count -gt 0) {
 Write-Host "  VFXWindowContent is a final loader-agnostic per-window picture owner"
 Write-Host "  load(Identifier, int)/drawFrame(long, float, float, float, float, float)/reload() are the produced interface"
 Write-Host "  a frame is picked by elapsed ticks (frameAt for .mcmeta, frame_time otherwise) and addressed row-major into a frameWidth/frameHeight UV rect via VFXWindowFrames"
-Write-Host "  readPack() reads the sibling .mcmeta (AnimationMetadataSection.TYPE) and converts per-frame ms to ticks (/50, min 1)"
+Write-Host "  readPack() reads the sibling .mcmeta (AnimationMetadataSection.TYPE) and builds the frames through VFXWindowFrames.fromMetadata()"
 Write-Host "  the picture is drawn into the normalized bottom-left sub-rect (rect * 2 - 1), not the full canvas"
 Write-Host "  load()/reload() decode and upload once through uploadSource(); neither drawFrame() nor drawCurrent() decodes or uploads"
 Write-Host "  a closed window is a no-op for load()/reload()/drawFrame() - no GLFW/GL call on a destroyed handle"

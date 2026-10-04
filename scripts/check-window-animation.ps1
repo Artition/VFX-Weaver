@@ -1,14 +1,16 @@
 # Dev-only guard for the .mcmeta window animation (Task 4).
 #
 # Pins the two halves of the feature as literal text:
-#   * VFXWindowFrames is the MC-free value type: it carries the whole sheet plus a frame table and
-#     picks the frame at a tick count - a still/single-frame sheet returns slot 0, an animated sheet
-#     walks the table (each frame for its own timeTicks, at least 1) and wraps, and a negative
-#     timeTicks is clamped to 0;
+#   * VFXWindowFrames is the geometry-only value type: the sheet size, one frame's size and a frame
+#     table, no pixels, and it picks the frame at a tick count - a still/single-frame sheet returns
+#     slot 0, an animated sheet walks the table (each frame for its own timeTicks, at least 1) and
+#     wraps, and a negative timeTicks is clamped to 0;
+#   * VFXWindowFrames.fromMetadata(...) turns a parsed AnimationMetadataSection into that: the
+#     vanilla sheet size (calculateFrameSize), the playback table bounded by MAX_FRAMES, and vanilla
+#     per-frame milliseconds to ticks with /50 clamped to at least 1;
 #   * VFXWindowContent reads the sibling .mcmeta through the resource metadata
-#     (AnimationMetadataSection.TYPE), builds a VFXWindowFrames.animated(...) sheet from it, falls
-#     back to VFXWindowFrames.strip(...)/.still(...) without one, and converts vanilla per-frame
-#     milliseconds to ticks with /50 clamped to at least 1;
+#     (AnimationMetadataSection.TYPE), hands it to fromMetadata(), and falls back to
+#     VFXWindowFrames.strip(...)/.still(...) without one;
 #   * interpolate: true is out of scope, so the interpolatedFrames flag must never be read.
 # It also rejects any loader import (VFXWindowFrames / VFXWindowContent stay loader-agnostic), and
 # because GLSL is never compiled and there is no GPU here, nothing here claims a pixel or a shader
@@ -71,23 +73,23 @@ foreach ($literal in @(
 # 3) VFXWindowContent reads the sibling .mcmeta and builds the right sheet.
 foreach ($literal in @(
 	'resource.get().metadata().getSection(AnimationMetadataSection.TYPE)',
-	'VFXWindowFrames.animated(',
 	'VFXWindowFrames.strip(',
 	'VFXWindowFrames.still(',
 	'this.sheet.frameAt(timeTicks)',
-	'Math.floorMod(frame, columns * rows)',
-	'calculateFrameSize(imageWidth, imageHeight)',
-	'MAX_FRAMES',
-	'withoutPixels()')) {
+	'Math.floorMod(frame, columns * rows)')) {
 	Assert-Contains $content $literal "VFXWindowContent is missing '$literal'"
 }
 
-# 4) vanilla per-frame milliseconds -> ticks is /50, clamped to at least 1.
+# 4) the .mcmeta -> frames logic (vanilla sizing, the playback table, the MAX_FRAMES cap and the
+#    vanilla per-frame milliseconds -> ticks /50 clamped to at least 1) lives in VFXWindowFrames.
 foreach ($literal in @(
+	'public static VFXWindowFrames fromMetadata(final AnimationMetadataSection m, final int imageWidth,',
+	'calculateFrameSize(imageWidth, imageHeight)',
+	'MAX_FRAMES',
 	'f.timeOr(defaultMs) / 50',
-	'Math.max(1, f.timeOr(defaultMs) / 50)',
-	'Math.max(1, defaultMs / 50)')) {
-	Assert-Contains $content $literal "VFXWindowContent does not convert frame times ms->ticks correctly: '$literal'"
+	'Math.max(1, defaultMs / 50)',
+	'animated(imageWidth, imageHeight, frameWidth, frameHeight, table)')) {
+	Assert-Contains $frames $literal "VFXWindowFrames is missing '$literal'"
 }
 
 # 5) interpolation is out of scope: the flag must never be read.
@@ -101,9 +103,9 @@ if ($problems.Count -gt 0) {
 	Write-Error "window animation check failed ($($problems.Count) problem(s))."
 	exit 1
 }
-Write-Host "  VFXWindowFrames is a final loader-agnostic value type for the whole sheet + frame table"
+Write-Host "  VFXWindowFrames is a final loader-agnostic value type for the sheet geometry + frame table (no pixels)"
 Write-Host "  frameAt picks slot 0 for a still/single frame, wraps with floorMod and clamps a negative tick count"
-Write-Host "  VFXWindowContent reads the sibling .mcmeta (AnimationMetadataSection.TYPE) and builds animated/strip/still frames"
-Write-Host "  per-frame milliseconds become ticks (/50, min 1); interpolation is not used"
+Write-Host "  VFXWindowContent reads the sibling .mcmeta (AnimationMetadataSection.TYPE) and builds the frames through fromMetadata(), strip/still without one"
+Write-Host "  fromMetadata() sizes the sheet with calculateFrameSize, caps the table at MAX_FRAMES and converts per-frame ms to ticks (/50, min 1); interpolation is not used"
 Write-Host "Window animation check OK."
 exit 0

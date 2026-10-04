@@ -1,14 +1,20 @@
 package dev.vfxweaver.client.window;
 
+import dev.vfxweaver.util.VFXLog;
+import java.util.ArrayList;
 import java.util.List;
+import net.minecraft.client.resources.metadata.animation.AnimationFrame;
+import net.minecraft.client.resources.metadata.animation.AnimationMetadataSection;
+import net.minecraft.client.resources.metadata.animation.FrameSize;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
- * A decoded window picture: the whole sheet in ARGB and how to address its frames. A plain still, a
- * horizontal datapack strip and a vanilla {@code .mcmeta} sheet all become this, so the draw path
- * only ever asks for "the frame at this many ticks". No Minecraft, no GL - see
- * {@link #strip} and {@link #animated}.
+ * A decoded window/screen picture's metadata: how to address its frames. A plain still, a horizontal
+ * datapack strip and a vanilla {@code .mcmeta} sheet all become this, so the draw paths only ever ask
+ * for "the frame at this many ticks". No pixels are held - the window uploads from its own decoded
+ * array and the screen image samples the GPU texture, so both keep only the geometry. No GL.
  *
- * @param pixels      the whole image, ARGB {@code 0xAARRGGBB}, row-major, top row first
  * @param imageWidth  the sheet width in pixels
  * @param imageHeight the sheet height in pixels
  * @param frameWidth  one frame's width in pixels; divides {@code imageWidth}
@@ -17,8 +23,12 @@ import java.util.List;
  * @param animated    {@code false} for a still or a strip driven by {@code frame_time}
  */
 public record VFXWindowFrames(
-	int[] pixels, int imageWidth, int imageHeight,
+	int imageWidth, int imageHeight,
 	int frameWidth, int frameHeight, List<Frame> frames, boolean animated) {
+
+	private static final Logger LOGGER = LoggerFactory.getLogger("vfxweaver/window");
+	/** Safety cap on the frame table decoded from a pack {@code .mcmeta} (external input). */
+	public static final int MAX_FRAMES = 4096;
 
 	/**
 	 * One frame's slot in the sheet and how long it shows.
@@ -30,8 +40,8 @@ public record VFXWindowFrames(
 	}
 
 	/** One still covering the whole image. */
-	public static VFXWindowFrames still(final int[] pixels, final int imageWidth, final int imageHeight) {
-		return new VFXWindowFrames(pixels, imageWidth, imageHeight, imageWidth, imageHeight,
+	public static VFXWindowFrames still(final int imageWidth, final int imageHeight) {
+		return new VFXWindowFrames(imageWidth, imageHeight, imageWidth, imageHeight,
 			List.of(new Frame(0, 1)), false);
 	}
 
@@ -40,12 +50,12 @@ public record VFXWindowFrames(
 	 *
 	 * @param frames the column count; clamped to at least 1 and to the image width
 	 */
-	public static VFXWindowFrames strip(final int[] pixels, final int imageWidth, final int imageHeight, final int frames) {
+	public static VFXWindowFrames strip(final int imageWidth, final int imageHeight, final int frames) {
 		final int columns = Math.max(1, Math.min(frames, Math.max(1, imageWidth)));
 		final int frameWidth = Math.max(1, imageWidth / columns);
 		final List<Frame> table = java.util.stream.IntStream.range(0, columns)
 			.mapToObj(i -> new Frame(i, 1)).toList();
-		return new VFXWindowFrames(pixels, imageWidth, imageHeight, frameWidth, imageHeight, table, false);
+		return new VFXWindowFrames(imageWidth, imageHeight, frameWidth, imageHeight, table, false);
 	}
 
 	/**
@@ -53,10 +63,56 @@ public record VFXWindowFrames(
 	 *
 	 * @param frames the playback order from the metadata; must be non-empty
 	 */
-	public static VFXWindowFrames animated(final int[] pixels, final int imageWidth, final int imageHeight,
+	public static VFXWindowFrames animated(final int imageWidth, final int imageHeight,
 		final int frameWidth, final int frameHeight, final List<Frame> frames) {
-		return new VFXWindowFrames(pixels, imageWidth, imageHeight,
+		return new VFXWindowFrames(imageWidth, imageHeight,
 			Math.max(1, frameWidth), Math.max(1, frameHeight), List.copyOf(frames), true);
+	}
+
+	/**
+	 * Builds the frames for a texture that has a sibling {@code .mcmeta}: the vanilla sheet size
+	 * (width-only -> {@code (w, imgH)}, height-only -> {@code (imgW, h)}, neither -> {@code min(w,h)}
+	 * square), the playback order and per-frame times (vanilla milliseconds to ticks, at least 1).
+	 *
+	 * @param m               the parsed animation section, never {@code null}
+	 * @param imageWidth      the image width in pixels
+	 * @param imageHeight     the image height in pixels
+	 * @param requestedFrames the caller's strip frame count; unused here, the metadata wins
+	 * @param warnKey         the logging key/id of the texture, for the frame-cap warning
+	 * @return the built frames, never {@code null}
+	 */
+	public static VFXWindowFrames fromMetadata(final AnimationMetadataSection m, final int imageWidth,
+		final int imageHeight, final int requestedFrames, final String warnKey) {
+		final FrameSize size = m.calculateFrameSize(imageWidth, imageHeight);
+		final int frameWidth = Math.max(1, size.width());
+		final int frameHeight = Math.max(1, size.height());
+		final int defaultMs = Math.max(1, m.defaultFrameTime());
+		final List<Frame> table = new ArrayList<>();
+		if (m.frames().isPresent()) {
+			for (final AnimationFrame f : m.frames().get()) {
+				if (table.size() >= MAX_FRAMES) {
+					VFXLog.warnOnce(LOGGER, "window:frames:" + warnKey,
+						"texture '{}' .mcmeta has more than {} frames; the rest are dropped", warnKey, MAX_FRAMES);
+					break;
+				}
+				table.add(new Frame(f.index(), Math.max(1, f.timeOr(defaultMs) / 50)));
+			}
+		} else {
+			final int cols = Math.max(1, imageWidth / frameWidth);
+			final int rows = Math.max(1, imageHeight / frameHeight);
+			if (cols * rows > MAX_FRAMES) {
+				VFXLog.warnOnce(LOGGER, "window:frames:" + warnKey,
+					"texture '{}' has more than {} frames; the rest are dropped", warnKey, MAX_FRAMES);
+			}
+			final int total = Math.min(cols * rows, MAX_FRAMES);
+			for (int i = 0; i < total; i++) {
+				table.add(new Frame(i, Math.max(1, defaultMs / 50)));
+			}
+		}
+		if (table.isEmpty()) {
+			return still(imageWidth, imageHeight);
+		}
+		return animated(imageWidth, imageHeight, frameWidth, frameHeight, table);
 	}
 
 	public int columns() {
@@ -73,21 +129,6 @@ public record VFXWindowFrames(
 
 	public Frame frame(final int i) {
 		return this.frames.get(i);
-	}
-
-	/**
-	 * The same frames with the pixel array dropped. A caller that has already uploaded the pixels to
-	 * the GPU keeps this instead of the whole decoded image, so a large pack texture is not retained
-	 * for the window's lifetime.
-	 *
-	 * @return this when it already holds no pixels, otherwise a copy without them
-	 */
-	public VFXWindowFrames withoutPixels() {
-		if (this.pixels.length == 0) {
-			return this;
-		}
-		return new VFXWindowFrames(new int[0], this.imageWidth, this.imageHeight,
-			this.frameWidth, this.frameHeight, this.frames, this.animated);
 	}
 
 	/**

@@ -6,13 +6,9 @@ import dev.vfxweaver.util.VFXLog;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.ByteBuffer;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Optional;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.resources.metadata.animation.AnimationFrame;
 import net.minecraft.client.resources.metadata.animation.AnimationMetadataSection;
-import net.minecraft.client.resources.metadata.animation.FrameSize;
 import net.minecraft.resources.Identifier;
 import net.minecraft.server.packs.resources.Resource;
 import org.lwjgl.glfw.GLFW;
@@ -68,12 +64,6 @@ import org.slf4j.LoggerFactory;
 public final class VFXWindowContent {
 
 	private static final Logger LOGGER = LoggerFactory.getLogger("vfxweaver/window");
-
-	/**
-	 * Safety cap on the frame table decoded from a pack {@code .mcmeta}. A corrupt or hostile file
-	 * can list an unbounded number of frames; the excess is dropped with a one-time warning.
-	 */
-	private static final int MAX_FRAMES = 4096;
 
 	private final VFXWindow window;
 	private Identifier sourceId;
@@ -238,10 +228,10 @@ public final class VFXWindowContent {
 		if (registered != null) {
 			// A caller-supplied image has no .mcmeta: a still, or the strip hint if the caller split it.
 			sheet = this.requestedFrames > 1
-				? VFXWindowFrames.strip(pixels, imageWidth, imageHeight, this.requestedFrames)
-				: VFXWindowFrames.still(pixels, imageWidth, imageHeight);
+				? VFXWindowFrames.strip(imageWidth, imageHeight, this.requestedFrames)
+				: VFXWindowFrames.still(imageWidth, imageHeight);
 		} else {
-			sheet = this.readPack(pngId, pixels, imageWidth, imageHeight, resource);
+			sheet = this.readPack(pngId, imageWidth, imageHeight, resource);
 		}
 		if (sheet.imageWidth() <= 0 || sheet.imageHeight() <= 0
 			|| sheet.frameWidth() <= 0 || sheet.frameHeight() <= 0) {
@@ -277,9 +267,8 @@ public final class VFXWindowContent {
 			GL11.glTexImage2D(GL11.GL_TEXTURE_2D, 0, GL11.GL_RGBA, imageWidth, imageHeight, 0, GL11.GL_RGBA, GL11.GL_UNSIGNED_BYTE, buffer);
 			this.frameWidth = sheet.frameWidth();
 			this.frameHeight = sheet.frameHeight();
-			// The pixels have been uploaded to GL; drop the CPU copy so a large pack texture is not
-			// retained for the window's lifetime (the draw path only needs the frame table).
-			this.sheet = sheet.withoutPixels();
+			// The pixels now live only in GL; the draw path keeps the frame table, not the image.
+			this.sheet = sheet;
 		} finally {
 			MemoryUtil.memFree(buffer);
 			GLFW.glfwMakeContextCurrent(previous);
@@ -292,13 +281,12 @@ public final class VFXWindowContent {
 	 * otherwise the datapack horizontal strip of {@link #requestedFrames} columns.
 	 *
 	 * @param pngId       the resolved source id, for the warning key
-	 * @param pixels      the decoded image, ARGB
 	 * @param imageWidth  the image width in pixels
 	 * @param imageHeight the image height in pixels
 	 * @param resource    the resolved pack resource, present for a pack texture
 	 * @return the decoded frames, never {@code null}
 	 */
-	private VFXWindowFrames readPack(final Identifier pngId, final int[] pixels, final int imageWidth,
+	private VFXWindowFrames readPack(final Identifier pngId, final int imageWidth,
 		final int imageHeight, final Optional<Resource> resource) {
 		Optional<AnimationMetadataSection> meta = Optional.empty();
 		if (resource.isPresent()) {
@@ -310,39 +298,10 @@ public final class VFXWindowContent {
 		}
 		if (meta.isEmpty()) {
 			return this.requestedFrames > 1
-				? VFXWindowFrames.strip(pixels, imageWidth, imageHeight, this.requestedFrames)
-				: VFXWindowFrames.still(pixels, imageWidth, imageHeight);
+				? VFXWindowFrames.strip(imageWidth, imageHeight, this.requestedFrames)
+				: VFXWindowFrames.still(imageWidth, imageHeight);
 		}
-		final AnimationMetadataSection m = meta.get();
-		// Vanilla sizing: width-only -> (w, imgH), height-only -> (imgW, h), neither -> min(w,h) square.
-		final FrameSize size = m.calculateFrameSize(imageWidth, imageHeight);
-		final int frameWidth = Math.max(1, size.width());
-		final int frameHeight = Math.max(1, size.height());
-		final int defaultMs = Math.max(1, m.defaultFrameTime());
-		final List<VFXWindowFrames.Frame> table = new ArrayList<>();
-		if (m.frames().isPresent()) {
-			for (final AnimationFrame f : m.frames().get()) {
-				if (table.size() >= MAX_FRAMES) {
-					VFXLog.warnOnce(LOGGER, "window:frames:" + pngId, "window texture '{}' .mcmeta has more than {} frames; the rest are dropped", pngId, MAX_FRAMES);
-					break;
-				}
-				table.add(new VFXWindowFrames.Frame(f.index(), Math.max(1, f.timeOr(defaultMs) / 50)));
-			}
-		} else {
-			final int cols = Math.max(1, imageWidth / frameWidth);
-			final int rows = Math.max(1, imageHeight / frameHeight);
-			if (cols * rows > MAX_FRAMES) {
-				VFXLog.warnOnce(LOGGER, "window:frames:" + pngId, "window texture '{}' has more than {} frames; the rest are dropped", pngId, MAX_FRAMES);
-			}
-			final int total = Math.min(cols * rows, MAX_FRAMES);
-			for (int i = 0; i < total; i++) {
-				table.add(new VFXWindowFrames.Frame(i, Math.max(1, defaultMs / 50)));
-			}
-		}
-		if (table.isEmpty()) {
-			return VFXWindowFrames.still(pixels, imageWidth, imageHeight);
-		}
-		return VFXWindowFrames.animated(pixels, imageWidth, imageHeight, frameWidth, frameHeight, table);
+		return VFXWindowFrames.fromMetadata(meta.get(), imageWidth, imageHeight, this.requestedFrames, pngId.toString());
 	}
 
 	private static Identifier withPng(final Identifier id) {
