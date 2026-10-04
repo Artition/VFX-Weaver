@@ -169,7 +169,8 @@ public interface VFXLocalDispatcher {
 	 *
 	 * <p>No {@code NativeImage} in this signature on purpose: this interface is in the common
 	 * source set, which must not name a client-only class. The pixels are plain
-	 * {@code 0xAARRGGBB} ints in row-major order, row 0 at the bottom.</p>
+	 * {@code 0xAARRGGBB} ints in row-major order (row 0 is the top row), the same order and layout
+	 * {@code NativeImage.getPixels()} returns.</p>
 	 *
 	 * <p>The default is a no-op returning {@code false}, so a dispatcher compiled before images
 	 * existed keeps working.</p>
@@ -177,7 +178,7 @@ public interface VFXLocalDispatcher {
 	 * @param id     the resource id to serve the image under (same namespace rules as a texture id)
 	 * @param width  image width in pixels, at least 1
 	 * @param height image height in pixels, at least 1
-	 * @param argb   {@code width * height} ARGB pixels, row-major, row 0 at the bottom; ignored when
+	 * @param argb   {@code width * height} ARGB pixels, row-major, row 0 the top row; ignored when
 	 *               too short
 	 * @return {@code true} when the image was accepted (ready now or queued for the render thread)
 	 */

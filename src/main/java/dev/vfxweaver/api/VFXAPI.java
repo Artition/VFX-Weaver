@@ -324,7 +324,7 @@ public final class VFXAPI {
 	 * references this id exactly as it would reference a resource-pack texture.
 	 *
 	 * <p>The pixels are plain ARGB ints ({@code 0xAARRGGBB}, the order
-	 * {@code NativeImage.getPixels()} returns), row-major with row 0 at the bottom, and are copied:
+	 * {@code NativeImage.getPixels()} returns), row-major with row 0 the top row, and are copied:
 	 * the caller may reuse or free its array after the call. Registering an id again replaces the
 	 * previous image.</p>
 	 *
@@ -336,7 +336,7 @@ public final class VFXAPI {
 	 * @param id     the resource id to serve the image under
 	 * @param width  image width in pixels, at least 1
 	 * @param height image height in pixels, at least 1
-	 * @param argb   {@code width * height} ARGB pixels, row-major, row 0 at the bottom
+	 * @param argb   {@code width * height} ARGB pixels, row-major, row 0 the top row
 	 * @return {@code true} when the image was accepted
 	 */
 	public static boolean registerImage(final Identifier id, final int width, final int height, final int[] argb) {

@@ -55,7 +55,7 @@ public final class VFXImageRegistry {
 	 * @param id     the resource id to serve the image under
 	 * @param width  width in pixels; a value below 1 is rejected
 	 * @param height height in pixels; a value below 1 is rejected
-	 * @param argb   {@code width * height} ARGB pixels, row-major, row 0 at the bottom; a short
+	 * @param argb   {@code width * height} ARGB pixels, row-major, row 0 the top row; a short
 	 *               array is rejected
 	 * @return {@code true} when the image was stored and its texture registered
 	 */
@@ -74,7 +74,9 @@ public final class VFXImageRegistry {
 		final NativeImage nativeImage = new NativeImage(width, height, false);
 		for (int y = 0; y < height; y++) {
 			for (int x = 0; x < width; x++) {
-				nativeImage.setPixelABGR(x, y, copy[y * width + x]);
+				// setPixel takes ARGB (it converts to the image's ABGR storage itself); the caller's
+				// pixels are ARGB too, so the game texture shows the colours the caller authored.
+				nativeImage.setPixel(x, y, copy[y * width + x]);
 			}
 		}
 		final DynamicTexture texture = new DynamicTexture(() -> "vfxweaver/image/" + id, nativeImage);

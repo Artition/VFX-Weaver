@@ -434,7 +434,7 @@ preview, a generated texture — anywhere a packed texture is accepted, without 
 Register it under a resource id and reference that id exactly as a pack texture id:
 
 ```java
-// `argb` is width*height pixels, row-major, row 0 at the bottom, in 0xAARRGGBB order
+// `argb` is width*height pixels, row-major, row 0 the top row, in 0xAARRGGBB order
 // (the order NativeImage.getPixels() returns). The array is copied; reuse it after the call.
 VFXAPI.registerImage(Identifier.fromNamespaceAndPath("mymod", "held_icon"),
 	width, height, argb);
