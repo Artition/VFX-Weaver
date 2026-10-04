@@ -68,7 +68,9 @@ public final class VFXShaderPrograms {
 	 * fuse. {@code scalable}/{@code pixelParams}/{@code taps} are the chain-resolution policy: a
 	 * scalable pass may run inside a half-resolution chain run, the listed {@code Config} parameters
 	 * hold texel-unit values (so the manager divides their value by the chain scale) and {@code taps}
-	 * is the per-pass fetch count the run threshold sums.
+	 * is the per-pass fetch count the run threshold sums. {@code screenImage} marks the one pass
+	 * that samples a second, effect-owned texture (the {@code screen_image} picture), so the manager
+	 * binds that sampler and fills this pass's {@code Config} positionally.
 	 *
 	 * @param pipeline       the render pipeline this pass runs through
 	 * @param configParams   the ordered float parameter names of the {@code Config} block
@@ -84,8 +86,9 @@ public final class VFXShaderPrograms {
 	 * @param scalable       true when the pass may run inside a half-resolution chain run
 	 * @param pixelParams    the texel-unit parameter names whose value is divided by the chain scale
 	 * @param taps           the per-pass fetch count the chain-resolution run threshold sums
+	 * @param screenImage    true when the pass samples the {@code screen_image} picture sampler
 	 */
-	public record ProgramInfo(RenderPipeline pipeline, String[] configParams, int configUboSize, PassRole role, boolean usesDepth, @Nullable String fieldInput, boolean mask, boolean depthConfig, boolean depthHasCamPos, VFXFusionClass fusionClass, int prefixEvals, boolean scalable, Set<String> pixelParams, int taps) {
+	public record ProgramInfo(RenderPipeline pipeline, String[] configParams, int configUboSize, PassRole role, boolean usesDepth, @Nullable String fieldInput, boolean mask, boolean depthConfig, boolean depthHasCamPos, VFXFusionClass fusionClass, int prefixEvals, boolean scalable, Set<String> pixelParams, int taps, boolean screenImage) {
 		public ProgramInfo {
 			fusionClass = scalableClass(fusionClass, scalable);
 		}
@@ -95,20 +98,20 @@ public final class VFXShaderPrograms {
 		 * pixel parameters and no taps.
 		 */
 		public ProgramInfo(final RenderPipeline pipeline, final String[] configParams, final int configUboSize, final PassRole role, final boolean usesDepth, final @Nullable String fieldInput, final boolean mask, final boolean depthConfig, final boolean depthHasCamPos, final VFXFusionClass fusionClass, final int prefixEvals) {
-			this(pipeline, configParams, configUboSize, role, usesDepth, fieldInput, mask, depthConfig, depthHasCamPos, fusionClass, prefixEvals, false, Set.of(), 0);
+			this(pipeline, configParams, configUboSize, role, usesDepth, fieldInput, mask, depthConfig, depthHasCamPos, fusionClass, prefixEvals, false, Set.of(), 0, false);
 		}
 
 		/** The 8-component form for every depth pass whose Config has no {@code cam_pos} prefix. */
 		public ProgramInfo(final RenderPipeline pipeline, final String[] configParams, final int configUboSize, final PassRole role, final boolean usesDepth, final @Nullable String fieldInput, final boolean mask, final boolean depthConfig) {
-			this(pipeline, configParams, configUboSize, role, usesDepth, fieldInput, mask, depthConfig, false, VFXFusionClass.BARRIER, 1, false, Set.of(), 0);
+			this(pipeline, configParams, configUboSize, role, usesDepth, fieldInput, mask, depthConfig, false, VFXFusionClass.BARRIER, 1, false, Set.of(), 0, false);
 		}
 
 		public ProgramInfo(final RenderPipeline pipeline, final String[] configParams, final int configUboSize, final PassRole role) {
-			this(pipeline, configParams, configUboSize, role, false, null, false, false, false, VFXFusionClass.BARRIER, 1, false, Set.of(), 0);
+			this(pipeline, configParams, configUboSize, role, false, null, false, false, false, VFXFusionClass.BARRIER, 1, false, Set.of(), 0, false);
 		}
 
 		public ProgramInfo(final RenderPipeline pipeline, final String[] configParams, final int configUboSize) {
-			this(pipeline, configParams, configUboSize, PassRole.NORMAL, false, null, false, false, false, VFXFusionClass.BARRIER, 1, false, Set.of(), 0);
+			this(pipeline, configParams, configUboSize, PassRole.NORMAL, false, null, false, false, false, VFXFusionClass.BARRIER, 1, false, Set.of(), 0, false);
 		}
 
 		/**
@@ -174,6 +177,11 @@ public final class VFXShaderPrograms {
 	// surface_pattern.fsh's declaration (`PatternSampler`).
 	private static final BindGroupLayout PATTERN_SAMPLER_LAYOUT = BindGroupLayout.builder()
 		.withSampler("PatternSampler")
+		.build();
+	// The screen_image pass's picture (the effect's own texture). The sampler name must match
+	// screen_image.fsh's declaration (`ImageSampler`).
+	private static final BindGroupLayout IMAGE_SAMPLER_LAYOUT = BindGroupLayout.builder()
+		.withSampler("ImageSampler")
 		.build();
 	*///?}
 
@@ -260,6 +268,11 @@ public final class VFXShaderPrograms {
 		registerPost(VFXEffectType.SHOCKWAVE, "center_x", "center_y", "radius", "width", "amplitude", "sharpness");
 		registerFeedbackEffects();
 		registerPost(VFXEffectType.NOISE_WARP, "scale", "amplitude", "contrast", "coherence", "speed", "drift_x", "drift_y", "seed", "time");
+
+		// screen_image composites one picture over the frame, so it needs a second sampler next to the
+		// usual InSampler. Its Config is written by the manager from the running effect (rect, frame
+		// rect, opacity, resolved flag), so configParams stays empty and only the size is carried here.
+		registerScreenImagePost();
 
 		// surface_pattern reads scene depth and reconstructs a world position: it is the pass that
 		// needs the depth mechanism (spec §5, §9 step 5). Registered on every node — the shader
@@ -669,6 +682,41 @@ public final class VFXShaderPrograms {
 	}
 
 	/**
+	 * Registers the {@code screen_image} pass: a standard screen pass with one extra sampler
+	 * ({@code ImageSampler}, the effect's own picture) next to {@code InSampler}. Unlike every other
+	 * pass its {@code Config} carries no per-param names - the manager fills the block positionally
+	 * from the running effect, so only the size is registered here.
+	 *
+	 * <p><b>Contract</b> (AGENTS.md UBO field-order rule): the shader's {@code Config} block declares
+	 * {@code vec4 rect}, {@code vec4 frame_uv}, {@code float opacity}, {@code float flags} in that
+	 * order - ten floats, 40 bytes, {@code align16} to 48 - and every name here is in the
+	 * screen_image.fsh block and vice versa.</p>
+	 */
+	private static void registerScreenImagePost() {
+		final Identifier location = Identifier.fromNamespaceAndPath("vfxweaver", "post/screen_image");
+		final RenderPipeline pipeline = RenderPipeline.builder(RenderPipelines.POST_PROCESSING_SNIPPET)
+			.withLocation(location)
+			.withVertexShader("core/screenquad")
+			.withFragmentShader(location)
+			//? if <26.2 {
+			.withSampler("InSampler")
+			.withSampler("ImageSampler")
+			.withUniform("SamplerInfo", UniformType.UNIFORM_BUFFER)
+			.withUniform("Config", UniformType.UNIFORM_BUFFER)
+			//?} else {
+			/*.withBindGroupLayout(BindGroupLayouts.IN_SAMPLER)
+			.withBindGroupLayout(IMAGE_SAMPLER_LAYOUT)
+			.withBindGroupLayout(SAMPLER_INFO_CONFIG_LAYOUT)
+			*///?}
+			.build();
+		RenderPipelines.register(pipeline);
+		// Config: vec4 rect, vec4 frame_uv, float opacity, float flags = 10 floats (40 bytes -> 48).
+		PROGRAMS.put(VFXEffectType.SCREEN_IMAGE, List.of(new ProgramInfo(
+			pipeline, new String[0], align16(40), PassRole.NORMAL,
+			false, null, false, false, false, VFXFusionClass.BARRIER, 1, false, Set.of(), 0, true)));
+	}
+
+	/**
 	 * Builds the feedback pipelines: {@code afterimage} (update + composite) and
 	 * {@code stop_motion}. Each pass samples the live frame ({@code InSampler}) and the relevant
 	 * history target ({@code HistSampler}); the save/swap semantics live in
@@ -773,7 +821,7 @@ public final class VFXShaderPrograms {
 				.build();
 			RenderPipelines.register(pipeline);
 			String[] configParams = params.get(i);
-			programs.add(new ProgramInfo(pipeline, configParams, align16(configParams.length * 4), PassRole.NORMAL, false, null, false, false, false, VFXFusionClass.BARRIER, 1, scalable, pixelParams, taps));
+			programs.add(new ProgramInfo(pipeline, configParams, align16(configParams.length * 4), PassRole.NORMAL, false, null, false, false, false, VFXFusionClass.BARRIER, 1, scalable, pixelParams, taps, false));
 		}
 		PROGRAMS.put(type, List.copyOf(programs));
 	}

@@ -50,8 +50,9 @@ if (($constants -join ',') -ne ($expected -join ',')) {
 	$problems.Add("VFXFusionClass constants are '$($constants -join ',')', expected '$($expected -join ',')'")
 }
 
-# 2) the registry: the fusion pair sits before the resolution policy, which ends the record.
-if ($programs -notmatch 'VFXFusionClass fusionClass, int prefixEvals, boolean scalable, Set<String> pixelParams, int taps\)\s*\{') {
+# 2) the registry: the fusion pair sits before the resolution policy, which the record carries in that
+#    order (the screen_image flag was appended after it).
+if ($programs -notmatch 'VFXFusionClass fusionClass, int prefixEvals, boolean scalable, Set<String> pixelParams, int taps, boolean screenImage\)\s*\{') {
 	$problems.Add("ProgramInfo does not carry the fusion pair (VFXFusionClass fusionClass, int prefixEvals) before the resolution policy (scalable, pixelParams, taps)")
 }
 if ($programs -notmatch 'public record ProgramInfo\(RenderPipeline pipeline,') {
@@ -65,7 +66,7 @@ if ($delegations.Count -lt 3) {
 	$problems.Add("expected at least three delegating constructors, found $($delegations.Count)")
 }
 foreach ($d in $delegations) {
-	if ($d.Groups[1].Value -notmatch '(VFXFusionClass\.BARRIER, 1|prefixEvals), false, Set\.of\(\), 0$') {
+	if ($d.Groups[1].Value -notmatch '(VFXFusionClass\.BARRIER, 1|prefixEvals), false, Set\.of\(\), 0, false$') {
 		$problems.Add("a convenience constructor does not route BARRIER/1 (or prefixEvals) plus the resolution policy defaults: this($($d.Groups[1].Value))")
 	}
 }

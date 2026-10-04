@@ -327,11 +327,11 @@ public final class FusionPlannerCheck {
 	}
 
 	private static VFXShaderPrograms.ProgramInfo scalable(final int taps) {
-		return new VFXShaderPrograms.ProgramInfo(null, new String[0], 0, PassRole.NORMAL, false, null, false, false, false, VFXFusionClass.BARRIER, 1, true, Set.of(), taps);
+		return new VFXShaderPrograms.ProgramInfo(null, new String[0], 0, PassRole.NORMAL, false, null, false, false, false, VFXFusionClass.BARRIER, 1, true, Set.of(), taps, false);
 	}
 
 	private static VFXShaderPrograms.ProgramInfo plain(final int taps) {
-		return new VFXShaderPrograms.ProgramInfo(null, new String[0], 0, PassRole.NORMAL, false, null, false, false, false, VFXFusionClass.BARRIER, 1, false, Set.of(), taps);
+		return new VFXShaderPrograms.ProgramInfo(null, new String[0], 0, PassRole.NORMAL, false, null, false, false, false, VFXFusionClass.BARRIER, 1, false, Set.of(), taps, false);
 	}
 
 	private static void sequence(final List<StageRef> chain, final String want) {

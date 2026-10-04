@@ -1,10 +1,11 @@
 # Dev-only guard for the chain-resolution policy on the post program registry
 # (chain-resolution, Tasks 1 and 3).
 #
-# The contract: ProgramInfo carries the resolution policy as its last three components
-# (scalable/pixelParams/taps, after the fusion pair); a convenience constructor defaults them to
-# false/Set.of()/0, so existing registrations stay non-scalable; and a scalable program may never be
-# fusible (spec 3) - a violation is forced to a barrier, so the two mechanisms cannot disagree.
+# The contract: ProgramInfo carries the resolution policy as three components after the fusion pair
+# (scalable/pixelParams/taps; the screen_image flag was appended after them); a convenience
+# constructor defaults them to false/Set.of()/0, so existing registrations stay non-scalable; and a
+# scalable program may never be fusible (spec 3) - a violation is forced to a barrier, so the two
+# mechanisms cannot disagree.
 #
 # Task 3 adds: the scalable set is exactly the effect types that pass a scalable true (asserted by the
 # overload's `, true, Set.of(` argument shape, so widening the set means editing this list in the same
@@ -23,12 +24,13 @@ $blur = [System.IO.File]::ReadAllText((Join-Path $shadersDir "blur.fsh"))
 $bloom = [System.IO.File]::ReadAllText((Join-Path $shadersDir "bloom.fsh"))
 $dof = [System.IO.File]::ReadAllText((Join-Path $shadersDir "depth_of_field.fsh"))
 
-# the record ends with the three new components, in order, after the fusion pair
-if ($programs -notmatch 'VFXFusionClass fusionClass, int prefixEvals, boolean scalable, Set<String> pixelParams, int taps\)\s*\{') {
-	$problems.Add("ProgramInfo does not end with (scalable, pixelParams, taps)")
+# the record carries the three new components, in order, after the fusion pair (the screen_image flag
+# was appended after them)
+if ($programs -notmatch 'VFXFusionClass fusionClass, int prefixEvals, boolean scalable, Set<String> pixelParams, int taps, boolean screenImage\)\s*\{') {
+	$problems.Add("ProgramInfo does not carry (scalable, pixelParams, taps) after the fusion pair")
 }
 # a convenience constructor defaults them, so existing registrations stay non-scalable
-if ($programs -notmatch 'this\([^;]*VFXFusionClass\.BARRIER, 1, false, Set\.of\(\), 0\);') {
+if ($programs -notmatch 'this\([^;]*VFXFusionClass\.BARRIER, 1, false, Set\.of\(\), 0, false\);') {
 	$problems.Add("no convenience constructor defaults the resolution policy")
 }
 # a scalable program may never be fusible (spec 3)
@@ -71,7 +73,7 @@ if ($problems.Count -gt 0) {
 	Write-Error "chain-resolution registration check failed ($($problems.Count) problem(s))."
 	exit 1
 }
-Write-Host "  the resolution policy is the record's last three components, a convenience constructor defaults it, and a scalable program is forced to a barrier"
+Write-Host "  the resolution policy follows the fusion pair in the record, a convenience constructor defaults it, and a scalable program is forced to a barrier"
 Write-Host "  the scalable set is exactly blur/bloom/depth_of_field/vhs/digital_glitch, with the shader-backed taps and pixel parameters"
 Write-Host "Chain-resolution registration check OK."
 exit 0
