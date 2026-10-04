@@ -6,8 +6,12 @@ import dev.vfxweaver.util.VFXLog;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.ByteBuffer;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.resources.metadata.animation.AnimationFrame;
+import net.minecraft.client.resources.metadata.animation.AnimationMetadataSection;
 import net.minecraft.resources.Identifier;
 import net.minecraft.server.packs.resources.Resource;
 import org.lwjgl.glfw.GLFW;
@@ -29,20 +33,20 @@ import org.slf4j.LoggerFactory;
  * {@code columns * rows - 1} bottom-right. Only the addressing is reused - the game's texture lives
  * in its own backend, so the pixels are decoded here and uploaded into this window's context.
  *
- * <p><b>Sheet layout.</b> The {@code surface_pattern} ground-image source takes an explicit
- * {@code sheet: [columns, rows]} from the datapack, but this content's caller carries only a frame
- * count, so the sheet is a single horizontal strip: {@link #SHEET_ROWS} rows and {@code columns}
- * equal to the frame count. That is the one layout the given field supports; a multi-row sheet
- * would need a columns field this content deliberately does not invent.
+ * <p><b>Sheet layout.</b> The decoded picture is wrapped in a {@link VFXWindowFrames}: a caller
+ * image and a pack PNG without a {@code .mcmeta} are one horizontal strip of {@code frames}
+ * columns driven by {@code frame_time}, while a pack PNG with a sibling {@code .mcmeta} animates by
+ * the vanilla format (multi-row sheet, per-frame times). The frame to draw is picked from elapsed
+ * ticks, so this content never precomputes a frame index.
  *
  * <p><b>One upload per source.</b> {@link #load(Identifier, int)} and {@link #reload()} funnel
- * through one decode-and-upload path; {@link #drawFrame(int, float, float, float, float)} only
- * binds the uploaded texture and shifts its UV rect, so there is no per-frame readback or upload. A missing, undecodable or
- * too-small source leaves the last successfully uploaded frame in place and warns once - it never
- * throws.
+ * through one decode-and-upload path; {@link #drawFrame(long, float, float, float, float, float)}
+ * only binds the uploaded texture and shifts its UV rect, so there is no per-frame readback or
+ * upload. A missing, undecodable or too-small source leaves the last successfully uploaded frame in
+ * place and warns once - it never throws.
  *
- * <p><b>Placement.</b> {@link #drawFrame(int, float, float, float, float)} draws the picture into a
- * sub-rectangle of the canvas instead of filling it: the four values are normalized window
+ * <p><b>Placement.</b> {@link #drawFrame(long, float, float, float, float, float)} draws the picture
+ * into a sub-rectangle of the canvas instead of filling it: the four values are normalized window
  * coordinates in {@code [0, 1]} with the origin at the <b>bottom-left</b> ({@code x} from the left
  * edge, {@code y} from the bottom edge), which maps to NDC with {@code ndc = rect * 2 - 1}. The
  * caller (the controller) owns the work-area mapping and hands this method the already-mapped,
@@ -64,19 +68,13 @@ public final class VFXWindowContent {
 
 	private static final Logger LOGGER = LoggerFactory.getLogger("vfxweaver/window");
 
-	/**
-	 * The one row of the single-strip sheet layout: this content's caller carries only a frame count,
-	 * so the sheet is one horizontal strip of {@code frameCount} columns.
-	 */
-	private static final int SHEET_ROWS = 1;
-
 	private final VFXWindow window;
 	private Identifier sourceId;
 	private int requestedFrames;
-	private int frameCount;
-	private int columns;
-	private int rows;
+	private int frameWidth;
+	private int frameHeight;
 	private int texture;
+	private VFXWindowFrames sheet;
 
 	/**
 	 * Creates the content owner for one window. Must run on the render thread.
@@ -118,18 +116,22 @@ public final class VFXWindowContent {
 	}
 
 	/**
-	 * Draws one frame of the picture into a sub-rectangle of the canvas. The frame is wrapped into
-	 * the frame count, so any index is safe. Nothing is decoded or uploaded here - only the UV rect
-	 * and the quad's rectangle change. Must run on the render thread.
+	 * Draws one frame of the picture into a sub-rectangle of the canvas. The frame is picked from
+	 * the elapsed ticks (a {@code .mcmeta} animation walks its table, a plain strip advances every
+	 * {@code frameTime} ticks) and wrapped into the frame count, so any tick count is safe. Nothing
+	 * is decoded or uploaded here - only the UV rect and the quad's rectangle change. Must run on
+	 * the render thread.
 	 *
-	 * @param frameIndex the frame to draw; negative values wrap from the end
-	 * @param rectX      the rectangle's left edge, a normalized {@code [0, 1]} window coordinate
-	 * @param rectY      the rectangle's bottom edge, a normalized {@code [0, 1]} window coordinate
-	 *                   (the origin is the bottom-left of the canvas)
-	 * @param rectW      the rectangle's width, a normalized {@code [0, 1]} window coordinate
-	 * @param rectH      the rectangle's height, a normalized {@code [0, 1]} window coordinate
+	 * @param timeTicks elapsed ticks since the window opened, for a {@code .mcmeta} animation or a
+	 *                  {@code frame_time} strip
+	 * @param frameTime ticks per frame for a sheet without {@code .mcmeta}; {@code 0} holds frame 0
+	 * @param rectX     the rectangle's left edge, a normalized {@code [0, 1]} window coordinate
+	 * @param rectY     the rectangle's bottom edge, a normalized {@code [0, 1]} window coordinate
+	 *                  (the origin is the bottom-left of the canvas)
+	 * @param rectW     the rectangle's width, a normalized {@code [0, 1]} window coordinate
+	 * @param rectH     the rectangle's height, a normalized {@code [0, 1]} window coordinate
 	 */
-	public void drawFrame(final int frameIndex, final float rectX, final float rectY, final float rectW, final float rectH) {
+	public void drawFrame(final long timeTicks, final float frameTime, final float rectX, final float rectY, final float rectW, final float rectH) {
 		if (this.window.closed()) {
 			return;
 		}
@@ -138,30 +140,36 @@ public final class VFXWindowContent {
 		GLFW.glfwMakeContextCurrent(this.window.handle());
 		GL.setCapabilities(this.window.caps());
 		try {
-			drawCurrent(frameIndex, rectX, rectY, rectW, rectH);
+			drawCurrent(timeTicks, frameTime, rectX, rectY, rectW, rectH);
 		} finally {
 			GLFW.glfwMakeContextCurrent(previous);
 			GL.setCapabilities(previousCaps);
 		}
 	}
 
-	private void drawCurrent(final int frameIndex, final float rectX, final float rectY, final float rectW, final float rectH) {
+	private void drawCurrent(final long timeTicks, final float frameTime, final float rectX, final float rectY, final float rectW, final float rectH) {
 		final int[] width = new int[1];
 		final int[] height = new int[1];
 		GLFW.glfwGetFramebufferSize(this.window.handle(), width, height);
 		GL11.glViewport(0, 0, Math.max(1, width[0]), Math.max(1, height[0]));
 		GL11.glClearColor(0.0F, 0.0F, 0.0F, 0.0F);
 		GL11.glClear(GL11.GL_COLOR_BUFFER_BIT);
-		if (this.texture == 0 || this.frameCount <= 0 || this.columns <= 0 || this.rows <= 0 || rectW <= 0.0F || rectH <= 0.0F) {
+		if (this.texture == 0 || this.sheet == null || this.frameWidth <= 0 || this.frameHeight <= 0
+			|| rectW <= 0.0F || rectH <= 0.0F) {
 			return;
 		}
-		final int frame = Math.floorMod(frameIndex, this.frameCount);
-		final int column = frame % this.columns;
-		final int row = frame / this.columns;
-		final float u0 = (float) column / (float) this.columns;
-		final float v0 = (float) row / (float) this.rows;
-		final float u1 = (float) (column + 1) / (float) this.columns;
-		final float v1 = (float) (row + 1) / (float) this.rows;
+		final int columns = this.sheet.columns();
+		final int rows = this.sheet.rows();
+		final int frame = this.sheet.animated()
+			? this.sheet.frameAt(timeTicks)
+			: (frameTime > 0.0F ? (int) (timeTicks / frameTime) : 0);
+		final int wrapped = Math.floorMod(frame, this.sheet.frameCount());
+		final int column = wrapped % columns;
+		final int row = wrapped / columns;
+		final float u0 = (float) (column * this.frameWidth) / (float) this.sheet.imageWidth();
+		final float v0 = (float) (row * this.frameHeight) / (float) this.sheet.imageHeight();
+		final float u1 = (float) (column * this.frameWidth + this.frameWidth) / (float) this.sheet.imageWidth();
+		final float v1 = (float) (row * this.frameHeight + this.frameHeight) / (float) this.sheet.imageHeight();
 		// Fill the rect: the controller already sized it from size_w : size_h (the picture's own
 		// proportions in one common unit), so any stretch is deliberate and the monitor's aspect
 		// never distorts the shape.
@@ -215,11 +223,22 @@ public final class VFXWindowContent {
 				return;
 			}
 		}
-		final int frames = Math.max(1, this.requestedFrames);
-		final int columns = frames;
-		final int rows = SHEET_ROWS;
-		if (imageWidth <= 0 || imageHeight <= 0 || imageWidth < columns || imageHeight < rows) {
-			VFXLog.warnOnce(LOGGER, "window:texture:" + pngId, "window texture '{}' is too small for {} frame(s); keeping the last frame", pngId, frames);
+		final VFXWindowFrames sheet;
+		final Optional<Resource> resource = Minecraft.getInstance().getResourceManager().getResource(pngId);
+		if (registered != null) {
+			// A caller-supplied image has no .mcmeta: a still, or the strip hint if the caller split it.
+			sheet = this.requestedFrames > 1
+				? VFXWindowFrames.strip(pixels, imageWidth, imageHeight, this.requestedFrames)
+				: VFXWindowFrames.still(pixels, imageWidth, imageHeight);
+		} else {
+			sheet = this.readPack(pngId, pixels, imageWidth, imageHeight, resource);
+		}
+		if (sheet == null) {
+			return;
+		}
+		if (sheet.imageWidth() <= 0 || sheet.imageHeight() <= 0
+			|| sheet.frameWidth() <= 0 || sheet.frameHeight() <= 0) {
+			VFXLog.warnOnce(LOGGER, "window:texture:" + pngId, "window texture '{}' is too small; keeping the last frame", pngId);
 			return;
 		}
 		final ByteBuffer buffer = MemoryUtil.memAlloc(imageWidth * imageHeight * 4);
@@ -249,14 +268,62 @@ public final class VFXWindowContent {
 			GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_WRAP_S, GL12.GL_CLAMP_TO_EDGE);
 			GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_WRAP_T, GL12.GL_CLAMP_TO_EDGE);
 			GL11.glTexImage2D(GL11.GL_TEXTURE_2D, 0, GL11.GL_RGBA, imageWidth, imageHeight, 0, GL11.GL_RGBA, GL11.GL_UNSIGNED_BYTE, buffer);
-			this.frameCount = columns;
-			this.columns = columns;
-			this.rows = rows;
+			this.frameWidth = sheet.frameWidth();
+			this.frameHeight = sheet.frameHeight();
+			this.sheet = sheet;
 		} finally {
 			MemoryUtil.memFree(buffer);
 			GLFW.glfwMakeContextCurrent(previous);
 			GL.setCapabilities(previousCaps);
 		}
+	}
+
+	/**
+	 * Builds the frames for a pack texture: the vanilla {@code .mcmeta} sheet when the PNG has one,
+	 * otherwise the datapack horizontal strip of {@link #requestedFrames} columns.
+	 *
+	 * @param pngId       the resolved source id, for the warning key
+	 * @param pixels      the decoded image, ARGB
+	 * @param imageWidth  the image width in pixels
+	 * @param imageHeight the image height in pixels
+	 * @param resource    the resolved pack resource, present for a pack texture
+	 * @return the decoded frames, never {@code null}
+	 */
+	private VFXWindowFrames readPack(final Identifier pngId, final int[] pixels, final int imageWidth,
+		final int imageHeight, final Optional<Resource> resource) {
+		Optional<AnimationMetadataSection> meta = Optional.empty();
+		if (resource.isPresent()) {
+			try {
+				meta = resource.get().metadata().getSection(AnimationMetadataSection.TYPE);
+			} catch (final IOException e) {
+				VFXLog.warnOnce(LOGGER, "window:meta:" + pngId, "window texture '{}' .mcmeta could not be read ({}); treating it as a still", pngId, e.getMessage());
+			}
+		}
+		if (meta.isEmpty()) {
+			return this.requestedFrames > 1
+				? VFXWindowFrames.strip(pixels, imageWidth, imageHeight, this.requestedFrames)
+				: VFXWindowFrames.still(pixels, imageWidth, imageHeight);
+		}
+		final AnimationMetadataSection m = meta.get();
+		final int frameWidth = m.frameWidth().orElse(imageWidth);
+		final int frameHeight = m.frameHeight().orElse(frameWidth);
+		final int defaultMs = Math.max(1, m.defaultFrameTime());
+		final List<VFXWindowFrames.Frame> table = new ArrayList<>();
+		if (m.frames().isPresent()) {
+			for (final AnimationFrame f : m.frames().get()) {
+				table.add(new VFXWindowFrames.Frame(f.index(), Math.max(1, f.timeOr(defaultMs) / 50)));
+			}
+		} else {
+			final int cols = Math.max(1, imageWidth / Math.max(1, frameWidth));
+			final int rows = Math.max(1, imageHeight / Math.max(1, frameHeight));
+			for (int i = 0; i < cols * rows; i++) {
+				table.add(new VFXWindowFrames.Frame(i, Math.max(1, defaultMs / 50)));
+			}
+		}
+		if (table.isEmpty()) {
+			return VFXWindowFrames.still(pixels, imageWidth, imageHeight);
+		}
+		return VFXWindowFrames.animated(pixels, imageWidth, imageHeight, frameWidth, frameHeight, table);
 	}
 
 	private static Identifier withPng(final Identifier id) {
