@@ -1,6 +1,8 @@
 package dev.vfxweaver.client.window;
 
 import org.lwjgl.glfw.GLFW;
+import org.lwjgl.opengl.GL;
+import org.lwjgl.opengl.GLCapabilities;
 
 /**
  * One borderless, transparent, click-through canvas window with its own GL context.
@@ -25,10 +27,12 @@ import org.lwjgl.glfw.GLFW;
 public final class VFXWindow {
 
 	private final long handle;
+	private final GLCapabilities caps;
 	private boolean closed;
 
-	private VFXWindow(final long handle) {
+	private VFXWindow(final long handle, final GLCapabilities caps) {
 		this.handle = handle;
+		this.caps = caps;
 	}
 
 	/**
@@ -69,10 +73,17 @@ public final class VFXWindow {
 			GLFW.glfwSetWindowAttrib(handle, GLFW.GLFW_MOUSE_PASSTHROUGH, GLFW.GLFW_TRUE);
 		}
 		GLFW.glfwMakeContextCurrent(handle);
+		// LWJGL resolves every GL entry point per context: the game loaded them for its own
+		// context, and this window's fresh context has none until createCapabilities runs here.
+		// Without it the first GL11 call (e.g. glBegin in the draw) aborts the JVM with "No
+		// context is current". Keep the game's capabilities and restore them for its context.
+		final GLCapabilities previousCaps = GL.getCapabilities();
+		final GLCapabilities caps = GL.createCapabilities();
 		GLFW.glfwSwapInterval(0);
 		GLFW.glfwMakeContextCurrent(previous);
+		GL.setCapabilities(previousCaps);
 		GLFW.glfwShowWindow(handle);
-		return new VFXWindow(handle);
+		return new VFXWindow(handle, caps);
 	}
 
 	/**
@@ -82,6 +93,17 @@ public final class VFXWindow {
 	 */
 	public long handle() {
 		return this.handle;
+	}
+
+	/**
+	 * The LWJGL capabilities loaded for this window's own GL context. Every GL caller must set
+	 * these with {@link GL#setCapabilities} while this window's context is current (and restore the
+	 * previous ones after), because LWJGL resolves GL entry points per context.
+	 *
+	 * @return this window's GL capabilities, loaded in {@link #create}
+	 */
+	GLCapabilities caps() {
+		return this.caps;
 	}
 
 	/**

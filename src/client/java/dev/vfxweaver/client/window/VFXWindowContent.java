@@ -11,8 +11,10 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.resources.Identifier;
 import net.minecraft.server.packs.resources.Resource;
 import org.lwjgl.glfw.GLFW;
+import org.lwjgl.opengl.GL;
 import org.lwjgl.opengl.GL11;
 import org.lwjgl.opengl.GL12;
+import org.lwjgl.opengl.GLCapabilities;
 import org.lwjgl.system.MemoryUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -132,11 +134,14 @@ public final class VFXWindowContent {
 			return;
 		}
 		final long previous = GLFW.glfwGetCurrentContext();
+		final GLCapabilities previousCaps = GL.getCapabilities();
 		GLFW.glfwMakeContextCurrent(this.window.handle());
+		GL.setCapabilities(this.window.caps());
 		try {
 			drawCurrent(frameIndex, rectX, rectY, rectW, rectH);
 		} finally {
 			GLFW.glfwMakeContextCurrent(previous);
+			GL.setCapabilities(previousCaps);
 		}
 	}
 
@@ -216,7 +221,9 @@ public final class VFXWindowContent {
 		}
 		final ByteBuffer buffer = MemoryUtil.memAlloc(imageWidth * imageHeight * 4);
 		final long previous = GLFW.glfwGetCurrentContext();
+		final GLCapabilities previousCaps = GL.getCapabilities();
 		GLFW.glfwMakeContextCurrent(this.window.handle());
+		GL.setCapabilities(this.window.caps());
 		try {
 			for (final int pixel : pixels) {
 				final int alpha = (pixel >>> 24) & 0xFF;
@@ -242,6 +249,7 @@ public final class VFXWindowContent {
 		} finally {
 			MemoryUtil.memFree(buffer);
 			GLFW.glfwMakeContextCurrent(previous);
+			GL.setCapabilities(previousCaps);
 		}
 	}
 

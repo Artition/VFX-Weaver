@@ -88,6 +88,11 @@ if ($draw -eq $null) {
 	Assert-Contains $draw 'GLFW.glfwGetCurrentContext()' "drawFrame() does not save the previously current context (glfwGetCurrentContext)"
 	Assert-Contains $draw 'GLFW.glfwMakeContextCurrent(this.window.handle());' "drawFrame() does not make the window's own context current"
 	Assert-Contains $draw 'GLFW.glfwMakeContextCurrent(previous);' "drawFrame() does not restore the previously current context - the game's context would leak"
+	# LWJGL resolves GL entry points per context: the window's fresh context has none until its
+	# capabilities are set, and the game's must be restored after. Without the switch the first
+	# GL11 call (glBegin) aborts the JVM with "No context is current or a function ... not available".
+	Assert-Contains $draw 'GL.setCapabilities(this.window.caps());' "drawFrame() does not set the aux window's own GL capabilities (GL.setCapabilities)"
+	Assert-Contains $draw 'GL.setCapabilities(previousCaps);' "drawFrame() does not restore the previous GL capabilities"
 }
 
 # 3) the selected frame is addressed row-major and mapped to a UV rect (the surface_pattern math).
@@ -155,6 +160,8 @@ if ($upload -eq $null) {
 	Assert-Contains $upload 'GLFW.glfwGetCurrentContext()' "uploadSource() does not save the previously current context"
 	Assert-Contains $upload 'GLFW.glfwMakeContextCurrent(this.window.handle());' "uploadSource() does not make the window's own context current"
 	Assert-Contains $upload 'GLFW.glfwMakeContextCurrent(previous);' "uploadSource() does not restore the previously current context"
+	Assert-Contains $upload 'GL.setCapabilities(this.window.caps());' "uploadSource() does not set the aux window's own GL capabilities (GL.setCapabilities)"
+	Assert-Contains $upload 'GL.setCapabilities(previousCaps);' "uploadSource() does not restore the previous GL capabilities"
 	# missing/short source: refused, keeping the last frame instead of crashing.
 	Assert-Contains $upload 'resource.isEmpty()' "uploadSource() does not handle a missing resource (resource.isEmpty()) without crashing"
 	Assert-Contains $upload 'imageWidth < columns' "uploadSource() does not refuse an image too small for its frame count (imageWidth < columns)"

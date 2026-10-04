@@ -133,6 +133,12 @@ if ($create -eq $null) {
 		Assert-Contains $create $literal "create() does not save/restore the GL context: $literal"
 	}
 	Assert-Contains $create 'GLFW.glfwSwapInterval(0);' "create() does not set glfwSwapInterval(0) on the aux context - a foreign vsync can halve the game's FPS"
+	# LWJGL resolves GL entry points per context: the game loaded them for its own context and this
+	# fresh one has none until createCapabilities runs. Without it the first GL11 call aborts the JVM
+	# ("No context is current or a function that is not available"); the game's caps are restored.
+	Assert-Contains $create 'GL.createCapabilities()' "create() does not load the aux context's GL capabilities (GL.createCapabilities) - every GL call would abort"
+	Assert-Contains $create 'GLCapabilities' "create() does not keep the aux context's GLCapabilities for the GL callers"
+	Assert-Contains $create 'GL.setCapabilities(previousCaps);' "create() does not restore the game's GL capabilities after loading the aux ones"
 }
 
 # 8) the accessors the later tasks consume.
