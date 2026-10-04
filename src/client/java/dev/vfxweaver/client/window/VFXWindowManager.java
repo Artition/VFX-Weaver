@@ -28,19 +28,26 @@ import org.lwjgl.glfw.GLFW;
  * every active {@code window_create} that is not fading out (a stopped creator must not reopen its
  * window) and whose definition carries a {@link VFXWindowSpec} it opens the registry window under
  * the spec's {@code id} (pinned to the game window's monitor work area, titled by the animated
- * {@code title_index} and loaded with the spec's texture/{@code frames}); it then closes every window
+ * {@code title_index} and loaded with the spec's texture/{@code frames}), or binds the reserved id to a {@link VFXGameWindow}; it then closes every window
  * whose creating effect is no longer active and reaps the stopped entries through
  * {@link VFXWindowRegistry#prune()}. Because it reconciles against the live set, every removal path
  * (stop, fade-out expiry, {@code stopAll}, a replay seek) closes the window without each path having
  * to know about windows.
  *
- * <p><b>Per-frame drive.</b> {@link #apply()} is called once per frame after the game's own present
+* <p><b>Per-frame drive.</b> {@link #apply()} is called once per frame after the game's own present
  * (see {@code MinecraftMixin}). For each bound window it walks the live {@code window_create} and
  * {@code window_control} effects for that name in active order (the creator first, then each control
  * last-writer-wins), reads the animated {@code pos_x}/{@code pos_y}/{@code size_w}/{@code size_h}/
  * {@code opacity}/frame values with {@link VFXActiveEffect#getParam(String, float)} and hands them to
- * the window's {@link VFXWindowController#apply}. It returns immediately when no window is bound, so a
+ * the window's {@link VFXWindowController#apply. It returns immediately when no window is bound, so a
  * session with no window effect leaves the game frame untouched.
+ *
+ * <p><b>The reserved id {@code "0"}.</b> A window effect whose id is {@link #GAME_WINDOW_ID} does not
+ * open an aux window: the binding is a {@link VFXGameWindow}, which drives the Minecraft game window's
+ * own rect instead of a picture inside a canvas, and the registry is never asked to open or close that
+ * name. Only an effect that actually declares one of the four geometry params (in its definition or as
+ * a live override) drives it, so a title-only id-0 effect leaves the window alone. Dropping the binding
+ * moves nothing - the game window stays where the effect left it.
  *
  * <p><b>Render thread only.</b> Opening and closing call GLFW, and {@link #apply()} reaches GLFW/GL
  * through the controller, so every method here must run on the render thread; GLFW is not thread-safe
@@ -48,6 +55,15 @@ import org.lwjgl.glfw.GLFW;
  * never shared across threads.
  */
 public final class VFXWindowManager {
+
+	/**
+	 * The reserved window name: {@code window_create} / {@code window_control} with this id drive the
+	 * Minecraft game window itself through {@link VFXGameWindow} instead of opening an aux window.
+	 */
+	public static final String GAME_WINDOW_ID = "0";
+
+	/** The geometry params that opt an id-0 effect into driving the game window. */
+	private static final List<String> GEOMETRY_PARAMS = List.of("pos_x", "pos_y", "size_w", "size_h");
 
 	private static final VFXWindowManager INSTANCE = new VFXWindowManager();
 
@@ -92,7 +108,9 @@ public final class VFXWindowManager {
 		while (iterator.hasNext()) {
 			final String name = iterator.next().getKey();
 			if (!owners.containsKey(name)) {
-				VFXWindowRegistry.get().close(name);
+				if (!GAME_WINDOW_ID.equals(name)) {
+					VFXWindowRegistry.get().close(name);
+				}
 				iterator.remove();
 			}
 		}
@@ -102,6 +120,10 @@ public final class VFXWindowManager {
 	private void open(final String name, final VFXActiveEffect effect) {
 		final VFXWindowSpec spec = spec(effect.getId());
 		if (spec == null) {
+			return;
+		}
+		if (GAME_WINDOW_ID.equals(name)) {
+			this.bindings.put(name, new Binding(null, null, null, VFXGameWindow.capture(), null));
 			return;
 		}
 		final int[] area = workArea();
@@ -115,7 +137,7 @@ public final class VFXWindowManager {
 			content.load(spec.texture(), Math.max(1, (int) effect.getParam("frames", 1.0F)));
 		}
 		final VFXWindowController controller = new VFXWindowController(content);
-		this.bindings.put(name, new Binding(window, content, controller, title));
+		this.bindings.put(name, new Binding(window, content, controller, null, title));
 	}
 
 	/**
@@ -123,7 +145,9 @@ public final class VFXWindowManager {
 	 * (closing a window whose creator stopped, world exit included), then reads the live
 	 * creator/controller parameters
 	 * (creator first, each control last-writer-wins) and applies them through the window's
-	 * controller, then retitles the window when the animated title changed. A no-op when no window is
+	 * controller, then retitles the window when the animated title changed. The reserved
+	 * {@link #GAME_WINDOW_ID} instead hands the geometry to the binding's {@link VFXGameWindow}, and
+	 * only when one of the driving effects declares a geometry. A no-op when no window is
 	 * bound. Must run on the render thread and after the game's own present.
 	 */
 	public void apply() {
@@ -141,6 +165,7 @@ public final class VFXWindowManager {
 			float sizeH = 1.0F;
 			float opacity = 1.0F;
 			int frame = 0;
+			boolean geometry = false;
 			@Nullable String title = binding.title();
 			for (final VFXActiveEffect effect : active) {
 				if (effect.getType() != VFXEffectType.WINDOW_CREATE && effect.getType() != VFXEffectType.WINDOW_CONTROL) {
@@ -150,6 +175,7 @@ public final class VFXWindowManager {
 				if (spec == null || !spec.id().equals(name)) {
 					continue;
 				}
+				geometry |= declaresGeometry(effect);
 				posX = effect.getParam("pos_x", posX);
 				posY = effect.getParam("pos_y", posY);
 				sizeW = effect.getParam("size_w", sizeW);
@@ -162,9 +188,15 @@ public final class VFXWindowManager {
 					title = effectTitle;
 				}
 			}
+			if (GAME_WINDOW_ID.equals(name)) {
+				if (geometry && binding.gameWindow() != null) {
+					binding.gameWindow().apply(posX, posY, sizeW, sizeH);
+				}
+				continue;
+			}
 			if (!Objects.equals(title, binding.title())) {
 				binding.window().setTitle(title);
-				entry.setValue(new Binding(binding.window(), binding.content(), binding.controller(), title));
+				entry.setValue(new Binding(binding.window(), binding.content(), binding.controller(), null, title));
 			}
 			binding.controller().apply(binding.window(), posX, posY, sizeW, sizeH, opacity, frame);
 		}
@@ -172,14 +204,35 @@ public final class VFXWindowManager {
 
 	/**
 	 * Closes and drops every bound window and reaps the stopped registry entries, run on a client
-	 * dispose so no aux window or texture outlives the game session. Must run on the render thread.
+	 * dispose so no aux window or texture outlives the game session. The reserved
+	 * {@link #GAME_WINDOW_ID} owns no OS window, so it is only dropped. Must run on the render thread.
 	 */
 	public void closeAll() {
 		for (final String name : this.bindings.keySet()) {
+			if (GAME_WINDOW_ID.equals(name)) {
+				continue;
+			}
 			VFXWindowRegistry.get().close(name);
 		}
 		this.bindings.clear();
 		VFXWindowRegistry.get().prune();
+	}
+
+	/**
+	 * Whether the effect declares or live-overrides one of the four geometry params, which is what opts
+	 * an id-0 effect into moving the game window: an effect that only renames or fades something has
+	 * no business resizing the player's window.
+	 *
+	 * @param effect the driving {@code window_create} or {@code window_control}
+	 * @return true when any of {@code pos_x}/{@code pos_y}/{@code size_w}/{@code size_h} is present
+	 */
+	private static boolean declaresGeometry(final VFXActiveEffect effect) {
+		for (final String param : GEOMETRY_PARAMS) {
+			if (effect.getTimeline().getValues().containsKey(param) || effect.getTimeline().getOverrideNames().contains(param)) {
+				return true;
+			}
+		}
+		return false;
 	}
 
 	private static @Nullable VFXWindowSpec spec(final Identifier id) {
@@ -215,8 +268,10 @@ public final class VFXWindowManager {
 
 	/**
 	 * One window's wiring: the window (owned by the registry), its picture content and its
-	 * controller, plus the last title set so a steady frame makes no retitle call.
+	 * controller, plus the last title set so a steady frame makes no retitle call. For the reserved
+	 * {@link #GAME_WINDOW_ID} the aux trio is {@code null} and {@code gameWindow} drives the Minecraft
+	 * window instead - a binding is either one or the other, never both.
 	 */
-	private record Binding(VFXWindow window, VFXWindowContent content, VFXWindowController controller, @Nullable String title) {
+	private record Binding(@Nullable VFXWindow window, @Nullable VFXWindowContent content, @Nullable VFXWindowController controller, @Nullable VFXGameWindow gameWindow, @Nullable String title) {
 	}
 }

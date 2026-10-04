@@ -3,7 +3,8 @@
 Two effects that open and drive **separate OS windows**: `window_create` opens a named picture
 window and holds it for its own lifetime, `window_control` moves, animates and retitles that window
 by name. They are not post-processing passes and not world geometry - nothing about the Minecraft
-window changes.
+window changes unless the window `id` is the reserved `"0"`, which drives the Minecraft window itself
+(see [the reserved id](#the-reserved-id-0-the-minecraft-window-itself) below).
 
 `type: "window_create"` / `type: "window_control"`
 
@@ -48,7 +49,7 @@ path.
 
 | Field | Type | Default | Meaning |
 |---|---|---|---|
-| `id` | string | — (required) | The window's name - the key `window_control` addresses it by. Non-blank; anything may be used (`"hud"`, `"vfx:hud"`) |
+| `id` | string | — (required) | The window's name - the key `window_control` addresses it by. Non-blank; anything may be used (`"hud"`, `"vfx:hud"`) except the reserved `"0"`, which drives the Minecraft window |
 | `texture` | string | — | Resource id of the PNG to show (`"vfx_demos:window/pic"`), resolved from the client's resource manager, so a resource pack can supply it. A missing `.png` suffix is added. Omit it for a window with no picture (only a title) |
 | `titles` | array of strings | `[]` | Candidate OS titles; `title_index` picks one. At most 64, every entry a string |
 
@@ -100,6 +101,63 @@ Notes on the numbers, because the defaults are not the intuitive ones:
   writer wins - so a control can be layered on a creator's geometry without either erroring.
 - **At most 8 windows at once.** A ninth is dropped with a one-time warning; existing windows are
   never evicted to make room.
+
+## The reserved id `"0"`: the Minecraft window itself
+
+The id **`"0"` is reserved**. A `window_create` or `window_control` with that id does **not** open a
+picture window: it drives the **Minecraft game window itself** - its size and its position on the
+screen. Everything else in this page still applies to every other id, unchanged.
+
+```json
+{
+	"type": "window_create",
+	"id": "0",
+	"persistent": true,
+	"params": {
+		"pos_x": 0.5,
+		"pos_y": 0.05,
+		"size_w": { "start": 1.0, "end": 0.5 },
+		"size_h": { "start": 1.0, "end": 0.5 }
+	}
+}
+```
+
+```
+/vfx play vfx_demos:window_game_shrink
+```
+
+### What is different for id `"0"`
+
+- **The geometry is the window's own rect, not a picture inside a canvas.** `size_w`/`size_h` are
+  0..1 of the monitor work area and `pos_x`/`pos_y` are 0..1 of the free work-area space, the same
+  free-space formula as above - but the result is the game window's size and position, followed every
+  frame. `size = 1` is therefore a maximized-looking window filling the work area, and
+  `pos_x: 0.5, size_w: 0.5` is the top-left quarter of the screen.
+- **The work area is pinned when the `window_create` starts**, exactly like an aux canvas: it is the
+  work area of the monitor the game window was on at that moment. Replay the effect to re-pin it.
+- **Only an effect that declares a geometry moves the window.** If neither the `window_create` nor any
+  live `window_control` for `"0"` mentions `pos_x`/`pos_y`/`size_w`/`size_h` (in the definition or
+  through a live `/vfx set`), the window is left completely alone - a `"0"` effect that only renames
+  or fades something is a no-op on the window.
+- **Fullscreen is left first.** While the game window is in exclusive fullscreen, an id-`"0"` effect
+  that declares a geometry switches it back to windowed at the requested size (through Minecraft's own
+  fullscreen path, so the game's own F11 state stays correct) and then moves it.
+- **The window stays an ordinary Minecraft window.** No frame is removed, it is not made click-through,
+  transparent, always-on-top, resizable-disabled or undecorated: it is the normal window you play in.
+  There is no picture, no OS title and no opacity for `"0"` - `texture`, `titles`, `frames`,
+  `frame_time`, `title_index` and `opacity` are ignored, because the game window has no picture surface
+  to draw into and its title and decorations are yours.
+- **Stopping leaves it where it is.** When the driving effect stops, expires, the world is left or the
+  game quits, the window is **not** moved or resized back: it stays at the size and position the effect
+  left it, and you can move or resize it yourself. (A jump back to the pre-effect rect would read as a
+  bug, and the mod has no idea what you had before the effect started.)
+- **Never 0x0.** The size is clamped up to at least 320x240 and down into the work area, so an
+  over-small or negative `size_*` still leaves a window the game can render into.
+- **On Wayland** the compositor owns window placement, so the position is best-effort there too.
+
+> The geometry is driven from the render thread after the game's own present, once per frame, and only
+> the position is changed when it actually differs - so an idle id-`"0"` effect costs two integer reads
+> per frame and no OS call at all.
 
 ## Two things that are quirks, not bugs
 
@@ -184,11 +242,12 @@ Author both effects in **your own** namespace (`vfx_demos:` above) - a pack that
 ## Code
 
 The window subsystem is `dev.vfxweaver.client.window` (canvas window, picture content, controller,
-registry, lifecycle manager and the per-node platform gate). It is asserted by
+registry, lifecycle manager, the game-window driver for the reserved id and the per-node platform
+gate). It is asserted by
 `scripts/check-window-platform.ps1`, `check-window-canvas.ps1`, `check-window-content.ps1`,
-`check-window-registry.ps1`, `check-window-control.ps1`, `check-window-fields.ps1` and
-`check-window-lifecycle.ps1`. **Not verified in game** - the owner tests the pixels, the passthrough
-and the focus behaviour.
+`check-window-registry.ps1`, `check-window-control.ps1`, `check-window-fields.ps1`,
+`check-window-lifecycle.ps1` and `check-game-window.ps1`. **Not verified in game** - the owner tests
+the pixels, the passthrough, the focus behaviour and the game-window geometry.
 
 ## See also
 
