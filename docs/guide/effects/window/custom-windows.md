@@ -61,8 +61,8 @@ the `/vfx play` param-map and live `setParam`:
 |---|---|---|---|
 | `pos_x` | float | 0 | Left edge, 0..1 of the **free** work-area space (see below) |
 | `pos_y` | float | 0 | Top edge, 0..1 of the free work-area space |
-| `size_w` | float | 1 | Picture width, 0..1 of the work area |
-| `size_h` | float | 1 | Picture height, 0..1 of the work area |
+| `size_w` | float | 1 | Picture width, 0..1 of the smaller work-area side. `size_w : size_h` are the **picture's own proportions**, not fractions of the monitor's axes (see below) |
+| `size_h` | float | 1 | Picture height, 0..1 of the smaller work-area side |
 | `opacity` | float | 1 | OS window opacity, 0..1 - animate it for a fade |
 | `frames` | float | 1 | How many frames the picture is split into, at least 1. Read **once, when the window opens**; `1` = a still image |
 | `frame_time` | float | 0 | Ticks per frame. `0` (the default) means no stepping - the picture holds frame 0 |
@@ -75,11 +75,12 @@ Notes on the numbers, because the defaults are not the intuitive ones:
   `pos_x: 1` puts the picture flush against the right edge whatever its width, and `pos_x: 0.5`
   centres it. `pos_*` and `size_*` are clamped into `0..1`, so an overshooting keyframe cannot push
   the picture off the canvas.
-- **The picture keeps its own aspect ratio.** `size_w`/`size_h` are a bounding box, not a stretch:
-  the picture is fitted (contained) inside that box at its own pixel aspect and centred, so a square
-  icon stays square on a 16:9 monitor and nothing is ever stretched. A caller that wants a specific
-  on-screen size therefore only needs one dimension to be exact; the other follows the picture (and
-  the sheet cell, when `frames` splits a strip).
+- **`size_w : size_h` are the picture's own proportions, not the monitor's.** Both values are taken
+  in one common unit (the smaller work-area side), so `size_w == size_h` is a square on any screen and
+  a deliberate difference stretches the picture - the monitor's aspect never distorts the shape. The
+  picture fills that box (there is no aspect fit of the source), so `size_w:size_h` is exactly the
+  on-screen width:height and you can animate a stretch by driving the two out of step. `size_h = 1`
+  is as tall as the smaller screen dimension; the values are clamped into `0..1`.
 - **`frames` splits the image into a horizontal strip.** The sheet is read row-major with frame 0
   top-left, which for a strip means the image is split into `frames` equal columns left to right. The
   PNG must therefore be at least `frames` pixels wide; a narrower one is refused with a one-time

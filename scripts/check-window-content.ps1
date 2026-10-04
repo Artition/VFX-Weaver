@@ -113,17 +113,15 @@ if ($current -eq $null) {
 		'(float) (row + 1) / (float) this.rows')) {
 		Assert-Contains $current $literal "drawCurrent() is missing the addressing literal: $literal"
 	}
-	# the requested normalized rect (bottom-left origin) is fitted to the picture's own pixel aspect
-	# (so it never stretches on a non-square monitor) and mapped to NDC with rect * 2 - 1.
+	# the requested normalized rect (bottom-left origin) is filled into NDC with rect * 2 - 1; the
+	# controller already sized the rect from size_w:size_h (the picture's own proportions).
 	foreach ($literal in @(
 		'rectW <= 0.0F',
 		'rectH <= 0.0F',
-		'cellW <= 0.0F || cellH <= 0.0F ? 1.0F : cellW / cellH',
-		'rectX + (rectW - fitW) * 0.5F',
-		'drawX * 2.0F - 1.0F',
-		'(drawX + fitW) * 2.0F - 1.0F',
-		'drawY * 2.0F - 1.0F',
-		'(drawY + fitH) * 2.0F - 1.0F',
+		'rectX * 2.0F - 1.0F',
+		'(rectX + rectW) * 2.0F - 1.0F',
+		'rectY * 2.0F - 1.0F',
+		'(rectY + rectH) * 2.0F - 1.0F',
 		'GL11.glVertex2f(left, bottom);',
 		'GL11.glVertex2f(right, bottom);',
 		'GL11.glVertex2f(right, top);',

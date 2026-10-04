@@ -96,8 +96,9 @@ if ($apply -eq $null) {
 	Assert-Contains $apply 'GLFW.glfwGetWindowSize(w.handle(), waW, waH);' "apply() does not read the canvas work-area size (glfwGetWindowSize)"
 	Assert-Contains $apply 'final float rectW = clampUnit(sizeW);' "apply() does not clamp the picture width into [0, 1]"
 	Assert-Contains $apply 'final float rectH = clampUnit(sizeH);' "apply() does not clamp the picture height into [0, 1]"
-	Assert-Contains $apply 'final float picW = rectW * waW[0];' "apply() does not scale the picture width by the work area"
-	Assert-Contains $apply 'final float picH = rectH * waH[0];' "apply() does not scale the picture height by the work area"
+	Assert-Contains $apply 'final float base = Math.max(1.0F, Math.min(waW[0], waH[0]));' "apply() does not size both axes in one common unit (the smaller work-area side) - size_w:size_h must be the picture's own proportions, not fractions of the monitor's axes"
+	Assert-Contains $apply 'final float picW = rectW * base;' "apply() does not scale the picture width by the common base"
+	Assert-Contains $apply 'final float picH = rectH * base;' "apply() does not scale the picture height by the common base"
 	Assert-Contains $apply 'waX[0] + clampUnit(posX) * Math.max(0.0F, waW[0] - picW)' "apply() is missing the clamped free-space x mapping (waX + clampUnit(posX) * max(0, waW - picW))"
 	Assert-Contains $apply 'waY[0] + clampUnit(posY) * Math.max(0.0F, waH[0] - picH)' "apply() is missing the clamped free-space y mapping (waY + clampUnit(posY) * max(0, waH - picH))"
 

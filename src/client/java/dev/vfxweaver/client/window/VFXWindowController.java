@@ -83,8 +83,13 @@ public final class VFXWindowController {
 		GLFW.glfwGetWindowSize(w.handle(), waW, waH);
 		final float rectW = clampUnit(sizeW);
 		final float rectH = clampUnit(sizeH);
-		final float picW = rectW * waW[0];
-		final float picH = rectH * waH[0];
+		// size_w : size_h are the picture's OWN proportions, not fractions of the monitor's axes:
+		// both are taken in one common unit (the smaller work-area side), so size_w == size_h is a
+		// square on any screen and a deliberate difference is a stretch - the monitor's aspect never
+		// distorts the shape. Fill draws the picture into this pixel box (no aspect fit).
+		final float base = Math.max(1.0F, Math.min(waW[0], waH[0]));
+		final float picW = rectW * base;
+		final float picH = rectH * base;
 		final float picX = waX[0] + clampUnit(posX) * Math.max(0.0F, waW[0] - picW);
 		final float picY = waY[0] + clampUnit(posY) * Math.max(0.0F, waH[0] - picH);
 		final float rectX = (picX - waX[0]) / (float) waW[0];
