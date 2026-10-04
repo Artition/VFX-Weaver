@@ -15,7 +15,9 @@ import java.util.Objects;
 import net.minecraft.client.Minecraft;
 import net.minecraft.resources.Identifier;
 import org.jspecify.annotations.Nullable;
+import org.lwjgl.PointerBuffer;
 import org.lwjgl.glfw.GLFW;
+import org.lwjgl.glfw.GLFWVidMode;
 
 /**
  * The lifecycle bridge between the aux-window effects and the registry/controller: it owns the
@@ -241,9 +243,13 @@ public final class VFXWindowManager {
 	}
 
 	/**
-	 * The pinned monitor work area, read from the game window's own monitor. Falls back to the game
-	 * window's logical rect when the window has no monitor (or the platform reports none), so the
-	 * canvas is never 0x0. Reads the game window; it never mutates it.
+	 * The work area of the monitor the game window is on, so an aux canvas covers that whole screen
+	 * and not just the game window. {@code glfwGetWindowMonitor} only reports a monitor for a
+	 * fullscreen window - for a windowed one it returns 0 - so the monitor is then found from the
+	 * window's centre; only if no monitor is found at all does it fall back to the game window's
+	 * logical rect (never 0x0). This matters because the {@code "0"} effect can shrink the game
+	 * window: sizing the canvas from the game window would shrink the canvas with it and cap how far
+	 * a picture can travel. Reads the game window; it never mutates it.
 	 *
 	 * @return the work area as {@code [x, y, width, height]}
 	 */
@@ -253,7 +259,12 @@ public final class VFXWindowManager {
 		final int[] y = new int[1];
 		final int[] width = new int[1];
 		final int[] height = new int[1];
-		final long monitor = GLFW.glfwGetWindowMonitor(gameWindow.handle());
+		long monitor = GLFW.glfwGetWindowMonitor(gameWindow.handle());
+		if (monitor == 0L) {
+			monitor = monitorAt(
+				gameWindow.getX() + Math.max(1, gameWindow.getScreenWidth()) / 2,
+				gameWindow.getY() + Math.max(1, gameWindow.getScreenHeight()) / 2);
+		}
 		if (monitor != 0L) {
 			GLFW.glfwGetMonitorWorkarea(monitor, x, y, width, height);
 		}
@@ -264,6 +275,33 @@ public final class VFXWindowManager {
 			height[0] = Math.max(1, gameWindow.getScreenHeight());
 		}
 		return new int[]{x[0], y[0], width[0], height[0]};
+	}
+
+	/**
+	 * The monitor whose full-screen rect contains the given point, or the primary monitor when none
+	 * does. GLFW owns the returned monitor array, so it is read and not freed.
+	 *
+	 * @param px point x in virtual-screen coordinates
+	 * @param py point y in virtual-screen coordinates
+	 * @return a monitor handle, never 0 on a normal desktop
+	 */
+	private static long monitorAt(final int px, final int py) {
+		final PointerBuffer monitors = GLFW.glfwGetMonitors();
+		if (monitors != null) {
+			for (int i = 0; i < monitors.limit(); i++) {
+				final long candidate = monitors.get(i);
+				final int[] mx = new int[1];
+				final int[] my = new int[1];
+				GLFW.glfwGetMonitorPos(candidate, mx, my);
+				final GLFWVidMode mode = GLFW.glfwGetVideoMode(candidate);
+				if (mode != null
+					&& px >= mx[0] && px < mx[0] + mode.width()
+					&& py >= my[0] && py < my[0] + mode.height()) {
+					return candidate;
+				}
+			}
+		}
+		return GLFW.glfwGetPrimaryMonitor();
 	}
 
 	/**

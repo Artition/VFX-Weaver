@@ -86,6 +86,17 @@ if ($manager -notmatch 'public void closeAll\(\) \{') {
 	$problems.Add("VFXWindowManager is missing 'public void closeAll()'")
 }
 
+# 0b) the canvas is sized to the monitor's work area, not the game window: glfwGetWindowMonitor
+#     only reports a monitor for a fullscreen window (0 when windowed), so a windowed game would
+#     otherwise fall back to the game window's rect - and the "0" effect shrinks that window, which
+#     would shrink the canvas with it and cap how far a picture can travel.
+if ($manager -notmatch 'monitorAt\(') {
+	$problems.Add("VFXWindowManager does not resolve the monitor by position (monitorAt) - a windowed game would size the canvas from the game window, so a shrunk window caps the picture")
+}
+if ($manager -notmatch 'GLFW\.glfwGetMonitors\(\)') {
+	$problems.Add("VFXWindowManager.monitorAt does not iterate GLFW.glfwGetMonitors() to find the window's monitor in windowed mode")
+}
+
 # 1) no raw swap/context/create/close in the wiring: the registry owns open/close and the window
 #    owns present, so the wiring only reads the monitor work area through GLFW.
 foreach ($forbidden in @('glfwSwapBuffers', 'glfwMakeContextCurrent', 'glfwCreateWindow', 'glfwDestroyWindow', 'glfwSwapInterval', 'glfwFocusWindow')) {
