@@ -429,6 +429,25 @@ the `particles` block and item mode in the [effects guide](guide/effects/world/p
 client dispatcher). A spark preset is a `vfx_particles` file with `"kind": "spark"`; see the
 [Spark presets](guide/datapack/sparks.md) page.
 
+**Caller-supplied images.** A mod can show an image it renders itself — an item icon, a live
+preview, a generated texture — anywhere a packed texture is accepted, without shipping a `.png`.
+Register it under a resource id and reference that id exactly as a pack texture id:
+
+```java
+// `argb` is width*height pixels, row-major, row 0 at the bottom, in 0xAARRGGBB order
+// (the order NativeImage.getPixels() returns). The array is copied; reuse it after the call.
+VFXAPI.registerImage(Identifier.fromNamespaceAndPath("mymod", "held_icon"),
+	width, height, argb);
+VFXAPI.unregisterImage(Identifier.fromNamespaceAndPath("mymod", "held_icon"));
+```
+
+The one id then serves two consumers with two mechanisms, both handled for you: effect fields
+(`surface_pattern` / `sky_pattern` / field textures) resolve it through the game's texture manager,
+and an aux window uploads a CPU copy into its own GL context. Internally this is
+`VFXImageRegistry` (client singleton, bounded at 256 images); the common source set only sees the
+`VFXLocalDispatcher.registerImage`/`unregisterImage` bridge, so `VFXAPI` stays client-free. The
+call is render-thread-aware: off-thread it queues and returns `true`.
+
 ### `VFXAPI.EffectRequest` (fluent builder)
 
 ```java
@@ -443,7 +462,7 @@ VFXAPI.EffectRequest.of()
 
 ### `VFXLocalDispatcher`
 
-A bridge the client entrypoint (`VFXClient`) registers via `VFXAPI.setLocalDispatcher(...)` so `playEffect`/`stopEffect`/`stopAllEffects` can run without a network packet. Other mods don't need to implement it — it's an internal part of the common↔client link of the mod. `spawnBlockParticle` is a `default` no-op on the interface (so a dispatcher compiled before block particles still links) and is overridden by the mod's client dispatcher.
+A bridge the client entrypoint (`VFXClient`) registers via `VFXAPI.setLocalDispatcher(...)` so `playEffect`/`stopEffect`/`stopAllEffects` can run without a network packet. Other mods don't need to implement it — it's an internal part of the common↔client link of the mod. `spawnBlockParticle`, `spawnSpark`, `registerImage` and `unregisterImage` are `default` no-ops on the interface (so a dispatcher compiled before those features still links) and are overridden by the mod's client dispatcher.
 
 ## Definition registry — `VFXDefinitionManager`
 

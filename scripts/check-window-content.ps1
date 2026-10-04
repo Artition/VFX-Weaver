@@ -159,6 +159,9 @@ if ($upload -eq $null) {
 	Assert-Contains $upload 'resource.isEmpty()' "uploadSource() does not handle a missing resource (resource.isEmpty()) without crashing"
 	Assert-Contains $upload 'imageWidth < columns' "uploadSource() does not refuse an image too small for its frame count (imageWidth < columns)"
 	Assert-Contains $upload 'imageHeight < rows' "uploadSource() does not refuse an image too small for its frame count (imageHeight < rows)"
+	# a caller-supplied image (VFXAPI.registerImage) has no pack file: it is resolved from the
+	# registry first so a registered id wins, and it uploads through this same path.
+	Assert-Contains $upload 'VFXImageRegistry.get().get(' "uploadSource() does not resolve a caller-supplied image from the registry before the pack"
 }
 
 # 5) the resource is never decoded or uploaded on either per-frame body: drawFrame delegates and

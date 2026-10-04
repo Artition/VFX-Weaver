@@ -1,6 +1,7 @@
 package dev.vfxweaver.client.window;
 
 import com.mojang.blaze3d.platform.NativeImage;
+import dev.vfxweaver.client.render.VFXImageRegistry;
 import dev.vfxweaver.util.VFXLog;
 import java.io.IOException;
 import java.io.InputStream;
@@ -180,21 +181,31 @@ public final class VFXWindowContent {
 
 	private void uploadSource() {
 		final Identifier pngId = withPng(this.sourceId);
-		final Optional<Resource> resource = Minecraft.getInstance().getResourceManager().getResource(pngId);
-		if (resource.isEmpty()) {
-			VFXLog.warnOnce(LOGGER, "window:texture:" + pngId, "window texture '{}' could not be resolved; keeping the last frame", pngId);
-			return;
-		}
 		final int[] pixels;
 		final int imageWidth;
 		final int imageHeight;
-		try (InputStream input = resource.get().open(); NativeImage image = NativeImage.read(input)) {
-			imageWidth = image.getWidth();
-			imageHeight = image.getHeight();
-			pixels = image.getPixels();
-		} catch (final IOException | RuntimeException e) {
-			VFXLog.warnOnce(LOGGER, "window:texture:" + pngId, "window texture '{}' could not be decoded ({}); keeping the last frame", pngId, e.getMessage());
-			return;
+		// A caller-supplied image (VFXAPI.registerImage) has no pack file: its pixels come from the
+		// registry. It still uploads through this method's premultiply-and-upload path so a
+		// registered image and a packed one are drawn identically.
+		final VFXImageRegistry.Image registered = VFXImageRegistry.get().get(pngId);
+		if (registered != null) {
+			imageWidth = registered.width();
+			imageHeight = registered.height();
+			pixels = registered.argb();
+		} else {
+			final Optional<Resource> resource = Minecraft.getInstance().getResourceManager().getResource(pngId);
+			if (resource.isEmpty()) {
+				VFXLog.warnOnce(LOGGER, "window:texture:" + pngId, "window texture '{}' could not be resolved; keeping the last frame", pngId);
+				return;
+			}
+			try (InputStream input = resource.get().open(); NativeImage image = NativeImage.read(input)) {
+				imageWidth = image.getWidth();
+				imageHeight = image.getHeight();
+				pixels = image.getPixels();
+			} catch (final IOException | RuntimeException e) {
+				VFXLog.warnOnce(LOGGER, "window:texture:" + pngId, "window texture '{}' could not be decoded ({}); keeping the last frame", pngId, e.getMessage());
+				return;
+			}
 		}
 		final int frames = Math.max(1, this.requestedFrames);
 		final int columns = frames;

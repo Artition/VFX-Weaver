@@ -317,6 +317,51 @@ public final class VFXAPI {
 	}
 
 	/**
+	 * Registers a caller-supplied image under a resource id, so a mod can show an image it renders
+	 * itself (an item icon, a live preview, a generated texture) everywhere a packed texture is
+	 * accepted - the {@code texture} field of {@code surface_pattern}/{@code sky_pattern} and the
+	 * picture of an aux window - without shipping a {@code .png}. Effect and window code then
+	 * references this id exactly as it would reference a resource-pack texture.
+	 *
+	 * <p>The pixels are plain ARGB ints ({@code 0xAARRGGBB}, the order
+	 * {@code NativeImage.getPixels()} returns), row-major with row 0 at the bottom, and are copied:
+	 * the caller may reuse or free its array after the call. Registering an id again replaces the
+	 * previous image.</p>
+	 *
+	 * <p>Runs on the render thread: called from another thread the pixels are copied and the
+	 * registration is queued, and {@code true} means "accepted" (a queued registration cannot fail).
+	 * Returns {@code false} only when there is no client (a dedicated server), where images make no
+	 * sense.</p>
+	 *
+	 * @param id     the resource id to serve the image under
+	 * @param width  image width in pixels, at least 1
+	 * @param height image height in pixels, at least 1
+	 * @param argb   {@code width * height} ARGB pixels, row-major, row 0 at the bottom
+	 * @return {@code true} when the image was accepted
+	 */
+	public static boolean registerImage(final Identifier id, final int width, final int height, final int[] argb) {
+		if (localDispatcher == null) {
+			VFXLog.warnOnce(LOGGER, "api:no-client", "registerImage({}) called without a client; images are client-only", id);
+			return false;
+		}
+		return localDispatcher.registerImage(id, width, height, argb);
+	}
+
+	/**
+	 * Removes an image registered with {@link #registerImage}. A no-op for an unknown id or when
+	 * there is no client.
+	 *
+	 * @param id the resource id passed to {@link #registerImage}
+	 * @return {@code true} when an image was removed
+	 */
+	public static boolean unregisterImage(final Identifier id) {
+		if (localDispatcher == null) {
+			return false;
+		}
+		return localDispatcher.unregisterImage(id);
+	}
+
+	/**
 	 * Registers a block-particle preset in code, without a datapack.
 	 *
 	 * <p>The preset lives in a separate local layer that survives {@code /reload} and is only ever

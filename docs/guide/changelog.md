@@ -5,8 +5,11 @@ documentation changed. A guide revision is not a mod version — the two numbers
 released mod versions are recorded on the **[mod Changelog](../CHANGELOG.md)** instead. Where a guide
 revision shipped with a release, the entry says so (for example `v47 — released as 2.0.0`).
 
-Current guide revision: **v76**. Mod version it documents: **2.3.0** (not yet released). Which jar
+Current guide revision: **v77**. Mod version it documents: **2.3.0** (not yet released). Which jar
 to download is in the [download table](../index.md#download).
+
+### v77 — documents 2.3.0 (unreleased)
+- **A window's `texture` may now be an image a mod supplies from code, not only a `.png` in a pack.** Added `VFXAPI.registerImage(id, width, height, argb)` / `VFXAPI.unregisterImage(id)`, documented in the [API](../API.md#vfxapi): a mod hands over ARGB pixels under a resource id and that id then works wherever a texture id does — a `window_create` picture, and the `surface_pattern`/`sky_pattern` texture fields. Nothing a user already authored changes: an id that is not registered resolves from the resource pack exactly as before. Additive, no datapack field, no wire or UBO change.
 
 ### v76 — documents 2.3.0 (unreleased)
 - **A new guide page for `window_create` / `window_control`, the two effects that open a real picture window on the desktop.** Documents what a user cannot guess from the fields: the window is undecorated, non-resizable, always on top and **click-through at all times**, never takes focus, is created hidden and sized to the **work area of the monitor the game is on**, and is **never moved or resized afterwards** — `pos_x`/`pos_y`/`size_w`/`size_h` animate the picture's rectangle *inside* that canvas, so an animation costs no OS call per frame. Also: `titles` + a clamped animated `title_index` pick the title, `opacity` animates, a frame sheet steps on `frame_time`, up to **8** windows may be live and a duplicate name is first-one-wins, and Wayland is best-effort. New page: [window_create and window_control](effects/window/custom-windows.md). **Not verified in game** (the owner tests it).

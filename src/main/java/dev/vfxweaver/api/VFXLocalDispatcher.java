@@ -161,6 +161,42 @@ public interface VFXLocalDispatcher {
 	}
 
 	/**
+	 * Registers a caller-supplied image under a resource id so effects and windows can use it the
+	 * same way they use a packed texture - the missing piece for an image a mod renders itself
+	 * (an item icon, a live preview) that does not exist as a {@code .png} in any pack. The client
+	 * turns the pixels into a texture the game's texture manager serves by {@code id}, and into a
+	 * CPU copy an aux window can upload into its own GL context.
+	 *
+	 * <p>No {@code NativeImage} in this signature on purpose: this interface is in the common
+	 * source set, which must not name a client-only class. The pixels are plain
+	 * {@code 0xAARRGGBB} ints in row-major order, row 0 at the bottom.</p>
+	 *
+	 * <p>The default is a no-op returning {@code false}, so a dispatcher compiled before images
+	 * existed keeps working.</p>
+	 *
+	 * @param id     the resource id to serve the image under (same namespace rules as a texture id)
+	 * @param width  image width in pixels, at least 1
+	 * @param height image height in pixels, at least 1
+	 * @param argb   {@code width * height} ARGB pixels, row-major, row 0 at the bottom; ignored when
+	 *               too short
+	 * @return {@code true} when the image was accepted (ready now or queued for the render thread)
+	 */
+	default boolean registerImage(final Identifier id, final int width, final int height, final int[] argb) {
+		return false;
+	}
+
+	/**
+	 * Removes an image registered with {@link #registerImage} (a no-op for an unknown id). The
+	 * default is a no-op returning {@code false}.
+	 *
+	 * @param id the resource id passed to {@link #registerImage}
+	 * @return {@code true} when an image was removed (now or queued for the render thread)
+	 */
+	default boolean unregisterImage(final Identifier id) {
+		return false;
+	}
+
+	/**
 	 * Stops all running effects.
 	 */
 	void stopAllEffects();

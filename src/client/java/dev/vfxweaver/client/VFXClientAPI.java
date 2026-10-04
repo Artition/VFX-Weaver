@@ -4,6 +4,7 @@ import dev.vfxweaver.api.VFXLocalDispatcher;
 import dev.vfxweaver.client.effect.VFXEffectManager;
 import dev.vfxweaver.client.flashback.FlashbackCompat;
 import dev.vfxweaver.client.render.VFXBlockParticleEngine;
+import dev.vfxweaver.client.render.VFXImageRegistry;
 import dev.vfxweaver.client.render.VFXSparkEngine;
 import dev.vfxweaver.effect.EasingFunction;
 import dev.vfxweaver.effect.EasingType;
@@ -126,7 +127,6 @@ public class VFXClientAPI implements VFXLocalDispatcher {
 	public void stopEffect(final Identifier effectId) {
 		Minecraft.getInstance().execute(() -> VFXEffectManager.get().stop(effectId));
 	}
-
 	@Override
 	public void stopEffect(final long instanceId) {
 		Minecraft.getInstance().execute(() -> VFXEffectManager.get().stop(instanceId));
@@ -135,5 +135,31 @@ public class VFXClientAPI implements VFXLocalDispatcher {
 	@Override
 	public void stopAllEffects() {
 		Minecraft.getInstance().execute(() -> VFXEffectManager.get().stopAll());
+	}
+
+	@Override
+	public boolean registerImage(final Identifier id, final int width, final int height, final int[] argb) {
+		if (width < 1 || height < 1 || argb == null || argb.length < width * height) {
+			return false;
+		}
+		// Copy now: the caller may reuse its array while the registration is queued.
+		final int[] copy = new int[width * height];
+		System.arraycopy(argb, 0, copy, 0, copy.length);
+		final Minecraft minecraft = Minecraft.getInstance();
+		if (minecraft.isSameThread()) {
+			return VFXImageRegistry.get().register(id, width, height, copy);
+		}
+		minecraft.execute(() -> VFXImageRegistry.get().register(id, width, height, copy));
+		return true;
+	}
+
+	@Override
+	public boolean unregisterImage(final Identifier id) {
+		final Minecraft minecraft = Minecraft.getInstance();
+		if (minecraft.isSameThread()) {
+			return VFXImageRegistry.get().unregister(id);
+		}
+		minecraft.execute(() -> VFXImageRegistry.get().unregister(id));
+		return true;
 	}
 }

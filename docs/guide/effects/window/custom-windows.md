@@ -50,7 +50,7 @@ path.
 | Field | Type | Default | Meaning |
 |---|---|---|---|
 | `id` | string | — (required) | The window's name - the key `window_control` addresses it by. Non-blank; anything may be used (`"hud"`, `"vfx:hud"`) except the reserved `"0"`, which drives the Minecraft window |
-| `texture` | string | — | Resource id of the PNG to show (`"vfx_demos:window/pic"`), resolved from the client's resource manager, so a resource pack can supply it. A missing `.png` suffix is added. Omit it for a window with no picture (only a title) |
+| `texture` | string | — | Resource id of the picture (`"vfx_demos:window/pic"`), resolved from the client's resource manager, so a resource pack can supply it. A missing `.png` suffix is added. Omit it for a window with no picture (only a title). A mod may instead supply the picture from code with `VFXAPI.registerImage(id, …)` and reference that same id here (see the [API](../../../API.md#vfxapi)) |
 | `titles` | array of strings | `[]` | Candidate OS titles; `title_index` picks one. At most 64, every entry a string |
 
 Everything else is an **ordinary param**, so it takes the whole
