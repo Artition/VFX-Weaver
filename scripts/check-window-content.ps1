@@ -109,7 +109,7 @@ if ($current -eq $null) {
 		'this.sheet.frameAt(timeTicks)',
 		'this.sheet.animated()',
 		'(int) (timeTicks / frameTime)',
-		'Math.floorMod(frame, this.sheet.frameCount())',
+		'Math.floorMod(frame, columns * rows)',
 		'wrapped % columns',
 		'wrapped / columns',
 		'(float) (column * this.frameWidth) / (float) this.sheet.imageWidth()',

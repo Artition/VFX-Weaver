@@ -76,6 +76,21 @@ public record VFXWindowFrames(
 	}
 
 	/**
+	 * The same frames with the pixel array dropped. A caller that has already uploaded the pixels to
+	 * the GPU keeps this instead of the whole decoded image, so a large pack texture is not retained
+	 * for the window's lifetime.
+	 *
+	 * @return this when it already holds no pixels, otherwise a copy without them
+	 */
+	public VFXWindowFrames withoutPixels() {
+		if (this.pixels.length == 0) {
+			return this;
+		}
+		return new VFXWindowFrames(new int[0], this.imageWidth, this.imageHeight,
+			this.frameWidth, this.frameHeight, this.frames, this.animated);
+	}
+
+	/**
 	 * The frame to draw after {@code timeTicks} ticks. A still returns slot 0; an animated sheet
 	 * walks the table (each frame for its own {@code timeTicks}, at least 1) and wraps - the vanilla
 	 * behaviour without interpolation.

@@ -75,7 +75,10 @@ foreach ($literal in @(
 	'VFXWindowFrames.strip(',
 	'VFXWindowFrames.still(',
 	'this.sheet.frameAt(timeTicks)',
-	'Math.floorMod(frame, this.sheet.frameCount())')) {
+	'Math.floorMod(frame, columns * rows)',
+	'calculateFrameSize(imageWidth, imageHeight)',
+	'MAX_FRAMES',
+	'withoutPixels()')) {
 	Assert-Contains $content $literal "VFXWindowContent is missing '$literal'"
 }
 

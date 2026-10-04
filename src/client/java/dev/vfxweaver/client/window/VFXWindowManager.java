@@ -2,6 +2,7 @@ package dev.vfxweaver.client.window;
 
 import com.mojang.blaze3d.platform.Window;
 import dev.vfxweaver.client.effect.VFXEffectManager;
+import dev.vfxweaver.client.flashback.FlashbackCompat;
 import dev.vfxweaver.effect.VFXActiveEffect;
 import dev.vfxweaver.effect.VFXDefinition;
 import dev.vfxweaver.effect.VFXEffectType;
@@ -91,6 +92,22 @@ public final class VFXWindowManager {
 	 * @param active the current active effects (the creator owns the name while it is in the list)
 	 */
 	public void reconcile(final List<VFXActiveEffect> active) {
+		if (FlashbackCompat.isReplayActive()) {
+			// A Flashback replay carries no window effects (they are never recorded), and a replay
+			// must not show client-side OS picture windows at all: close any open aux window and do
+			// not open new ones. This also covers a window spawned as a child of a replayed
+			// collection, which the recording filter cannot see.
+			final Iterator<Map.Entry<String, Binding>> replayIterator = this.bindings.entrySet().iterator();
+			while (replayIterator.hasNext()) {
+				final String name = replayIterator.next().getKey();
+				if (!GAME_WINDOW_ID.equals(name)) {
+					VFXWindowRegistry.get().close(name);
+				}
+				replayIterator.remove();
+			}
+			VFXWindowRegistry.get().prune();
+			return;
+		}
 		final Map<String, VFXActiveEffect> owners = new HashMap<>();
 		for (final VFXActiveEffect effect : active) {
 			if (effect.getType() != VFXEffectType.WINDOW_CREATE || effect.isFadingOut()) {
