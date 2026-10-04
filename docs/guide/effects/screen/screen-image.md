@@ -1,5 +1,7 @@
 # screen_image
 
+<video autoplay loop muted playsinline width="100%"><source src="../../../../assets/media/screen_image.mp4" type="video/mp4"></video>
+
 `type: "screen_image"`
 
 Draws a picture over the game frame: a resource-pack PNG (or an image a mod supplies from code)
