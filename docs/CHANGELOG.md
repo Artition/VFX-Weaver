@@ -12,6 +12,11 @@ times this documentation has been revised. The authoritative record of guide rev
 the [download table](index.md#download). Add new entries at the top, in the same PR as the behaviour
 change.
 
+## unreleased
+
+### Added
+- **Two effects that open a real picture window on the desktop: `window_create` and `window_control`.** A `window_create` opens a named **frameless, transparent, click-through** window covering the work area of the monitor the game is on, and shows a picture in it; `window_control` then moves, resizes, fades and retitles that window by name. Neither is a post-processing pass nor world geometry, and nothing about the Minecraft window changes. The window is undecorated, non-resizable, always on top and click-through (`GLFW_MOUSE_PASSTHROUGH`) at all times, and never takes focus, so it cannot steal input from the game. It is created hidden, sized to the work area and shown last, and is **never moved or resized afterwards** - position and size animate the picture's rectangle *inside* the canvas, so an animation costs no OS call per frame. Up to **8** windows may be live at once; a second `window_create` under a name that is already live is a no-op (first one wins). `titles` plus an animated `title_index` pick the title (clamped), `opacity` animates, and a frame sheet steps on `frame_time`. Wayland is best-effort. Additive: two new effect types and their optional params, no `VFXAPI` change, no wire or UBO layout change, `PROTOCOL_VERSION` unchanged. Documented in the [guide](guide/effects/window/custom-windows.md). **Not verified in game** (the owner tests it) - in particular the game must keep presenting normally on 26.2 with an aux GL window open, which a green build cannot prove.
+
 ## 2.2.1 - 2026-10-01
 
 ### Added

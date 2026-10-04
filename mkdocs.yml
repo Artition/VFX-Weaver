@@ -107,6 +107,8 @@ nav:
           - camera_roll: guide/effects/misc/camera-roll.md
           - fov_modifier: guide/effects/misc/fov-modifier.md
           - fog_modifier: guide/effects/misc/fog-modifier.md
+      - Desktop windows:
+          - window_create / window_control: guide/effects/window/custom-windows.md
       - Collections:
           - collection: guide/effects/collection.md
   - Commands: guide/commands.md
