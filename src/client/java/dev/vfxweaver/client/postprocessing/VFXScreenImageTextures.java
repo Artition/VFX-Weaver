@@ -72,6 +72,11 @@ public final class VFXScreenImageTextures {
 		try {
 			final AbstractTexture texture = Minecraft.getInstance().getTextureManager().getTexture(pngId);
 			final GpuTextureView view = texture.getTextureView();
+			if (view == null) {
+				VFXLog.warnOnce(LOGGER, "screen_image:texture:" + id,
+					"screen_image '{}': texture '{}' did not upload a GPU view; drawing nothing", effect.getId(), id);
+				return new Resolved(null, VFXWindowFrames.still(1, 1));
+			}
 			final GpuTexture gpu = texture.getTexture();
 			final int imageWidth = Math.max(1, gpu == null ? 1 : gpu.getWidth(0));
 			final int imageHeight = Math.max(1, gpu == null ? 1 : gpu.getHeight(0));
