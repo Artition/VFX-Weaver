@@ -52,6 +52,11 @@ import org.slf4j.LoggerFactory;
  * unknown custom payload packets on its own, so without this the server-triggered effects would be
  * missing from replays entirely (especially after the server-side mod has been removed).
  *
+ * <p><b>Window effects are never recorded.</b> {@code window_create}/{@code window_control} drive
+ * client-side OS picture windows, which are chrome around the game rather than part of the scene;
+ * a replay must not recreate them, so every recording path (play, stop, live edit and the
+ * active-effect snapshot) drops a window effect. See {@link #isWindowEffect(Identifier)}.
+ *
  * <p><b>Version tolerance.</b> The playback-state symbols are resolved individually and tolerantly,
  * because Flashback changes their visibility between builds (Flashback 0.39.9 for 1.21.11 declares
  * {@code ReplayServer.jumpToTick} {@code private}, while 0.43.x for 26.2 declares it {@code public}).
@@ -420,14 +425,16 @@ public final class FlashbackCompat {
 	 * stop (or for the whole replay when it was never stopped), which is exactly how it ran
 	 * originally — so an infinite effect reproduces like a finite one instead of being lost.
 	 * Collections are skipped (they own no timeline; their children are separate effects) and
-	 * camera shakes are skipped as before.
+	 * camera shakes are skipped as before. Window effects are skipped too (see
+	 * {@link #isWindowEffect(Identifier)}).
 	 */
 	private static void writeActiveEffectsSnapshot(final Object recorder) {
 		try {
 			for (VFXActiveEffect effect : VFXEffectManager.get().getActive()) {
 				Identifier id = effect.getId();
 				VFXTimeline timeline = effect.getTimeline();
-				if (effect.getType() == VFXEffectType.COLLECTION || effect.getType() == VFXEffectType.CAMERA_SHAKE) {
+				if (effect.getType() == VFXEffectType.COLLECTION || effect.getType() == VFXEffectType.CAMERA_SHAKE
+					|| effect.getType() == VFXEffectType.WINDOW_CREATE || effect.getType() == VFXEffectType.WINDOW_CONTROL) {
 					continue;
 				}
 				int duration = Math.max(1, (int) Math.ceil(timeline.getDuration() - timeline.getElapsed()));
@@ -503,6 +510,25 @@ public final class FlashbackCompat {
 	}
 
 	/**
+	 * True for a window effect ({@code window_create}/{@code window_control}). Such an effect opens
+	 * a client-side OS picture window rather than drawing into the game scene, so a Flashback replay
+	 * must not carry it: every recording path drops a window effect (no play, stop, live edit or
+	 * active-effect snapshot entry is written). An id with no resolvable definition is not a window
+	 * and is recorded as before.
+	 *
+	 * @param effectId the effect id about to be recorded
+	 * @return {@code true} when the id resolves to a window effect
+	 */
+	private static boolean isWindowEffect(final Identifier effectId) {
+		final VFXDefinition definition = VFXDefinitionManager.get().get(effectId);
+		if (definition == null) {
+			return false;
+		}
+		final VFXEffectType type = definition.getType();
+		return type == VFXEffectType.WINDOW_CREATE || type == VFXEffectType.WINDOW_CONTROL;
+	}
+
+	/**
 	 * Records a client-local effect play into the active Flashback replay, if one is running.
 	 * Persistent (negative duration) effects are recorded too: the replay controller keeps such a
 	 * play alive until a recorded stop (or the whole replay when it was never stopped), so an
@@ -532,7 +558,7 @@ public final class FlashbackCompat {
 	 * decode.
 	 */
 	public static void recordPlay(final Identifier effectId, final int durationTicks, final Map<String, Float> params, final @Nullable EasingType easing, final @Nullable Vec3 position, final List<UUID> entityUuids) {
-		if (!enabled) {
+		if (!enabled || isWindowEffect(effectId)) {
 			return;
 		}
 		// A negative duration is the persistent sentinel (VFXAPI sends -1 for a persistent
@@ -621,7 +647,7 @@ public final class FlashbackCompat {
 	 * Queues one live-edit action into the active replay, if one is running.
 	 */
 	private static void recordEdit(final Identifier effectId, final int sentinel, final Consumer<RegistryFriendlyByteBuf> payload) {
-		if (!enabled) {
+		if (!enabled || isWindowEffect(effectId)) {
 			return;
 		}
 		try {
@@ -671,7 +697,7 @@ public final class FlashbackCompat {
 	 * mid-event also replays. Encoded as the trigger action with the {@code -2} duration sentinel.
 	 */
 	public static void recordStop(final Identifier effectId) {
-		if (!enabled) {
+		if (!enabled || isWindowEffect(effectId)) {
 			return;
 		}
 		try {
