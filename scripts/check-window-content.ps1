@@ -162,6 +162,9 @@ if ($upload -eq $null) {
 	Assert-Contains $upload 'GLFW.glfwMakeContextCurrent(previous);' "uploadSource() does not restore the previously current context"
 	Assert-Contains $upload 'GL.setCapabilities(this.window.caps());' "uploadSource() does not set the aux window's own GL capabilities (GL.setCapabilities)"
 	Assert-Contains $upload 'GL.setCapabilities(previousCaps);' "uploadSource() does not restore the previous GL capabilities"
+	# the pixels are ARGB (NativeImage.getPixels / VFXAPI.registerImage order); GL wants R,G,B,A, so
+	# the upload must read R from bits 16-23 - the low byte is blue, and swapping them tinted the picture blue.
+	Assert-Contains $upload '((pixel >>> 16) & 0xFF)' "uploadSource() does not read the red channel from bits 16-23 (ARGB) - reading the low byte swaps red and blue"
 	# missing/short source: refused, keeping the last frame instead of crashing.
 	Assert-Contains $upload 'resource.isEmpty()' "uploadSource() does not handle a missing resource (resource.isEmpty()) without crashing"
 	Assert-Contains $upload 'imageWidth < columns' "uploadSource() does not refuse an image too small for its frame count (imageWidth < columns)"

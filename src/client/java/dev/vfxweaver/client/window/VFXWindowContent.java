@@ -226,10 +226,13 @@ public final class VFXWindowContent {
 		GL.setCapabilities(this.window.caps());
 		try {
 			for (final int pixel : pixels) {
+				// The source ints are ARGB (0xAARRGGBB): NativeImage.getPixels() returns that order
+				// and VFXAPI.registerImage documents it. GL wants R,G,B,A bytes, so read R from bits
+				// 16-23 - reading R from the low byte swapped red and blue (a blue-tinted picture).
 				final int alpha = (pixel >>> 24) & 0xFF;
-				buffer.put((byte) (((pixel & 0xFF) * alpha + 127) / 255));
-				buffer.put((byte) ((((pixel >>> 8) & 0xFF) * alpha + 127) / 255));
 				buffer.put((byte) ((((pixel >>> 16) & 0xFF) * alpha + 127) / 255));
+				buffer.put((byte) ((((pixel >>> 8) & 0xFF) * alpha + 127) / 255));
+				buffer.put((byte) (((pixel & 0xFF) * alpha + 127) / 255));
 				buffer.put((byte) alpha);
 			}
 			buffer.flip();
