@@ -159,6 +159,12 @@ screen. Everything else in this page still applies to every other id, unchanged.
   bug, and the mod has no idea what you had before the effect started.)
 - **Never 0x0.** The size is clamped up to at least 320x240 and down into the work area, so an
   over-small or negative `size_*` still leaves a window the game can render into.
+- **Resizing the game window interrupts chat input.** An animated `size_w`/`size_h` changes the OS
+  window size **every frame**, and resizing the window repeatedly drops the chat screen's key
+  handling: the command history keys (Up/Down) and tab-completion can stop responding while the
+  resize runs (and briefly after). This is a consequence of driving the real OS window, not of the
+  effect logic. Prefer id-`"0"` size animation where nobody is typing, or hold the size steady and
+  animate only the position; either way it recovers by reopening the chat.
 - **On Wayland** the compositor owns window placement, so the position is best-effort there too.
 
 > The geometry is driven from the render thread after the game's own present, once per frame, and only
