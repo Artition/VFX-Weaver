@@ -1,6 +1,6 @@
 # window_create and window_control
 
-<video autoplay loop muted playsinline width="100%"><source src="../../assets/media/custom_windows.mp4" type="video/mp4"></video>
+<video autoplay loop muted playsinline width="100%"><source src="../../../../assets/media/custom_windows.mp4" type="video/mp4"></video>
 
 Two effects that open and drive **separate OS windows**: `window_create` opens a named picture
 window and holds it for its own lifetime, `window_control` moves, animates and retitles that window
@@ -283,7 +283,7 @@ position. Each is one datapack effect.
 /vfx play vfx_demos:window_ender_eye
 ```
 
-<video autoplay loop muted playsinline width="100%"><source src="../../assets/media/custom_windows.mp4" type="video/mp4"></video>
+<video autoplay loop muted playsinline width="100%"><source src="../../../../assets/media/custom_windows.mp4" type="video/mp4"></video>
 
 ### The game window (the reserved `id "0"`)
 
@@ -291,7 +291,7 @@ position. Each is one datapack effect.
 /vfx play vfx_demos:window_game_pulse
 ```
 
-<video autoplay loop muted playsinline width="100%"><source src="../../assets/media/window_game_pulse.mp4" type="video/mp4"></video>
+<video autoplay loop muted playsinline width="100%"><source src="../../../../assets/media/window_game_pulse.mp4" type="video/mp4"></video>
 
 ## See also
 
