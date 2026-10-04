@@ -115,6 +115,7 @@ point.
 - [afterimage](screen/afterimage.md) - feedback echo trails
 - [stop_motion](screen/stop-motion.md) - hold the picture at a low frame rate
 - [surface_pattern](screen/surface-pattern.md) - a world-anchored figure projected onto terrain
+- [screen_image](screen/screen-image.md) - a picture composited over the game frame
 
 ### World overlays
 
