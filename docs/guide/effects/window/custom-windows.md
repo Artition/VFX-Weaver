@@ -1,5 +1,7 @@
 # window_create and window_control
 
+<video autoplay loop muted playsinline width="100%"><source src="../../assets/media/custom_windows.mp4" type="video/mp4"></video>
+
 Two effects that open and drive **separate OS windows**: `window_create` opens a named picture
 window and holds it for its own lifetime, `window_control` moves, animates and retitles that window
 by name. They are not post-processing passes and not world geometry - nothing about the Minecraft
@@ -260,6 +262,28 @@ gate). It is asserted by
 `check-window-registry.ps1`, `check-window-control.ps1`, `check-window-fields.ps1`,
 `check-window-lifecycle.ps1` and `check-game-window.ps1`. **Not verified in game** - the owner tests
 the pixels, the passthrough, the focus behaviour and the game-window geometry.
+
+## Showcase
+
+A picture window (the ender-eye sprite) and the reserved `"0"` game window driven at the same time:
+the sprite window travels to each screen edge while the Minecraft window itself pulses in size and
+position. Each is one datapack effect.
+
+### The picture window (a named `id`)
+
+```
+/vfx play vfx_demos:window_ender_eye
+```
+
+<video autoplay loop muted playsinline width="100%"><source src="../../assets/media/custom_windows.mp4" type="video/mp4"></video>
+
+### The game window (the reserved `id "0"`)
+
+```
+/vfx play vfx_demos:window_game_pulse
+```
+
+<video autoplay loop muted playsinline width="100%"><source src="../../assets/media/window_game_pulse.mp4" type="video/mp4"></video>
 
 ## See also
 
