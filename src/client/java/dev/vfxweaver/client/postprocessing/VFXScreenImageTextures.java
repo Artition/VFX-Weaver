@@ -2,6 +2,7 @@ package dev.vfxweaver.client.postprocessing;
 
 import com.mojang.blaze3d.textures.GpuTexture;
 import com.mojang.blaze3d.textures.GpuTextureView;
+import dev.vfxweaver.client.render.VFXImageRegistry;
 import dev.vfxweaver.client.window.VFXWindowFrames;
 import dev.vfxweaver.effect.VFXActiveEffect;
 import dev.vfxweaver.effect.VFXDefinition;
@@ -54,9 +55,9 @@ public final class VFXScreenImageTextures {
 	}
 
 	/**
-	 * Resolves the effect's image and frame table. A missing definition, missing {@code texture} or
-	 * an unloadable texture yields a {@code null} view and a one-cell still (the caller draws
-	 * nothing) - it never throws into the post layer.
+	 * Resolves the effect's image and frame table. A missing definition, missing {@code texture}, an
+	 * id that names no picture at all or an unloadable texture yields a {@code null} view and a
+	 * one-cell still (the caller draws nothing) - it never throws into the post layer.
 	 *
 	 * @param effect the running {@code screen_image} effect
 	 * @return the resolved view and frames, never {@code null}
@@ -70,6 +71,13 @@ public final class VFXScreenImageTextures {
 		final Identifier id = spec.texture();
 		final Identifier pngId = withPng(id);
 		try {
+			// Inside the try, like every other lookup here: this method's contract is that it never
+			// throws into the post layer.
+			if (!exists(pngId)) {
+				VFXLog.warnOnce(LOGGER, "screen_image:texture:" + id,
+					"screen_image '{}': texture '{}' is neither a registered image nor a pack resource; drawing nothing", effect.getId(), id);
+				return new Resolved(null, VFXWindowFrames.still(1, 1));
+			}
 			final AbstractTexture texture = Minecraft.getInstance().getTextureManager().getTexture(pngId);
 			final GpuTextureView view = texture.getTextureView();
 			if (view == null) {
@@ -128,6 +136,18 @@ public final class VFXScreenImageTextures {
 				: VFXWindowFrames.still(imageWidth, imageHeight);
 		}
 		return VFXWindowFrames.fromMetadata(meta.get(), imageWidth, imageHeight, requestedFrames, pngId.toString());
+	}
+
+	/**
+	 * Whether the id really names a picture. {@code TextureManager.getTexture} registers and returns
+	 * the MISSING texture (with a live view) for an unknown id, so a non-null view is not proof of a
+	 * resolution: a typo would otherwise composite the missing-texture checkerboard. The two sources
+	 * are the same two {@code VFXWindowContent.uploadSource} distinguishes - a caller image from the
+	 * registry, which has no pack file of its own, otherwise the pack resource.
+	 */
+	private static boolean exists(final Identifier pngId) {
+		return VFXImageRegistry.get().get(pngId) != null
+			|| Minecraft.getInstance().getResourceManager().getResource(pngId).isPresent();
 	}
 
 	private static Identifier withPng(final Identifier id) {

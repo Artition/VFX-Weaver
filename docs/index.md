@@ -38,7 +38,7 @@ use the `-neoforge` suffix and are installed with [NeoForge](https://neoforged.n
   `hue_isolation`, `vignette`, `screen_flash`, `motion_blur`, `bloom`, `film_grain`, `scanlines`,
   `depth_of_field`, `letterbox`, `invert`, `vortex`, `speed_lines`, `slice_shift`, `noise_warp`,
   `solarize`, `double_vision`, `eyelids`, `iris_wipe`, `digital_glitch`, `vhs`, `shockwave`,
-  `afterimage`, `stop_motion`, `surface_pattern`, `sky_pattern`.
+  `afterimage`, `stop_motion`, `surface_pattern`, `sky_pattern`, `screen_image`.
 - **Camera effects** — simplex-noise camera shake (`camera_shake`), dutch angle with wobble
   (`camera_roll`), an FOV modifier (`fov_modifier`) and a vanilla-fog modifier (`fog_modifier`).
 - **World overlays** — `block_tint`, `block_outline`, `light_beam`, `pulse_ring`, `guide_line`,

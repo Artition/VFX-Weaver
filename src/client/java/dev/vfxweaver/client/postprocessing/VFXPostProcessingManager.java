@@ -1320,9 +1320,13 @@ public final class VFXPostProcessingManager {
 				final float picX = Mth.clamp(effect.getParam("pos_x", 0.0F), 0.0F, 1.0F) * Math.max(0.0F, output.width - picW);
 				final float picY = Mth.clamp(effect.getParam("pos_y", 0.0F), 0.0F, 1.0F) * Math.max(0.0F, output.height - picH);
 				final float rx0 = picX / output.width;
-				final float ry0 = picY / output.height;
+				// texCoord.y is bottom-origin (the top of the frame is 1.0, as eyelids.fsh's top lid
+				// at 1.0 + softness proves), so the top-origin pos_y/picH box flips into the rect:
+				// ry0 is the box's BOTTOM edge and ry1 its top, the way the aux path computes
+				// 1.0F - rectTop - drawH in VFXWindowController.
+				final float ry0 = 1.0F - (picY + picH) / output.height;
 				final float rx1 = (picX + picW) / output.width;
-				final float ry1 = (picY + picH) / output.height;
+				final float ry1 = 1.0F - picY / output.height;
 				final float flags = image.view() != null ? 1.0F : 0.0F;
 				config = this.arena.write(encoder, builder -> builder
 					.putVec4(rx0, ry0, rx1, ry1)
@@ -1375,8 +1379,12 @@ public final class VFXPostProcessingManager {
 					});
 			} else if (this.hasConfig) {
 				// A Config-bearing pass with no effect (the chain-resolution conversion pair): its
-				// declared Config block must still be bound, so upload a zeroed one. The pad is
-				// unused by the shader; the binding is what matters.
+				// declared Config block must still be bound, so upload a zeroed one. The write is
+				// only as wide as the registered name list: screen_image registers no per-param
+				// names and is filled positionally above, so this loop writes nothing for it and the
+				// slot it binds is whatever the arena last held. Unreachable today (an effect-less
+				// screen_image pass draws nothing) - size the write from the shader's Config block
+				// before relying on the zeros. The pad is unused; the binding is what matters.
 				config = this.arena.write(encoder, builder -> {
 					for (int i = 0; i < this.configParams.length; i++) {
 						builder.putFloat(0.0F);

@@ -42,7 +42,10 @@ void main() {
         return;
     }
     vec2 local = (texCoord - lo) / (hi - lo);
-    vec2 uv = mix(frame_uv.xy, frame_uv.zw, local);
+    // texCoord.y is bottom-origin and the frame's V runs top-down (VFXWindowFrames numbers rows
+    // from the top, so v0 is the top edge and v1 the bottom), so the rect's bottom edge samples
+    // frame_uv.zw - the aux path pairs the same two edges in VFXWindowContent.drawCurrent.
+    vec2 uv = mix(frame_uv.zw, frame_uv.xy, local);
     vec4 img = texture(ImageSampler, uv);
     fragColor = vec4(mix(base.rgb, img.rgb, clamp(img.a * opacity, 0.0, 1.0)), base.a);
 }

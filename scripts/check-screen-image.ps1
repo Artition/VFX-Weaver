@@ -11,9 +11,11 @@
 #     chain does not own, so no fusion run may swallow it) and declares no per-param names, because
 #     the manager fills the block positionally from the running effect;
 #   * the manager resolves the picture per frame (VFXScreenImageTextures.get().resolve(effect)),
-#     binds ImageSampler, and sizes the rect against the smaller side of the current target;
-#   * the picture's frame table comes from the sibling .mcmeta through fromMetadata(), whose frame
-#     size is the vanilla calculateFrameSize(imageWidth, imageHeight);
+#     binds ImageSampler, sizes the rect against the smaller side of the current target and flips
+#     the top-origin pos_y box into a bottom-origin rect (texCoord.y is bottom-origin, the frame's
+#     V is top-down, so the two are paired the way VFXWindowContent.drawCurrent pairs them);
+#   * the picture's frame table comes from the sibling .mcmeta through fromMetadata() on that
+#     picture's own path, whose frame size is the vanilla calculateFrameSize(imageWidth, imageHeight);
 #   * interpolate: true is out of scope, so the interpolatedFrames flag must never be read.
 # GLSL is never compiled and there is no GPU here, so nothing here claims a pixel or that the
 # shader links - it pins the text the two halves must agree on.
@@ -48,6 +50,14 @@ function Assert-Contains([string]$text, [string]$literal, [string]$message) {
 	}
 }
 
+# Asserts a regex matches. Used where the pinned property is the SHAPE of a branch, not a single
+# literal: three independent literals all survive an inverted if/else, so only the branch pins it.
+function Assert-Matches([string]$text, [string]$pattern, [string]$message) {
+	if ($text -eq $null -or $text -notmatch $pattern) {
+		$problems.Add($message)
+	}
+}
+
 # Asserts the literals appear in this order, each after the previous one: the Config block is a
 # std140 UBO whose offsets are positional, so a shuffled declaration still "contains" every field
 # and silently reads the wrong values.
@@ -73,7 +83,7 @@ Assert-Order $shader @('vec4 rect;', 'vec4 frame_uv;', 'float opacity;', 'float 
 foreach ($literal in @('uniform sampler2D InSampler;', 'uniform sampler2D ImageSampler;', 'out vec4 fragColor;')) {
 	Assert-Contains $shader $literal "screen_image.fsh is missing '$literal'"
 }
-foreach ($literal in @('mix(frame_uv.xy, frame_uv.zw, local)', 'clamp(img.a * opacity, 0.0, 1.0)', 'if (flags < 0.5)')) {
+foreach ($literal in @('mix(frame_uv.zw, frame_uv.xy, local)', 'clamp(img.a * opacity, 0.0, 1.0)', 'if (flags < 0.5)')) {
 	Assert-Contains $shader $literal "screen_image.fsh is missing '$literal'"
 }
 $shaderLines = $shader -split "\r?\n"
@@ -104,7 +114,8 @@ if ($regAt -lt 0) {
 }
 
 # 4) the manager: resolve the picture, size the rect against the smaller side of the live target
-#    (so size_w:size_h is the picture's own proportion, not the window's aspect), bind the sampler
+#    (so size_w:size_h is the picture's own proportion, not the window's aspect), express the
+#    top-origin pos_y box as a BOTTOM-origin rect (texCoord.y is bottom-origin), bind the sampler
 #    and write the four Config values in the shader's order.
 foreach ($literal in @(
 	'VFXScreenImageTextures.get().resolve(effect)',
@@ -113,6 +124,8 @@ foreach ($literal in @(
 	'Mth.clamp(effect.getParam("size_h", 1.0F), 0.0F, 1.0F) * base',
 	'Mth.clamp(effect.getParam("pos_x", 0.0F), 0.0F, 1.0F) * Math.max(0.0F, output.width - picW)',
 	'Mth.clamp(effect.getParam("pos_y", 0.0F), 0.0F, 1.0F) * Math.max(0.0F, output.height - picH)',
+	'final float ry0 = 1.0F - (picY + picH) / output.height;',
+	'final float ry1 = 1.0F - picY / output.height;',
 	'final float flags = image.view() != null ? 1.0F : 0.0F;',
 	'renderPass.bindTexture("ImageSampler"')) {
 	Assert-Contains $manager $literal "VFXPostProcessingManager.java is missing '$literal'"
@@ -120,12 +133,14 @@ foreach ($literal in @(
 Assert-Order $manager @('putVec4(rx0, ry0, rx1, ry1)', 'putVec4(u0, v0, u1, v1)', 'putFloat(opacity)', 'putFloat(flags)') `
 	"VFXPostProcessingManager.java does not write the screen_image Config as rect, frame_uv, opacity, flags in that order"
 
-# 5) the frame table: the sibling .mcmeta through the resource metadata, sized by vanilla.
+# 5) the frame table: the sibling .mcmeta through the resource metadata, sized by vanilla. The
+#    .mcmeta WINS when there is one: meta.isEmpty() is the condition that guards the strip/still
+#    fallback and fromMetadata sits on the other path. The three factory literals alone cannot pin
+#    that (an inverted branch still contains all three), so the branch shape itself is asserted.
+Assert-Matches $textures '(?s)if\s*\(meta\.isEmpty\(\)\)\s*\{.*?VFXWindowFrames\.strip\(.*?VFXWindowFrames\.still\(.*?\}\s*return\s+VFXWindowFrames\.fromMetadata\(' `
+	"VFXScreenImageTextures.readFrames does not let the sibling .mcmeta win: meta.isEmpty() must guard the strip/still fallback, with fromMetadata on the other path"
 foreach ($literal in @(
 	'resource.get().metadata().getSection(AnimationMetadataSection.TYPE)',
-	'VFXWindowFrames.fromMetadata(',
-	'VFXWindowFrames.strip(',
-	'VFXWindowFrames.still(',
 	'Math.max(1, (int) effect.getParam("frames", 1.0F))')) {
 	Assert-Contains $textures $literal "VFXScreenImageTextures.java is missing '$literal'"
 }
@@ -144,9 +159,9 @@ if ($problems.Count -gt 0) {
 	exit 1
 }
 Write-Host "  VFXEffectType declares SCREEN_IMAGE(`"screen_image`")"
-Write-Host "  screen_image.fsh declares rect/frame_uv/opacity/flags in the manager's write order, binds ImageSampler and writes fragColor on every path"
+Write-Host "  screen_image.fsh declares rect/frame_uv/opacity/flags in the manager's write order, binds ImageSampler, samples the frame's bottom row on the rect's bottom edge and writes fragColor on every path"
 Write-Host "  registerScreenImagePost binds ImageSampler (withSampler / IMAGE_SAMPLER_LAYOUT) as a BARRIER with no per-param names"
-Write-Host "  the manager resolves the picture per frame, binds ImageSampler and sizes the rect against the smaller target side"
-Write-Host "  the frame table comes from the sibling .mcmeta (AnimationMetadataSection.TYPE -> fromMetadata -> calculateFrameSize); interpolation is not used"
+Write-Host "  the manager resolves the picture per frame, binds ImageSampler, sizes the rect against the smaller target side and flips it to bottom-origin Y"
+Write-Host "  the frame table comes from the sibling .mcmeta (AnimationMetadataSection.TYPE -> fromMetadata -> calculateFrameSize), which wins over the strip/still fallback; interpolation is not used"
 Write-Host "screen_image check OK."
 exit 0
