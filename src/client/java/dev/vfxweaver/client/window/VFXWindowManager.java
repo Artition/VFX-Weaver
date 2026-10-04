@@ -166,7 +166,8 @@ public final class VFXWindowManager {
 			float sizeW = 1.0F;
 			float sizeH = 1.0F;
 			float opacity = 1.0F;
-			int frame = 0;
+			long timeTicks = 0L;
+			float frameTime = 0.0F;
 			boolean geometry = false;
 			@Nullable String title = binding.title();
 			for (final VFXActiveEffect effect : active) {
@@ -183,8 +184,8 @@ public final class VFXWindowManager {
 				sizeW = effect.getParam("size_w", sizeW);
 				sizeH = effect.getParam("size_h", sizeH);
 				opacity = effect.getParam("opacity", opacity);
-				final float frameTime = effect.getParam("frame_time", 0.0F);
-				frame = frameTime > 0.0F ? (int) (effect.getElapsed() / frameTime) : 0;
+				timeTicks = (long) effect.getElapsed();
+				frameTime = effect.getParam("frame_time", 0.0F);
 				@Nullable final String effectTitle = spec.titleAt(effect.getParam("title_index", 0.0F));
 				if (effectTitle != null) {
 					title = effectTitle;
@@ -200,7 +201,7 @@ public final class VFXWindowManager {
 				binding.window().setTitle(title);
 				entry.setValue(new Binding(binding.window(), binding.content(), binding.controller(), null, title));
 			}
-			binding.controller().apply(binding.window(), posX, posY, sizeW, sizeH, opacity, frame);
+			binding.controller().apply(binding.window(), posX, posY, sizeW, sizeH, opacity, timeTicks, frameTime);
 		}
 	}
 

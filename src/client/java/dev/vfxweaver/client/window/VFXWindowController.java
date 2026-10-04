@@ -21,14 +21,14 @@ import org.slf4j.LoggerFactory;
  * <p><b>Opacity and frame.</b> The animated opacity is clamped into {@code [0, 1]} and pushed
  * through {@link VFXWindow#setOpacity(float)} only when it actually changed since the last call, so
  * a steady frame does no opacity call either. The frame is drawn into the mapped rectangle through
- * the window's own {@link VFXWindowContent#drawFrame(int, float, float, float, float)} and the
- * window is then presented by {@link VFXWindow#present()}.
+ * the window's own {@link VFXWindowContent#drawFrame(long, float, float, float, float, float)} and
+ * the window is then presented by {@link VFXWindow#present()}.
  *
  * <p><b>Reads, does not own.</b> This controller is given its window and its content; it creates,
  * stores and destroys neither. The registry owns the windows and the lifecycle owns the content.
  *
  * <p><b>Render thread only, and after the game's own present.</b> Every path here calls GLFW and
- * delegates GL through {@link VFXWindowContent#drawFrame(int, float, float, float, float)} and
+ * delegates GL through {@link VFXWindowContent#drawFrame(long, float, float, float, float, float)} and
  * {@link VFXWindow#present()},
  * which save and restore the game's current GL context; GLFW and GL are not thread-safe and a
  * context may only be current on one thread, so {@link #apply} must run on the render thread and
@@ -69,9 +69,11 @@ public final class VFXWindowController {
 	 * @param sizeH      the picture's height as a 0..1 fraction of the work area, clamped into
 	 *                   {@code [0, 1]}
 	 * @param opacity    the animated window opacity, clamped into {@code [0, 1]}
-	 * @param frameIndex the sheet frame to draw; any index is wrapped by the content
+	 * @param timeTicks  elapsed ticks since the window opened, for a {@code .mcmeta} animation or a
+	 *                   {@code frame_time} strip
+	 * @param frameTime  ticks per frame for a sheet without {@code .mcmeta}; {@code 0} holds frame 0
 	 */
-	public void apply(final VFXWindow w, final float posX, final float posY, final float sizeW, final float sizeH, final float opacity, final int frameIndex) {
+	public void apply(final VFXWindow w, final float posX, final float posY, final float sizeW, final float sizeH, final float opacity, final long timeTicks, final float frameTime) {
 		if (w == null || w.closed()) {
 			return;
 		}
@@ -106,7 +108,7 @@ public final class VFXWindowController {
 			this.hasOpacity = true;
 			this.lastOpacity = clampedOpacity;
 		}
-		this.content.drawFrame(frameIndex, rectX, rectY, drawW, drawH);
+		this.content.drawFrame(timeTicks, frameTime, rectX, rectY, drawW, drawH);
 		w.present();
 		if (LOGGER.isDebugEnabled()) {
 			LOGGER.debug("window picture at ({}, {}) {}x{} in canvas {}x{} at ({}, {})", picX, picY, picW, picH, waW[0], waH[0], waX[0], waY[0]);
