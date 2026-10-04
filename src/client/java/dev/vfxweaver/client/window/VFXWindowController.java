@@ -92,16 +92,21 @@ public final class VFXWindowController {
 		final float picH = rectH * base;
 		final float picX = waX[0] + clampUnit(posX) * Math.max(0.0F, waW[0] - picW);
 		final float picY = waY[0] + clampUnit(posY) * Math.max(0.0F, waH[0] - picH);
+		// The picture's pixel box is (size_w : size_h) in the common base, so draw it as that box
+		// expressed in canvas fractions (picW/waW by picH/waH). Passing the raw size_w/size_h here
+		// instead would draw size_w*waW by size_h*waH - the axis-fraction stretch this avoids.
+		final float drawW = picW / (float) waW[0];
+		final float drawH = picH / (float) waH[0];
 		final float rectX = (picX - waX[0]) / (float) waW[0];
 		final float rectTop = (picY - waY[0]) / (float) waH[0];
-		final float rectY = 1.0F - rectTop - rectH;
+		final float rectY = 1.0F - rectTop - drawH;
 		final float clampedOpacity = clampUnit(opacity);
 		if (!this.hasOpacity || clampedOpacity != this.lastOpacity) {
 			w.setOpacity(clampedOpacity);
 			this.hasOpacity = true;
 			this.lastOpacity = clampedOpacity;
 		}
-		this.content.drawFrame(frameIndex, rectX, rectY, rectW, rectH);
+		this.content.drawFrame(frameIndex, rectX, rectY, drawW, drawH);
 		w.present();
 		if (LOGGER.isDebugEnabled()) {
 			LOGGER.debug("window picture at ({}, {}) {}x{} in canvas {}x{} at ({}, {})", picX, picY, picW, picH, waW[0], waH[0], waX[0], waY[0]);

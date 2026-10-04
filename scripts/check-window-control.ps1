@@ -13,7 +13,7 @@
 #     outside the window, and the mapped rectangle is converted into a normalized window rect
 #     (bottom-left origin: x from left, y from bottom);
 #   * that rect is actually CONSUMED by the draw call - the controller passes
-#     drawFrame(frameIndex, rectX, rectY, rectW, rectH) to the content, not merely a log of it;
+#     drawFrame(frameIndex, rectX, rectY, drawW, drawH) to the content, not merely a log of it;
 #   * glfwSetWindowOpacity runs only when the value changed (a per-controller last-opacity cache);
 #   * the frame is drawn through the window's content and then the window is presented with
 #     VFXWindow.present() (which saves and restores the game's GL context around
@@ -103,9 +103,11 @@ if ($apply -eq $null) {
 	Assert-Contains $apply 'waY[0] + clampUnit(posY) * Math.max(0.0F, waH[0] - picH)' "apply() is missing the clamped free-space y mapping (waY + clampUnit(posY) * max(0, waH - picH))"
 
 	# 4) the mapped rect is normalized (bottom-left origin) so the content can consume it.
+	Assert-Contains $apply 'final float drawW = picW / (float) waW[0];' "apply() does not draw the picture width as the common-base pixel box (drawW = picW / waW) - passing size_w directly would stretch on a non-square monitor"
+	Assert-Contains $apply 'final float drawH = picH / (float) waH[0];' "apply() does not draw the picture height as the common-base pixel box (drawH = picH / waH)"
 	Assert-Contains $apply 'final float rectX = (picX - waX[0]) / (float) waW[0];' "apply() does not normalize the picture left edge into the canvas rectX"
 	Assert-Contains $apply 'final float rectTop = (picY - waY[0]) / (float) waH[0];' "apply() does not normalize the picture top edge into the canvas"
-	Assert-Contains $apply 'final float rectY = 1.0F - rectTop - rectH;' "apply() does not flip the top edge into a bottom-left rectY (1 - rectTop - rectH)"
+	Assert-Contains $apply 'final float rectY = 1.0F - rectTop - drawH;' "apply() does not flip the top edge into a bottom-left rectY (1 - rectTop - drawH)"
 
 	# 5) opacity is clamped and glfwSetWindowOpacity runs only when the value changed.
 	Assert-Contains $apply 'final float clampedOpacity = clampUnit(opacity);' "apply() does not clamp the animated opacity (clampUnit(opacity))"
@@ -115,9 +117,9 @@ if ($apply -eq $null) {
 
 	# 6) the mapped rect is CONSUMED by the draw call - all four components are passed, then the
 	#    window is presented (draw before present). A logged-only rect fails here.
-	Assert-Contains $apply 'this.content.drawFrame(frameIndex, rectX, rectY, rectW, rectH);' "apply() does not consume the mapped rect - it must call this.content.drawFrame(frameIndex, rectX, rectY, rectW, rectH)"
+	Assert-Contains $apply 'this.content.drawFrame(frameIndex, rectX, rectY, drawW, drawH);' "apply() does not consume the mapped rect - it must call this.content.drawFrame(frameIndex, rectX, rectY, drawW, drawH)"
 	Assert-Contains $apply 'w.present();' "apply() does not present the window (w.present())"
-	$drawAt = $apply.IndexOf('this.content.drawFrame(frameIndex, rectX, rectY, rectW, rectH);')
+	$drawAt = $apply.IndexOf('this.content.drawFrame(frameIndex, rectX, rectY, drawW, drawH);')
 	$presentAt = $apply.IndexOf('w.present();')
 	if ($drawAt -ge 0 -and $presentAt -ge 0 -and $drawAt -gt $presentAt) {
 		$problems.Add("apply() presents before drawing the frame - the picture would lag by a frame")
@@ -152,7 +154,7 @@ if ($problems.Count -gt 0) {
 Write-Host "  VFXWindowController is a final loader-agnostic per-window applier"
 Write-Host "  apply(VFXWindow, float, float, float, float, float, int) is the produced interface (R4 order)"
 Write-Host "  the geometry is the free-space work-area mapping with pos/size clamped into [0, 1]; the canvas is never moved/resized"
-Write-Host "  the mapped rect is normalized (bottom-left origin) and CONSUMED by content.drawFrame(frameIndex, rectX, rectY, rectW, rectH)"
+Write-Host "  the mapped rect is normalized (bottom-left origin) and CONSUMED by content.drawFrame(frameIndex, rectX, rectY, drawW, drawH)"
 Write-Host "  opacity is clamped and glfwSetWindowOpacity runs only when the value changed"
 Write-Host "  the frame is drawn through VFXWindowContent.drawFrame, then VFXWindow.present() runs after the game's present"
 Write-Host "  a null or closed window is a no-op; no raw swap/context call, no loader type"
