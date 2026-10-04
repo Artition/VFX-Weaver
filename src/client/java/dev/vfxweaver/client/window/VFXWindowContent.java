@@ -77,6 +77,8 @@ public final class VFXWindowContent {
 	private int columns;
 	private int rows;
 	private int texture;
+	private int imageWidth;
+	private int imageHeight;
 
 	/**
 	 * Creates the content owner for one window. Must run on the render thread.
@@ -162,10 +164,26 @@ public final class VFXWindowContent {
 		final float v0 = (float) row / (float) this.rows;
 		final float u1 = (float) (column + 1) / (float) this.columns;
 		final float v1 = (float) (row + 1) / (float) this.rows;
-		final float left = rectX * 2.0F - 1.0F;
-		final float right = (rectX + rectW) * 2.0F - 1.0F;
-		final float bottom = rectY * 2.0F - 1.0F;
-		final float top = (rectY + rectH) * 2.0F - 1.0F;
+		// Keep the picture's own pixel aspect: the assigned rect is in normalized canvas coords, so
+		// its pixel size is rectW*fbW by rectH*fbH, which on a non-square work area differs from the
+		// source cell's aspect (a square icon in a 16:9 rect stretched). Fit (contain) the cell
+		// inside the rect, centred, so the picture is never stretched on any monitor.
+		final float fbW = Math.max(1, width[0]);
+		final float fbH = Math.max(1, height[0]);
+		final float cellW = (float) this.imageWidth / (float) this.columns;
+		final float cellH = (float) this.imageHeight / (float) this.rows;
+		final float aspect = cellW <= 0.0F || cellH <= 0.0F ? 1.0F : cellW / cellH;
+		final float pxW = rectW * fbW;
+		final float pxH = rectH * fbH;
+		final boolean limitByHeight = pxW / pxH > aspect;
+		final float fitW = (limitByHeight ? pxH * aspect : pxW) / fbW;
+		final float fitH = (limitByHeight ? pxH : pxW / aspect) / fbH;
+		final float drawX = rectX + (rectW - fitW) * 0.5F;
+		final float drawY = rectY + (rectH - fitH) * 0.5F;
+		final float left = drawX * 2.0F - 1.0F;
+		final float right = (drawX + fitW) * 2.0F - 1.0F;
+		final float bottom = drawY * 2.0F - 1.0F;
+		final float top = (drawY + fitH) * 2.0F - 1.0F;
 		GL11.glEnable(GL11.GL_BLEND);
 		GL11.glBlendFunc(GL11.GL_ONE, GL11.GL_ONE_MINUS_SRC_ALPHA);
 		GL11.glEnable(GL11.GL_TEXTURE_2D);
@@ -249,6 +267,8 @@ public final class VFXWindowContent {
 			this.frameCount = columns;
 			this.columns = columns;
 			this.rows = rows;
+			this.imageWidth = imageWidth;
+			this.imageHeight = imageHeight;
 		} finally {
 			MemoryUtil.memFree(buffer);
 			GLFW.glfwMakeContextCurrent(previous);

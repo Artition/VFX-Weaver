@@ -75,6 +75,11 @@ Notes on the numbers, because the defaults are not the intuitive ones:
   `pos_x: 1` puts the picture flush against the right edge whatever its width, and `pos_x: 0.5`
   centres it. `pos_*` and `size_*` are clamped into `0..1`, so an overshooting keyframe cannot push
   the picture off the canvas.
+- **The picture keeps its own aspect ratio.** `size_w`/`size_h` are a bounding box, not a stretch:
+  the picture is fitted (contained) inside that box at its own pixel aspect and centred, so a square
+  icon stays square on a 16:9 monitor and nothing is ever stretched. A caller that wants a specific
+  on-screen size therefore only needs one dimension to be exact; the other follows the picture (and
+  the sheet cell, when `frames` splits a strip).
 - **`frames` splits the image into a horizontal strip.** The sheet is read row-major with frame 0
   top-left, which for a strip means the image is split into `frames` equal columns left to right. The
   PNG must therefore be at least `frames` pixels wide; a narrower one is refused with a one-time
