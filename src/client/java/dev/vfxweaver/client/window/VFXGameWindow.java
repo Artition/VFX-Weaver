@@ -29,10 +29,11 @@ import org.lwjgl.glfw.GLFW;
  * believed it was fullscreen, and the next F11 toggle would jump. {@code setWindowed} places the
  * window at the position Minecraft last remembered, so the requested position is pushed after it.
  *
- * <p><b>Pinned work area.</b> The four 0..1 params map with the same free-space formula the aux
- * controller uses ({@code x = wa.x + pos_x * max(0, wa.w - width)}), into the work area of the
- * monitor the game window was on when the id-0 creator opened. {@link #capture()} pins that rect into
- * a final field, because a work area read from the game window's own rect would feed back into itself:
+ * <p><b>Pinned work area.</b> The four 0..1 params map with the same work area the aux controller
+ * reads, but <b>position is the window's centre</b>, not a free-space corner: {@code pos_x}/{@code pos_y}
+ * place the centre at that fraction of the pinned work area and {@code size_w}/{@code size_h} grow and
+ * shrink evenly about it, so a resize never pins a corner. {@link #capture()} pins the rect into a
+ * final field, because a work area read from the game window's own rect would feed back into itself:
  * {@code size_w = 0.5} would halve the window, and the window again on the next frame.
  *
  * <p><b>Never 0x0.</b> The size is clamped into {@link #MIN_WIDTH}x{@link #MIN_HEIGHT} and into the
@@ -84,21 +85,23 @@ public final class VFXGameWindow {
 	 * steady frame makes no GLFW call at all. Must run on the render thread and after the game's own
 	 * present.
 	 *
-	 * @param posX  the window's left edge as a 0..1 fraction of the free work-area space, clamped
-	 *              into {@code [0, 1]}
-	 * @param posY  the window's top edge as a 0..1 fraction of the free work-area space, clamped into
+	 * @param posX  the window's <b>centre</b> x as a 0..1 fraction of the work area, clamped into
+	 *              {@code [0, 1]}
+	 * @param posY  the window's <b>centre</b> y as a 0..1 fraction of the work area, clamped into
 	 *              {@code [0, 1]}
 	 * @param sizeW the window's width as a 0..1 fraction of the work area, clamped into {@code [0, 1]}
-	 *              and then into {@link #MIN_WIDTH} and the work area
+	 *              and then into {@link #MIN_WIDTH} and the work area; the size is split evenly about
+	 *              the centre, so a resize is symmetric
 	 * @param sizeH the window's height as a 0..1 fraction of the work area, clamped into {@code [0, 1]}
-	 *              and then into {@link #MIN_HEIGHT} and the work area
+	 *              and then into {@link #MIN_HEIGHT} and the work area; the size is split evenly about
+	 *              the centre, so a resize is symmetric
 	 */
 	public void apply(final float posX, final float posY, final float sizeW, final float sizeH) {
 		final Window window = Minecraft.getInstance().getWindow();
 		final int width = size(clampUnit(sizeW), this.area[2], MIN_WIDTH);
 		final int height = size(clampUnit(sizeH), this.area[3], MIN_HEIGHT);
-		final int x = this.area[0] + Math.round(clampUnit(posX) * Math.max(0, this.area[2] - width));
-		final int y = this.area[1] + Math.round(clampUnit(posY) * Math.max(0, this.area[3] - height));
+		final int x = center(this.area[0], this.area[2], clampUnit(posX), width);
+		final int y = center(this.area[1], this.area[3], clampUnit(posY), height);
 		if (window.isFullscreen()) {
 			window.setWindowed(width, height);
 		} else if (window.getWidth() != width || window.getHeight() != height) {
@@ -163,6 +166,23 @@ public final class VFXGameWindow {
 	 */
 	private static int size(final float fraction, final int extent, final int minimum) {
 		return Math.min(extent, Math.max(minimum, Math.round(fraction * extent)));
+	}
+
+	/**
+	 * The window origin for one axis so the window's <b>centre</b> sits at the requested 0..1
+	 * fraction of the work area: the size is split evenly about that centre, so a resize grows and
+	 * shrinks symmetrically instead of pinning the top-left corner. The result is clamped so the
+	 * window never leaves the work area.
+	 *
+	 * @param origin   the work area's origin in pixels along this axis
+	 * @param extent   the work area's extent in pixels along this axis
+	 * @param fraction the clamped 0..1 centre of the window within the work area
+	 * @param size     the window size in pixels along this axis, already clamped into the work area
+	 * @return the window origin in pixels along this axis
+	 */
+	private static int center(final int origin, final int extent, final float fraction, final int size) {
+		final int centre = origin + Math.round(fraction * extent);
+		return Math.max(origin, Math.min(origin + extent - size, centre - size / 2));
 	}
 
 	private static float clampUnit(final float value) {

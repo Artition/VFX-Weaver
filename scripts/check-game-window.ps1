@@ -11,8 +11,9 @@
 #   * the geometry only reaches the game window when the driving effect DECLARES one of the four
 #     geometry params (pos_x/pos_y/size_w/size_h, in the definition or live-set as an override), so a
 #     title-only id "0" effect never moves the game window;
-#   * VFXGameWindow maps the four 0..1 params with the SAME free-space work-area formula the aux
-#     controller uses (x = wa.x + pos_x * max(0, wa.w - width)), pinned into the monitor work area
+#   * VFXGameWindow maps the four 0..1 params into the monitor work area pinned at capture: pos_x/pos_y
+#     place the window's CENTRE at that fraction of the work area and size_w/size_h grow/shrink evenly
+#     about it, so a resize is symmetric and never pins a corner (the whole point of a window resize);
 #     when the id "0" creator opened (the aux canvas pinning rule - it must not follow the window it
 #     is resizing, that would feed back into itself);
 #   * the resize is split by mode: while FULLSCREEN the size is left through Minecraft's own
@@ -183,8 +184,8 @@ if ($driverApply -eq $null) {
 	Assert-Contains $driverApply 'final Window window = Minecraft.getInstance().getWindow();' "apply() does not read the Minecraft game window"
 	Assert-Contains $driverApply 'final int width = size(clampUnit(sizeW), this.area[2], MIN_WIDTH);' "apply() does not size the width from size_w over the pinned work area with the MIN_WIDTH floor"
 	Assert-Contains $driverApply 'final int height = size(clampUnit(sizeH), this.area[3], MIN_HEIGHT);' "apply() does not size the height from size_h over the pinned work area with the MIN_HEIGHT floor"
-	Assert-Contains $driverApply 'final int x = this.area[0] + Math.round(clampUnit(posX) * Math.max(0, this.area[2] - width));' "apply() is missing the clamped free-space x mapping (wa.x + clampUnit(pos_x) * max(0, wa.w - width))"
-	Assert-Contains $driverApply 'final int y = this.area[1] + Math.round(clampUnit(posY) * Math.max(0, this.area[3] - height));' "apply() is missing the clamped free-space y mapping (wa.y + clampUnit(pos_y) * max(0, wa.h - height))"
+	Assert-Contains $driverApply 'final int x = center(this.area[0], this.area[2], clampUnit(posX), width);' "apply() does not place the window by its CENTRE (center(wa.x, wa.w, clampUnit(pos_x), width))"
+	Assert-Contains $driverApply 'final int y = center(this.area[1], this.area[3], clampUnit(posY), height);' "apply() does not place the window by its CENTRE (center(wa.y, wa.h, clampUnit(pos_y), height))"
 	Assert-Contains $driverApply 'if (window.isFullscreen()) {' "apply() does not check the game window's fullscreen state"
 	Assert-Contains $driverApply 'window.setWindowed(width, height);' "apply() does not leave exclusive fullscreen through the game's own setWindowed(width, height)"
 	Assert-Contains $driverApply 'else if (window.getWidth() != width || window.getHeight() != height) {' "apply() does not resize an already-windowed game window (setWindowed only writes the field, so a windowed shrink needs glfwSetWindowSize)"
@@ -205,6 +206,16 @@ if ($size -eq $null) {
 	$problems.Add("VFXGameWindow has no readable 'private static int size(float, int, int)'")
 } else {
 	Assert-Contains $size 'Math.min(extent, Math.max(minimum, Math.round(fraction * extent)))' "size() does not clamp the request into [minimum, work area] - the game window could be driven to 0x0"
+}
+# 7b) a resize is anchored on the window's CENTRE, not a corner: the origin is the centre minus half
+#     the size, clamped back into the work area.
+$center = Get-Body $driver 'private static int center(final int origin, final int extent, final float fraction, final int size) {'
+if ($center -eq $null) {
+	$problems.Add("VFXGameWindow has no readable 'private static int center(int, int, float, int)' - a resize must be anchored on the window's centre")
+} else {
+	Assert-Contains $center 'final int centre = origin + Math.round(fraction * extent);' "center() does not place the window centre at the 0..1 fraction of the work area"
+	Assert-Contains $center 'centre - size / 2' "center() does not split the size evenly about the centre - a resize would pin a corner"
+	Assert-Contains $center 'Math.max(origin, Math.min(origin + extent - size, centre - size / 2))' "center() does not clamp the window back inside the work area"
 }
 $clamp = Get-Body $driver 'private static float clampUnit(final float value) {'
 if ($clamp -eq $null) {
@@ -274,7 +285,7 @@ if ($problems.Count -gt 0) {
 Write-Host "  the reserved id is the literal '0' and VFXWindowManager routes it to VFXGameWindow, never to the aux registry"
 Write-Host "  every other id keeps the aux path: registry open/close, controller apply, prune"
 Write-Host "  the game window is only driven when the effect declares pos_x/pos_y/size_w/size_h (declared or live override)"
-Write-Host "  the four params map with the shared free-space work-area formula into the work area pinned at capture"
+Write-Host "  the four params map into the pinned work area: pos is the window CENTRE, size grows/shrinks evenly about it"
 Write-Host "  fullscreen is left first through Window.setWindowed (the game's own path), then glfwSetWindowPos pushes the position"
 Write-Host "  never 0x0: the size is clamped into 320x240 and into the work area"
 Write-Host "  the game window stays ordinary: only glfwSetWindowSize/glfwSetWindowPos on handle(); no create/destroy/monitor/show/focus/attribute/title/opacity call"

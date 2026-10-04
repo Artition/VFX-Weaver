@@ -115,7 +115,7 @@ screen. Everything else in this page still applies to every other id, unchanged.
 	"persistent": true,
 	"params": {
 		"pos_x": 0.5,
-		"pos_y": 0.05,
+		"pos_y": 0.5,
 		"size_w": { "start": 1.0, "end": 0.5 },
 		"size_h": { "start": 1.0, "end": 0.5 }
 	}
@@ -129,10 +129,10 @@ screen. Everything else in this page still applies to every other id, unchanged.
 ### What is different for id `"0"`
 
 - **The geometry is the window's own rect, not a picture inside a canvas.** `size_w`/`size_h` are
-  0..1 of the monitor work area and `pos_x`/`pos_y` are 0..1 of the free work-area space, the same
-  free-space formula as above - but the result is the game window's size and position, followed every
-  frame. `size = 1` is therefore a maximized-looking window filling the work area, and
-  `pos_x: 0.5, size_w: 0.5` is the top-left quarter of the screen.
+  0..1 of the monitor work area and `pos_x`/`pos_y` are the **centre** of the window as a 0..1
+  fraction of the work area - so any resize grows and shrinks **evenly about that centre** and never
+  pins a corner. `size = 1` is a maximized-looking window filling the work area, `pos_x: 0.5,
+  pos_y: 0.5` is dead centre, and `pos_x: 0.5, size_w: 0.5` is the middle half of the screen.
 - **The work area is pinned when the `window_create` starts**, exactly like an aux canvas: it is the
   work area of the monitor the game window was on at that moment. Replay the effect to re-pin it.
 - **Only an effect that declares a geometry moves the window.** If neither the `window_create` nor any
