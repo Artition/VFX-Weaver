@@ -27,17 +27,22 @@ import org.jspecify.annotations.Nullable;
 public class VFXClientAPI implements VFXLocalDispatcher {
 	@Override
 	public long playEffect(final Identifier effectId, final int durationTicks, final Map<String, Float> params, final EasingType easing) {
-		return this.schedulePlay(effectId, durationTicks, null, List.of(), params, easing);
+		return this.schedulePlay(effectId, durationTicks, 0, null, List.of(), params, easing);
 	}
 
 	@Override
 	public long playEffect(final Identifier effectId, final int durationTicks, final @Nullable Vec3 position, final Map<String, Float> params, final @Nullable EasingType easing) {
-		return this.schedulePlay(effectId, durationTicks, position, List.of(), params, easing);
+		return this.schedulePlay(effectId, durationTicks, 0, position, List.of(), params, easing);
 	}
 
 	@Override
 	public long playEffect(final Identifier effectId, final int durationTicks, final @Nullable Vec3 position, final List<UUID> entityUuids, final Map<String, Float> params, final @Nullable EasingType easing) {
-		return this.schedulePlay(effectId, durationTicks, position, entityUuids, params, easing);
+		return this.schedulePlay(effectId, durationTicks, 0, position, entityUuids, params, easing);
+	}
+
+	@Override
+	public long playEffectAt(final Identifier effectId, final int durationTicks, final int elapsedTicks, final Map<String, Float> params, final @Nullable EasingType easing) {
+		return this.schedulePlay(effectId, durationTicks, elapsedTicks, null, List.of(), params, easing);
 	}
 
 	/**
@@ -48,6 +53,7 @@ public class VFXClientAPI implements VFXLocalDispatcher {
 	private long schedulePlay(
 		final Identifier effectId,
 		final int durationTicks,
+		final int elapsedTicks,
 		final @Nullable Vec3 position,
 		final List<UUID> entityUuids,
 		final Map<String, Float> params,
@@ -56,11 +62,9 @@ public class VFXClientAPI implements VFXLocalDispatcher {
 		long instanceId = VFXEffectManager.get().allocateInstanceId();
 		EasingFunction easingFunction = easing == null ? null : EasingFunction.builtIn(easing);
 		Minecraft.getInstance().execute(() -> {
-			if (entityUuids.isEmpty()) {
-				VFXEffectManager.get().play(effectId, durationTicks, instanceId, position, params, easingFunction);
-			} else {
-				VFXEffectManager.get().play(effectId, durationTicks, instanceId, position, entityUuids, params, easingFunction);
-			}
+			// One path through the elapsed overload: a 0 offset with no entity anchors is the same
+			// play the non-elapsed overloads perform, and this is the overload the network uses.
+			VFXEffectManager.get().play(effectId, durationTicks, elapsedTicks, instanceId, position, entityUuids, params, easingFunction);
 			FlashbackCompat.recordPlay(effectId, durationTicks, params, easing, position, entityUuids);
 		});
 		return instanceId;

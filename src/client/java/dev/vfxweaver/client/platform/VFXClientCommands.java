@@ -1,5 +1,6 @@
 package dev.vfxweaver.client.platform;
 
+import dev.vfxweaver.client.VFXClient;
 import dev.vfxweaver.client.config.VFXSettingsScreen;
 //? if neoforge {
 /*import net.minecraft.commands.Commands;
@@ -24,9 +25,13 @@ import net.neoforged.neoforge.common.NeoForge;*/
  * <p>The root is {@code vfxconfig}, deliberately not {@code vfx}: a client command registered
  * under the server's root literal would shadow the whole {@code /vfx} tree on this client, hiding
  * {@code /vfx play}, {@code /vfx stop} and the rest.
+ *
+ * <p>{@code /vfxeditor} toggles the visual node editor's local bridge (see
+ * {@link VFXClient#toggleEditor()}); it is a second client literal for the same reason.
  */
 public final class VFXClientCommands {
 	private static final String ROOT = "vfxconfig";
+	private static final String EDITOR_ROOT = "vfxeditor";
 
 	private VFXClientCommands() {
 	}
@@ -37,7 +42,7 @@ public final class VFXClientCommands {
 	 */
 	public static void register() {
 		//? if fabric {
-		ClientCommandRegistrationCallback.EVENT.register((dispatcher, buildContext) ->
+		ClientCommandRegistrationCallback.EVENT.register((dispatcher, buildContext) -> {
 			dispatcher.register(
 				//? if <26.1 {
 				/*ClientCommandManager.literal(ROOT)
@@ -45,12 +50,21 @@ public final class VFXClientCommands {
 				ClientCommands.literal(ROOT)
 				//?}
 				.executes(context -> openSettings())
-			)
-		);
+			);
+			dispatcher.register(
+				//? if <26.1 {
+				/*ClientCommandManager.literal(EDITOR_ROOT)
+				*///?} else {
+				ClientCommands.literal(EDITOR_ROOT)
+				//?}
+				.executes(context -> toggleEditor())
+			);
+		});
 		//?} else {
-		/*NeoForge.EVENT_BUS.addListener((RegisterClientCommandsEvent event) ->
-			event.getDispatcher().register(Commands.literal(ROOT).executes(context -> openSettings()))
-		);*/
+		/*NeoForge.EVENT_BUS.addListener((RegisterClientCommandsEvent event) -> {
+			event.getDispatcher().register(Commands.literal(ROOT).executes(context -> openSettings()));
+			event.getDispatcher().register(Commands.literal(EDITOR_ROOT).executes(context -> toggleEditor()));
+		});*/
 		//?}
 	}
 
@@ -58,5 +72,10 @@ public final class VFXClientCommands {
 	private static int openSettings() {
 		VFXSettingsScreen.open();
 		return 1;
+	}
+
+	/** Starts or stops the visual editor bridge on the client thread. */
+	private static int toggleEditor() {
+		return VFXClient.toggleEditor();
 	}
 }

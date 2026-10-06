@@ -62,6 +62,25 @@ public interface VFXLocalDispatcher {
 	long playEffect(Identifier effectId, int durationTicks, @Nullable Vec3 position, List<UUID> entityUuids, Map<String, Float> params, @Nullable EasingType easing);
 
 	/**
+	 * Plays an effect locally starting {@code elapsedTicks} ticks into its timeline - a seek while
+	 * the effect starts. The client seeks through the effect manager's existing elapsed overload
+	 * (the same one the network uses after a reconnect), so a {@code 0} offset is an ordinary play.
+	 *
+	 * <p>The default returns {@code 0} (a no-op), so a dispatcher compiled before this method
+	 * existed keeps linking.</p>
+	 *
+	 * @param effectId      effect id (built-in or datapack-defined)
+	 * @param durationTicks duration in ticks ({@code 0} uses the definition default)
+	 * @param elapsedTicks  how far into the timeline to start, in ticks ({@code 0} starts fresh)
+	 * @param params        parameter overrides (empty for defaults)
+	 * @param easing        easing curve (may be null for the definition default)
+	 * @return the instance id, or {@code 0} when the effect was not started
+	 */
+	default long playEffectAt(final Identifier effectId, final int durationTicks, final int elapsedTicks, final Map<String, Float> params, final @Nullable EasingType easing) {
+		return 0L;
+	}
+
+	/**
 	 * Re-anchors a running effect instance to a new world position locally (no packet) - the local
 	 * equivalent of the network {@code MOVE} action. Calling it every tick lets a caller make an
 	 * anchored effect follow a moving entity or point.

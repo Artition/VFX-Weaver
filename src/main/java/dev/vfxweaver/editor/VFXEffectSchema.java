@@ -22,6 +22,8 @@ import org.jspecify.annotations.Nullable;
  */
 public final class VFXEffectSchema {
 	private static final Map<VFXEffectType, VFXEffectDescriptor> DESCRIPTORS = new LinkedHashMap<>();
+	/** Guards {@link #registerBuiltIns()} so repeated calls (e.g. toggling the editor) are no-ops. */
+	private static boolean builtInsRegistered;
 	/**
 	 * Reflection-based serialisation with special floats allowed, so the tree can be built before
 	 * {@link #toJson()} replaces every non-finite bound with {@code null} (see {@link #nullifyNonFinite}).
@@ -83,6 +85,10 @@ public final class VFXEffectSchema {
 	 * documented under {@code docs/guide/effects/**}.
 	 */
 	public static void registerBuiltIns() {
+		if (builtInsRegistered) {
+			return;
+		}
+		builtInsRegistered = true;
 		for (final Map.Entry<VFXEffectType, String[]> entry : PostParamSources.PARAMS.entrySet()) {
 			register(describe(entry.getKey(), entry.getValue()));
 		}

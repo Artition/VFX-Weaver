@@ -1,6 +1,9 @@
 package dev.vfxweaver.client;
 
 import dev.vfxweaver.api.VFXAPI;
+import dev.vfxweaver.client.editor.EditorServer;
+import dev.vfxweaver.client.editor.EditorSession;
+import dev.vfxweaver.client.editor.MinecraftEditorGame;
 import dev.vfxweaver.client.effect.VFXEffectManager;
 import dev.vfxweaver.client.compat.iris.VfxIrisCompat;
 import dev.vfxweaver.client.flashback.FlashbackCompat;
@@ -11,6 +14,7 @@ import dev.vfxweaver.client.postprocessing.VFXShaderPrograms;
 import dev.vfxweaver.client.render.VFXClientEntityReader;
 import dev.vfxweaver.client.render.VFXEntityEffectRenderer;
 import dev.vfxweaver.client.render.VFXWorldOverlayRenderer;
+import dev.vfxweaver.editor.VFXEffectSchema;
 import dev.vfxweaver.effect.EasingFunction;
 import dev.vfxweaver.effect.VFXCurveManager;
 import dev.vfxweaver.effect.VFXWorldBindings;
@@ -31,6 +35,8 @@ import net.neoforged.bus.api.IEventBus;
 import net.neoforged.fml.common.Mod;*/
 //?}
 import net.minecraft.client.Minecraft;
+import net.minecraft.network.chat.Component;
+import net.minecraft.util.Util;
 import net.minecraft.world.scores.Objective;
 import net.minecraft.world.scores.ReadOnlyScoreInfo;
 import net.minecraft.world.scores.ScoreHolder;
@@ -58,6 +64,11 @@ public class VFXClient {
 	}
 *///?}
 	private static final Logger LOGGER = LoggerFactory.getLogger("vfxweaver/client");
+	/** POSTs per second accepted by the editor bridge (a compile is rare; a burst is a mistake). */
+	private static final int EDITOR_RATE_LIMIT = 20;
+
+	/** The one running editor bridge, or {@code null} while it is stopped. Client thread only. */
+	private static @Nullable EditorServer editorServer;
 
 	/** Runs the loader-agnostic client setup; invoked by the Fabric entry or the NeoForge client mod. */
 	private void initializeClient() {
@@ -77,6 +88,47 @@ public class VFXClient {
 		VFXNetwork.registerClientReceive(VFXSyncPayload.TYPE, this::handleSync);
 		VFXNetwork.registerClientReceive(VFXScoreboardPayload.TYPE, this::handleScoreboard);
 		LOGGER.info("VFX Weaver client initialized");
+	}
+
+	/**
+	 * Toggles the visual editor bridge: the first call starts it on a random loopback port,
+	 * prints the token-bearing URL to chat and opens it in the OS browser; a later call stops it.
+	 * Runs on the client thread (the command handler's thread).
+	 *
+	 * @return {@code 1} when the toggle succeeded, {@code 0} when the server could not start
+	 */
+	public static int toggleEditor() {
+		if (editorServer != null) {
+			editorServer.stop();
+			editorServer = null;
+			message("VFX editor stopped");
+			return 1;
+		}
+		VFXEffectSchema.registerBuiltIns();
+		try {
+			editorServer = EditorServer.start(new EditorSession(new MinecraftEditorGame()), EDITOR_RATE_LIMIT);
+		} catch (final RuntimeException e) {
+			LOGGER.error("Failed to start the VFX editor server", e);
+			message("Failed to start the VFX editor server");
+			return 0;
+		}
+		final String url = editorServer.url();
+		message("VFX editor: " + url);
+		try {
+			Util.getPlatform().openUri(url);
+		} catch (final RuntimeException e) {
+			LOGGER.warn("Could not open the editor URL in a browser; open it manually", e);
+		}
+		return 1;
+	}
+
+	/** Sends a client chat message and logs it at INFO. */
+	private static void message(final String text) {
+		final Minecraft minecraft = Minecraft.getInstance();
+		if (minecraft.player != null) {
+			minecraft.player.sendSystemMessage(Component.literal(text));
+		}
+		LOGGER.info(text);
 	}
 
 	/**

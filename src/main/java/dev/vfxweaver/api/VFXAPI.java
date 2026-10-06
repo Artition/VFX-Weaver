@@ -170,6 +170,40 @@ public final class VFXAPI {
 	}
 
 	/**
+	 * Plays an effect locally starting at a tick offset into its timeline - the client-side
+	 * equivalent of seeking before playback, with no server round-trip. Returns {@code false} when
+	 * running without a client (e.g. on a dedicated server).
+	 *
+	 * @param effectId      effect id (built-in or datapack-defined)
+	 * @param durationTicks duration in ticks ({@code 0} uses the definition default)
+	 * @param elapsedTicks  how far into the timeline to start, in ticks ({@code 0} starts fresh)
+	 * @param params        parameter overrides (empty for defaults)
+	 * @param easing        easing curve (may be null for the definition default)
+	 * @return {@code true} when the request was accepted
+	 */
+	public static boolean playEffectAt(final Identifier effectId, final int durationTicks, final int elapsedTicks, final Map<String, Float> params, final @Nullable EasingType easing) {
+		if (localDispatcher == null) {
+			VFXLog.warnOnce(LOGGER, "api:no-client", "playEffectAt({}) called without a client; use sendEffect() instead", effectId);
+			return false;
+		}
+		localDispatcher.playEffectAt(effectId, durationTicks, elapsedTicks, params, easing);
+		return true;
+	}
+
+	/**
+	 * Re-plays a live effect locally at a tick offset into its timeline (a seek), using the effect's
+	 * definition default duration and its default parameters. Returns {@code false} when running
+	 * without a client (e.g. on a dedicated server).
+	 *
+	 * @param effectId     effect id (built-in or datapack-defined)
+	 * @param elapsedTicks how far into the timeline to seek, in ticks
+	 * @return {@code true} when the request was accepted
+	 */
+	public static boolean seekEffect(final Identifier effectId, final int elapsedTicks) {
+		return playEffectAt(effectId, 0, elapsedTicks, Map.of(), null);
+	}
+
+	/**
 	 * Re-anchors a running effect instance to a new world position locally (no packet). Calling it
 	 * every tick makes an anchored effect follow a moving point or entity.
 	 *
