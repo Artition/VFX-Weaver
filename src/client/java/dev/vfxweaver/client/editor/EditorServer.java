@@ -2,6 +2,7 @@ package dev.vfxweaver.client.editor;
 
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
+import dev.vfxweaver.editor.VFXEffectSchema;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
@@ -151,6 +152,15 @@ public final class EditorServer {
 			respondText(exchange, 404, "not found");
 			return;
 		}
+		if (path.equals("/events")) {
+			serveEvents(exchange);
+			return;
+		}
+		if (path.equals("/schema")) {
+			respond(exchange, 200, "application/json",
+					VFXEffectSchema.toJson().getBytes(StandardCharsets.UTF_8));
+			return;
+		}
 		if (path.equals("/") || path.startsWith("/assets/")) {
 			final byte[] body = EditorAssets.resolve(path);
 			if (body != null) {
@@ -164,6 +174,30 @@ public final class EditorServer {
 			}
 		}
 		respondText(exchange, 404, "not found");
+	}
+
+	/**
+	 * Open a persistent SSE stream and block this handler thread until the hub drops the client (a
+	 * failed write, the 30 s idle reaper, or server shutdown).
+	 *
+	 * @param exchange the {@code GET /events} exchange
+	 * @throws IOException when the response headers cannot be sent
+	 */
+	private void serveEvents(final HttpExchange exchange) throws IOException {
+		exchange.getResponseHeaders().set("Content-Type", "text/event-stream; charset=utf-8");
+		exchange.getResponseHeaders().set("Cache-Control", "no-cache");
+		exchange.getResponseHeaders().set("Connection", "keep-alive");
+		exchange.sendResponseHeaders(200, 0);
+		// Flush the response headers now: with chunked encoding HttpServer writes them lazily.
+		final OutputStream out = exchange.getResponseBody();
+		out.write(": connected\n\n".getBytes(StandardCharsets.UTF_8));
+		out.flush();
+		final int handle = EditorSse.add(out);
+		try {
+			EditorSse.awaitRemoval(handle);
+		} finally {
+			EditorSse.remove(handle);
+		}
 	}
 
 	private boolean tokenMatches(final HttpExchange exchange) {

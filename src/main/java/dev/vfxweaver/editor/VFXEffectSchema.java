@@ -1,6 +1,12 @@
 package dev.vfxweaver.editor;
 
 import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonNull;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonPrimitive;
+import com.google.gson.JsonSerializer;
 import dev.vfxweaver.effect.VFXEffectType;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -16,7 +22,39 @@ import org.jspecify.annotations.Nullable;
  */
 public final class VFXEffectSchema {
 	private static final Map<VFXEffectType, VFXEffectDescriptor> DESCRIPTORS = new LinkedHashMap<>();
-	private static final Gson GSON = new Gson();
+	/**
+	 * Serialises a descriptor field by field, writing a non-finite {@code min}/{@code max} (an
+	 * unbounded soft bound) as JSON {@code null} instead of the {@code Infinity} token Gson rejects
+	 * by default. All other fields keep their default Gson shape.
+	 */
+	private static final Gson GSON = new GsonBuilder()
+			.registerTypeAdapter(VFXParamDescriptor.class, (JsonSerializer<VFXParamDescriptor>) (src, type, context) -> {
+				final JsonObject out = new JsonObject();
+				out.addProperty("name", src.name());
+				out.add("kind", context.serialize(src.kind()));
+				out.addProperty("defaultValue", src.defaultValue());
+				out.add("min", numberOrNull(src.min()));
+				out.add("max", numberOrNull(src.max()));
+				out.addProperty("step", src.step());
+				out.addProperty("group", src.group());
+				out.addProperty("animatable", src.animatable());
+				out.addProperty("bindable", src.bindable());
+				out.addProperty("fieldCapable", src.fieldCapable());
+				out.add("enumValues", context.serialize(src.enumValues()));
+				if (src.neutral() != null) {
+					out.addProperty("neutral", src.neutral());
+				}
+				return out;
+			})
+			.create();
+
+	/**
+	 * @param value a soft bound
+	 * @return the JSON number, or JSON {@code null} when the bound is infinite (unbounded)
+	 */
+	private static JsonElement numberOrNull(final float value) {
+		return Float.isFinite(value) ? new JsonPrimitive(value) : JsonNull.INSTANCE;
+	}
 
 	private VFXEffectSchema() {
 	}
@@ -234,7 +272,8 @@ public final class VFXEffectSchema {
 	/**
 	 * Serialises the registry to JSON, shaped as
 	 * {@code { "<type name>": { "params": [ ... ] } }} with the shader-style lowercase type
-	 * name ({@link VFXEffectType#getName()}) as the key.
+	 * name ({@link VFXEffectType#getName()}) as the key. An unbounded soft {@code min}/{@code max}
+	 * ({@code ±Infinity}) is emitted as {@code null}, which is valid JSON.
 	 *
 	 * @return the JSON export
 	 */
