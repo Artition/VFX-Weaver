@@ -104,6 +104,36 @@ public final class EditorSession {
 		return result(ok, "setKeyframe");
 	}
 
+	/**
+	 * Stop a live effect. Needed by the {@code /transport} route's {@code stop} action.
+	 *
+	 * @param effectId the raw effect id
+	 * @return the outcome; {@code unknown_effect} when no live effect with that id was playing
+	 */
+	public EditorResult stop(final String effectId) {
+		if (this.game.stop(effectId)) {
+			return new EditorResult(true, this.revision, null, null);
+		}
+		return new EditorResult(false, this.revision, EditorResult.UNKNOWN_EFFECT,
+				"no playing effect " + effectId);
+	}
+
+	/**
+	 * Re-play a live effect at a tick offset. Needed by the {@code /transport} route's {@code seek}
+	 * action.
+	 *
+	 * @param effectId     the raw effect id
+	 * @param elapsedTicks the tick offset to seek to
+	 * @return the outcome; {@code unknown_effect} when no live effect with that id was seeked
+	 */
+	public EditorResult seek(final String effectId, final int elapsedTicks) {
+		if (this.game.seek(effectId, elapsedTicks)) {
+			return new EditorResult(true, this.revision, null, null);
+		}
+		return new EditorResult(false, this.revision, EditorResult.UNKNOWN_EFFECT,
+				"no live effect " + effectId);
+	}
+
 	private EditorResult stale(final long revision) {
 		return new EditorResult(false, this.revision, EditorResult.STALE_REVISION,
 				"expected revision " + this.revision + ", got " + revision);

@@ -1,9 +1,14 @@
 package dev.vfxweaver.client.editor;
 
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
+import com.google.gson.JsonSyntaxException;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import dev.vfxweaver.editor.VFXEffectSchema;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.net.URLDecoder;
@@ -35,6 +40,8 @@ public final class EditorServer {
 	private static final int MAX_RATE_CLIENTS = 64;
 	/** Fixed rate-limit window, in milliseconds. */
 	private static final long RATE_WINDOW_MS = 1000L;
+	/** Upper bound on a POST body, so a local client cannot exhaust memory. */
+	private static final int MAX_BODY_BYTES = 16 * 1024 * 1024;
 
 	private final HttpServer server;
 	private final EditorSession session;
@@ -151,9 +158,8 @@ public final class EditorServer {
 
 	private void route(final HttpExchange exchange, final String method) throws IOException {
 		final String path = exchange.getRequestURI().getPath();
-		if (!"GET".equals(method)) {
-			// POST routes are added by Task 8; until then every POST is unknown.
-			respondText(exchange, 404, "not found");
+		if ("POST".equals(method)) {
+			routePost(exchange, path);
 			return;
 		}
 		if (path.equals("/events")) {
@@ -178,6 +184,252 @@ public final class EditorServer {
 			}
 		}
 		respondText(exchange, 404, "not found");
+	}
+
+	/**
+	 * Dispatch a token-gated {@code POST} to its action handler. Any unexpected runtime failure is
+	 * reported as {@code bad_request} rather than propagated, so a handler can never throw out of the
+	 * server.
+	 *
+	 * @param exchange the POST exchange
+	 * @param path     the request path
+	 * @throws IOException when the response cannot be sent
+	 */
+	private void routePost(final HttpExchange exchange, final String path) throws IOException {
+		try {
+			switch (path) {
+				case "/compile" -> handleCompile(exchange);
+				case "/transport" -> handleTransport(exchange);
+				case "/set_param" -> handleSetParam(exchange);
+				case "/set_keyframe" -> handleSetKeyframe(exchange);
+				default -> respondText(exchange, 404, "not found");
+			}
+		} catch (final RuntimeException e) {
+			try {
+				respondResult(exchange, new EditorResult(false, this.session.revision(),
+						EditorResult.BAD_REQUEST, "malformed request"));
+			} catch (final IOException ignored) {
+				// the response was already committed; nothing left to send
+			}
+		}
+	}
+
+	/**
+	 * {@code POST /compile}: register and (optionally) play a full definition. On success the new
+	 * revision is broadcast over SSE.
+	 *
+	 * @param exchange the {@code /compile} exchange
+	 * @throws IOException when the response cannot be sent
+	 */
+	private void handleCompile(final HttpExchange exchange) throws IOException {
+		final JsonObject body = readObject(exchange);
+		if (body == null) {
+			respondResult(exchange, new EditorResult(false, this.session.revision(),
+					EditorResult.INVALID_JSON, "request body must be a JSON object"));
+			return;
+		}
+		final String effectId = string(body, "effectId");
+		final String json = string(body, "json");
+		final String transport = string(body, "transport");
+		if (effectId == null || effectId.isBlank() || json == null || transport == null) {
+			respondResult(exchange, badRequest("effectId, json and transport are required"));
+			return;
+		}
+		if (!"play".equals(transport) && !"stop".equals(transport)) {
+			respondResult(exchange, badRequest("transport must be \"play\" or \"stop\""));
+			return;
+		}
+		final EditorResult result = this.session.compile(effectId, json, transport, optionalLong(body, "revision"));
+		mirror(result);
+		respondResult(exchange, result);
+	}
+
+	/**
+	 * {@code POST /transport}: live transport control. {@code play}/{@code pause} only advance the
+	 * browser playhead locally in v1 (the game has no bare play/pause operation), so they are
+	 * acknowledged; {@code stop}/{@code seek} delegate to the session.
+	 *
+	 * @param exchange the {@code /transport} exchange
+	 * @throws IOException when the response cannot be sent
+	 */
+	private void handleTransport(final HttpExchange exchange) throws IOException {
+		final JsonObject body = readObject(exchange);
+		if (body == null) {
+			respondResult(exchange, new EditorResult(false, this.session.revision(),
+					EditorResult.INVALID_JSON, "request body must be a JSON object"));
+			return;
+		}
+		final String effectId = string(body, "effectId");
+		final String action = string(body, "action");
+		if (effectId == null || effectId.isBlank() || action == null) {
+			respondResult(exchange, badRequest("effectId and action are required"));
+			return;
+		}
+		final EditorResult result;
+		if ("stop".equals(action)) {
+			result = this.session.stop(effectId);
+		} else if ("seek".equals(action)) {
+			result = this.session.seek(effectId, intOrDefault(body, "elapsedTicks", 0));
+		} else if ("play".equals(action) || "pause".equals(action)) {
+			result = new EditorResult(true, this.session.revision(), null, null);
+		} else {
+			respondResult(exchange, badRequest("action must be play, pause, stop or seek"));
+			return;
+		}
+		mirror(result);
+		respondResult(exchange, result);
+	}
+
+	/**
+	 * {@code POST /set_param}: a revision-gated live parameter edit.
+	 *
+	 * @param exchange the {@code /set_param} exchange
+	 * @throws IOException when the response cannot be sent
+	 */
+	private void handleSetParam(final HttpExchange exchange) throws IOException {
+		final JsonObject body = readObject(exchange);
+		if (body == null) {
+			respondResult(exchange, new EditorResult(false, this.session.revision(),
+					EditorResult.INVALID_JSON, "request body must be a JSON object"));
+			return;
+		}
+		final String effectId = string(body, "effectId");
+		final String name = string(body, "name");
+		final Float value = floatOrNull(body, "value");
+		final Long revision = optionalLong(body, "revision");
+		if (effectId == null || effectId.isBlank() || name == null || name.isBlank()
+				|| value == null || revision == null) {
+			respondResult(exchange, badRequest("effectId, name, value and revision are required"));
+			return;
+		}
+		final EditorResult result = this.session.setParam(effectId, name, value, revision);
+		mirror(result);
+		respondResult(exchange, result);
+	}
+
+	/**
+	 * {@code POST /set_keyframe}: a revision-gated live keyframe edit.
+	 *
+	 * @param exchange the {@code /set_keyframe} exchange
+	 * @throws IOException when the response cannot be sent
+	 */
+	private void handleSetKeyframe(final HttpExchange exchange) throws IOException {
+		final JsonObject body = readObject(exchange);
+		if (body == null) {
+			respondResult(exchange, new EditorResult(false, this.session.revision(),
+					EditorResult.INVALID_JSON, "request body must be a JSON object"));
+			return;
+		}
+		final String effectId = string(body, "effectId");
+		final String name = string(body, "name");
+		final Integer time = intOrNull(body, "time");
+		final Float value = floatOrNull(body, "value");
+		final Long revision = optionalLong(body, "revision");
+		if (effectId == null || effectId.isBlank() || name == null || name.isBlank()
+				|| time == null || value == null || revision == null) {
+			respondResult(exchange, badRequest("effectId, name, time, value and revision are required"));
+			return;
+		}
+		final EditorResult result = this.session.setKeyframe(effectId, name, time, value, revision);
+		mirror(result);
+		respondResult(exchange, result);
+	}
+
+	private EditorResult badRequest(final String detail) {
+		return new EditorResult(false, this.session.revision(), EditorResult.BAD_REQUEST, detail);
+	}
+
+	/**
+	 * Read a POST body (bounded) and parse it as a JSON object.
+	 *
+	 * @param exchange the exchange whose body is read
+	 * @return the object, or {@code null} when the body is unreadable, too large, or not a JSON object
+	 */
+	@Nullable
+	private static JsonObject readObject(final HttpExchange exchange) {
+		final byte[] raw;
+		try (InputStream in = exchange.getRequestBody()) {
+			raw = in.readNBytes(MAX_BODY_BYTES + 1);
+		} catch (final IOException e) {
+			return null;
+		}
+		if (raw.length > MAX_BODY_BYTES) {
+			return null;
+		}
+		try {
+			final JsonElement parsed = JsonParser.parseString(new String(raw, StandardCharsets.UTF_8));
+			return parsed.isJsonObject() ? parsed.getAsJsonObject() : null;
+		} catch (final JsonSyntaxException e) {
+			return null;
+		}
+	}
+
+	@Nullable
+	private static String string(final JsonObject body, final String name) {
+		final JsonElement element = body.get(name);
+		if (element == null || !element.isJsonPrimitive() || !element.getAsJsonPrimitive().isString()) {
+			return null;
+		}
+		return element.getAsString();
+	}
+
+	@Nullable
+	private static Long optionalLong(final JsonObject body, final String name) {
+		final JsonElement element = body.get(name);
+		if (element == null || !element.isJsonPrimitive() || !element.getAsJsonPrimitive().isNumber()) {
+			return null;
+		}
+		return element.getAsLong();
+	}
+
+	private static int intOrDefault(final JsonObject body, final String name, final int fallback) {
+		final JsonElement element = body.get(name);
+		if (element == null || !element.isJsonPrimitive() || !element.getAsJsonPrimitive().isNumber()) {
+			return fallback;
+		}
+		return element.getAsInt();
+	}
+
+	@Nullable
+	private static Integer intOrNull(final JsonObject body, final String name) {
+		final JsonElement element = body.get(name);
+		if (element == null || !element.isJsonPrimitive() || !element.getAsJsonPrimitive().isNumber()) {
+			return null;
+		}
+		return element.getAsInt();
+	}
+
+	@Nullable
+	private static Float floatOrNull(final JsonObject body, final String name) {
+		final JsonElement element = body.get(name);
+		if (element == null || !element.isJsonPrimitive() || !element.getAsJsonPrimitive().isNumber()) {
+			return null;
+		}
+		return element.getAsFloat();
+	}
+
+	/** Serialize an outcome as the uniform response/event body. */
+	private static String resultJson(final EditorResult result) {
+		final JsonObject out = new JsonObject();
+		out.addProperty("ok", result.ok());
+		out.addProperty("revision", result.revision());
+		if (result.error() != null) {
+			out.addProperty("error", result.error());
+		}
+		if (result.detail() != null) {
+			out.addProperty("detail", result.detail());
+		}
+		return out.toString();
+	}
+
+	/** Write an outcome as a {@code 200 application/json} body (the {@code ok} field is the result). */
+	private void respondResult(final HttpExchange exchange, final EditorResult result) throws IOException {
+		respond(exchange, 200, "application/json", resultJson(result).getBytes(StandardCharsets.UTF_8));
+	}
+
+	/** Push success as a {@code revision} event and failure as an {@code error} event over SSE. */
+	private static void mirror(final EditorResult result) {
+		EditorSse.broadcast(result.ok() ? "revision" : "error", resultJson(result));
 	}
 
 	/**
