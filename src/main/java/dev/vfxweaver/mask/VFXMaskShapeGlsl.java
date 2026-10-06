@@ -89,8 +89,11 @@ public interface VFXMaskShapeGlsl {
 	 * so the AABB of a set of circles does not qualify (its corners lie in the {@code <= 0} region).
 	 *
 	 * <p>Precedence is skip box, then this box, then {@link #glsl()}'s
-	 * {@code vfx_shape_custom_bounds()} sphere, then no bounds, so this box is worth declaring only
-	 * for a bounded coverage region.
+	 * {@code vfx_shape_custom_bounds()} sphere, then no bounds. The cull only pays for a bounded
+	 * coverage region, but the branch has a second, independent effect: it also clamps the march's
+	 * range to the box's far exit plus the leaf's softness. A cap-bounded exterior field (unbounded in
+	 * XZ, finite top) therefore benefits even though its cull never fires - the range clamp ends the
+	 * march a softness past the cap instead of crawling to the range limit.
 	 *
 	 * @param out the builder the variant generator collects plugin GLSL in
 	 * @return {@code true} when this plugin appended its function, {@code false} for "not provided"

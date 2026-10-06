@@ -306,9 +306,12 @@ nothing:
 - **The containment box must CONTAIN the whole region where the field is `<= 0`.** Anything it leaves
   out is real coverage the march would no longer find. A box drawn around a *hole* — the inverse of
   this contract — is a declaration bug rather than a cull: it buys nothing at all, because the coverage
-  region outside it is unbounded. So it is only worth declaring for a **bounded** coverage region, and
-  an unbounded axis is declared with sentinels (`-1e9` / `+1e9`), which the shader clamps to the
-  reachable range.
+  region outside it is unbounded. An unbounded axis is declared with sentinels (`-1e9` / `+1e9`), which
+  the shader clamps to the reachable range. The cull only pays for a **bounded** coverage region, but
+  the branch has a second, independent effect: it also shortens the march to the box's far exit plus
+  the leaf's softness, so a **cap-bounded exterior field** (unbounded in XZ, finite top) benefits even
+  though its cull never fires — the march ends a softness past the cap instead of crawling to the range
+  limit. Declare it alongside the skip box; the two are complementary.
 - **The skip box must lie ENTIRELY inside the region where the field is `> 0`** — a hole — and must be
   *inscribed* in it. The AABB of a set of circles does **not** qualify: its corners lie outside the
   circles, i.e. inside the coverage region (`field <= 0`), and would skip real coverage. The inscribed
@@ -320,7 +323,8 @@ by `softness / 2`, so no cliff appears at a box face and **a plugin never has to
 Either may read the leaf's own values, exactly like the sphere bound above — the dispatcher republishes
 `vfx_mask_data` and the leaf's `vfx_shape_params0`/`vfx_shape_params1` before each call. A miss on the
 containment box's padded interval culls the leaf with no march at all; that box may also only ever
-*raise* the march's start, so a leaf declaring both keeps the skip; and the skip advance applies **only
+*raise* the march's start (while lowering its range end, per the cap-bounded case above), so a leaf
+declaring both keeps the skip; and the skip advance applies **only
 when the camera is inside the skip box** (a camera outside it may have a coverage segment *before* the
 box, which the advance must not jump over) and keeps the last `softness` before `tLimit` sampled. All
 of that is the shader's business — the plugin only has to get the two contracts right.
