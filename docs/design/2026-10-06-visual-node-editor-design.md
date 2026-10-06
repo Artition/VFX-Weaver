@@ -275,3 +275,114 @@ DaVinci Fusion / Scratch). Редактор:
 | Scrub «щёлкает» / дорогой | elapsed-aware seek + debounce |
 | UI в dedicated-server jar | ассеты и код — только в `src/client` |
 | Огромный объём v1 | вертикальный срез: только пост-эффекты, без масок/полей/очередей |
+
+## 13. Post-v1: дизайн заложен заранее
+
+Этот раздел — durable-заготовка, чтобы план на следующую версию можно было написать **без доступа
+к прошлой переписке**. Ничего из этого не входит в v1; здесь зафиксированы решения, форматы и
+точки расширения, от которых уже отталкивается v1-код.
+
+### 13.1 Маски (`mask`)
+
+- **Датапак:** top-level `mask` (парсер `VFXMaskParser`, модель `VFXMask`/`VFXMaskOp`/
+  `VFXMaskPrimitive`/`VFXMaskFill`/`VFXMaskField`). Листья — примитивы (`VFXMaskShapeKind`),
+  композиция через `op`; `fill` (`solid`/`stroke`/`aura`), `space` (screen/world), `volume`
+  (surface/aura), `soft`/`stroke`/`field_amount`/`field_scale`.
+- **Резервные параметры:** числовые листья автоматически регистрируются как параметры
+  `mask.p<N>.*` (`center_x/y/z`, `rotation`, `p<J>`, `d<J>`, `soft`, `stroke`, `field_amount/scale`).
+  **Редактор обязан**: (а) исключать `mask.` из обычного списка параметров эффект-ноды; (б) иметь
+  отдельную группу «Mask»; (в) `mask.` — резервное имя, пользовательский параметр с этим префиксом
+  затеняется.
+- **UI:** нода `Mask` c дочерними `MaskLeaf`-нодами и деревом `op`. Листья подключаются к
+  обычным value-нодам по своим `mask.p<N>.*`-сокетам.
+- **Схема:** в `VFXEffectDescriptor.structural` добавить `supportsMask` (true только для
+  пост-эффектов) и перечень доступных `VFXMaskShapeKind`. UI не хардкодит формы.
+- **Ограничения (из кода):** маска только у пост-эффектов; world-overlay её игнорирует; composition
+  флаттенит depth-first, индексы `<N>` — в порядке объявления; до 2 custom-листьев.
+
+### 13.2 Per-pixel поля (`field`)
+
+- **Датапак:** только field-capable входы (`VFXEffectType.fieldCapableInputs()`), форма
+  `inputs: { "<name>": { "field": ... } | { "op": ... } }`. Модель — `dev.vfxweaver.field`
+  (`VFXField`, `VFXFieldFn`, `VFXFieldOp`, `VFXGraphEvaluator`); leaf-функции компилируются в
+  uniform-программу (`VFXFieldProgram`, `field.glsl`).
+- **Схема уже готова:** флаг `fieldCapable` есть в `VFXParamDescriptor` с v1 — он гейтит
+  «field-аффорданс» на сокете.
+- **UI:** отдельный набор нод для полей (свой список kinds, **не** путать с value-графом),
+  доступный только с field-capable сокета; сериализуется в `field`-объект.
+- **Ограничения:** поле глубины/мира валидно только на screen layer 0 (иначе нейтраль, раз в
+  определение — warning); caps по глубине/листьям/текстурам — из парсера.
+
+### 13.3 Очереди / коллекции (`collection`)
+
+- **Датапак:** `type: "collection"`, `effects: [{ effect, delay, duration, params, easing }]`;
+  вложенность до `MAX_COLLECTION_DEPTH` (4), лимиты `MAX_SCHEDULED_EFFECTS` (128).
+- **UI:** нода `Collection` — упорядоченный список дочерних **эффект-нод** с дорожкой `delay`
+  (и опциональным `duration`/`easing`/`params` override). Вложенная коллекция — дочерняя нода,
+  которая сама является collection-типом.
+- **Вкладки:** вкладка остаётся одним определением. Коллекция — это определение; её канвас
+  показывает дочерние эффект-ноды. Редактор таймлайна для коллекции — диаграмма задержек.
+- **Схема:** `COLLECTION` уже имеет дескриптор без параметров (v1); structural-опция
+  `childEffects` гейтит ноду.
+- **Компиляция:** IR коллекции → `effects[]`; `params` ребёнка принимают те же формы, что и
+  обычные (constant/start-end/keyframes/bind/expr/multiply).
+
+### 13.4 Не-пост типы в UI
+
+Параметры не-пост типов в v1 уже в схеме; в v2 к ним добавляются **structural-опции** в
+`VFXEffectDescriptor`, которые UI показывает как свойства/под-редакторы ноды (не сокеты):
+
+| Опция | Поле датапака | Типы |
+|---|---|---|
+| `positions` | `positions` (`[x,y,z]` или `{entity,point,dir,offset,distance}`), `region` | world overlay, `light_beam`, `pulse_ring`, `guide_line`, `particles`, `block_chain` |
+| `entitySelector` | `entity_selector` | `entity_tint/outline/displace` |
+| `sound` | `sound`, `sound_pos`, params `volume`/`pitch` | все |
+| `particle` / `shape` / `block` / `item` | одноимённые поля | `particles`, `block_chain` |
+| `pattern` / `surface` | top-level `pattern`/`surface` | `surface_pattern` |
+| `anchor` | top-level `anchor` (`sky_mode` sugar — в params) | `sky_pattern` |
+| `window` | `VFXWindowSpec` | `window_create/control` |
+| `screenImage` | `VFXScreenImageSpec` | `screen_image` |
+
+Правило: UI генерирует эти под-редакторы **по флагам схемы**, без ветвлений на конкретные типы —
+иначе ломается forward-compat.
+
+### 13.5 Subgraph-макросы
+
+- **Датапак:** top-level `subgraphs` (id, inputs с дефолтами, nodes, edges, outputs) + ноды
+  `kind: subgraph`; разворачиваются загрузчиком (`VFXSubgraphExpander`) до валидации. Входы
+  инстанса подставляются в `"$name"`; id локальны, префиксуются при разворачивании; вложенность
+  до 8, до 64 макросов.
+- **UI:** «сгруппировать выделение в макрос» — создаёт запись в `subgraphs` вкладки и ноду
+  `subgraph`; именованные входы/выходы (`$name`, `outputs` с порядком — первый = дефолтный).
+
+### 13.6 QoL редактора (v2)
+
+Мультивыделение, copy/paste/duplicate блоков, ЛК-меню (delete/duplicate/properties), группы и
+комментарии на канвасе (LiteGraph groups), поиск по палитре, выравнивание, сворачивание нод.
+
+### 13.7 Мост и экспорт (v2)
+
+- **Seek:** пока реcompile+play с `elapsedTicks`. Если в VFXweaver появится настоящий
+  seek/scrub у активного эффекта — переключить `/transport seek` на него (точка в
+  `MinecraftEditorGame.seek`).
+- **Транспорт моста:** SSE+POST, пока латентность устраивает; WS только если появится доказанная
+  проблема (не реализовывать заранее).
+- **Экспорт:** `vfx_curves/*.json` и `vfx_particles/*.json` (эдиторы кривых/пресетов), несколько
+  namespace в одном проекте, версионирование/миграция `.vfxproj.json` (`"version"` уже есть).
+
+## 14. Правила для будущих планов (durable conventions)
+
+Чтобы план на v2+ писался по этой спеке без прошлой переписки:
+
+- **Единственный источник схемы** — `VFXEffectSchema`; новый эффект/параметр добавляется туда и
+  **обязан** пройти `scripts/check-vfx-schema.ps1`. `registerPost` не переупорядочивать никогда.
+- **UI генерируется из схемы**, а не из имён эффектов/параметров; любое `if (type == ...)` в
+  web-коде — сигнал, что данных не хватает в дескрипторе: расширяй дескриптор.
+- **Формат датапака — только аддитивно**; новые поля добавлять в конец и переживать их отсутствие.
+- **Новое структурное поле** → новая опция в `VFXEffectDescriptor.structural`, а не ветка в UI.
+- **Web-модель — единственный источник истины**; игра — исполнитель; любое новое действие моста
+  обязано нести `revision` и быть идемпотентным.
+- **Тесты:** Java-логика — throwaway `main()`/PowerShell-скрипт по образцу `scripts/check-*.ps1`;
+  компилятор web — фикстуры `selftest.html`, финальный валидатор — Java-парсер.
+- **Определение готовности:** все шесть нод собираются; визуальное — только запуском игры.
+- План хранится рядом со спекой: `docs/design/YYYY-MM-DD-*.md`; спека путешествует с планом.
