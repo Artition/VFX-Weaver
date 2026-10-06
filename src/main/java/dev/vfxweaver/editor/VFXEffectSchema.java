@@ -2,7 +2,9 @@ package dev.vfxweaver.editor;
 
 import com.google.gson.Gson;
 import dev.vfxweaver.effect.VFXEffectType;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import org.jspecify.annotations.Nullable;
@@ -41,6 +43,52 @@ public final class VFXEffectSchema {
 		if (DESCRIPTORS.putIfAbsent(descriptor.type(), descriptor) != null) {
 			throw new IllegalStateException("Duplicate effect schema for " + descriptor.type());
 		}
+	}
+
+	/**
+	 * Registers a descriptor for every post-processing effect type from the verbatim parameter
+	 * lists in {@link PostParamSources}. Called once at client init, before the editor UI reads the
+	 * schema. Non-post types are registered separately (see the node editor's full-coverage step).
+	 *
+	 * <p>Each parameter's {@code defaultValue} is its {@link VFXEffectType#neutralValue(String)
+	 * neutral} value when finite, else {@code 0}; {@code neutral} is that value or {@code null} when
+	 * the parameter must not fade; {@code fieldCapable} follows
+	 * {@link VFXEffectType#fieldCapableInputs()}. Only {@code radius} has a spec-fixed range
+	 * ({@code 0..64}); every other range is unbounded and {@code step} is {@code 0}.
+	 */
+	public static void registerBuiltIns() {
+		for (final Map.Entry<VFXEffectType, String[]> entry : PostParamSources.PARAMS.entrySet()) {
+			register(describe(entry.getKey(), entry.getValue()));
+		}
+	}
+
+	/**
+	 * Builds the descriptor of one post-processing effect from its ordered parameter names.
+	 *
+	 * @param type  the effect type
+	 * @param names the parameter names, in {@code Config} order
+	 * @return the descriptor
+	 */
+	private static VFXEffectDescriptor describe(final VFXEffectType type, final String[] names) {
+		final List<VFXParamDescriptor> params = new ArrayList<>(names.length);
+		for (final String name : names) {
+			final float neutral = type.neutralValue(name);
+			final boolean bounded = "radius".equals(name);
+			params.add(new VFXParamDescriptor(
+				name,
+				VFXParamKind.FLOAT,
+				Float.isNaN(neutral) ? 0.0F : neutral,
+				bounded ? 0.0F : Float.NEGATIVE_INFINITY,
+				bounded ? 64.0F : Float.POSITIVE_INFINITY,
+				0.0F,
+				"",
+				true,
+				true,
+				type.fieldCapableInputs().contains(name),
+				List.of(),
+				Float.isNaN(neutral) ? null : neutral));
+		}
+		return new VFXEffectDescriptor(type, params);
 	}
 
 	/**

@@ -130,7 +130,7 @@ public enum VFXEffectType {
 	 * True for the effect types that render a fullscreen post-processing pass.
 	 */
 	public boolean isPostProcessing() {
-		return this != CAMERA_SHAKE && this != CAMERA_ROLL && this != BLOCK_OUTLINE && this != BLOCK_TINT && this != ENTITY_TINT && this != ENTITY_OUTLINE && this != ENTITY_DISPLACE && this != FOV_MODIFIER && this != FOG_MODIFIER && this != WINDOW_CREATE && this != WINDOW_CONTROL && this != COLLECTION;
+		return this != CAMERA_SHAKE && this != CAMERA_ROLL && this != BLOCK_OUTLINE && this != BLOCK_TINT && this != LIGHT_BEAM && this != PULSE_RING && this != GUIDE_LINE && this != PARTICLES && this != BLOCK_CHAIN && this != ENTITY_TINT && this != ENTITY_OUTLINE && this != ENTITY_DISPLACE && this != FOV_MODIFIER && this != FOG_MODIFIER && this != WINDOW_CREATE && this != WINDOW_CONTROL && this != COLLECTION;
 	}
 
 	/**
