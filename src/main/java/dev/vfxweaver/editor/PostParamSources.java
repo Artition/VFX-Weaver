@@ -14,7 +14,8 @@ import java.util.Map;
  * {@link VFXEffectSchema#registerBuiltIns()} turns into editor descriptors and what the
  * {@code scripts/check-vfx-schema.ps1} drift check compares against the registrations. The client
  * registration is the source of truth — <b>never</b> reorder or edit {@code VFXShaderPrograms}; if
- * a name here drifts, the check fails.
+ * a name here drifts, the check fails. A {@code registerFieldPost} field-capable input (its third
+ * argument) is a real logical effect input and is appended after that type's {@code Config} names.
  */
 final class PostParamSources {
 	/** The ordered parameter names of every post-processing type ({@code SCREEN_IMAGE} is empty). */
@@ -24,12 +25,14 @@ final class PostParamSources {
 		final Map<VFXEffectType, String[]> params = new LinkedHashMap<>();
 		// order = VFXShaderPrograms.registerPost(CHROMATIC_ABERRATION); do not reorder
 		params.put(VFXEffectType.CHROMATIC_ABERRATION, new String[]{"intensity", "radius"});
-		// order = VFXShaderPrograms.registerFieldPost(COLOR_GRADE); do not reorder
-		params.put(VFXEffectType.COLOR_GRADE, new String[]{"saturation", "contrast", "brightness", "tint_g", "tint_b"});
+		// order = VFXShaderPrograms.registerFieldPost(COLOR_GRADE); do not reorder.
+		// tint_r (last) is the registerFieldPost fieldInput, appended after the Config order on purpose.
+		params.put(VFXEffectType.COLOR_GRADE, new String[]{"saturation", "contrast", "brightness", "tint_g", "tint_b", "tint_r"});
 		// order = VFXShaderPrograms.registerPost(DISTORTION); do not reorder
 		params.put(VFXEffectType.DISTORTION, new String[]{"amount", "radius"});
-		// order = VFXShaderPrograms.registerFieldPost(DENT); do not reorder
-		params.put(VFXEffectType.DENT, new String[]{"strength", "radius", "center_x", "center_y", "line_mode", "x0", "y0", "x1", "y1"});
+		// order = VFXShaderPrograms.registerFieldPost(DENT); do not reorder.
+		// intensity (last) is the registerFieldPost fieldInput, appended after the Config order on purpose.
+		params.put(VFXEffectType.DENT, new String[]{"strength", "radius", "center_x", "center_y", "line_mode", "x0", "y0", "x1", "y1", "intensity"});
 		// order = VFXShaderPrograms.registerPost(GRADIENT_MAP); do not reorder
 		params.put(VFXEffectType.GRADIENT_MAP, new String[]{"from_r", "from_g", "from_b", "to_r", "to_g", "to_b", "intensity", "mode", "pos"});
 		// order = VFXShaderPrograms.registerPost(POSTERIZE); do not reorder

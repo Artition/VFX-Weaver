@@ -53,8 +53,10 @@ public final class VFXEffectSchema {
 	 * <p>Each parameter's {@code defaultValue} is its {@link VFXEffectType#neutralValue(String)
 	 * neutral} value when finite, else {@code 0}; {@code neutral} is that value or {@code null} when
 	 * the parameter must not fade; {@code fieldCapable} follows
-	 * {@link VFXEffectType#fieldCapableInputs()}. Only {@code radius} has a spec-fixed range
-	 * ({@code 0..64}); every other range is unbounded and {@code step} is {@code 0}.
+	 * {@link VFXEffectType#fieldCapableInputs()}. A field-capable input (a {@code registerFieldPost}
+	 * field input such as {@code color_grade.tint_r} / {@code dent.intensity}) uses
+	 * {@link VFXEffectType#fieldNeutral(String)} as its default/neutral. Only {@code radius} has a
+	 * spec-fixed range ({@code 0..64}); every other range is unbounded and {@code step} is {@code 0}.
 	 */
 	public static void registerBuiltIns() {
 		for (final Map.Entry<VFXEffectType, String[]> entry : PostParamSources.PARAMS.entrySet()) {
@@ -66,13 +68,14 @@ public final class VFXEffectSchema {
 	 * Builds the descriptor of one post-processing effect from its ordered parameter names.
 	 *
 	 * @param type  the effect type
-	 * @param names the parameter names, in {@code Config} order
+	 * @param names the parameter names, in {@code Config} order with any field input appended
 	 * @return the descriptor
 	 */
 	private static VFXEffectDescriptor describe(final VFXEffectType type, final String[] names) {
 		final List<VFXParamDescriptor> params = new ArrayList<>(names.length);
 		for (final String name : names) {
-			final float neutral = type.neutralValue(name);
+			final boolean fieldCapable = type.fieldCapableInputs().contains(name);
+			final float neutral = fieldCapable ? type.fieldNeutral(name) : type.neutralValue(name);
 			final boolean bounded = "radius".equals(name);
 			params.add(new VFXParamDescriptor(
 				name,
@@ -84,7 +87,7 @@ public final class VFXEffectSchema {
 				"",
 				true,
 				true,
-				type.fieldCapableInputs().contains(name),
+				fieldCapable,
 				List.of(),
 				Float.isNaN(neutral) ? null : neutral));
 		}
