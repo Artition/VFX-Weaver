@@ -186,8 +186,7 @@ public final class VFXAPI {
 			VFXLog.warnOnce(LOGGER, "api:no-client", "playEffectAt({}) called without a client; use sendEffect() instead", effectId);
 			return false;
 		}
-		localDispatcher.playEffectAt(effectId, durationTicks, elapsedTicks, params, easing);
-		return true;
+		return localDispatcher.playEffectAt(effectId, durationTicks, elapsedTicks, params, easing) != 0L;
 	}
 
 	/**
