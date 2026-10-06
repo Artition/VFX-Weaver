@@ -43,6 +43,10 @@ jobs:
         run: |
           printf 'plugins {\n\tid "dev.kikugie.stonecutter"\n}\nstonecutter.active "26.1.2"\n' > stonecutter.gradle
           cat stonecutter.gradle
+      # The editor schema (`dev.vfxweaver.editor`) must match the renderer's post registrations;
+      # this is a plain source scan, so it runs before (and independently of) the Gradle build.
+      - name: check editor schema drift
+        run: pwsh -NoProfile -File scripts/check-vfx-schema.ps1
       # Retry the whole build so a transient Maven Central 429 / network flake does not fail the
       # job. No extra Gradle plugins; the retry only re-runs the already-configured build.
       - name: build ${{ matrix.node }}
