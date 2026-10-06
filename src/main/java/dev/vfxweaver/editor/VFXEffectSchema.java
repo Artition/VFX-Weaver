@@ -2,11 +2,11 @@ package dev.vfxweaver.editor;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonNull;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonPrimitive;
-import com.google.gson.JsonSerializer;
 import dev.vfxweaver.effect.VFXEffectType;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -23,38 +23,21 @@ import org.jspecify.annotations.Nullable;
 public final class VFXEffectSchema {
 	private static final Map<VFXEffectType, VFXEffectDescriptor> DESCRIPTORS = new LinkedHashMap<>();
 	/**
-	 * Serialises a descriptor field by field, writing a non-finite {@code min}/{@code max} (an
-	 * unbounded soft bound) as JSON {@code null} instead of the {@code Infinity} token Gson rejects
-	 * by default. All other fields keep their default Gson shape.
+	 * Reflection-based serialisation with special floats allowed, so the tree can be built before
+	 * {@link #toJson()} replaces every non-finite bound with {@code null} (see {@link #nullifyNonFinite}).
+	 * Nulls are not emitted here, so a {@code null} {@code neutral} stays absent as before.
 	 */
 	private static final Gson GSON = new GsonBuilder()
-			.registerTypeAdapter(VFXParamDescriptor.class, (JsonSerializer<VFXParamDescriptor>) (src, type, context) -> {
-				final JsonObject out = new JsonObject();
-				out.addProperty("name", src.name());
-				out.add("kind", context.serialize(src.kind()));
-				out.addProperty("defaultValue", src.defaultValue());
-				out.add("min", numberOrNull(src.min()));
-				out.add("max", numberOrNull(src.max()));
-				out.addProperty("step", src.step());
-				out.addProperty("group", src.group());
-				out.addProperty("animatable", src.animatable());
-				out.addProperty("bindable", src.bindable());
-				out.addProperty("fieldCapable", src.fieldCapable());
-				out.add("enumValues", context.serialize(src.enumValues()));
-				if (src.neutral() != null) {
-					out.addProperty("neutral", src.neutral());
-				}
-				return out;
-			})
+			.serializeSpecialFloatingPointValues()
 			.create();
 
 	/**
-	 * @param value a soft bound
-	 * @return the JSON number, or JSON {@code null} when the bound is infinite (unbounded)
+	 * Serialises the already-built tree, emitting the {@code null} bounds written by
+	 * {@link #nullifyNonFinite} explicitly.
 	 */
-	private static JsonElement numberOrNull(final float value) {
-		return Float.isFinite(value) ? new JsonPrimitive(value) : JsonNull.INSTANCE;
-	}
+	private static final Gson OUTPUT_GSON = new GsonBuilder()
+			.serializeNulls()
+			.create();
 
 	private VFXEffectSchema() {
 	}
@@ -282,6 +265,33 @@ public final class VFXEffectSchema {
 		for (final VFXEffectDescriptor descriptor : DESCRIPTORS.values()) {
 			root.put(descriptor.type().getName(), Map.of("params", descriptor.params()));
 		}
-		return GSON.toJson(root);
+		final JsonElement tree = GSON.toJsonTree(root);
+		nullifyNonFinite(tree);
+		return OUTPUT_GSON.toJson(tree);
+	}
+
+	/**
+	 * Replaces every non-finite number in the tree with JSON {@code null}. The only non-finite values
+	 * the schema can hold are the unbounded soft {@code min}/{@code max} sentinels ({@code ±Infinity});
+	 * {@code null} is valid JSON and reads as unbounded.
+	 *
+	 * @param element the tree to scrub in place
+	 */
+	private static void nullifyNonFinite(final JsonElement element) {
+		if (element instanceof JsonObject object) {
+			for (final String key : new ArrayList<>(object.keySet())) {
+				final JsonElement value = object.get(key);
+				if (value instanceof JsonPrimitive primitive && primitive.isNumber()
+						&& !Double.isFinite(primitive.getAsDouble())) {
+					object.add(key, JsonNull.INSTANCE);
+				} else {
+					nullifyNonFinite(value);
+				}
+			}
+		} else if (element instanceof JsonArray array) {
+			for (final JsonElement child : array) {
+				nullifyNonFinite(child);
+			}
+		}
 	}
 }

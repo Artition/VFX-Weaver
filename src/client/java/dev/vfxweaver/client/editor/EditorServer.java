@@ -63,7 +63,11 @@ public final class EditorServer {
 	 */
 	public static EditorServer start(final EditorSession session, final int rateLimitPerSec) {
 		final String token = newToken();
-		final ExecutorService executor = Executors.newFixedThreadPool(4, daemonThreads("vfx-editor"));
+		// A cached pool, not a fixed one: a long-lived SSE handler holds its thread for the life of
+		// the connection (com.sun.net.httpserver closes the exchange when the handler returns, so
+		// SSE cannot be handed off asynchronously), and a fixed request pool would be exhausted by a
+		// few open /events tabs. Idle threads are reclaimed after 60 s, so reconnects do not leak.
+		final ExecutorService executor = Executors.newCachedThreadPool(daemonThreads("vfx-editor"));
 		try {
 			final HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
 			final EditorServer editor = new EditorServer(server, session, token, rateLimitPerSec, executor);
