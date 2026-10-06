@@ -175,20 +175,25 @@ public final class VFXEffectSchema {
 		final List<VFXParamDescriptor> params = new ArrayList<>(names.length);
 		for (final String name : names) {
 			final float[] range = bounds.get(name);
+			final float min = range == null ? Float.NEGATIVE_INFINITY : range[0];
+			final float max = range == null ? Float.POSITIVE_INFINITY : range[1];
 			final float neutral = type.neutralValue(name);
 			final boolean finite = !Float.isNaN(neutral);
-			// "frames" is read once when the window opens, so it cannot be animated.
+			// Keep the default inside the documented range: a read-once param such as "frames"
+			// (neutral NaN -> 0) is documented with default 1 and min 1.
+			final float value = Math.max(min, Math.min(max, finite ? neutral : 0.0F));
+			// "frames" is read once when the window opens, so it cannot be animated or bound.
 			final boolean animatable = !"frames".equals(name);
 			params.add(new VFXParamDescriptor(
 				name,
 				VFXParamKind.FLOAT,
-				finite ? neutral : 0.0F,
-				range == null ? Float.NEGATIVE_INFINITY : range[0],
-				range == null ? Float.POSITIVE_INFINITY : range[1],
+				value,
+				min,
+				max,
 				0.0F,
 				"",
 				animatable,
-				true,
+				animatable,
 				false,
 				List.of(),
 				finite ? neutral : null));
