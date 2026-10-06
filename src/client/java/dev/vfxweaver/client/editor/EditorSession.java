@@ -56,7 +56,8 @@ public final class EditorSession {
 	 * @param json      the full VFX definition JSON
 	 * @param transport {@code "play"} or {@code "stop"}
 	 * @param revision  the client's last-seen revision, or {@code null}
-	 * @return the outcome, carrying the new revision on success
+	 * @return the outcome, carrying the new revision on success; {@code game_rejected} when a
+	 *         {@code "play"} compile produced no play instance (e.g. an unknown effect type)
 	 */
 	public EditorResult compile(final String effectId, final String json, final String transport, final @Nullable Long revision) {
 		try {
@@ -64,8 +65,14 @@ public final class EditorSession {
 		} catch (final JsonSyntaxException | NullPointerException e) {
 			return new EditorResult(false, this.revision, EditorResult.INVALID_JSON, e.getMessage());
 		}
+		final long instanceId = this.game.applyAndPlay(effectId, json, transport);
+		if (instanceId == 0L && "play".equalsIgnoreCase(transport)) {
+			// A "stop" compile legitimately plays nothing; a "play" that produced no instance did not
+			// apply (unknown type, empty graph, ...) and must not be reported as success.
+			return new EditorResult(false, this.revision, EditorResult.GAME_REJECTED,
+					"definition for " + effectId + " produced no play instance");
+		}
 		final long next = ++this.revision;
-		this.game.applyAndPlay(effectId, json, transport);
 		return new EditorResult(true, next, null, null);
 	}
 
