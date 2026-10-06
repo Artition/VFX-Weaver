@@ -13,6 +13,11 @@
 # edit/reorder `VFXShaderPrograms.registerPost(...)`). It needs no compiled classes: a plain
 # source scan, runnable before the Gradle build.
 #
+# Scope: Java-side parity only. This checks the `PostParamSources.PARAMS` name sets against the
+# `VFXShaderPrograms.register*` Config name lists, plus `VFXEffectType` enum coverage. It does
+# NOT parse the GLSL shaders and does NOT verify each shader's `Config` block names or their
+# std140 order - that ~40-block contract stays with the shader sources themselves.
+#
 # Parsing notes (all shapes are parsed; assumptions documented in place):
 #   - Comments are stripped before call extraction, because the registration call sites carry
 #     `//` comments (some with parentheses) and block comments. No string literal in these files
@@ -171,12 +176,22 @@ foreach ($type in $allTypes) {
 # --- 4. every VFXEffectType enum constant is covered by the schema --------------------------------
 $typeText = Read-NoComments $typePath
 $enumConstants = @()
-foreach ($m in [regex]::Matches($typeText, '(?m)^\t([A-Z][A-Z0-9_]*)\("')) { $enumConstants += $m.Groups[1].Value }
+# Broad on purpose: any enum-body constant line, with or without a constructor argument, so a
+# constant can never hide from the coverage check (the body constants are the only one-tab,
+# uppercase-initial lines in VFXEffectType.java).
+foreach ($m in [regex]::Matches($typeText, '(?m)^\t([A-Z][A-Z0-9_]*)\b')) { $enumConstants += $m.Groups[1].Value }
+# Names the schema file itself registers (the non-post types), plus the post types it pulls in
+# through PostParamSources.PARAMS. A PostParamSources key counts as covered only when
+# VFXEffectSchema really consumes that map (registerBuiltIns iterates it), so a stray or broken
+# entry in PostParamSources cannot be counted as a registration.
 $schemaRefs = New-Object System.Collections.Generic.HashSet[string]
 foreach ($m in [regex]::Matches($schemaText, 'VFXEffectType\.(\w+)')) { [void]$schemaRefs.Add($m.Groups[1].Value) }
-foreach ($m in [regex]::Matches($sources, 'VFXEffectType\.(\w+)')) { [void]$schemaRefs.Add($m.Groups[1].Value) }
+$consumesSources = $schemaText -match 'PostParamSources\.PARAMS'
+$postKeys = New-Object System.Collections.Generic.HashSet[string]
+foreach ($k in $schema.Keys) { [void]$postKeys.Add($k) }
 foreach ($constant in $enumConstants) {
-	if (-not $schemaRefs.Contains($constant)) { $problems.Add("VFXEffectType.$constant is not registered in the editor schema") }
+	$covered = $schemaRefs.Contains($constant) -or ($consumesSources -and $postKeys.Contains($constant))
+	if (-not $covered) { $problems.Add("VFXEffectType.$constant is not registered in the editor schema") }
 }
 
 Write-Host "Schema check"
