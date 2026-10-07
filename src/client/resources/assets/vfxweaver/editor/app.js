@@ -767,8 +767,8 @@
 			if (spec.bind) {
 				refreshBindOutput(this);
 			}
-			this.onDrawForeground = drawDrivenSlots;
-			this.onMouseDown = drivenSlotClick;
+			this.onDrawForeground = drawSlotAffordances;
+			this.onMouseDown = slotFieldClick;
 		}
 
 		ValueNode.title = kind;
@@ -907,57 +907,108 @@
 		});
 	}
 
-	/** Draw the read-only value + source badge over a value node's driven slots. */
-	function drawDrivenSlots(ctx, canvas) {
+	/** Draw a small diamond (the slot "animate" affordance) at a widget's right edge. */
+	function drawDiamond(ctx, cx, cy, color) {
+		var r = 4;
+		ctx.beginPath();
+		ctx.moveTo(cx, cy - r);
+		ctx.lineTo(cx + r, cy);
+		ctx.lineTo(cx, cy + r);
+		ctx.lineTo(cx - r, cy);
+		ctx.closePath();
+		ctx.strokeStyle = color;
+		ctx.stroke();
+	}
+
+	/**
+	 * Draw each value-node numeric slot (design §15.1): a driven slot shows a read-only value + its
+	 * source node, every slot carries a diamond that animates it (a `curve` node wired in).
+	 */
+	function drawSlotAffordances(ctx, canvas) {
 		var node = this;
-		var driven = node.__driven;
-		if (!driven) {
+		if (!node.__kindSpec || !node.__widgets) {
 			return;
 		}
+		var driven = node.__driven || {};
 		var scale = canvas && canvas.ds ? canvas.ds.scale : 1;
 		ctx.save();
 		ctx.font = (11 / scale) + "px sans-serif";
 		ctx.textAlign = "left";
-		Object.keys(driven).forEach(function (name) {
-			var widget = node.__widgets ? node.__widgets[name] : null;
+		(node.__kindSpec.sockets || []).forEach(function (name) {
+			var widget = node.__widgets[name];
 			if (!widget || widget.last_y == null) {
 				return;
 			}
 			var y = widget.last_y;
-			var value = node.properties && node.properties.inputs ? node.properties.inputs[name] : "";
-			ctx.fillStyle = "#2b3550";
-			ctx.strokeStyle = "#4f9dff";
-			ctx.fillRect(15, y, node.size[0] - 30, LiteGraph.NODE_WIDGET_HEIGHT);
-			ctx.strokeRect(15, y, node.size[0] - 30, LiteGraph.NODE_WIDGET_HEIGHT);
-			ctx.fillStyle = "#cfe0ff";
-			ctx.fillText(num(value) + "  <- " + name + " (" + driven[name] + ")", 20, y + LiteGraph.NODE_WIDGET_HEIGHT * 0.7);
+			var height = LiteGraph.NODE_WIDGET_HEIGHT;
+			if (driven[name]) {
+				var value = node.properties && node.properties.inputs ? node.properties.inputs[name] : "";
+				ctx.fillStyle = "#2b3550";
+				ctx.strokeStyle = "#4f9dff";
+				ctx.fillRect(15, y, node.size[0] - 30, height);
+				ctx.strokeRect(15, y, node.size[0] - 30, height);
+				ctx.fillStyle = "#cfe0ff";
+				ctx.fillText(num(value) + "  <- " + name + " (" + driven[name] + ")", 20, y + height * 0.7);
+			}
+			drawDiamond(ctx, node.size[0] - 9, y + height / 2, driven[name] ? "#cfe0ff" : "#7f8aa3");
 		});
 		ctx.restore();
 	}
 
-	/** Click on a driven badge jumps to the source node (cheap "go to node" affordance). */
-	function drivenSlotClick(event, pos, canvas) {
+	/** Click a value-node slot: the diamond animates it (or focuses its driver); the badge focuses. */
+	function slotFieldClick(event, pos, canvas) {
 		var node = this;
-		var driven = node.__driven;
-		if (!driven) {
+		if (!node.__kindSpec || !node.__widgets) {
 			return false;
 		}
+		var driven = node.__driven || {};
 		var hit = null;
-		Object.keys(driven).forEach(function (name) {
-			var widget = node.__widgets ? node.__widgets[name] : null;
+		(node.__kindSpec.sockets || []).forEach(function (name) {
+			var widget = node.__widgets[name];
 			if (!widget || widget.last_y == null) {
 				return;
 			}
-			if (pos[1] >= widget.last_y && pos[1] <= widget.last_y + LiteGraph.NODE_WIDGET_HEIGHT
-					&& pos[0] >= 15 && pos[0] <= node.size[0] - 15) {
-				hit = driven[name];
+			var y = widget.last_y;
+			var height = LiteGraph.NODE_WIDGET_HEIGHT;
+			if (pos[1] < y || pos[1] > y + height) {
+				return;
+			}
+			if (pos[0] >= node.size[0] - 18 && pos[0] <= node.size[0]) {
+				hit = { name: name, diamond: true };
+			} else if (driven[name] && pos[0] >= 15 && pos[0] <= node.size[0] - 15) {
+				hit = { name: name, diamond: false };
 			}
 		});
-		if (hit) {
-			focusNode(hit);
-			return true;
+		if (!hit) {
+			return false;
 		}
-		return false;
+		if (hit.diamond && !driven[hit.name]) {
+			animateField(node, hit.name);
+		} else {
+			focusNode(driven[hit.name]);
+		}
+		return true;
+	}
+
+	/** The slot name under a graph event, or null (for the field context menu). */
+	function fieldAtEvent(node, event) {
+		if (event.canvasX == null || event.canvasY == null) {
+			return null;
+		}
+		var local = [event.canvasX - node.pos[0], event.canvasY - node.pos[1]];
+		var hit = null;
+		(node.__kindSpec.sockets || []).forEach(function (name) {
+			var widget = node.__widgets[name];
+			if (!widget || widget.last_y == null) {
+				return;
+			}
+			if (local[0] >= 0 && local[0] <= node.size[0]
+					&& local[1] >= widget.last_y
+					&& local[1] <= widget.last_y + LiteGraph.NODE_WIDGET_HEIGHT) {
+				hit = name;
+			}
+		});
+		return hit;
 	}
 
 	/** Centre the canvas on a value node by IR id (the driven badge's "go to node"). */
@@ -1517,7 +1568,7 @@
 		if (!tab) {
 			return;
 		}
-		status("param " + name + " → " + (spec && spec.control ? spec.control : "constant"));
+		status("param " + name + " → " + slot.state(tab, name));
 		scheduleCommitHistory();
 		if (window.VFXTimeline && typeof window.VFXTimeline.onEdit === "function") {
 			window.VFXTimeline.onEdit(tab, name, spec, previous);
@@ -1634,6 +1685,409 @@
 	}
 
 	/* ------------------------------------------------------------------ */
+	/* Slot model (design §15.1/§15.8)                                     */
+	/* ------------------------------------------------------------------ */
+
+	/** Find the edge wiring a value node into an effect param, or null. */
+	function driverEdge(tab, name) {
+		if (!tab || !Array.isArray(tab.edges)) {
+			return null;
+		}
+		for (var i = 0; i < tab.edges.length; i++) {
+			var edge = tab.edges[i];
+			if (edge && edge.to === name && edge.input == null && edge.from != null) {
+				return edge;
+			}
+		}
+		return null;
+	}
+
+	/** The schema-descriptor default for a param (0 when unknown). */
+	function paramDefault(tab, name) {
+		var descriptor = tab && tab.type ? schema[tab.type] : null;
+		var params = (descriptor && descriptor.params) || [];
+		for (var i = 0; i < params.length; i++) {
+			if (params[i].name === name) {
+				return isFiniteNumber(params[i].defaultValue) ? params[i].defaultValue : 0;
+			}
+		}
+		return 0;
+	}
+
+	/** The active tab's playhead tick, clamped to the tab duration. */
+	function playheadTime(tab) {
+		var raw = window.VFXTimeline && typeof window.VFXTimeline.playhead === "function"
+				? Number(window.VFXTimeline.playhead()) : 0;
+		if (!isFiniteNumber(raw)) {
+			raw = 0;
+		}
+		return window.VFXTimeline && typeof window.VFXTimeline.clampTime === "function"
+				? window.VFXTimeline.clampTime(tab, raw) : Math.max(0, raw);
+	}
+
+	/** The slot's value with no playhead lookup: the last key, else the inline literal, else default. */
+	function slotValue(tab, name) {
+		var keys = (tab.keys && tab.keys[name]) || [];
+		if (keys.length) {
+			return keys[keys.length - 1].value;
+		}
+		var raw = tab.params ? tab.params[name] : null;
+		if (raw != null && typeof raw === "object") {
+			return raw.value != null ? raw.value : paramDefault(tab, name);
+		}
+		return raw != null ? raw : paramDefault(tab, name);
+	}
+
+	/** Add (or update) one key at `time` on a slot — the auto-key writer the diamond/K share. */
+	function addKeyToSlot(tab, name, time, value) {
+		if (!tab) {
+			return null;
+		}
+		if (!tab.keys) {
+			tab.keys = {};
+		}
+		var t = Math.round(num(time));
+		var list = tab.keys[name];
+		if (!Array.isArray(list)) {
+			list = tab.keys[name] = [];
+		}
+		var v = value != null ? value : paramDefault(tab, name);
+		for (var i = 0; i < list.length; i++) {
+			if (Math.round(num(list[i].time)) === t) {
+				list[i].value = v;
+				return list[i];
+			}
+		}
+		return tab.addKey(name, t, v);
+	}
+
+	/** Rebuild the canvas model, snapshot undo, refresh the panels and recompile. */
+	function afterSlotChange(tab) {
+		refreshFromCanvas(tab);
+		commitHistory();
+		renderInspector();
+		renderTimeline();
+		if (tab && tab.type) {
+			requestStructural(tab);
+		}
+	}
+
+	/** Create a driver value node of `kind` (expr/bind/curve) and apply its inputs. */
+	function createDriverNode(tab, kind, inputs) {
+		var node = addValueNode(tab, kind);
+		if (!node) {
+			return null;
+		}
+		applyIR(node, { inputs: inputs || {} });
+		return node;
+	}
+
+	/** Wire a value node's output into an effect param; false when the param has no root slot. */
+	function wireDriverToParam(tab, node, name) {
+		var slotIndex = tab && tab.root ? inputIndex(tab.root, name) : -1;
+		if (!node || slotIndex < 0) {
+			return false;
+		}
+		node.connect(0, tab.root, slotIndex);
+		return true;
+	}
+
+	/** Remove every wire feeding one effect param. */
+	function disconnectParamDriver(tab, name) {
+		if (!tab || !tab.graph || !tab.root) {
+			return;
+		}
+		var slotIndex = inputIndex(tab.root, name);
+		if (slotIndex < 0) {
+			return;
+		}
+		Object.keys(tab.graph.links).forEach(function (linkId) {
+			var link = tab.graph.links[linkId];
+			if (link && link.target_id === tab.root.id && link.target_slot === slotIndex) {
+				tab.graph.removeLink(linkId);
+			}
+		});
+	}
+
+	/** Remove every wire feeding one value-node input. */
+	function disconnectField(tab, node, slotIndex) {
+		if (!tab || !tab.graph || slotIndex < 0) {
+			return;
+		}
+		Object.keys(tab.graph.links).forEach(function (linkId) {
+			var link = tab.graph.links[linkId];
+			if (link && link.target_id === node.id && link.target_slot === slotIndex) {
+				tab.graph.removeLink(linkId);
+			}
+		});
+	}
+
+	/** Diamond: create a plain key track on an effect param (value at the playhead). */
+	function slotAnimate(tab, name, value) {
+		var key = slot.addKey(tab, name, value);
+		if (key) {
+			afterSlotChange(tab);
+		}
+		return key;
+	}
+
+	/** Auto-key one value at the playhead without the full panel refresh (for focused edits). */
+	function slotAddKey(tab, name, value) {
+		if (!tab || driverEdge(tab, name)) {
+			return null;
+		}
+		return addKeyToSlot(tab, name, playheadTime(tab), value != null ? value : slotValue(tab, name));
+	}
+
+	/** Clear a param's track, keeping its last value as the inline constant. */
+	function slotClearTrack(tab, name) {
+		if (!tab) {
+			return;
+		}
+		var list = (tab.keys && tab.keys[name]) || [];
+		var raw = tab.params ? tab.params[name] : null;
+		var multiply = raw && typeof raw === "object" ? raw.multiply : null;
+		var last = list.length ? list[list.length - 1].value : paramDefault(tab, name);
+		if (tab.keys) {
+			delete tab.keys[name];
+		}
+		var next = { value: last };
+		if (multiply) {
+			next.multiply = multiply;
+		}
+		tab.params[name] = next;
+		afterSlotChange(tab);
+	}
+
+	/** Replace a param's driver (or its inline value/track) with a fresh driver node. */
+	function slotReplaceDriver(tab, name, kind, inputs) {
+		if (!tab || !tab.type) {
+			return;
+		}
+		disconnectParamDriver(tab, name);
+		if (tab.keys) {
+			delete tab.keys[name];
+		}
+		var node = createDriverNode(tab, kind, inputs);
+		wireDriverToParam(tab, node, name);
+		syncAllSlots(tab);
+		afterSlotChange(tab);
+	}
+
+	/** Drop a param's driver, leaving it editable inline. */
+	function slotRemoveDriver(tab, name) {
+		disconnectParamDriver(tab, name);
+		syncAllSlots(tab);
+		afterSlotChange(tab);
+	}
+
+	/** Add or remove a `multiply` binding on any slot. */
+	function slotSetMultiply(tab, name, on) {
+		if (!tab) {
+			return;
+		}
+		var raw = tab.params ? tab.params[name] : null;
+		var spec = raw != null && typeof raw === "object"
+				? raw : { value: raw == null ? paramDefault(tab, name) : raw };
+		if (on) {
+			if (!spec.multiply) {
+				spec.multiply = {
+					bind: (window.VFXInspector && window.VFXInspector.DEFAULT_BIND) || "health"
+				};
+			}
+		} else {
+			delete spec.multiply;
+		}
+		tab.params[name] = spec;
+		afterSlotChange(tab);
+	}
+
+	/** Materialize a param track as a `curve` value node wired into the slot. */
+	function slotShowAsCurve(tab, name) {
+		var list = (tab.keys && tab.keys[name]) || [];
+		if (!tab || !tab.type || list.length === 0) {
+			return;
+		}
+		var points = list.map(function (key) {
+			var point = { time: num(key.time), value: num(key.value) };
+			if (key.easing) {
+				point.easing = key.easing;
+			}
+			return point;
+		});
+		disconnectParamDriver(tab, name);
+		var node = createDriverNode(tab, "curve", { points: points });
+		wireDriverToParam(tab, node, name);
+		if (tab.keys) {
+			delete tab.keys[name];
+		}
+		syncAllSlots(tab);
+		afterSlotChange(tab);
+	}
+
+	/** Animate a value-node field: a `curve` node (two flat points) wired into the field. */
+	function animateField(node, inputName) {
+		var tab = node.__tab;
+		if (!tab || !tab.root) {
+			return;
+		}
+		var slotIndex = inputIndex(node, inputName);
+		if (slotIndex < 0) {
+			return;
+		}
+		disconnectField(tab, node, slotIndex);
+		var current = num(node.properties && node.properties.inputs ? node.properties.inputs[inputName] : 0);
+		var total = window.VFXTimeline && typeof window.VFXTimeline.duration === "function"
+				? window.VFXTimeline.duration(tab) : num(tab.duration, 40);
+		var curve = addValueNode(tab, "curve");
+		if (!curve) {
+			return;
+		}
+		curve.properties.points = [{ time: 0, value: current }, { time: total, value: current }];
+		if (curve.__widgets.points) {
+			curve.__widgets.points.value = pointsText(curve.properties.points);
+		}
+		curve.connect(0, node, slotIndex);
+		syncAllSlots(tab);
+		afterSlotChange(tab);
+	}
+
+	/** Replace a value-node field's driver with a fresh expr/bind node. */
+	function replaceFieldDriver(node, inputName, kind, inputs) {
+		var tab = node.__tab;
+		if (!tab || !tab.root) {
+			return;
+		}
+		var slotIndex = inputIndex(node, inputName);
+		if (slotIndex < 0) {
+			return;
+		}
+		disconnectField(tab, node, slotIndex);
+		var created = addValueNode(tab, kind);
+		if (!created) {
+			return;
+		}
+		applyIR(created, { inputs: inputs || {} });
+		created.connect(0, node, slotIndex);
+		syncAllSlots(tab);
+		afterSlotChange(tab);
+	}
+
+	/** The floating slot context menu, shared by the inspector and the canvas fields. */
+	var menuCloser = null;
+
+	function closeMenu() {
+		var node = document.querySelector(".vfx-slot-menu");
+		if (node && node.parentNode) {
+			node.parentNode.removeChild(node);
+		}
+		if (menuCloser) {
+			document.removeEventListener("mousedown", menuCloser, true);
+			menuCloser = null;
+		}
+	}
+
+	/**
+	 * Show a small anchored menu of `{ label, enabled?, action }` entries at the event position.
+	 *
+	 * @param {Array<Object>} items the menu entries
+	 * @param {MouseEvent} event the opening event (its clientX/clientY anchor the menu)
+	 */
+	function showMenu(items, event) {
+		closeMenu();
+		var menu = document.createElement("div");
+		menu.className = "vfx-slot-menu";
+		items.forEach(function (entry) {
+			var button = document.createElement("button");
+			button.type = "button";
+			button.className = "vfx-slot-menu-item";
+			button.textContent = entry.label;
+			if (entry.enabled === false) {
+				button.disabled = true;
+			}
+			button.addEventListener("click", function (e) {
+				e.preventDefault();
+				e.stopPropagation();
+				closeMenu();
+				if (typeof entry.action === "function") {
+					entry.action();
+				}
+			});
+			menu.appendChild(button);
+		});
+		document.body.appendChild(menu);
+		var rect = menu.getBoundingClientRect();
+		menu.style.left = Math.max(4, Math.min(event.clientX, window.innerWidth - rect.width - 4)) + "px";
+		menu.style.top = Math.max(4, Math.min(event.clientY, window.innerHeight - rect.height - 4)) + "px";
+		setTimeout(function () {
+			menuCloser = function (e) {
+				if (!menu.contains(e.target)) {
+					closeMenu();
+				}
+			};
+			document.addEventListener("mousedown", menuCloser, true);
+		}, 0);
+	}
+
+	/** The right-click menu for a value-node field (design §15.1). */
+	function openFieldMenu(node, inputName, event) {
+		var items = [
+			{ label: "Animate (curve node)", action: function () { animateField(node, inputName); } },
+			{ label: "Replace with expression",
+				action: function () { replaceFieldDriver(node, inputName, "expr", { expr: "t" }); } },
+			{ label: "Replace with binding",
+				action: function () {
+					replaceFieldDriver(node, inputName, "bind",
+							{ bind: (window.VFXInspector && window.VFXInspector.DEFAULT_BIND) || "health" });
+				} }
+		];
+		if (wiredSources(node)[inputName]) {
+			items.push({ label: "Disconnect driver", action: function () {
+				var tab = node.__tab;
+				var slotIndex = inputIndex(node, inputName);
+				disconnectField(tab, node, slotIndex);
+				syncAllSlots(tab);
+				afterSlotChange(tab);
+			} });
+		}
+		showMenu(items, event);
+	}
+
+	/** The slot API the inspector and canvas field menus drive (all mutations are undoable). */
+	var slot = {
+		state: function (tab, name) {
+			if (!tab) {
+				return "inline";
+			}
+			if (driverEdge(tab, name)) {
+				return "driven";
+			}
+			return tab.keys && tab.keys[name] && tab.keys[name].length > 0 ? "track" : "inline";
+		},
+		driverId: function (tab, name) {
+			var edge = driverEdge(tab, name);
+			return edge ? edge.from : null;
+		},
+		multiply: function (tab, name) {
+			var raw = tab && tab.params ? tab.params[name] : null;
+			return raw != null && typeof raw === "object" && raw.multiply ? raw.multiply : null;
+		},
+		animate: slotAnimate,
+		addKey: slotAddKey,
+		clearTrack: slotClearTrack,
+		replaceWithExpr: function (tab, name) {
+			slotReplaceDriver(tab, name, "expr", { expr: "t" });
+		},
+		replaceWithBind: function (tab, name) {
+			slotReplaceDriver(tab, name, "bind",
+					{ bind: (window.VFXInspector && window.VFXInspector.DEFAULT_BIND) || "health" });
+		},
+		removeDriver: slotRemoveDriver,
+		setMultiply: slotSetMultiply,
+		showAsCurve: slotShowAsCurve
+	};
+
+	/* ------------------------------------------------------------------ */
 	/* Public API (Tasks 13-16 extend this object)                         */
 	/* ------------------------------------------------------------------ */
 
@@ -1707,23 +2161,25 @@
 			tab.delay = num(def.delay, 0);
 		}
 		var params = def.params && typeof def.params === "object" ? def.params : {};
+		// Normalise every param back to the slot model (design §15.8): keyframes -> a track, a
+		// bind/expr form -> a driver node + wire (materialized after the graph below), start/end ->
+		// a two-key track, value/number -> an inline constant.
+		var drivers = [];
 		Object.keys(params).forEach(function (name) {
-			var raw = params[name];
-			if (raw && typeof raw === "object" && Array.isArray(raw.keyframes)) {
-				tab.keys[name] = raw.keyframes.map(function (key) {
-					var out = { time: num(key.time), value: num(key.value) };
-					if (key.easing != null) {
-						out.easing = key.easing;
-					}
-					return out;
-				});
-				// Keep any `multiply` bound spec on the keyframed param, or a round-trip would drop it.
-				tab.params[name] = { control: "keyframes" };
-				if (raw.multiply) {
-					tab.params[name].multiply = raw.multiply;
-				}
-			} else {
-				tab.params[name] = raw;
+			var norm = window.VFXIR && typeof window.VFXIR.normalizeParam === "function"
+					? window.VFXIR.normalizeParam(params[name], num(def.duration, tab.duration)) : null;
+			if (!norm) {
+				tab.params[name] = params[name];
+				return;
+			}
+			if (norm.keys) {
+				tab.keys[name] = norm.keys;
+			}
+			if (norm.driver) {
+				drivers.push({ name: name, kind: norm.driver.kind, inputs: norm.driver.inputs });
+			}
+			if (norm.spec && Object.keys(norm.spec).length) {
+				tab.params[name] = snapshot(norm.spec);
 			}
 		});
 		var graph = def.graph && typeof def.graph === "object" ? def.graph : null;
@@ -1757,6 +2213,13 @@
 				}
 			});
 		}
+		// Materialize the bind/expr drivers as value nodes once the imported nodes exist, so a
+		// normalized driver id never collides with an imported one.
+		drivers.forEach(function (entry) {
+			var id = uniqueNodeId(tab, entry.kind);
+			tab.valueNodes.push({ id: id, kind: entry.kind, inputs: snapshot(entry.inputs) });
+			tab.edges.push({ from: id, to: entry.name });
+		});
 	}
 
 	/** Every tab with an effect type, as `{ name: compiledJsonString }` for `/export`. */
@@ -2466,6 +2929,8 @@
 		materializeGraph: materializeGraph,
 		commit: commitHistory,
 		focusNode: focusNode,
+		slot: slot,
+		showMenu: showMenu,
 		undo: undoHistory,
 		redo: redoHistory
 	};
@@ -2839,38 +3304,15 @@
 		}
 	}
 
-	/** Add a keyframe at the playhead on the inspector's selected slot (K). */
+	/** Add a keyframe at the playhead on the inspector's selected slot (K) — the diamond's K twin. */
 	function addKeyAtPlayhead() {
 		var tab = activeTab();
-		if (!tab || !tab.type || !inspectorName || !window.VFXTimeline) {
+		if (!tab || !tab.type || !inspectorName) {
 			return;
 		}
-		var descriptor = schema[tab.type];
-		var param = null;
-		((descriptor && descriptor.params) || []).forEach(function (candidate) {
-			if (candidate.name === inspectorName) {
-				param = candidate;
-			}
-		});
-		// The playhead clock can run past the end between frames; clamp so the key lands on the
-		// visible playhead and never outside the lane.
-		var time = typeof window.VFXTimeline.playhead === "function"
-				? Math.round(window.VFXTimeline.playhead()) : 0;
-		time = typeof window.VFXTimeline.clampTime === "function"
-				? window.VFXTimeline.clampTime(tab, time) : Math.max(0, time);
-		var existing = tab.keys[inspectorName];
-		var value = existing && existing.length ? existing[existing.length - 1].value
-				: (param && isFiniteNumber(param.defaultValue) ? param.defaultValue : 0);
-		tab.addKey(inspectorName, time, value);
-		var spec = tab.params[inspectorName];
-		if (spec && typeof spec === "object") {
-			spec.control = "keyframes";
-		} else {
-			tab.params[inspectorName] = { control: "keyframes" };
-		}
+		slotAnimate(tab, inspectorName, null);
 		commitHistory();
 		renderTimeline();
-		requestStructural(tab);
 	}
 
 	/**
@@ -3108,6 +3550,22 @@
 
 		resizeCanvas();
 		scene = new LiteGraph.LGraphCanvas(dom.canvas, new LiteGraph.LGraph());
+		// Intercept the node right-click: a value-node field shows the slot menu (replace with
+		// expr/bind, animate, disconnect), anything else keeps LiteGraph's own menu.
+		var originalContextMenu = scene.processContextMenu;
+		scene.processContextMenu = function (node, event) {
+			var tab = activeTab();
+			if (node && tab && node !== tab.root && node.__kindSpec && node.__widgets) {
+				var input = fieldAtEvent(node, event);
+				if (input) {
+					openFieldMenu(node, input, event);
+					return;
+				}
+			}
+			if (typeof originalContextMenu === "function") {
+				originalContextMenu.call(scene, node, event);
+			}
+		};
 		window.addEventListener("resize", resizeCanvas);
 		wireInlineWidgetEdit();
 		wireHotkeys();

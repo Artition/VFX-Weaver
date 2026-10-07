@@ -423,15 +423,21 @@
 	 * @param {Object|number} spec the edited spec
 	 * @param {Object|number} previous the spec before the edit
 	 */
-	function onEdit(tab, name, spec, previous) {
+	function onEdit(tab, name, spec) {
 		if (!tab) {
 			return;
 		}
-		var previousControl = previous && typeof previous === "object" && previous.control
-				? previous.control : "constant";
-		var scalar = spec && !Array.isArray(spec.value) && isFiniteNumber(Number(spec.value))
-				&& (spec.control === "constant" || (spec.control == null && spec.value !== undefined));
-		if (scalar && previousControl === "constant") {
+		var keys = tab.keys && tab.keys[name];
+		var hasKeys = Array.isArray(keys) && keys.length > 0;
+		var driven = false;
+		(tab.edges || []).forEach(function (edge) {
+			if (edge && edge.to === name && edge.input == null) {
+				driven = true;
+			}
+		});
+		var scalar = spec && typeof spec === "object" && spec.value !== undefined
+				&& !Array.isArray(spec.value) && isFiniteNumber(Number(spec.value));
+		if (scalar && !hasKeys && !driven) {
 			setParam(tab, name, spec.value);
 		} else {
 			structural(tab);
@@ -566,19 +572,12 @@
 		return node;
 	}
 
-	/** The params that deserve a lane: a non-empty `Tab.keys[name]`, or a keyframes control. */
+	/** The params that deserve a lane: a non-empty `Tab.keys[name]` (a track). */
 	function animatedParams(tab) {
 		var names = [];
 		var keys = tab && tab.keys ? tab.keys : {};
 		Object.keys(keys).forEach(function (name) {
 			if (keys[name] && keys[name].length) {
-				names.push(name);
-			}
-		});
-		var params = tab && tab.params ? tab.params : {};
-		Object.keys(params).forEach(function (name) {
-			var spec = params[name];
-			if (spec && spec.control === "keyframes" && names.indexOf(name) < 0) {
 				names.push(name);
 			}
 		});
@@ -772,15 +771,9 @@
 		return descriptor && isFiniteNumber(descriptor.defaultValue) ? descriptor.defaultValue : 0;
 	}
 
-	/** Append a key, mark the param keyframed, select it, re-render the panel and recompile. */
+	/** Append a key, select it, re-render the panel and recompile. */
 	function addKeyToLane(tab, name, time, value, panel) {
 		var key = tab.addKey(name, time, value);
-		var spec = tab.params[name];
-		if (spec && typeof spec === "object") {
-			spec.control = "keyframes";
-		} else {
-			tab.params[name] = { control: "keyframes" };
-		}
 		selectKey(name, key, null);
 		commit(tab);
 		if (panel && panel.parentNode) {

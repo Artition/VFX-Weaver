@@ -303,6 +303,75 @@
 	}
 
 	/**
+	 * Normalise one imported datapack param back to the slot model (design §15.8): a `{keyframes}`
+	 * object becomes a track (keys + a spec that only carries a possible `multiply`), a `bind`/`expr`
+	 * object becomes a driven slot (a driver-node description the shell materializes + such a spec),
+	 * a `{start,end}` pair becomes a two-key track at 0/duration, and a bare number or `{value}`
+	 * stays an inline constant. Compiling the result folds the driver back to the same JSON.
+	 *
+	 * @param {Object|number} raw the parsed `def.params[name]` value
+	 * @param {number} duration the effect duration in ticks (seeds a start/end track)
+	 * @returns {{state: string, spec: Object, keys: Array|null, driver: Object|null}} the slot
+	 */
+	function normalizeParam(raw, duration) {
+		var total = isFiniteNumber(Number(duration)) && Number(duration) > 0 ? Number(duration) : 40;
+		if (raw == null) {
+			return { state: "inline", spec: { value: 0 }, keys: null, driver: null };
+		}
+		if (typeof raw === "number") {
+			return { state: "inline", spec: { value: raw }, keys: null, driver: null };
+		}
+		if (typeof raw !== "object") {
+			return { state: "inline", spec: { value: 0 }, keys: null, driver: null };
+		}
+		var spec = {};
+		if (raw.multiply) {
+			spec.multiply = raw.multiply;
+		}
+		if (Array.isArray(raw.keyframes)) {
+			return {
+				state: "track",
+				spec: spec,
+				keys: raw.keyframes.map(function (key) {
+					var out = { time: Number(key.time) || 0, value: Number(key.value) || 0 };
+					if (key.easing != null) {
+						out.easing = key.easing;
+					}
+					return out;
+				}),
+				driver: null
+			};
+		}
+		if (raw.bind != null) {
+			var bindInputs = {};
+			Object.keys(raw).forEach(function (key) {
+				if (key !== "multiply") {
+					bindInputs[key] = raw[key];
+				}
+			});
+			return { state: "driven", spec: spec, keys: null,
+				driver: { kind: "bind", inputs: bindInputs } };
+		}
+		if (raw.expr != null) {
+			return { state: "driven", spec: spec, keys: null,
+				driver: { kind: "expr", inputs: { expr: String(raw.expr) } } };
+		}
+		if (raw.start != null || raw.end != null) {
+			return {
+				state: "track",
+				spec: spec,
+				keys: [{ time: 0, value: Number(raw.start) || 0 },
+					{ time: total, value: Number(raw.end) || 0 }],
+				driver: null
+			};
+		}
+		if (raw.value !== undefined) {
+			spec.value = raw.value;
+		}
+		return { state: "inline", spec: spec, keys: null, driver: null };
+	}
+
+	/**
 	 * Graph-space point -> canvas-pixel point, mirroring LiteGraph's
 	 * `DragAndScale.convertOffsetToCanvas` (`(pos + offset) * scale`). Extracted so the inline-edit
 	 * placement is pinned by the headless selftest without a live canvas.
@@ -378,6 +447,7 @@
 		isFiniteNumber: isFiniteNumber,
 		parseNumber: parseNumber,
 		clampTime: clampTime,
+		normalizeParam: normalizeParam,
 		graphToCanvas: graphToCanvas,
 		validNamespace: validNamespace,
 		exportZipBody: exportZipBody,

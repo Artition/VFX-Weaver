@@ -354,6 +354,86 @@ window.__vfxSelftest = function () {
 		eq(warnings[1].clamped, 40, "second clamp target");
 	});
 
+	test("(q) compiler folds a bind driver into a param (design §15.8)", function () {
+		var tab = new VFXIR.Tab("blur", "blur");
+		tab.valueNodes = [ { id: "b1", kind: "bind", inputs: { bind: "health" } } ];
+		tab.edges = [ { from: "b1", to: "radius" } ];
+		var def = parse(compileTab(tab));
+		eq(def.params.radius.bind, "health", "bind folded onto the param");
+		ok(!("graph" in def), "the folded node leaves no graph block");
+		ok(!("inputs" in def), "the folded node leaves no inputs block");
+	});
+
+	test("(r) compiler folds an expr driver into a param (design §15.8)", function () {
+		var tab = new VFXIR.Tab("blur", "blur");
+		tab.valueNodes = [ { id: "e1", kind: "expr", inputs: { expr: "sin(t*0.1)" } } ];
+		tab.edges = [ { from: "e1", to: "radius" } ];
+		var def = parse(compileTab(tab));
+		eq(def.params.radius.expr, "sin(t*0.1)", "expr folded onto the param");
+		ok(!("graph" in def), "no graph block after folding");
+	});
+
+	test("(s) fold guard: a fallback bind stays a graph node", function () {
+		// A fallback cannot ride a param-bind spec, so folding would drop it; the node must stay.
+		var tab = new VFXIR.Tab("blur", "blur");
+		tab.valueNodes = [ { id: "b1", kind: "bind", inputs: { bind: "health", fallback: 0.5 } } ];
+		tab.edges = [ { from: "b1", to: "radius" } ];
+		var def = parse(compileTab(tab));
+		ok(def.graph && def.graph.nodes.length === 1, "fallback bind stays in the graph");
+		eq(def.inputs.radius.from, "b1", "the driver stays an inputs wire");
+		ok(!(def.params.radius && def.params.radius.bind), "no folded bind spec");
+	});
+
+	test("(t) multiply layers on a value and survives a track", function () {
+		var tab = new VFXIR.Tab("blur", "blur");
+		tab.params.radius = { value: 0, multiply: { bind: "proximity", pos: [0, 0, 0] } };
+		var def = parse(compileTab(tab));
+		eq(def.params.radius.value, 0, "value kept");
+		eq(def.params.radius.multiply.bind, "proximity", "multiply layered");
+		tab.params.radius = { multiply: { bind: "proximity" } };
+		tab.addKey("radius", 0, 0);
+		tab.addKey("radius", 10, 1);
+		var track = parse(compileTab(tab));
+		ok(Array.isArray(track.params.radius.keyframes), "track form wins");
+		eq(track.params.radius.multiply.bind, "proximity", "multiply survives the track form");
+	});
+
+	test("(u) normalizeParam maps every datapack form back to a slot (design §15.8)", function () {
+		var track = VFXIR.normalizeParam(
+				{ keyframes: [{ time: 0, value: 1 }, { time: 5, value: 2 }], multiply: { bind: "health" } }, 40);
+		eq(track.state, "track", "keyframes -> track");
+		eq(track.keys.length, 2, "keys carried");
+		eq(track.keys[1].value, 2, "key value carried");
+		eq(track.spec.multiply.bind, "health", "multiply carried on the spec");
+		var drivenBind = VFXIR.normalizeParam({ bind: "look", range: 30 }, 40);
+		eq(drivenBind.state, "driven", "bind -> driven");
+		eq(drivenBind.driver.kind, "bind", "bind driver kind");
+		eq(drivenBind.driver.inputs.bind, "look", "bind driver inputs");
+		var drivenExpr = VFXIR.normalizeParam({ expr: "t*2" }, 40);
+		eq(drivenExpr.state, "driven", "expr -> driven");
+		eq(drivenExpr.driver.inputs.expr, "t*2", "expr source");
+		var inline = VFXIR.normalizeParam({ value: 3 }, 40);
+		eq(inline.state, "inline", "value -> inline");
+		eq(inline.spec.value, 3, "inline value");
+		var literal = VFXIR.normalizeParam(7, 40);
+		eq(literal.state, "inline", "number -> inline");
+		eq(literal.spec.value, 7, "number value");
+		var anim = VFXIR.normalizeParam({ start: 1, end: 4 }, 40);
+		eq(anim.state, "track", "start/end -> a two-key track");
+		eq(anim.keys[0].value, 1, "start key at 0");
+		eq(anim.keys[1].time, 40, "end key at the duration");
+		eq(anim.keys[1].value, 4, "end key value");
+	});
+
+	test("(v) a constant driver folds to a plain value (design §15.8)", function () {
+		var tab = new VFXIR.Tab("blur", "blur");
+		tab.valueNodes = [ { id: "c1", kind: "constant", inputs: { value: 3.5 } } ];
+		tab.edges = [ { from: "c1", to: "radius" } ];
+		var def = parse(compileTab(tab));
+		eq(def.params.radius, 3.5, "constant node folds to a bare value");
+		ok(!("graph" in def), "no graph block after folding");
+	});
+
 	return results;
 };
 /* SELFTEST:END */

@@ -28,16 +28,6 @@
 		"light_level", "time_of_day", "scoreboard"
 	];
 
-	/** The base form toggles, in display order. */
-	var FORMS = ["constant", "animate", "keyframes", "bind", "expr"];
-	var FORM_LABELS = {
-		constant: "Constant",
-		animate: "Animate",
-		keyframes: "Keyframes",
-		bind: "Bind",
-		expr: "Expr"
-	};
-
 	/** Bindings whose parser (`BoundParam.Kind.needsPos()`) requires a world `pos` anchor. */
 	var NEEDS_POS = ["screen_x", "screen_y", "proximity", "distance", "look_at"];
 	/** A non-positional, non-scoreboard default, so a fresh Bind/Multiply spec is always parseable. */
@@ -94,45 +84,47 @@
 	}
 
 	/**
-	 * The control a raw spec uses. `control` wins; an imported datapack spec without a `control`
-	 * is inferred from its fields, so a round-tripped pack lands on the right form.
+	 * The slot state of a param (design §15.1), from the IR data alone: `driven` when a value node
+	 * is wired in, `track` when it has >= 1 key, `inline` otherwise. The removed `control`
+	 * discriminator plays no part.
 	 *
-	 * @param {Object|number} spec the raw `Tab.params[name]` value
-	 * @returns {string} one of {@link FORMS}
+	 * @param {Object} tab the tab
+	 * @param {string} name the param name
+	 * @param {string|null} driven the wired source node id, when the shell supplied one
+	 * @returns {string} `"driven"`, `"track"` or `"inline"`
 	 */
-	function inferControl(spec) {
-		if (spec == null || typeof spec === "number") {
-			return "constant";
+	function slotState(tab, name, driven) {
+		if (driven != null) {
+			return "driven";
 		}
-		if (typeof spec !== "object") {
-			return "constant";
-		}
-		if (spec.control) {
-			return spec.control;
-		}
-		if (spec.expr != null) {
-			return "expr";
-		}
-		if (spec.bind != null) {
-			return "bind";
-		}
-		if (spec.keyframes != null) {
-			return "keyframes";
-		}
-		if (spec.start != null || spec.end != null) {
-			return "animate";
-		}
-		return "constant";
+		var keys = tab && tab.keys ? tab.keys[name] : null;
+		return Array.isArray(keys) && keys.length > 0 ? "track" : "inline";
 	}
 
-	/** A mutable spec copy for the editor, seeded from the tab's current value. */
-	function readSpec(tab, param) {
-		var raw = tab && tab.params ? tab.params[param.name] : undefined;
-		var spec = (raw != null && typeof raw === "object")
-				? clone(raw)
-				: { value: raw == null ? param.defaultValue : raw };
-		spec.control = inferControl(raw);
-		return spec;
+	/** Linear interpolation of a key list at `time`, clamped to the first/last key. */
+	function valueAtTime(list, time, fallback) {
+		if (!list || !list.length) {
+			return fallback;
+		}
+		if (time <= num(list[0].time)) {
+			return list[0].value;
+		}
+		var last = list[list.length - 1];
+		if (time >= num(last.time)) {
+			return last.value;
+		}
+		for (var i = 1; i < list.length; i++) {
+			var a = list[i - 1];
+			var b = list[i];
+			if (time <= num(b.time)) {
+				var span = num(b.time) - num(a.time);
+				if (span <= 0) {
+					return b.value;
+				}
+				return num(a.value) + (num(b.value) - num(a.value)) * ((time - num(a.time)) / span);
+			}
+		}
+		return last.value;
 	}
 
 	/* ------------------------------------------------------------------ */
@@ -404,214 +396,192 @@
 			tab.keys = {};
 		}
 
-		var spec = readSpec(tab, param);
-		var lastRaw = tab.params[param.name];
+		var name = param.name;
+		var slot = root.VFXEditor && root.VFXEditor.slot ? root.VFXEditor.slot : null;
 
-		/** Persist the current spec to the IR and notify the shell. */
-		function commit() {
-			var previous = lastRaw;
-			if (spec.control === "keyframes") {
-				if (!tab.keys[param.name]) {
-					tab.keys[param.name] = seedKeys();
-				}
-				// Carry any bound `multiply` on the keyframed param, or a re-export would drop it.
-				var keySpec = { control: "keyframes" };
-				if (spec.multiply) {
-					keySpec.multiply = spec.multiply;
-				}
-				tab.params[param.name] = keySpec;
-			} else {
-				tab.params[param.name] = clone(spec);
-			}
-			lastRaw = tab.params[param.name];
-			if (typeof onEdit === "function") {
-				onEdit(param.name, clone(spec), previous);
-			}
+		/** The key list backing this slot (empty when inline). */
+		function keys() {
+			return tab.keys[name] || [];
 		}
 
-		/**
-		 * A seed keyframe list for the keyframes form. The game's `AnimatedValue` requires at least
-		 * two keys, so seed `t=0` and `t=duration` around the current value (duration falls back to
-		 * the format's default when the tab has none).
-		 */
-		function seedKeys() {
-			var value = spec.value != null ? spec.value : (spec.start != null ? spec.start : param.defaultValue);
-			var duration = isFiniteNumber(tab.duration) && tab.duration > 0 ? tab.duration : DEFAULT_DURATION;
-			return [{ time: 0, value: value }, { time: duration, value: value }];
+		/** A live view of the inline spec (`{ value, multiply? }`), seeded from the raw param value. */
+		function rawSpec() {
+			var raw = tab.params[name];
+			if (raw != null && typeof raw === "object") {
+				return raw;
+			}
+			return { value: raw == null ? param.defaultValue : raw };
 		}
 
-		/** The scalar value carried by the current spec (for seeding another form). */
+		/** The playhead tick (0 when the timeline module is absent). */
+		function playhead() {
+			return root.VFXTimeline && typeof root.VFXTimeline.playhead === "function"
+					? num(root.VFXTimeline.playhead()) : 0;
+		}
+
+		/** The value shown/edited: the value at the playhead on a track, else the inline value. */
 		function currentValue() {
-			if (spec.value != null) {
-				return spec.value;
+			if (slotState(tab, name, driven) === "track") {
+				return valueAtTime(keys(), playhead(),
+						param.defaultValue == null ? 0 : param.defaultValue);
 			}
-			if (spec.start != null) {
-				return spec.start;
-			}
-			if (spec.control === "keyframes") {
-				var keys = tab.keys[param.name];
-				if (keys && keys.length) {
-					return keys[0].value;
-				}
-			}
-			return param.defaultValue;
+			var spec = rawSpec();
+			return spec.value != null ? spec.value : param.defaultValue;
 		}
 
-		/** Switch the active form, preserving `multiply`, and re-render. */
-		function switchTo(control) {
-			var multiply = spec.multiply;
-			var value = currentValue();
-			if (control === "constant") {
-				spec = { control: "constant", value: value };
-			} else if (control === "animate") {
-				spec = { control: "animate", start: value, end: value };
-			} else if (control === "keyframes") {
-				spec = { control: "keyframes" };
-			} else if (control === "bind") {
-				spec = { control: "bind", bind: DEFAULT_BIND };
-			} else if (control === "expr") {
-				spec = { control: "expr", expr: "" };
+		/** Write an inline constant (keeping any `multiply`) and notify the shell. */
+		function setInline(value) {
+			var spec = rawSpec();
+			var previous = tab.params[name];
+			var next = { value: value };
+			if (spec.multiply) {
+				next.multiply = spec.multiply;
 			}
-			if (multiply) {
-				spec.multiply = multiply;
+			tab.params[name] = next;
+			if (typeof onEdit === "function") {
+				onEdit(name, next, previous);
 			}
-			commit();
-			refresh();
 		}
 
-		function formTabs() {
-			var row = el("div", { class: "vfx-forms" });
-			FORMS.forEach(function (control) {
-				// A read-once param (e.g. `frames`) can be neither animated nor bound; Constant stays.
-				if ((control === "animate" || control === "keyframes") && param.animatable === false) {
-					return;
+		/** Edit the slot: on a track this auto-keys at the playhead, inline writes the constant. */
+		function editValue(value) {
+			var state = slotState(tab, name, driven);
+			if (state === "track" && slot && typeof slot.addKey === "function") {
+				// Auto-key without re-rendering the panel, so the field keeps its caret.
+				slot.addKey(tab, name, value);
+				if (typeof onEdit === "function") {
+					onEdit(name, rawSpec(), rawSpec());
 				}
-				if (control === "bind" && param.bindable === false) {
-					return;
-				}
-				var button = el("button", {
-					type: "button",
-					class: "vfx-form" + (control === spec.control ? " active" : ""),
-					text: FORM_LABELS[control]
-				});
-				button.addEventListener("click", function () {
-					if (control !== spec.control) {
-						switchTo(control);
-					}
-				});
-				row.appendChild(button);
-			});
-			return row;
+			} else if (state === "inline") {
+				setInline(value);
+			}
 		}
 
-		function keyframeList() {
-			var list = tab.keys[param.name] || (tab.keys[param.name] = seedKeys());
-			var box = el("div", { class: "vfx-keys" });
-			list.forEach(function (key, index) {
-				var time = el("input", { type: "number", class: "vfx-num vfx-key-time", value: String(num(key.time)) });
-				time.title = "time (ticks from start)";
-				time.addEventListener("input", function () {
-					key.time = num(time.value);
-					commit();
+		/** The diamond: inline -> a key at the playhead, track -> clear back to inline. */
+		function animateToggle() {
+			if (!slot) {
+				return;
+			}
+			var state = slotState(tab, name, driven);
+			if (state === "track") {
+				slot.clearTrack(tab, name);
+			} else if (state === "inline") {
+				slot.animate(tab, name, currentValue());
+			}
+		}
+
+		function inlineBody() {
+			var box = el("div", { class: "vfx-slot vfx-slot-inline" });
+			var spec = rawSpec();
+			box.appendChild(el("label", { class: "vfx-field" }, [
+				el("span", { text: "value" }),
+				scalarFor(param, spec.value != null ? spec.value : param.defaultValue, editValue)
+			]));
+			return box;
+		}
+
+		function trackBody() {
+			var box = el("div", { class: "vfx-slot vfx-slot-track" });
+			box.appendChild(el("label", { class: "vfx-field" }, [
+				el("span", { text: "value @ playhead" }),
+				scalarFor(param, currentValue(), editValue)
+			]));
+			var list = keys();
+			var info = el("div", { class: "vfx-track-info" }, [
+				el("span", { class: "vfx-track-count",
+					text: list.length + (list.length === 1 ? " key" : " keys") })
+			]);
+			if (slot && typeof slot.showAsCurve === "function") {
+				var materialize = el("button", { type: "button", class: "vfx-slot-btn",
+					text: "Show as curve node",
+					title: "Materialize this track as a curve value node wired into the slot" });
+				materialize.addEventListener("click", function () {
+					slot.showAsCurve(tab, name);
 				});
-				var value = scalarFor(param, key.value, function (v) {
-					key.value = v;
-					commit();
+				info.appendChild(materialize);
+			}
+			box.appendChild(info);
+			return box;
+		}
+
+		/** The read-only view shown when a wire drives this param (design §15.1). */
+		function drivenBody() {
+			var box = el("div", { class: "vfx-body vfx-driven" });
+			box.appendChild(el("div", { class: "vfx-field" }, [
+				el("span", { text: "value" }),
+				el("span", { class: "vfx-driven-value", text: String(num(currentValue())) })
+			]));
+			box.appendChild(el("span", { class: "vfx-driven-badge", text: "driven by " + driven }));
+			var actions = el("div", { class: "vfx-slot-actions" });
+			if (root.VFXEditor && typeof root.VFXEditor.focusNode === "function") {
+				var go = el("button", { type: "button", class: "vfx-driven-go", text: "go to node" });
+				go.addEventListener("click", function () {
+					root.VFXEditor.focusNode(driven);
 				});
-				var remove = el("button", { type: "button", class: "vfx-key-remove", text: "x", title: "Remove keyframe" });
-				// The game's AnimatedValue requires at least two keys, so the last two may never be dropped.
-				if (list.length <= 2) {
-					remove.disabled = true;
-					remove.title = "A keyframed param needs at least two keys";
-				}
+				actions.appendChild(go);
+			}
+			if (slot && typeof slot.removeDriver === "function") {
+				var remove = el("button", { type: "button", class: "vfx-slot-btn", text: "remove driver" });
 				remove.addEventListener("click", function () {
-					if (list.length <= 2) {
-						return;
-					}
-					list.splice(index, 1);
-					commit();
-					refresh();
+					slot.removeDriver(tab, name);
 				});
-				box.appendChild(el("div", { class: "vfx-key" }, [time, value, remove]));
-			});
-			var add = el("button", { type: "button", class: "vfx-add-key", text: "+ keyframe" });
-			add.addEventListener("click", function () {
-				var last = list.length ? list[list.length - 1] : { time: 0, value: num(param.defaultValue) };
-				list.push({ time: num(last.time) + 10, value: num(last.value) });
-				commit();
-				refresh();
-			});
-			box.appendChild(add);
+				actions.appendChild(remove);
+			}
+			box.appendChild(actions);
 			return box;
 		}
 
 		function multiplySection() {
 			var box = el("div", { class: "vfx-multiply" });
+			var current = rawSpec().multiply || null;
 			var check = el("input", { type: "checkbox", class: "vfx-check" });
-			check.checked = Boolean(spec.multiply);
+			check.checked = Boolean(current);
 			check.addEventListener("change", function () {
+				if (slot && typeof slot.setMultiply === "function") {
+					slot.setMultiply(tab, name, check.checked);
+					return;
+				}
+				var spec = rawSpec();
 				if (check.checked) {
 					spec.multiply = { bind: DEFAULT_BIND };
 				} else {
 					delete spec.multiply;
 				}
-				commit();
+				tab.params[name] = spec;
+				if (typeof onEdit === "function") {
+					onEdit(name, spec, spec);
+				}
 				refresh();
 			});
-			box.appendChild(el("label", { class: "vfx-field" }, [el("span", { text: "x multiply" }), check]));
-			if (spec.multiply) {
-				box.appendChild(bindForm(spec.multiply, commit, refresh));
+			box.appendChild(el("label", { class: "vfx-field" }, [el("span", { text: "× multiply" }), check]));
+			if (current) {
+				// The bind form mutates `current` in place; commit without re-rendering so the
+				// focused field keeps its caret.
+				box.appendChild(bindForm(current, function () {
+					if (typeof onEdit === "function") {
+						onEdit(name, rawSpec(), rawSpec());
+					}
+				}, refresh));
 			}
 			return box;
 		}
 
 		function bodyFor() {
 			var box = el("div", { class: "vfx-body" });
-			if (spec.control === "constant") {
-				box.appendChild(el("label", { class: "vfx-field" }, [
-					el("span", { text: "value" }),
-					scalarFor(param, spec.value != null ? spec.value : param.defaultValue, function (v) {
-						spec.value = v;
-						commit();
-					})
-				]));
-			} else if (spec.control === "animate") {
-				box.appendChild(el("label", { class: "vfx-field" }, [
-					el("span", { text: "start" }),
-					scalarFor(param, spec.start != null ? spec.start : param.defaultValue, function (v) {
-						spec.start = v;
-						commit();
-					})
-				]));
-				box.appendChild(el("label", { class: "vfx-field" }, [
-					el("span", { text: "end" }),
-					scalarFor(param, spec.end != null ? spec.end : param.defaultValue, function (v) {
-						spec.end = v;
-						commit();
-					})
-				]));
-			} else if (spec.control === "keyframes") {
-				box.appendChild(keyframeList());
-			} else if (spec.control === "bind") {
-				box.appendChild(bindForm(spec, commit, refresh));
-			} else if (spec.control === "expr") {
-				var area = el("textarea", { class: "vfx-expr", rows: "4" });
-				area.value = spec.expr == null ? "" : String(spec.expr);
-				area.addEventListener("input", function () {
-					spec.expr = area.value;
-					commit();
-				});
-				box.appendChild(el("label", { class: "vfx-field vfx-field-block" }, [
-					el("span", { text: "expr" }),
-					area
-				]));
+			var state = slotState(tab, name, driven);
+			if (state === "driven") {
+				box.appendChild(drivenBody());
+			} else if (state === "track") {
+				box.appendChild(trackBody());
+			} else {
+				box.appendChild(inlineBody());
 			}
 			box.appendChild(multiplySection());
 			return box;
 		}
 
 		var header = el("div", { class: "vfx-inspect-head" }, [
-			el("span", { class: "vfx-inspect-name", text: param.name }),
+			el("span", { class: "vfx-inspect-name", text: name }),
 			el("span", { class: "vfx-inspect-kind", text: param.kind || "FLOAT" })
 		]);
 		if (param.neutral == null) {
@@ -619,10 +589,30 @@
 			note.title = "This parameter has no neutral value, so the effect fade weight does not blend it.";
 			header.appendChild(note);
 		}
+		var stateName = slotState(tab, name, driven);
+		header.appendChild(el("span", { class: "vfx-state-badge " + stateName, text: stateName }));
+		if (rawSpec().multiply) {
+			header.appendChild(el("span", { class: "vfx-multiply-badge", text: "×" }));
+		}
+		if (stateName !== "driven" && param.animatable !== false && slot) {
+			var diamond = el("button", {
+				type: "button",
+				class: "vfx-diamond" + (stateName === "track" ? " active" : ""),
+				text: stateName === "track" ? "◆" : "◇",
+				title: stateName === "track"
+						? "Clear the track (back to a constant)"
+						: "Animate: add a key at the playhead"
+			});
+			diamond.addEventListener("click", function (event) {
+				event.preventDefault();
+				animateToggle();
+			});
+			header.appendChild(diamond);
+		}
 
 		var content = el("div", { class: "vfx-inspect-content" });
 		var rootEl = el("div", { class: "vfx-inspector" }, [header, content]);
-		// Inline editing: every field selects its content on focus (design §15.1, fix 5).
+		// Inline editing: every field selects its content on focus (design §15.1).
 		rootEl.addEventListener("focusin", function (event) {
 			var target = event.target;
 			if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA")
@@ -634,33 +624,48 @@
 				}
 			}
 		});
-
-		/** The read-only view shown when a wire drives this param (fix 5). */
-		function drivenBody() {
-			var box = el("div", { class: "vfx-body vfx-driven" });
-			var badge = el("span", { class: "vfx-driven-badge", text: "driven by " + driven });
-			box.appendChild(el("div", { class: "vfx-field" }, [
-				el("span", { text: "value" }),
-				el("span", { class: "vfx-driven-value", text: String(num(currentValue())) })
-			]));
-			box.appendChild(badge);
-			if (root.VFXEditor && typeof root.VFXEditor.focusNode === "function") {
-				var go = el("button", { type: "button", class: "vfx-driven-go", text: "go to node" });
-				go.addEventListener("click", function () {
-					root.VFXEditor.focusNode(driven);
-				});
-				box.appendChild(go);
+		// Right-click a slot (design §15.1): replace with an expr/bind node, remove the driver,
+		// key/clear the track, or toggle the multiplier.
+		rootEl.addEventListener("contextmenu", function (event) {
+			if (!slot || !root.VFXEditor || typeof root.VFXEditor.showMenu !== "function") {
+				return;
 			}
-			return box;
+			event.preventDefault();
+			openSlotMenu(event);
+		});
+
+		/** Build the slot context menu and hand it to the shell's floating menu. */
+		function openSlotMenu(event) {
+			var state = slotState(tab, name, driven);
+			var items = [];
+			if (state !== "driven") {
+				items.push({ label: "Animate (key at playhead)",
+					action: function () { slot.animate(tab, name, currentValue()); } });
+			}
+			if (param.bindable !== false) {
+				items.push({ label: "Replace with expression", enabled: state !== "driven",
+					action: function () { slot.replaceWithExpr(tab, name); } });
+				items.push({ label: "Replace with binding", enabled: state !== "driven",
+					action: function () { slot.replaceWithBind(tab, name); } });
+			}
+			if (state === "driven") {
+				items.push({ label: "Remove driver",
+					action: function () { slot.removeDriver(tab, name); } });
+			}
+			if (state === "track") {
+				items.push({ label: "Clear track", action: function () { slot.clearTrack(tab, name); } });
+				items.push({ label: "Show as curve node",
+					action: function () { slot.showAsCurve(tab, name); } });
+			}
+			items.push({
+				label: rawSpec().multiply ? "Remove multiplier" : "Add multiplier",
+				action: function () { slot.setMultiply(tab, name, !rawSpec().multiply); }
+			});
+			root.VFXEditor.showMenu(items, event);
 		}
 
 		function refresh() {
 			content.textContent = "";
-			if (driven) {
-				content.appendChild(drivenBody());
-				return;
-			}
-			content.appendChild(formTabs());
 			content.appendChild(bodyFor());
 		}
 
@@ -775,7 +780,7 @@
 	var api = {
 		render: render,
 		renderTiming: renderTiming,
-		inferControl: inferControl,
+		slotState: slotState,
 		BINDINGS: BINDINGS,
 		NEEDS_POS: NEEDS_POS,
 		DEFAULT_BIND: DEFAULT_BIND
