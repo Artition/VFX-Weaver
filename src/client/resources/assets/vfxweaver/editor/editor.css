@@ -324,6 +324,7 @@ body {
 }
 
 .vfx-num,
+.vfx-text,
 .vfx-select {
 	background: var(--vfx-bg);
 	color: var(--vfx-text);
@@ -332,6 +333,13 @@ body {
 	padding: 3px 6px;
 	font: inherit;
 	min-width: 0;
+}
+
+.vfx-pos-label {
+	display: block;
+	font-size: 11px;
+	color: var(--vfx-text-dim);
+	margin-top: 4px;
 }
 
 .vfx-scalar {

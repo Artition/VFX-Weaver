@@ -38,6 +38,13 @@
 		expr: "Expr"
 	};
 
+	/** Bindings whose parser (`BoundParam.Kind.needsPos()`) requires a world `pos` anchor. */
+	var NEEDS_POS = ["screen_x", "screen_y", "proximity", "distance", "look_at"];
+	/** A non-positional, non-scoreboard default, so a fresh Bind/Multiply spec is always parseable. */
+	var DEFAULT_BIND = "health";
+	/** The format's fallback duration when a tab has none (matches `VFXIR.Tab`/the compiler default). */
+	var DEFAULT_DURATION = 40;
+
 	function isFiniteNumber(value) {
 		return typeof value === "number" && isFinite(value);
 	}
@@ -265,43 +272,106 @@
 		return el("label", { class: "vfx-field" }, [el("span", { text: label }), check]);
 	}
 
+	/** A text field row; the value is written verbatim. */
+	function textRow(label, target, key, onCommit) {
+		var input = el("input", {
+			type: "text",
+			class: "vfx-text",
+			value: target[key] == null ? "" : String(target[key])
+		});
+		input.addEventListener("input", function () {
+			target[key] = input.value;
+			onCommit();
+		});
+		return el("label", { class: "vfx-field" }, [el("span", { text: label }), input]);
+	}
+
+	/**
+	 * Fill in the fields a binding kind requires so the emitted spec parses:
+	 * position-based kinds get a `pos`, `scoreboard` a non-blank `objective`.
+	 */
+	function applyBindDefaults(target) {
+		if (NEEDS_POS.indexOf(target.bind) >= 0 && !Array.isArray(target.pos)) {
+			target.pos = [0, 0, 0];
+		}
+		if (target.bind === "scoreboard" && (target.objective == null || target.objective === "")) {
+			target.objective = "objective";
+		}
+	}
+
 	/**
 	 * The binding fields shared by the Bind form and the Multiply form. Mutates {@code target}
-	 * (an object carrying `bind` plus optional `pos`/`range`/`scale`/`invert`) and commits.
+	 * (an object carrying `bind` plus optional `pos`/`range`/`scale`/`invert`/`objective`/`holder`)
+	 * and commits. An imported binding name not in {@link BINDINGS} is preserved as its own option.
+	 *
+	 * @param {Object} target the bind spec being edited
+	 * @param {function} onCommit persists the change
+	 * @param {function} [refresh] re-renders the form (needed when fields appear/disappear)
 	 */
-	function bindForm(target, onCommit) {
+	function bindForm(target, onCommit, refresh) {
 		var box = el("div", { class: "vfx-bind" });
 		var select = el("select", { class: "vfx-select" });
-		BINDINGS.forEach(function (bind) {
+		var names = BINDINGS.slice();
+		if (target.bind && names.indexOf(target.bind) < 0) {
+			names.push(target.bind);
+		}
+		names.forEach(function (bind) {
 			select.appendChild(el("option", { value: bind, text: bind }));
 		});
-		select.value = target.bind || "proximity";
+		if (!target.bind) {
+			target.bind = DEFAULT_BIND;
+		}
+		select.value = target.bind;
 		select.addEventListener("change", function () {
 			target.bind = select.value;
+			applyBindDefaults(target);
 			onCommit();
+			if (refresh) {
+				refresh();
+			}
 		});
 		box.appendChild(el("label", { class: "vfx-field" }, [el("span", { text: "bind" }), select]));
 
+		var needsPos = NEEDS_POS.indexOf(target.bind) >= 0;
+		if (needsPos && !Array.isArray(target.pos)) {
+			target.pos = [0, 0, 0];
+		}
 		var posBox = el("div", { class: "vfx-pos" });
-		var posToggle = el("input", { type: "checkbox", class: "vfx-check" });
-		posToggle.checked = Array.isArray(target.pos);
-		var posRow = el("label", { class: "vfx-field" }, [el("span", { text: "pos" }), posToggle]);
-		posBox.appendChild(posRow);
-		if (Array.isArray(target.pos)) {
+		if (needsPos) {
+			posBox.appendChild(el("span", { class: "vfx-pos-label", text: "pos (required)" }));
 			posBox.appendChild(vectorFor(target.pos, function (v) {
 				target.pos = v;
 				onCommit();
 			}));
-		}
-		posToggle.addEventListener("change", function () {
-			if (posToggle.checked) {
-				target.pos = [0, 0, 0];
-			} else {
-				delete target.pos;
+		} else {
+			var posToggle = el("input", { type: "checkbox", class: "vfx-check" });
+			posToggle.checked = Array.isArray(target.pos);
+			posBox.appendChild(el("label", { class: "vfx-field" }, [el("span", { text: "pos" }), posToggle]));
+			if (Array.isArray(target.pos)) {
+				posBox.appendChild(vectorFor(target.pos, function (v) {
+					target.pos = v;
+					onCommit();
+				}));
 			}
-			onCommit();
-		});
+			posToggle.addEventListener("change", function () {
+				if (posToggle.checked) {
+					target.pos = [0, 0, 0];
+				} else {
+					delete target.pos;
+				}
+				onCommit();
+				if (refresh) {
+					refresh();
+				}
+			});
+		}
 		box.appendChild(posBox);
+
+		if (target.bind === "scoreboard") {
+			applyBindDefaults(target);
+			box.appendChild(textRow("objective", target, "objective", onCommit));
+			box.appendChild(textRow("holder", target, "holder", onCommit));
+		}
 
 		box.appendChild(optionalRow("range", target, "range", onCommit));
 		box.appendChild(optionalRow("scale", target, "scale", onCommit));
@@ -352,10 +422,15 @@
 			}
 		}
 
-		/** A seed keyframe list for the keyframes form: one key at t=0 with the current value. */
+		/**
+		 * A seed keyframe list for the keyframes form. The game's `AnimatedValue` requires at least
+		 * two keys, so seed `t=0` and `t=duration` around the current value (duration falls back to
+		 * the format's default when the tab has none).
+		 */
 		function seedKeys() {
 			var value = spec.value != null ? spec.value : (spec.start != null ? spec.start : param.defaultValue);
-			return [{ time: 0, value: value }];
+			var duration = isFiniteNumber(tab.duration) && tab.duration > 0 ? tab.duration : DEFAULT_DURATION;
+			return [{ time: 0, value: value }, { time: duration, value: value }];
 		}
 
 		/** The scalar value carried by the current spec (for seeding another form). */
@@ -386,7 +461,7 @@
 			} else if (control === "keyframes") {
 				spec = { control: "keyframes" };
 			} else if (control === "bind") {
-				spec = { control: "bind", bind: "proximity" };
+				spec = { control: "bind", bind: DEFAULT_BIND };
 			} else if (control === "expr") {
 				spec = { control: "expr", expr: "" };
 			}
@@ -400,6 +475,13 @@
 		function formTabs() {
 			var row = el("div", { class: "vfx-forms" });
 			FORMS.forEach(function (control) {
+				// A read-once param (e.g. `frames`) can be neither animated nor bound; Constant stays.
+				if ((control === "animate" || control === "keyframes") && param.animatable === false) {
+					return;
+				}
+				if (control === "bind" && param.bindable === false) {
+					return;
+				}
 				var button = el("button", {
 					type: "button",
 					class: "vfx-form" + (control === spec.control ? " active" : ""),
@@ -454,7 +536,7 @@
 			check.checked = Boolean(spec.multiply);
 			check.addEventListener("change", function () {
 				if (check.checked) {
-					spec.multiply = { bind: "proximity" };
+					spec.multiply = { bind: DEFAULT_BIND };
 				} else {
 					delete spec.multiply;
 				}
@@ -463,7 +545,7 @@
 			});
 			box.appendChild(el("label", { class: "vfx-field" }, [el("span", { text: "x multiply" }), check]));
 			if (spec.multiply) {
-				box.appendChild(bindForm(spec.multiply, commit));
+				box.appendChild(bindForm(spec.multiply, commit, refresh));
 			}
 			return box;
 		}
@@ -496,7 +578,7 @@
 			} else if (spec.control === "keyframes") {
 				box.appendChild(keyframeList());
 			} else if (spec.control === "bind") {
-				box.appendChild(bindForm(spec, commit));
+				box.appendChild(bindForm(spec, commit, refresh));
 			} else if (spec.control === "expr") {
 				var area = el("textarea", { class: "vfx-expr", rows: "4" });
 				area.value = spec.expr == null ? "" : String(spec.expr);
@@ -536,9 +618,20 @@
 		return rootEl;
 	}
 
-	var api = { render: render, inferControl: inferControl, BINDINGS: BINDINGS };
+	var api = {
+		render: render,
+		inferControl: inferControl,
+		BINDINGS: BINDINGS,
+		NEEDS_POS: NEEDS_POS,
+		DEFAULT_BIND: DEFAULT_BIND
+	};
 	root.VFXInspector = api;
 	if (root.VFXEditor) {
 		root.VFXEditor.inspector = api;
+		// If /schema already resolved before this module loaded, fill the panel now instead of
+		// waiting for a user action (the shell's renderInspector no-ops while this is absent).
+		if (typeof root.VFXEditor.renderInspector === "function") {
+			root.VFXEditor.renderInspector();
+		}
 	}
 })();
