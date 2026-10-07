@@ -466,6 +466,46 @@ window.__vfxSelftest = function () {
 		eq(flat[0].group, null, "an ungrouped row has no group");
 	});
 
+	test("(x) curve bezier: both endpoints, monotone in time, linear is identity", function () {
+		var b = VFXIR.easingToBezier("ease_out_cubic");
+		eq(VFXIR.bezierY(b, 0), 0, "y at u=0 is 0");
+		eq(VFXIR.bezierY(b, 1), 1, "y at u=1 is 1");
+		var prev = -Infinity;
+		for (var i = 0; i <= 20; i++) {
+			var y = VFXIR.bezierY(b, i / 20);
+			ok(y >= prev - 1e-9, "monotone non-decreasing at u=" + (i / 20));
+			prev = y;
+		}
+		var lin = VFXIR.easingToBezier("linear");
+		ok(Math.abs(VFXIR.bezierY(lin, 0.25) - 0.25) < 1e-6, "linear bezier is the identity");
+	});
+
+	test("(y) named easing snap round-trips (name -> bezier -> name)", function () {
+		Object.keys(VFXIR.EASING_BEZIER).forEach(function (name) {
+			eq(VFXIR.snapEasing(VFXIR.easingToBezier(name)), name, "round-trip " + name);
+		});
+		eq(VFXIR.snapEasing([0.9, 0.9, 0.1, 0.1]), null, "a far bezier does not snap");
+		eq(VFXIR.snapEasing([0.5, 1.8, 0.89, 1.2]), null, "an overshoot bezier does not snap");
+		eq(VFXIR.normalizeEasing({ cubicBezier: [0.25, 0.1, 0.25, 1] }).join(","), "0.25,0.1,0.25,1",
+				"import normalizes {cubicBezier} to the IR array");
+	});
+
+	test("(z) compiler emits {cubicBezier:[...]} for numeric, a name for snapped; import reverses", function () {
+		var tab = new VFXIR.Tab("blur", "blur");
+		tab.duration = 40;
+		tab.params.radius = VFXIR.ParamSpec.keyframes();
+		tab.addKey("radius", 0, 0, [0.25, 0.1, 0.25, 1]);
+		tab.addKey("radius", 20, 1, "ease_out_quad");
+		var kf = parse(compileTab(tab)).params.radius.keyframes;
+		eq(JSON.stringify(kf[0].easing), JSON.stringify({ cubicBezier: [0.25, 0.1, 0.25, 1] }),
+				"a numeric segment serializes as a cubicBezier object");
+		eq(kf[1].easing, "ease_out_quad", "a snapped segment serializes as the name");
+		var norm = VFXIR.normalizeParam({ keyframes: kf }, 40);
+		eq(JSON.stringify(norm.keys[0].easing), JSON.stringify([0.25, 0.1, 0.25, 1]),
+				"import normalizes the bezier back to the IR array");
+		eq(norm.keys[1].easing, "ease_out_quad", "import keeps the name");
+	});
+
 	return results;
 };
 /* SELFTEST:END */

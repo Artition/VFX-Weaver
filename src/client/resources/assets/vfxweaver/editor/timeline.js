@@ -47,6 +47,14 @@
 	var KEY_SIZE = 10;
 	var LANE_PAD = 3;
 	var DEFAULT_DURATION = 40;
+	/** Curve-view geometry (design §15.4, fix #13): a taller plot with padding for axis labels. */
+	var CURVE_HEIGHT = 240;
+	var CURVE_PAD_TOP = 18;
+	var CURVE_PAD_BOTTOM = 24;
+	/** Polyline resolution per segment when sampling the eased curve. */
+	var CURVE_SAMPLES = 48;
+	/** SVG namespace for the curve view (created with `createElementNS`, not `el`). */
+	var SVG_NS = "http://www.w3.org/2000/svg";
 	/** Per-key easing names, matching `EasingType` (docs/guide/datapack). */
 	var EASINGS = [
 		"linear", "ease_in_quad", "ease_out_quad", "ease_in_out_quad",
@@ -453,6 +461,131 @@
 	var ui = null;
 	/** The key shown in the easing control: `{ name, key }` or null. */
 	var selected = null;
+	/**
+	 * The open curve view (design §15.4, fix #13): `{ tab, name }` while a track is expanded to its
+	 * curve editor, else null. `curvePanel` caches the mounted `.vfx-tl` so a drag can re-render it
+	 * without threading the DOM through every handler; `curveKeyHandler` is the live Delete/Esc key
+	 * listener, removed and re-added on every render.
+	 */
+	var curveOpen = null;
+	var curvePanel = null;
+	var curveKeyHandler = null;
+
+	/** The Bézier the curve editor draws a segment with (delegates to the IR's canonical table). */
+	function easingBezier(easing) {
+		return root.VFXIR && typeof root.VFXIR.easingToBezier === "function"
+				? root.VFXIR.easingToBezier(easing) : [0, 0, 1, 1];
+	}
+
+	/** Sample a cubic-Bézier easing at normalized time `u` (delegates to the IR). */
+	function sampleBezier(bezier, u) {
+		return root.VFXIR && typeof root.VFXIR.bezierY === "function"
+				? root.VFXIR.bezierY(bezier, u) : u;
+	}
+
+	/** Recognise a Bézier as a named easing within epsilon, else null (delegates to the IR). */
+	function snapEasingName(bezier) {
+		return root.VFXIR && typeof root.VFXIR.snapEasing === "function"
+				? root.VFXIR.snapEasing(bezier) : null;
+	}
+
+	/** A deep-enough copy of an easing (array clone / string) for broadcast edits. */
+	function cloneEasing(easing) {
+		return Array.isArray(easing) ? easing.slice() : easing;
+	}
+
+	/** The keys of a track, sorted by time (the curve view is always time-ordered). */
+	function sortedKeys(tab, name) {
+		var list = (tab.keys && tab.keys[name]) || [];
+		return list.slice().sort(function (a, b) {
+			return (Number(a.time) || 0) - (Number(b.time) || 0);
+		});
+	}
+
+	/** Create an SVG element with attributes (mirrors {@link el}, but in the SVG namespace). */
+	function svgEl(tag, attrs) {
+		var node = document.createElementNS(SVG_NS, tag);
+		if (attrs) {
+			Object.keys(attrs).forEach(function (key) {
+				if (attrs[key] != null) {
+					node.setAttribute(key, String(attrs[key]));
+				}
+			});
+		}
+		return node;
+	}
+
+	/** Re-render the whole panel in place (used after a curve edit/drag). */
+	function refreshCurve(tab) {
+		if (curvePanel && curvePanel.parentNode) {
+			renderInto(curvePanel.parentNode, tab);
+		} else if (root.VFXEditor && typeof root.VFXEditor.renderTimeline === "function") {
+			root.VFXEditor.renderTimeline();
+		}
+	}
+
+	/** The interpolated value of a track at a tick (the curve's own easing), for a new key. */
+	function interpolatedValue(tab, name, ticks) {
+		var keys = sortedKeys(tab, name);
+		if (keys.length === 0) {
+			return laneValue(tab, name);
+		}
+		if (ticks <= Number(keys[0].time)) {
+			return Number(keys[0].value);
+		}
+		var last = keys[keys.length - 1];
+		if (ticks >= Number(last.time)) {
+			return Number(last.value);
+		}
+		for (var i = 0; i < keys.length - 1; i++) {
+			var a = keys[i];
+			var b = keys[i + 1];
+			if (ticks <= Number(b.time)) {
+				var span = Number(b.time) - Number(a.time);
+				var u = span > 0 ? (ticks - Number(a.time)) / span : 0;
+				var eased = sampleBezier(easingBezier(a.easing), u);
+				return round3(Number(a.value) + (Number(b.value) - Number(a.value)) * eased);
+			}
+		}
+		return Number(last.value);
+	}
+
+	/** Remove the selected key from the open curve view, commit, and re-render (fix #13). */
+	function deleteSelectedCurveKey(tab, name) {
+		if (!selected || !selected.key) {
+			surface("select a key first");
+			return;
+		}
+		var list = (tab.keys && tab.keys[name]) || [];
+		var index = list.indexOf(selected.key);
+		if (index < 0) {
+			return;
+		}
+		list.splice(index, 1);
+		selected = null;
+		if (list.length === 0) {
+			delete tab.keys[name];
+			curveOpen = null;
+		}
+		commit(tab);
+		structural(tab);
+		refreshCurve(tab);
+	}
+
+	/** Copy the selected key's easing onto every segment of the track (design §15.4). */
+	function applyEasingToAll(tab, name) {
+		if (!selected || !selected.key || selected.key.easing == null) {
+			surface("select a key with an easing first");
+			return;
+		}
+		var easing = cloneEasing(selected.key.easing);
+		(tab.keys[name] || []).forEach(function (key) {
+			key.easing = cloneEasing(easing);
+		});
+		commit(tab);
+		structural(tab);
+		refreshCurve(tab);
+	}
 
 	function now() {
 		return root.performance && typeof root.performance.now === "function"
@@ -597,29 +730,30 @@
 		return null;
 	}
 
-	/** The value range a lane maps vertically: the descriptor bounds when finite, else the keys. */
+	/** The value range a lane maps vertically: auto-fit to the keys, widened to include the finite
+	 *  schema min/max (design §15.4) so an out-of-schema key stays visible (and is red-flagged). */
 	function valueRange(tab, name, keys) {
 		var descriptor = paramDescriptor(tab, name);
-		var lo;
-		var hi;
-		if (descriptor && isFiniteNumber(descriptor.min) && isFiniteNumber(descriptor.max)
-				&& descriptor.max > descriptor.min) {
-			lo = descriptor.min;
-			hi = descriptor.max;
-		} else {
-			lo = Infinity;
-			hi = -Infinity;
-			(keys || []).forEach(function (key) {
-				var value = Number(key.value);
-				if (isFinite(value)) {
-					lo = Math.min(lo, value);
-					hi = Math.max(hi, value);
-				}
-			});
-			if (!isFinite(lo) || !isFinite(hi) || lo === hi) {
-				lo = isFinite(lo) ? lo - 1 : 0;
-				hi = isFinite(hi) ? hi + 1 : 1;
+		var lo = Infinity;
+		var hi = -Infinity;
+		(keys || []).forEach(function (key) {
+			var value = Number(key.value);
+			if (isFinite(value)) {
+				lo = Math.min(lo, value);
+				hi = Math.max(hi, value);
 			}
+		});
+		if (descriptor) {
+			if (isFiniteNumber(descriptor.min)) {
+				lo = Math.min(lo, descriptor.min);
+			}
+			if (isFiniteNumber(descriptor.max)) {
+				hi = Math.max(hi, descriptor.max);
+			}
+		}
+		if (!isFinite(lo) || !isFinite(hi) || lo === hi) {
+			lo = isFinite(lo) ? lo - 1 : 0;
+			hi = isFinite(hi) ? hi + 1 : 1;
 		}
 		return { lo: lo, hi: hi };
 	}
@@ -718,9 +852,8 @@
 		if (dot.__baseTitle == null) {
 			dot.__baseTitle = dot.title;
 		}
-		var out = descriptor && ((isFiniteNumber(descriptor.min) && value < descriptor.min)
-				|| (isFiniteNumber(descriptor.max) && value > descriptor.max));
-		dot.classList.toggle("vfx-tl-out", Boolean(out));
+		var out = descriptorOutOfRange(descriptor, value);
+		dot.classList.toggle("vfx-tl-out", out);
 		if (out) {
 			dot.title = "value " + value + " is outside the schema range ["
 					+ descriptor.min + ", " + descriptor.max + "]";
@@ -773,6 +906,18 @@
 
 	/** Append a key, select it, re-render the panel and recompile. */
 	function addKeyToLane(tab, name, time, value, panel) {
+		// A double-click on a lane (open the curve) fires two clicks, so a tick that already has a
+		// key selects the existing one instead of stacking a duplicate on the same tick.
+		var existing = tab.keys && tab.keys[name] ? tab.keys[name] : [];
+		for (var i = 0; i < existing.length; i++) {
+			if (Math.round(Number(existing[i].time) || 0) === Math.round(Number(time) || 0)) {
+				selectKey(name, existing[i], null);
+				if (panel && panel.parentNode) {
+					renderInto(panel.parentNode, tab);
+				}
+				return existing[i];
+			}
+		}
 		var key = tab.addKey(name, time, value);
 		selectKey(name, key, null);
 		commit(tab);
@@ -848,19 +993,28 @@
 		EASINGS.forEach(function (name) {
 			easing.appendChild(el("option", { value: name, text: name }));
 		});
+		// A numeric (hand-edited) bezier has no named option; a hidden-in-disabled `custom` entry
+		// lets the select show it without clobbering it on open (design §15.4).
+		var custom = el("option", { value: "__custom__", text: "custom" });
+		custom.disabled = true;
+		easing.appendChild(custom);
 		easing.addEventListener("change", function () {
-			if (!selected || !selected.key) {
+			if (!selected || !selected.key || easing.value === "__custom__") {
 				return;
 			}
 			selected.key.easing = easing.value;
 			commit(tab);
 			structural(tab);
+			if (curveOpen && curveOpen.tab === tab) {
+				refreshCurve(tab);
+			}
 		});
 		easingRow.appendChild(easingLabel);
 		easingRow.appendChild(easing);
 		easingRow.hidden = !(selected && selected.key);
 		if (selected && selected.key) {
-			easing.value = selected.key.easing || "linear";
+			easing.value = typeof selected.key.easing === "string"
+					? selected.key.easing : "__custom__";
 			easingLabel.textContent = selected.name + " @" + Math.round(Number(selected.key.time) || 0);
 		}
 
@@ -946,6 +1100,325 @@
 		return bar;
 	}
 
+	/* ------------------------------------------------------------------ */
+	/* Curve editor (design §15.4, fix #13)                               */
+	/* ------------------------------------------------------------------ */
+
+	/** Open a track's curve editor and re-render. */
+	function openCurve(tab, name, panel) {
+		curveOpen = { tab: tab, name: name };
+		curvePanel = panel;
+		renderInto(panel.parentNode, tab);
+	}
+
+	/** The display label of an IR segment easing: a name, a snapped bezier's name, else numbers. */
+	function easingTitle(easing) {
+		if (typeof easing === "string") {
+			return easing;
+		}
+		if (Array.isArray(easing)) {
+			var snapped = snapEasingName(easing);
+			return snapped ? snapped : "cubic-bezier(" + easing.join(", ") + ")";
+		}
+		return "linear";
+	}
+
+	/** A number for an axis label: integers plain, fractions to 3 decimals. */
+	function formatValue(value) {
+		var n = Number(value);
+		if (!isFinite(n)) {
+			return "";
+		}
+		if (Math.abs(n - Math.round(n)) < 1e-6) {
+			return String(Math.round(n));
+		}
+		return String(Math.round(n * 1000) / 1000);
+	}
+
+	/** Whether a value is outside the schema descriptor's finite min/max (design §15.4). */
+	function descriptorOutOfRange(descriptor, value) {
+		return Boolean(descriptor && ((isFiniteNumber(descriptor.min) && value < descriptor.min)
+				|| (isFiniteNumber(descriptor.max) && value > descriptor.max)));
+	}
+
+	/** The axis a curve view maps values into: the auto-fit range plus 8% headroom for overshoot. */
+	function curveAxis(range) {
+		var span = (range.hi - range.lo) || 1;
+		return { lo: range.lo - span * 0.08, hi: range.hi + span * 0.08 };
+	}
+
+	/** An SVG `<title>` tooltip. */
+	function svgTitle(text) {
+		var node = svgEl("title", {});
+		node.textContent = String(text);
+		return node;
+	}
+
+	/** A small header button for the curve view. */
+	function curveButton(label, title, onClick) {
+		var node = el("button", { type: "button", class: "vfx-tl-btn vfx-tl-curve-btn", text: label, title: title });
+		node.addEventListener("click", onClick);
+		return node;
+	}
+
+	/** Keep a track's key list time-sorted (the curve view and the engine both assume it). */
+	function sortTrack(tab, name) {
+		if (tab.keys && tab.keys[name]) {
+			tab.keys[name].sort(function (a, b) {
+				return (Number(a.time) || 0) - (Number(b.time) || 0);
+			});
+		}
+	}
+
+	/** A lane's header: the param name plus a button that opens the curve view. */
+	function laneLabel(tab, name, panel) {
+		var label = el("span", { class: "vfx-tl-label" });
+		label.appendChild(el("span", { text: name }));
+		var open = el("button", { type: "button", class: "vfx-tl-curve-open", text: "curve",
+			title: "Open the curve editor" });
+		open.addEventListener("mousedown", function (event) {
+			event.stopPropagation();
+		});
+		open.addEventListener("click", function (event) {
+			event.preventDefault();
+			event.stopPropagation();
+			openCurve(tab, name, panel);
+		});
+		label.appendChild(open);
+		return label;
+	}
+
+	/** One tangent handle of a segment's local unit box; drag edits x (clamped [0,1]) and y (free). */
+	function curveHandle(which, key, bez, hx, hy, tab, name, range, pxPerTick, panel) {
+		var h = svgEl("circle", { class: "vfx-tl-handle", cx: hx, cy: hy, r: 4 });
+		h.appendChild(svgTitle(which === 0
+				? "Easing handle 1 (x1,y1) — drag; release near a named easing to snap"
+				: "Easing handle 2 (x2,y2)"));
+		h.addEventListener("mousedown", beginHandleDrag(tab, name, key, bez, which, range, pxPerTick, panel));
+		return h;
+	}
+
+	/** Drag a curve key: x -> tick (clamped), y -> value; one commit per drag (fix #13). */
+	function beginCurveKeyDrag(tab, name, key, dot, range, pxPerTick, panel) {
+		return function (event) {
+			event.preventDefault();
+			event.stopPropagation();
+			selectKey(name, key, dot);
+			var startX = event.clientX;
+			var startY = event.clientY;
+			var t0 = Number(key.time) || 0;
+			var v0 = Number(key.value) || 0;
+			var total = duration(tab);
+			var axis = curveAxis(range);
+			var innerH = CURVE_HEIGHT - CURVE_PAD_TOP - CURVE_PAD_BOTTOM;
+			var moved = false;
+
+			function move(ev) {
+				moved = true;
+				var rawTime = Math.round(t0 + (ev.clientX - startX) / pxPerTick);
+				key.time = Math.max(0, Math.min(total, rawTime));
+				key.value = round3(v0 - (ev.clientY - startY) / (innerH || 1) * (axis.hi - axis.lo));
+				refreshCurve(tab);
+			}
+
+			function up() {
+				document.removeEventListener("mousemove", move);
+				document.removeEventListener("mouseup", up);
+				if (!moved) {
+					return;
+				}
+				sortTrack(tab, name);
+				setKeyframe(tab, name, key);
+				commit(tab);
+				structural(tab);
+				refreshCurve(tab);
+			}
+
+			document.addEventListener("mousemove", move);
+			document.addEventListener("mouseup", up);
+		};
+	}
+
+	/** Drag a segment's tangent handle in its local unit box; snap to a named easing on release. */
+	function beginHandleDrag(tab, name, key, bez, which, range, pxPerTick, panel) {
+		return function (event) {
+			event.preventDefault();
+			event.stopPropagation();
+			var startX = event.clientX;
+			var startY = event.clientY;
+			var b = bez.slice();
+			var list = sortedKeys(tab, name);
+			var next = list[list.indexOf(key) + 1];
+			if (!next) {
+				return;
+			}
+			var segW = ((Number(next.time) || 0) - (Number(key.time) || 0)) * pxPerTick;
+			var innerH = CURVE_HEIGHT - CURVE_PAD_TOP - CURVE_PAD_BOTTOM;
+			var moved = false;
+
+			function move(ev) {
+				moved = true;
+				var xi = which * 2;
+				if (segW !== 0) {
+					b[xi] = Math.max(0, Math.min(1, b[xi] + (ev.clientX - startX) / segW));
+				}
+				b[xi + 1] = b[xi + 1] - (ev.clientY - startY) / (innerH || 1);
+				key.easing = [b[0], b[1], b[2], b[3]];
+				refreshCurve(tab);
+			}
+
+			function up() {
+				document.removeEventListener("mousemove", move);
+				document.removeEventListener("mouseup", up);
+				if (!moved) {
+					return;
+				}
+				var snapped = snapEasingName(b);
+				key.easing = snapped
+						? snapped : [round3(b[0]), round3(b[1]), round3(b[2]), round3(b[3])];
+				commit(tab);
+				structural(tab);
+				refreshCurve(tab);
+				surface("easing: " + (snapped ? snapped : "custom bezier"));
+			}
+
+			document.addEventListener("mousemove", move);
+			document.addEventListener("mouseup", up);
+		};
+	}
+
+	/**
+	 * Build the full curve view for one track (design §15.4, fix #13): the slot's keys, the eased
+	 * polyline sampled through each segment's cubic-bezier, draggable tangent handles, draggable
+	 * keys (x snaps to ticks), value-axis gridlines/labels, and the header operations.
+	 *
+	 * @param {Object} tab the tab
+	 * @param {string} name the animated param
+	 * @param {number} pxPerTick horizontal scale (shared with the timeline)
+	 * @param {Object} range `{lo,hi}` from {@link valueRange}
+	 * @param {HTMLElement} panel the mounted `.vfx-tl` (for re-renders)
+	 * @returns {HTMLElement} the curve view element
+	 */
+	function curveEditor(tab, name, pxPerTick, range, panel) {
+		var wrap = el("div", { class: "vfx-tl-curve" });
+		var total = duration(tab);
+		var keys = sortedKeys(tab, name);
+		var axis = curveAxis(range);
+		var innerH = CURVE_HEIGHT - CURVE_PAD_TOP - CURVE_PAD_BOTTOM;
+		var width = Math.max(1, total * pxPerTick + 20);
+
+		function X(t) {
+			return Math.max(0, Number(t) || 0) * pxPerTick;
+		}
+		function Y(v) {
+			var f = (Number(v) - axis.lo) / ((axis.hi - axis.lo) || 1);
+			return CURVE_PAD_TOP + (1 - Math.max(0, Math.min(1, f))) * innerH;
+		}
+
+		var head = el("div", { class: "vfx-tl-curve-head" });
+		head.appendChild(el("span", { class: "vfx-tl-curve-title", text: "Curve · " + name }));
+		head.appendChild(curveButton("apply to all", "Copy the selected key's easing to every segment",
+			function () { applyEasingToAll(tab, name); }));
+		head.appendChild(curveButton("del key", "Delete the selected key (Delete)",
+			function () { deleteSelectedCurveKey(tab, name); }));
+		head.appendChild(curveButton("✕", "Close the curve editor", function () {
+			curveOpen = null;
+			curvePanel = null;
+			renderInto(panel.parentNode, tab);
+		}));
+		wrap.appendChild(head);
+
+		var svg = svgEl("svg", { class: "vfx-tl-curve-svg", width: width, height: CURVE_HEIGHT });
+
+		for (var g = 0; g <= 4; g++) {
+			var frac = g / 4;
+			var value = range.lo + frac * (range.hi - range.lo);
+			var gy = Y(value);
+			svg.appendChild(svgEl("line", { class: "vfx-tl-grid", x1: 0, y1: gy, x2: width, y2: gy }));
+			var label = svgEl("text", { class: "vfx-tl-axis-label", x: 4, y: gy - 2 });
+			label.textContent = formatValue(value);
+			svg.appendChild(label);
+		}
+
+		for (var i = 0; i < keys.length - 1; i++) {
+			var a = keys[i];
+			var b = keys[i + 1];
+			var t0 = Number(a.time) || 0;
+			var t1 = Number(b.time) || 0;
+			var v0 = Number(a.value) || 0;
+			var v1 = Number(b.value) || 0;
+			var bez = easingBezier(a.easing);
+			var pts = [];
+			for (var s = 0; s <= CURVE_SAMPLES; s++) {
+				var u = s / CURVE_SAMPLES;
+				pts.push(X(t0 + (t1 - t0) * u) + "," + Y(v0 + (v1 - v0) * sampleBezier(bez, u)));
+			}
+			svg.appendChild(svgEl("polyline", { class: "vfx-tl-curve-line", points: pts.join(" ") }));
+
+			if (t1 > t0) {
+				var h1x = X(t0 + (t1 - t0) * bez[0]);
+				var h1y = Y(v0 + (v1 - v0) * bez[1]);
+				var h2x = X(t0 + (t1 - t0) * bez[2]);
+				var h2y = Y(v0 + (v1 - v0) * bez[3]);
+				svg.appendChild(svgEl("line", { class: "vfx-tl-handle-line",
+					x1: X(t0), y1: Y(v0), x2: h1x, y2: h1y }));
+				svg.appendChild(svgEl("line", { class: "vfx-tl-handle-line",
+					x1: X(t1), y1: Y(v1), x2: h2x, y2: h2y }));
+				svg.appendChild(curveHandle(0, a, bez, h1x, h1y, tab, name, range, pxPerTick, panel));
+				svg.appendChild(curveHandle(1, a, bez, h2x, h2y, tab, name, range, pxPerTick, panel));
+			}
+		}
+
+		keys.forEach(function (key) {
+			var dot = svgEl("circle", { class: "vfx-tl-curve-key",
+				cx: X(key.time), cy: Y(key.value), r: 5 });
+			if (selected && selected.key === key) {
+				dot.classList.add("active");
+			}
+			var descriptor = paramDescriptor(tab, name);
+			dot.appendChild(svgTitle(descriptorOutOfRange(descriptor, key.value)
+					? "value " + key.value + " is outside the schema range ["
+							+ descriptor.min + ", " + descriptor.max + "]"
+					: name + " t=" + Math.round(Number(key.time) || 0) + " v=" + key.value
+							+ " (" + easingTitle(key.easing) + ")"));
+			if (descriptorOutOfRange(descriptor, key.value)) {
+				dot.classList.add("vfx-tl-out");
+			}
+			dot.addEventListener("mousedown", beginCurveKeyDrag(tab, name, key, dot, range, pxPerTick, panel));
+			svg.appendChild(dot);
+		});
+
+		svg.addEventListener("dblclick", function (event) {
+			var target = event.target;
+			if (target && target.classList && (target.classList.contains("vfx-tl-curve-key")
+					|| target.classList.contains("vfx-tl-handle"))) {
+				return;
+			}
+			var t = Math.round(clampToDuration(tab, tickAt(event.clientX)));
+			addKeyToLane(tab, name, t, interpolatedValue(tab, name, t), panel);
+		});
+
+		wrap.appendChild(svg);
+
+		// Delete removes the selected key; Escape closes the view (design §15.4).
+		curveKeyHandler = function (event) {
+			if (event.key === "Delete" || event.key === "Backspace") {
+				if (selected && selected.key) {
+					event.preventDefault();
+					deleteSelectedCurveKey(tab, name);
+				}
+			} else if (event.key === "Escape") {
+				curveOpen = null;
+				curvePanel = null;
+				renderInto(panel.parentNode, tab);
+			}
+		};
+		if (typeof document !== "undefined") {
+			document.addEventListener("keydown", curveKeyHandler);
+		}
+		return wrap;
+	}
+
 	/**
 	 * Build the timeline panel for one tab. Returns a detached element the shell mounts; if the same
 	 * clock is still running for this tab, the playhead element is re-bound and keeps advancing.
@@ -960,6 +1433,11 @@
 		}
 		// Keep the clock's tab current so the playhead clamps to *this* tab's duration.
 		clock.tab = tab;
+		// Drop the previous curve view's key listener; a curve view re-adds its own below.
+		if (curveKeyHandler && typeof document !== "undefined") {
+			document.removeEventListener("keydown", curveKeyHandler);
+			curveKeyHandler = null;
+		}
 		var panel = el("div", { class: "vfx-tl" });
 		if (!tab) {
 			panel.appendChild(el("p", { class: "vfx-tl-empty", text: "No active tab" }));
@@ -995,31 +1473,48 @@
 
 		content.appendChild(ruler(tab, pxPerTick));
 		content.appendChild(durationBar(tab, pxPerTick));
-		names.forEach(function (name) {
-			var lane = el("div", { class: "vfx-tl-lane" });
-			lane.style.height = LANE_HEIGHT + "px";
-			lane.addEventListener("mousedown", beginLaneAdd(tab, name, panel));
-			lane.appendChild(el("span", { class: "vfx-tl-label", text: name }));
-			(tab.keys[name] || []).forEach(function (key) {
-				var dot = el("button", {
-					type: "button",
-					class: "vfx-tl-key",
-					title: name + " t=" + Math.round(Number(key.time) || 0) + " v=" + key.value
-							+ (key.easing ? " (" + key.easing + ")" : "")
+		// Curve view (design §15.4, fix #13) replaces the lane list while a track is expanded.
+		var curveActive = curveOpen && curveOpen.tab === tab
+				&& tab.keys && tab.keys[curveOpen.name] && tab.keys[curveOpen.name].length > 0;
+		if (curveOpen && curveOpen.tab === tab && !curveActive) {
+			curveOpen = null;
+		}
+		if (curveActive) {
+			curvePanel = panel;
+			content.appendChild(curveEditor(tab, curveOpen.name, pxPerTick, ranges[curveOpen.name], panel));
+		} else {
+			curvePanel = null;
+			names.forEach(function (name) {
+				var lane = el("div", { class: "vfx-tl-lane" });
+				lane.style.height = LANE_HEIGHT + "px";
+				lane.addEventListener("mousedown", beginLaneAdd(tab, name, panel));
+				lane.appendChild(laneLabel(tab, name, panel));
+				lane.addEventListener("dblclick", function (event) {
+					event.preventDefault();
+					event.stopPropagation();
+					openCurve(tab, name, panel);
 				});
-				if (selected && selected.key === key) {
-					dot.classList.add("active");
-				}
-				dot.addEventListener("mousedown", beginDrag(tab, name, key, dot));
-				lane.appendChild(dot);
-				positionKeyLater(dot, name, key, pxPerTick, ranges);
-				markOutOfRange(dot, paramDescriptor(tab, name), key.value);
-				if (Number(key.time) < 0 || Number(key.time) > total) {
-					dot.classList.add("vfx-tl-clamped");
-				}
+				(tab.keys[name] || []).forEach(function (key) {
+					var dot = el("button", {
+						type: "button",
+						class: "vfx-tl-key",
+						title: name + " t=" + Math.round(Number(key.time) || 0) + " v=" + key.value
+								+ (key.easing ? " (" + easingTitle(key.easing) + ")" : "")
+					});
+					if (selected && selected.key === key) {
+						dot.classList.add("active");
+					}
+					dot.addEventListener("mousedown", beginDrag(tab, name, key, dot));
+					lane.appendChild(dot);
+					positionKeyLater(dot, name, key, pxPerTick, ranges);
+					markOutOfRange(dot, paramDescriptor(tab, name), key.value);
+					if (Number(key.time) < 0 || Number(key.time) > total) {
+						dot.classList.add("vfx-tl-clamped");
+					}
+				});
+				content.appendChild(lane);
 			});
-			content.appendChild(lane);
-		});
+		}
 
 		var head = el("div", { class: "vfx-tl-playhead" });
 		content.appendChild(head);

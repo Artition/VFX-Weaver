@@ -560,7 +560,12 @@
 		}
 		return points.map(function (point) {
 			var line = num(point.time) + " " + num(point.value);
-			return point.easing ? line + " " + point.easing : line;
+			// A numeric bezier easing is a single JSON token (no spaces), so it stays one field.
+			if (point.easing) {
+				line += " " + (typeof point.easing === "object"
+						? JSON.stringify(point.easing) : point.easing);
+			}
+			return line;
 		}).join("\n");
 	}
 
@@ -584,7 +589,16 @@
 			}
 			var point = { time: time, value: value };
 			if (parts[2]) {
-				point.easing = parts[2];
+				// A `{...}` token is the inline-bezier form; a bare word is a named easing.
+				if (parts[2].charAt(0) === "{") {
+					try {
+						point.easing = JSON.parse(parts[2]);
+					} catch (e) {
+						return null;
+					}
+				} else {
+					point.easing = parts[2];
+				}
 			}
 			out.push(point);
 		}
@@ -1974,7 +1988,9 @@
 		var points = list.map(function (key) {
 			var point = { time: num(key.time), value: num(key.value) };
 			if (key.easing) {
-				point.easing = key.easing;
+				// Curve nodes carry the datapack form (name string or `{cubicBezier:[...]}`).
+				point.easing = window.VFXIR && typeof window.VFXIR.easingToJson === "function"
+						? window.VFXIR.easingToJson(key.easing) : key.easing;
 			}
 			return point;
 		});

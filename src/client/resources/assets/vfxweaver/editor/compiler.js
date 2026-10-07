@@ -60,7 +60,10 @@
 			}
 			var out_key = { time: clamped, value: num(key.value) };
 			if (key.easing != null) {
-				out_key.easing = key.easing;
+				var easing = easingJson(key.easing);
+				if (easing != null) {
+					out_key.easing = easing;
+				}
 			}
 			out.push(out_key);
 		}
@@ -76,6 +79,40 @@
 			}
 		});
 		return out;
+	}
+
+	/**
+	 * Serialise an IR segment easing to the datapack shape (design §15.4): a snapped NAME stays a
+	 * string, a numeric bezier `[x1,y1,x2,y2]` becomes `{ "cubicBezier": [...] }` (the form
+	 * `VFXDefinition.parseEasing` accepts). Delegates to `VFXIR.easingToJson` when loaded, with an
+	 * inline fallback so the compiler still works standalone.
+	 *
+	 * @param {string|Array<number>} easing the IR segment easing
+	 * @returns {string|Object|null} the JSON value, or null for an unrecognised easing
+	 */
+	function easingJson(easing) {
+		if (root.VFXIR && typeof root.VFXIR.easingToJson === "function") {
+			return root.VFXIR.easingToJson(easing);
+		}
+		if (typeof easing === "string") {
+			return easing;
+		}
+		if (Array.isArray(easing) && easing.length === 4) {
+			var out = [];
+			for (var i = 0; i < 4; i++) {
+				var n = Number(easing[i]);
+				if (!isFinite(n)) {
+					return null;
+				}
+				out.push(n);
+			}
+			return { cubicBezier: out };
+		}
+		if (easing && typeof easing === "object" && Array.isArray(easing.cubicBezier)
+				&& easing.cubicBezier.length === 4) {
+			return { cubicBezier: easing.cubicBezier.map(Number) };
+		}
+		return null;
 	}
 
 	/** Whether `value` is a graph input reference `{ from: id }`. */

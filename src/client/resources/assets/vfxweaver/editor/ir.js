@@ -303,6 +303,182 @@
 	}
 
 	/**
+	 * Canonical cubic-Bézier control points `[x1,y1,x2,y2]` per built-in easing name (design §15.4).
+	 * The editor draws every segment as a Bézier; a snapped segment stores the NAME, and these are
+	 * the control points that name is drawn/handled at and recognised back from — so name ↔ bezier
+	 * round-trips losslessly. The values approximate the engine's named curves (they are the CSS
+	 * cubic-bezier equivalents) so a snapped preview stays close; an exact bezier is stored as the
+	 * four numbers instead. x1,x2 ∈ [0,1]; y1,y2 are free (overshoot allowed).
+	 */
+	var EASING_BEZIER = {
+		linear: [0, 0, 1, 1],
+		ease_in_quad: [0.11, 0, 0.5, 0],
+		ease_out_quad: [0.5, 1, 0.89, 1],
+		ease_in_out_quad: [0.45, 0, 0.55, 1],
+		ease_in_cubic: [0.32, 0, 0.67, 0],
+		ease_out_cubic: [0.33, 1, 0.68, 1],
+		ease_in_out_cubic: [0.65, 0, 0.35, 1],
+		ease_in_expo: [0.7, 0, 0.84, 0],
+		ease_out_expo: [0.16, 1, 0.3, 1],
+		smoothstep: [1 / 3, 0, 2 / 3, 1]
+	};
+
+	/** Per-component snap tolerance for recognising a named easing when a handle is released. */
+	var SNAP_EPSILON = 0.04;
+
+	/** One axis component of a cubic Bézier at parameter `t` (endpoints fixed at 0 and 1). */
+	function bezierComponent(t, a1, a2) {
+		var mt = 1 - t;
+		return 3 * mt * mt * t * a1 + 3 * mt * t * t * a2 + t * t * t;
+	}
+
+	/**
+	 * Solve for the curve parameter `t` whose x equals `x`, by bisection on `[0,1]` — the same
+	 * scheme as the engine's `EasingFunction.solveBezierT`, so the drawn curve matches the game.
+	 */
+	function solveBezierT(x1, x2, x) {
+		if (x <= 0) {
+			return 0;
+		}
+		if (x >= 1) {
+			return 1;
+		}
+		var lo = 0;
+		var hi = 1;
+		var t = 0.5;
+		for (var i = 0; i < 30; i++) {
+			t = (lo + hi) / 2;
+			if (bezierComponent(t, x1, x2) < x) {
+				lo = t;
+			} else {
+				hi = t;
+			}
+		}
+		return t;
+	}
+
+	/**
+	 * Sample a cubic-Bézier easing `[x1,y1,x2,y2]` at a normalized time `u` (design §15.4): solve
+	 * the x-behaviour for `t`, then evaluate y. `y` may leave `[0,1]` for an overshoot bezier.
+	 *
+	 * @param {Array<number>} bezier `[x1,y1,x2,y2]`
+	 * @param {number} u normalized time in `[0,1]`
+	 * @returns {number} the eased value at `u` (0 at u=0, 1 at u=1)
+	 */
+	function bezierY(bezier, u) {
+		var b = Array.isArray(bezier) ? bezier : [0, 0, 1, 1];
+		var x = Number(u);
+		if (!isFinite(x)) {
+			x = 0;
+		}
+		if (x <= 0) {
+			return 0;
+		}
+		if (x >= 1) {
+			return 1;
+		}
+		var x1 = Number(b[0]);
+		var y1 = Number(b[1]);
+		var x2 = Number(b[2]);
+		var y2 = Number(b[3]);
+		return bezierComponent(solveBezierT(x1, x2, x), y1, y2);
+	}
+
+	/**
+	 * Normalise a datapack easing reference to the IR segment model: a name string stays a string,
+	 * `{ "cubicBezier": [x1,y1,x2,y2] }` becomes the bare four-number array (design §15.4/§15.8).
+	 *
+	 * @param {*} raw the easing field (string, `{cubicBezier}`, array, or null)
+	 * @returns {string|Array<number>|null} the normalized easing, or null when unrecognised
+	 */
+	function normalizeEasing(raw) {
+		if (raw == null) {
+			return null;
+		}
+		if (typeof raw === "string") {
+			return raw;
+		}
+		var arr = raw;
+		if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+			arr = raw.cubicBezier;
+		}
+		if (Array.isArray(arr) && arr.length === 4) {
+			var out = [];
+			for (var i = 0; i < 4; i++) {
+				var n = Number(arr[i]);
+				if (!isFinite(n)) {
+					return null;
+				}
+				out.push(n);
+			}
+			return out;
+		}
+		return null;
+	}
+
+	/**
+	 * The Bézier the editor draws a segment with: a numeric easing is itself, a known name maps to
+	 * its canonical control points, anything else/absent is linear.
+	 *
+	 * @param {string|Array<number>} easing the IR segment easing
+	 * @returns {Array<number>} a fresh `[x1,y1,x2,y2]`
+	 */
+	function easingToBezier(easing) {
+		var norm = normalizeEasing(easing);
+		if (Array.isArray(norm)) {
+			return norm.slice();
+		}
+		if (typeof norm === "string" && EASING_BEZIER[norm]) {
+			return EASING_BEZIER[norm].slice();
+		}
+		return [0, 0, 1, 1];
+	}
+
+	/**
+	 * Recognise a Bézier as a named easing within a per-component tolerance (design §15.4): the
+	 * name whose canonical control points every component matches. Lossless because the canonical
+	 * points are what {@link easingToBezier} returns for that name.
+	 *
+	 * @param {Array<number>} bezier the `[x1,y1,x2,y2]` to test
+	 * @param {number} [eps] per-component tolerance (default {@link SNAP_EPSILON})
+	 * @returns {string|null} the matching name, or null when it is not a named easing
+	 */
+	function snapEasing(bezier, eps) {
+		var b = normalizeEasing(bezier);
+		if (!Array.isArray(b)) {
+			return null;
+		}
+		var tol = isFiniteNumber(Number(eps)) ? Number(eps) : SNAP_EPSILON;
+		var names = Object.keys(EASING_BEZIER);
+		for (var i = 0; i < names.length; i++) {
+			var c = EASING_BEZIER[names[i]];
+			if (Math.abs(b[0] - c[0]) <= tol && Math.abs(b[1] - c[1]) <= tol
+					&& Math.abs(b[2] - c[2]) <= tol && Math.abs(b[3] - c[3]) <= tol) {
+				return names[i];
+			}
+		}
+		return null;
+	}
+
+	/**
+	 * The datapack JSON form of an IR segment easing (design §15.4): a name stays a string, a
+	 * numeric bezier becomes `{ "cubicBezier": [x1,y1,x2,y2] }`. Compiler-facing.
+	 *
+	 * @param {string|Array<number>} easing the IR segment easing
+	 * @returns {string|Object|null} the JSON value, or null for an unrecognised easing
+	 */
+	function easingToJson(easing) {
+		var norm = normalizeEasing(easing);
+		if (Array.isArray(norm)) {
+			return { cubicBezier: norm.slice() };
+		}
+		if (typeof norm === "string") {
+			return norm;
+		}
+		return null;
+	}
+
+	/**
 	 * Normalise one imported datapack param back to the slot model (design §15.8): a `{keyframes}`
 	 * object becomes a track (keys + a spec that only carries a possible `multiply`), a `bind`/`expr`
 	 * object becomes a driven slot (a driver-node description the shell materializes + such a spec),
@@ -334,8 +510,9 @@
 				spec: spec,
 				keys: raw.keyframes.map(function (key) {
 					var out = { time: Number(key.time) || 0, value: Number(key.value) || 0 };
-					if (key.easing != null) {
-						out.easing = key.easing;
+					var easing = normalizeEasing(key.easing);
+					if (easing != null) {
+						out.easing = easing;
 					}
 					return out;
 				}),
@@ -570,6 +747,13 @@
 		isFiniteNumber: isFiniteNumber,
 		parseNumber: parseNumber,
 		clampTime: clampTime,
+		EASING_BEZIER: EASING_BEZIER,
+		SNAP_EPSILON: SNAP_EPSILON,
+		bezierY: bezierY,
+		normalizeEasing: normalizeEasing,
+		easingToBezier: easingToBezier,
+		snapEasing: snapEasing,
+		easingToJson: easingToJson,
 		normalizeParam: normalizeParam,
 		graphToCanvas: graphToCanvas,
 		validNamespace: validNamespace,

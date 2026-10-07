@@ -1097,6 +1097,106 @@ body {
 	border-color: #ffb454;
 }
 
+/* Curve editor (design §15.4, fix #13): the visual per-segment bezier view. */
+.vfx-tl-curve {
+	position: relative;
+	border-bottom: 1px solid var(--vfx-border);
+}
+
+.vfx-tl-curve-head {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	padding: 6px 8px;
+	border-bottom: 1px solid var(--vfx-border);
+}
+
+.vfx-tl-curve-title {
+	color: var(--vfx-text-dim);
+	font-size: 11px;
+}
+
+.vfx-tl-curve-btn {
+	width: auto;
+	padding: 0 6px;
+}
+
+.vfx-tl-curve-svg {
+	display: block;
+	background: var(--vfx-bg);
+}
+
+.vfx-tl-grid {
+	stroke: var(--vfx-border);
+	stroke-width: 1;
+	stroke-dasharray: 3 3;
+	opacity: 0.5;
+	pointer-events: none;
+}
+
+.vfx-tl-axis-label {
+	fill: var(--vfx-text-dim);
+	font-size: 10px;
+	pointer-events: none;
+}
+
+.vfx-tl-curve-line {
+	fill: none;
+	stroke: var(--vfx-accent);
+	stroke-width: 2;
+	pointer-events: none;
+}
+
+.vfx-tl-handle-line {
+	stroke: #ffd257;
+	stroke-width: 1;
+	opacity: 0.6;
+	pointer-events: none;
+}
+
+.vfx-tl-handle {
+	fill: #ffd257;
+	stroke: #6b5417;
+	stroke-width: 1;
+	cursor: grab;
+}
+
+.vfx-tl-curve-key {
+	fill: var(--vfx-accent);
+	stroke: #cfe4ff;
+	stroke-width: 1;
+	cursor: grab;
+}
+
+.vfx-tl-curve-key:hover,
+.vfx-tl-curve-key.active {
+	fill: #ffd257;
+	stroke: #fff;
+}
+
+.vfx-tl-curve-key.vfx-tl-out {
+	fill: #ff5a5a;
+	stroke: #ffd0d0;
+}
+
+/* The lane label is pointer-events:none, so its embedded "curve" button re-enables events. */
+.vfx-tl-curve-open {
+	pointer-events: auto;
+	margin-left: 4px;
+	padding: 0 4px;
+	background: var(--vfx-panel-alt);
+	color: var(--vfx-accent);
+	border: 1px solid var(--vfx-border);
+	border-radius: 3px;
+	font: inherit;
+	font-size: 10px;
+	cursor: pointer;
+}
+
+.vfx-tl-curve-open:hover {
+	border-color: var(--vfx-accent);
+}
+
 /* Driven (wired) slots are read-only (design §15.1, fix 5). */
 .vfx-param.driven {
 	color: #ffd257;
