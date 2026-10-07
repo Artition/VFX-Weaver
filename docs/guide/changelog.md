@@ -5,9 +5,17 @@ documentation changed. A guide revision is not a mod version — the two numbers
 released mod versions are recorded on the **[mod Changelog](../CHANGELOG.md)** instead. Where a guide
 revision shipped with a release, the entry says so (for example `v47 — released as 2.0.0`).
 
-Current guide revision: **v78**. Mod version it documents: **2.3.0** (not yet released). Which jar
-to download is in the [download table](../index.md#download).
-
+Current guide revision: **v79**. Mod version it documents: **2.3.0** (not yet released). Which jar
+download in [download table](../index.md#download).
+### v79 — documents 2.3.0 (unreleased)
+- **A new page `Visual node editor` documents the local web editor.** Start it with `/vfxeditor` (it
+  toggles the loopback bridge, prints a token-bearing URL and opens it); the page covers the tab /
+  canvas / inspector / timeline layout, live play and incremental edits, `Ctrl`/`Cmd`+`Z` undo that
+  recompiles the whole effect (never an incremental game undo), the SSE reconnect with 1 s/2 s/4 s
+  backoff and revision reconcile, the three **export targets** (world datapacks folder / loose folder /
+  zip), import and sidecar layout restore, the golden path from empty editor to `/vfx play`, and the
+  browser baseline (current Chrome/Firefox + previous, `fetch`/`EventSource`/canvas, with an
+  "Unsupported browser" banner when the canvas cannot load). New page: [Visual node editor](editor.md).
 ### v78 — documents 2.3.0 (unreleased)
 - **A new page for `screen_image`: draw a picture over the game frame.** The effect composites a resource-pack PNG (or an image a mod registered with `VFXAPI.registerImage`) onto the game's own framebuffer inside an animatable rectangle, at the screen layer you pick. The page states what the fields do not: the canvas is the **Minecraft window**, not the monitor, so the picture scales with the window and nothing off the frame is touched; `size_w : size_h` are the **picture's own proportions** in one common unit (the smaller window side), so equal values are a square on any window and a deliberate difference stretches it; `pos_*` maps over the space `size_*` leaves, so `pos_x: 1` is flush with the edge and `pos_x: 0.5` centres; `screen_layer` `0`/`1` stay under the GUI (default `1`, above the first-person hand) and `2` draws over chat and hotbar; a resource-pack `.png.mcmeta` animation **wins over** `frames`/`frame_time` (and is the only way to get non-uniform frame times) while `interpolate: true` is not supported; and an id that does not resolve draws nothing and warns once rather than blanking the frame. Additive: one new effect type with one required top-level `texture` string, no existing field renamed, no UBO layout changed, `PROTOCOL_VERSION` unchanged, no new dependency. New page: [screen_image](effects/screen/screen-image.md). Asserted by `scripts/check-screen-image.ps1`; the GLSL cannot compile headless here. **Not verified in game** (the owner tests it).
 

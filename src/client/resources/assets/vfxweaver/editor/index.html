@@ -48,14 +48,17 @@
 	loadCss(ASSET_ROOT + "editor.css" + q);
 	document.addEventListener("DOMContentLoaded", function () {
 		loadJs(ASSET_ROOT + "litegraph.js" + q, function () {
+			// bridge.js owns window.VFXBridge and must exist before app.js boots and connects.
 			// app.js owns window.VFXEditor; ir.js/compiler.js/inspector.js/timeline.js load after it
 			// and merge onto it (VFXEditor.ir / .compiler / .inspector / .timeline) instead of being
 			// clobbered.
-			loadJs(ASSET_ROOT + "app.js" + q, function () {
-				loadJs(ASSET_ROOT + "ir.js" + q, function () {
-					loadJs(ASSET_ROOT + "compiler.js" + q, function () {
-						loadJs(ASSET_ROOT + "inspector.js" + q, function () {
-							loadJs(ASSET_ROOT + "timeline.js" + q);
+			loadJs(ASSET_ROOT + "bridge.js" + q, function () {
+				loadJs(ASSET_ROOT + "app.js" + q, function () {
+					loadJs(ASSET_ROOT + "ir.js" + q, function () {
+						loadJs(ASSET_ROOT + "compiler.js" + q, function () {
+							loadJs(ASSET_ROOT + "inspector.js" + q, function () {
+								loadJs(ASSET_ROOT + "timeline.js" + q);
+							});
 						});
 					});
 				});

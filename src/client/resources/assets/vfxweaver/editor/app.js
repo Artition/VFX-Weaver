@@ -314,8 +314,53 @@
 	function commandStack() {
 		if (!stack && window.VFXIR) {
 			stack = new window.VFXIR.CommandStack();
+			wireHistory(stack);
 		}
 		return stack;
+	}
+
+	/**
+	 * A full re-sync after the model moved under an undo/redo (Task 16, design §6.2): the command has
+	 * already applied the model snapshot, so we push the whole definition with a full `/compile` —
+	 * never an incremental game undo.
+	 */
+	function afterHistory() {
+		renderInspector();
+		renderTimeline();
+		var tab = activeTab();
+		if (tab && tab.type && window.VFXTimeline && typeof window.VFXTimeline.structural === "function") {
+			status("history → recompile " + tab.name);
+			window.VFXTimeline.structural(tab);
+		}
+	}
+
+	/**
+	 * Wrap a {@link VFXIR.CommandStack} so applying a snapshot via undo/redo also recompiles. The IR
+	 * stays the source of truth; this only observes its history transitions.
+	 *
+	 * @param {Object} commands the command stack
+	 */
+	function wireHistory(commands) {
+		if (!commands || commands.__vfxWired) {
+			return;
+		}
+		commands.__vfxWired = true;
+		var undo = commands.undo;
+		var redo = commands.redo;
+		commands.undo = function () {
+			var applied = undo.call(this);
+			if (applied) {
+				afterHistory();
+			}
+			return applied;
+		};
+		commands.redo = function () {
+			var applied = redo.call(this);
+			if (applied) {
+				afterHistory();
+			}
+			return applied;
+		};
 	}
 
 	function inspectorMessage(text) {
@@ -482,7 +527,15 @@
 		schema: schema,
 		token: token,
 		url: url,
-		assetUrl: assetUrl
+		assetUrl: assetUrl,
+		undo: function () {
+			var commands = commandStack();
+			return commands ? commands.undo() : null;
+		},
+		redo: function () {
+			var commands = commandStack();
+			return commands ? commands.redo() : null;
+		}
 	};
 	Object.defineProperty(VFXEditor, "graph", {
 		enumerable: true,
@@ -495,6 +548,12 @@
 		enumerable: true,
 		get: function () {
 			return commandStack();
+		}
+	});
+	Object.defineProperty(VFXEditor, "bridge", {
+		enumerable: true,
+		get: function () {
+			return window.VFXBridge || null;
 		}
 	});
 	window.VFXEditor = VFXEditor;
@@ -512,6 +571,38 @@
 		}
 	}
 
+	/** Start the bridge (SSE + reconnect) and surface its health in the status line. */
+	function wireBridge() {
+		var bridge = window.VFXBridge;
+		if (!bridge) {
+			return;
+		}
+		bridge.on("transport-error", function (message) {
+			status("bridge: " + message);
+		});
+		bridge.on("reconcile", function (info) {
+			status("re-syncing with the game (revision " + info.game + ")");
+		});
+		bridge.connect(token);
+	}
+
+	/** Ctrl/Cmd+Z undoes, Ctrl/Cmd+Shift+Z or Ctrl/Cmd+Y redoes; both recompile (Task 16). */
+	function wireHistoryKeys() {
+		document.addEventListener("keydown", function (event) {
+			if (!(event.ctrlKey || event.metaKey)) {
+				return;
+			}
+			var key = String(event.key || "").toLowerCase();
+			if (key === "z" && !event.shiftKey) {
+				event.preventDefault();
+				VFXEditor.undo();
+			} else if (key === "y" || (key === "z" && event.shiftKey)) {
+				event.preventDefault();
+				VFXEditor.redo();
+			}
+		});
+	}
+
 	function boot() {
 		if (typeof window.LiteGraph === "undefined"
 				|| typeof window.LGraph === "undefined"
@@ -527,6 +618,8 @@
 		resizeCanvas();
 		scene = new LiteGraph.LGraphCanvas(dom.canvas, new LiteGraph.LGraph());
 		window.addEventListener("resize", resizeCanvas);
+		wireHistoryKeys();
+		wireBridge();
 
 		// Selecting an effect node shows its params in the inspector (param name defaults to the first).
 		scene.onNodeSelected = function (node) {

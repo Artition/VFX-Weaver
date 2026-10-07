@@ -6,7 +6,7 @@ post-processing (ping-pong FBO), camera shake, world overlays (block tint/outlin
 and a public Java API.
 
 - **Mod version: 2.2.0** — what you download (`vfxweaver-2.2.0+<mc>[-neoforge].jar`).
-- **Guide revision: v74** — the revision of *this documentation*, independent of the mod version.
+- **Guide revision: v79** — the revision of *this documentation*, independent of the mod version.
   The mod number lives in the release; the guide number lives in the
   [Guide changelog](changelog.md). One jar exists per Minecraft line and loader; Fabric jars need
   Fabric API, NeoForge builds use the `-neoforge` suffix. See the
@@ -23,6 +23,7 @@ require operator rights (gamemaster level); `/vfx list` is open to everyone.
 
 - [Your first datapack, from zero](first-datapack.md) - what a datapack is and a minimal working pack
 - [Effects](effects/index.md) - every effect type, one page each, in a browsable tree
+- [Visual node editor](editor.md) - build, live-play and export effects in a local web UI
 - [Commands](commands.md) - every `/vfx` subcommand
 - [Triggering effects](recipes.md) - fire an effect from a function, advancement or game event
 - [Datapack format](datapack/format.md) - files, definition fields, positions, validation

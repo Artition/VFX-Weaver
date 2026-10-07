@@ -54,6 +54,7 @@ nav:
   - Getting started: guide/index.md
   - Showcase datapack: guide/showcase-datapack.md
   - Your first datapack: guide/first-datapack.md
+  - Visual node editor: guide/editor.md
   - Effects:
       - Overview: guide/effects/index.md
       - Screen post-processing:

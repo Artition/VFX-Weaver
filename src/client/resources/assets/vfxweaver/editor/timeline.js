@@ -22,8 +22,8 @@
  * sent with the next `set_param`/`set_keyframe`. A `stale_revision` (or a hot edit the game refused)
  * surfaces in the status line and is healed with a full `/compile`.
  *
- * `bridge.js` (Task 16) consolidates the fetch helper, SSE reconnect and undo reconcile; this module
- * keeps its own `post()` and reaches the token through `VFXEditor.url`, as the brief allows.
+ * `bridge.js` (Task 16) owns the transport: this module builds the request bodies and hands them to
+ * `VFXBridge.post` (SSE reconnect, revision reconcile and undo resync live there).
  *
  * Exposed as `window.VFXTimeline`; also attached to `window.VFXEditor.timeline` when the shell is up.
  */
@@ -186,26 +186,17 @@
 	/* ------------------------------------------------------------------ */
 
 	/**
-	 * Token-bearing POST with a JSON body, resolving to the parsed response object.
+	 * Token-bearing POST with a JSON body, resolving to the parsed response object. Task 16 moved the
+	 * transport into `bridge.js`; this is a thin delegate, so every mutation still goes through one
+	 * place (revision tracking, reconnect, error surfacing).
 	 *
 	 * @param {string} path the bridge path, e.g. `/compile`
 	 * @param {Object} body the JSON body
-	 * @returns {Promise<Object>} the parsed response
+	 * @returns {Promise<Object|null>} the parsed response, or null when there is no bridge
 	 */
 	function post(path, body) {
-		var editor = root.VFXEditor;
-		var url = editor && typeof editor.url === "function" ? editor.url(path) : path;
-		return root.fetch(url, {
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify(body)
-		}).then(function (response) {
-			return response.json();
-		}).catch(function (error) {
-			// A dropped connection or a non-JSON body must be visible, not an unhandled rejection.
-			surface("bridge: " + (error && error.message ? error.message : error));
-			return null;
-		});
+		var bridge = root.VFXBridge;
+		return bridge && typeof bridge.post === "function" ? bridge.post(path, body) : Promise.resolve(null);
 	}
 
 	/**
