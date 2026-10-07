@@ -607,6 +607,27 @@ body {
 	cursor: help;
 }
 
+/* Node timing section (design §15.3), above the per-param controls in the inspector. */
+.vfx-timing {
+	border-bottom: 1px solid var(--vfx-border);
+	padding-bottom: 8px;
+	margin-bottom: 6px;
+}
+
+.vfx-timing-duration {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+}
+
+.vfx-timing-duration .vfx-num {
+	width: 72px;
+}
+
+.vfx-timing-unit {
+	padding: 3px 4px;
+}
+
 .vfx-forms {
 	display: flex;
 	flex-wrap: wrap;

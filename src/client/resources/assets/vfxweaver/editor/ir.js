@@ -54,6 +54,14 @@
 		this.type = type || null;
 		this.duration = 40;
 		this.easing = "linear";
+		/** @type {boolean} preview/playback loop (design §15.3) */
+		this.loop = false;
+		/** @type {boolean} keep the effect alive after its duration (design §15.3) */
+		this.persistent = false;
+		/** @type {number} post-life fade in ticks; 0 disables it (design §15.3, I2) */
+		this.fade_ticks = 0;
+		/** @type {number} reserved start delay for P6 chains (design §15.3); stored, not yet applied */
+		this.delay = 0;
 		/** @type {Object<string, Object|number>} param name -> control-state spec */
 		this.params = {};
 		/** @type {Array<Object>} value nodes: `{ id, kind, inputs, op? }` (+ editor `pos`) */

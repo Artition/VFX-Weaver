@@ -293,6 +293,67 @@ window.__vfxSelftest = function () {
 		ok(world.sidecar != null, "sidecar included when present");
 	});
 
+	test("(p) timing is always explicit; preview overrides loop + fade_ticks", function () {
+		var tab = new VFXIR.Tab("blur", "blur");
+		var def = parse(compileTab(tab));
+		eq(def.duration, 40, "duration explicit");
+		eq(def.loop, false, "loop explicit");
+		eq(def.persistent, false, "persistent explicit");
+		eq(def.fade_ticks, 0, "fade_ticks default explicit");
+		tab.loop = true;
+		tab.persistent = true;
+		tab.fade_ticks = 7;
+		var authored = parse(compileTab(tab));
+		eq(authored.loop, true, "authored loop kept");
+		eq(authored.fade_ticks, 7, "authored fade kept");
+		var preview = parse(window.VFXCompiler.compileForPreview(tab));
+		eq(preview.loop, true, "preview loops");
+		eq(preview.fade_ticks, 0, "preview fade forced to 0");
+		eq(preview.persistent, true, "preview keeps the authored persistent flag");
+	});
+
+	test("(I1) a slot with >=1 key serializes ONLY as keyframes", function () {
+		var tab = new VFXIR.Tab("blur", "blur");
+		// A stale animate marker must not win over the keys: fade/start-end never emulates an animation.
+		tab.params.radius = VFXIR.ParamSpec.animate(0, 1);
+		tab.addKey("radius", 0, 0);
+		tab.addKey("radius", 20, 1);
+		var def = parse(compileTab(tab));
+		ok(Array.isArray(def.params.radius.keyframes), "keyframes present");
+		eq(def.params.radius.keyframes.length, 2, "keyframe count");
+		ok(!("start" in def.params.radius), "no start emulation");
+		ok(!("end" in def.params.radius), "no end emulation");
+		ok(!("fade_ticks" in def.params.radius), "fade_ticks never animates a slot");
+	});
+
+	test("(I2) fade_ticks only ever the effect-level setting", function () {
+		var tab = new VFXIR.Tab("blur", "blur");
+		tab.fade_ticks = 12;
+		tab.params.radius = VFXIR.ParamSpec.keyframes();
+		tab.addKey("radius", 0, 0);
+		tab.addKey("radius", 40, 1);
+		var def = parse(compileTab(tab));
+		eq(def.fade_ticks, 12, "fade_ticks on the effect");
+		ok(!("fade_ticks" in def.params.radius), "fade_ticks not on a param");
+		ok(Array.isArray(def.params.radius.keyframes), "true keys, not a fade-emulated animation");
+	});
+
+	test("(I3) keyframe times clamp to [0, duration] and warn", function () {
+		var tab = new VFXIR.Tab("blur", "blur");
+		tab.duration = 40;
+		tab.params.radius = VFXIR.ParamSpec.keyframes();
+		tab.addKey("radius", -10, 0);
+		tab.addKey("radius", 80, 1);
+		var def = parse(compileTab(tab));
+		eq(def.params.radius.keyframes[0].time, 0, "negative clamps to 0");
+		eq(def.params.radius.keyframes[1].time, 40, "past the end clamps to duration");
+		var warnings = window.VFXCompiler.getWarnings();
+		eq(warnings.length, 2, "both clamps collected");
+		eq(warnings[0].param, "radius", "warning names the param");
+		eq(warnings[0].clamped, 0, "first clamp target");
+		eq(warnings[1].clamped, 40, "second clamp target");
+	});
+
 	return results;
 };
 /* SELFTEST:END */

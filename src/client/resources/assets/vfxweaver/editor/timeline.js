@@ -153,7 +153,12 @@
 	 */
 	function compileBody(tab, transport) {
 		var compiler = root.VFXCompiler;
-		var json = compiler && typeof compiler.compileTab === "function" ? compiler.compileTab(tab) : "{}";
+		// Preview artifact ≠ authored output (design §15.5): the play/auto-replay path sends the
+		// loop:true + fade_ticks:0 override so an edit never fades or dies mid-inspection. Export
+		// (app.js `gatherEffects`) keeps the authored `compileTab`.
+		var json = compiler && typeof compiler.compileForPreview === "function"
+				? compiler.compileForPreview(tab)
+				: (compiler && typeof compiler.compileTab === "function" ? compiler.compileTab(tab) : "{}");
 		return {
 			effectId: effectId(tab),
 			json: json,
@@ -263,13 +268,18 @@
 
 	/** Coalesce repeated calls under one key into a single trailing call. */
 	function debounce(key, fn) {
+		debounceAfter(key, DEBOUNCE_MS, fn);
+	}
+
+	/** Like {@link debounce} with an explicit delay in ms. */
+	function debounceAfter(key, ms, fn) {
 		if (timers[key]) {
 			clearTimeout(timers[key]);
 		}
 		timers[key] = setTimeout(function () {
 			delete timers[key];
 			fn();
-		}, DEBOUNCE_MS);
+		}, ms);
 	}
 
 	/* ------------------------------------------------------------------ */
@@ -334,6 +344,22 @@
 		});
 	}
 
+	/**
+	 * Scrub: move the local playhead only (design §15.5). No game request — the timeline is a local
+	 * curve recompute, and dragging the playhead must not spam the bridge.
+	 */
+	function scrub(tab, ticks) {
+		if (!tab) {
+			return;
+		}
+		var target = clampToDuration(tab, Number(ticks) || 0);
+		if (clock.playing) {
+			clock.baseElapsed = target;
+			clock.startMs = now();
+		}
+		setPlayhead(target);
+	}
+
 	/** Hot param edit (a constant slider): debounced `POST /set_param`. */
 	function setParam(tab, name, value) {
 		if (!tab || !name || !isFiniteNumber(Number(value))) {
@@ -344,6 +370,7 @@
 				return handleResult(result, tab, true);
 			});
 		});
+		scheduleReplay(tab);
 	}
 
 	/** Hot keyframe edit (a key drag): debounced `POST /set_keyframe`. */
@@ -358,6 +385,7 @@
 				return handleResult(result, tab, true);
 			});
 		});
+		scheduleReplay(tab);
 	}
 
 	/** Structural edit: debounced full `/compile` (revision++ + play). */
@@ -367,6 +395,22 @@
 		}
 		debounce("compile:" + effectId(tab), function () {
 			compile(tab, "play");
+		});
+	}
+
+	/**
+	 * Auto-replay (design §15.5): after an edit settles (~250 ms) re-play the preview from t=0, so a
+	 * changed effect never silently disappears. Debounced, so a drag or a burst of keystrokes is one
+	 * replay. Scrubbing deliberately does NOT come here — it is a local recompute only.
+	 *
+	 * @param {Object} tab the edited tab
+	 */
+	function scheduleReplay(tab) {
+		if (!tab || !tab.type) {
+			return;
+		}
+		debounceAfter("replay:" + effectId(tab), 250, function () {
+			play(tab);
 		});
 	}
 
@@ -700,12 +744,12 @@
 		return Math.max(0, x / ui.pxPerTick);
 	}
 
-	/** Scrub the playhead by dragging the track background (never a key dot). */
+	/** Scrub the playhead by dragging the track background (never a key dot). Local only. */
 	function beginScrub(tab) {
 		return function (event) {
 			event.preventDefault();
 			function move(ev) {
-				seek(tab, tickAt(ev.clientX));
+				scrub(tab, tickAt(ev.clientX));
 			}
 			function up() {
 				document.removeEventListener("mousemove", move);
@@ -713,7 +757,7 @@
 			}
 			document.addEventListener("mousemove", move);
 			document.addEventListener("mouseup", up);
-			seek(tab, tickAt(event.clientX));
+			scrub(tab, tickAt(event.clientX));
 		};
 	}
 
@@ -1047,9 +1091,11 @@
 		play: play,
 		stop: stop,
 		seek: seek,
+		scrub: scrub,
 		setParam: setParam,
 		setKeyframe: setKeyframe,
 		structural: structural,
+		scheduleReplay: scheduleReplay,
 		effectId: effectId,
 		isPlaying: function () {
 			return clock.playing;

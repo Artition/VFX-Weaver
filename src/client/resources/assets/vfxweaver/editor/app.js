@@ -1335,6 +1335,10 @@
 			type: tab.type,
 			duration: tab.duration,
 			easing: tab.easing,
+			loop: tab.loop,
+			persistent: tab.persistent,
+			fade_ticks: tab.fade_ticks,
+			delay: tab.delay,
 			params: snapshot(tab.params || {}),
 			keys: snapshot(tab.keys || {}),
 			valueNodes: snapshot(tab.valueNodes || []),
@@ -1420,6 +1424,10 @@
 						params: {}, valueNodes: [], edges: [], keys: {} };
 			tab.duration = num(state.duration, 40);
 			tab.easing = state.easing == null ? "linear" : String(state.easing);
+			tab.loop = state.loop === true;
+			tab.persistent = state.persistent === true;
+			tab.fade_ticks = num(state.fade_ticks, 0);
+			tab.delay = num(state.delay, 0);
 			tab.params = snapshot(state.params) || {};
 			tab.keys = snapshot(state.keys) || {};
 			tab.valueNodes = snapshot(state.valueNodes) || [];
@@ -1517,6 +1525,24 @@
 		renderTimeline();
 	}
 
+	/**
+	 * The timing-panel edit hook (design §15.3/§15.5): the panel already mutated a tab timing field;
+	 * snapshot it for undo and auto-replay the preview (a duration change also re-renders the lane
+	 * bounds). Never re-renders the inspector, so a focused field keeps its caret.
+	 */
+	function onTimingEdit(name, value) {
+		var tab = activeTab();
+		if (!tab) {
+			return;
+		}
+		status("timing " + name + " → " + value);
+		scheduleCommitHistory();
+		renderTimeline();
+		if (tab.type && window.VFXTimeline && typeof window.VFXTimeline.scheduleReplay === "function") {
+			window.VFXTimeline.scheduleReplay(tab);
+		}
+	}
+
 	/** Mount the timeline panel (Task 15) for the active tab. */
 	function renderTimeline() {
 		if (!dom.timeline) {
@@ -1557,9 +1583,17 @@
 		}
 		var tab = activeTab();
 		var descriptor = tab && tab.type ? schema[tab.type] : null;
+		if (!tab) {
+			dom.inspector.appendChild(inspectorMessage("No active tab"));
+			return;
+		}
+		// Node timing section (design §15.3): duration/loop/persistent/fade_ticks/delay on the tab.
+		if (typeof window.VFXInspector.renderTiming === "function") {
+			dom.inspector.appendChild(window.VFXInspector.renderTiming(tab, onTimingEdit));
+		}
 		if (!descriptor || !descriptor.params || descriptor.params.length === 0) {
 			dom.inspector.appendChild(inspectorMessage(
-					!tab ? "No active tab" : (tab.type ? "No editable parameters" : "Choose an effect type")));
+					tab.type ? "No editable parameters" : "Choose an effect type"));
 			return;
 		}
 		var params = descriptor.params;
@@ -1663,6 +1697,14 @@
 		}
 		if (def.easing != null) {
 			tab.easing = String(def.easing);
+		}
+		tab.loop = def.loop === true;
+		tab.persistent = def.persistent === true;
+		if (def.fade_ticks != null) {
+			tab.fade_ticks = num(def.fade_ticks, 0);
+		}
+		if (def.delay != null) {
+			tab.delay = num(def.delay, 0);
 		}
 		var params = def.params && typeof def.params === "object" ? def.params : {};
 		Object.keys(params).forEach(function (name) {

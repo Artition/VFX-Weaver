@@ -668,8 +668,113 @@
 		return rootEl;
 	}
 
+	/** Game ticks per second, for the duration field's ticks<->seconds toggle (20 tps, §15.3). */
+	var TICKS_PER_SECOND = 20;
+	/** Preferred duration unit across renders/tabs: "ticks" or "seconds". */
+	var durationUnit = "ticks";
+
+	/** The duration as shown in the field: ticks, or seconds at 20 tps. */
+	function displayDuration(ticks) {
+		var t = num(ticks, 0);
+		if (durationUnit === "seconds") {
+			return String(Math.round((t / TICKS_PER_SECOND) * 1000) / 1000);
+		}
+		return String(t);
+	}
+
+	/** A labelled checkbox row bound to a tab boolean field. */
+	function timingCheck(label, tab, key, onCommit) {
+		var check = el("input", { type: "checkbox", class: "vfx-check" });
+		check.checked = Boolean(tab[key]);
+		check.addEventListener("change", function () {
+			tab[key] = check.checked;
+			onCommit(key, check.checked);
+		});
+		return el("label", { class: "vfx-field" }, [el("span", { text: label }), check]);
+	}
+
+	/** A labelled whole-number row bound to a tab numeric field. */
+	function timingNumber(label, tab, key, min, title, onCommit) {
+		var input = el("input", { type: "number", class: "vfx-num", value: String(num(tab[key])) });
+		input.min = String(min);
+		input.step = "1";
+		if (title) {
+			input.title = title;
+		}
+		input.addEventListener("input", function () {
+			var value = Math.max(min, Math.round(num(input.value, min)));
+			input.value = String(value);
+			tab[key] = value;
+			onCommit(key, value);
+		});
+		return el("label", { class: "vfx-field" }, [el("span", { text: label }), input]);
+	}
+
+	/**
+	 * Render the "Node timing" section for one tab (design §15.3): `duration` (ticks or seconds at
+	 * 20 tps), `loop`, `persistent`, `fade_ticks` (default 0) and `delay` (reserved for P6 chains).
+	 * Every value lives on the tab; an edit calls `onEdit(name, value)` so the shell can snapshot-undo
+	 * it and re-play the preview.
+	 *
+	 * @param {Object} tab the active `VFXIR.Tab`
+	 * @param {function} [onEdit] called `(name, value)` after every edit
+	 * @returns {HTMLElement} the section
+	 */
+	function renderTiming(tab, onEdit) {
+		var box = el("div", { class: "vfx-timing" });
+		box.appendChild(el("h2", { text: "Node timing" }));
+		if (!tab) {
+			return box;
+		}
+		function commit(name, value) {
+			if (typeof onEdit === "function") {
+				onEdit(name, value);
+			}
+		}
+
+		var durationRow = el("label", { class: "vfx-field" });
+		durationRow.appendChild(el("span", { text: "duration" }));
+		var wrap = el("div", { class: "vfx-timing-duration" });
+		var durationInput = el("input", {
+			type: "number",
+			class: "vfx-num",
+			value: displayDuration(tab.duration),
+			title: "Effect length (min 1 tick)"
+		});
+		durationInput.min = "1";
+		durationInput.step = durationUnit === "seconds" ? "0.05" : "1";
+		durationInput.addEventListener("input", function () {
+			var raw = num(durationInput.value, 1);
+			var ticks = durationUnit === "seconds" ? Math.round(raw * TICKS_PER_SECOND) : Math.round(raw);
+			tab.duration = Math.max(1, ticks);
+			commit("duration", tab.duration);
+		});
+		var unitSelect = el("select", { class: "vfx-select vfx-timing-unit", title: "Duration unit" });
+		unitSelect.appendChild(el("option", { value: "ticks", text: "ticks" }));
+		unitSelect.appendChild(el("option", { value: "seconds", text: "s" }));
+		unitSelect.value = durationUnit;
+		unitSelect.addEventListener("change", function () {
+			durationUnit = unitSelect.value;
+			durationInput.value = displayDuration(tab.duration);
+			durationInput.step = durationUnit === "seconds" ? "0.05" : "1";
+		});
+		wrap.appendChild(durationInput);
+		wrap.appendChild(unitSelect);
+		durationRow.appendChild(wrap);
+		box.appendChild(durationRow);
+
+		box.appendChild(timingCheck("loop", tab, "loop", commit));
+		box.appendChild(timingCheck("persistent", tab, "persistent", commit));
+		box.appendChild(timingNumber("fade_ticks", tab, "fade_ticks", 0,
+				"Post-life fade in ticks (0 disables it)", commit));
+		box.appendChild(timingNumber("delay", tab, "delay", 0,
+				"Start delay in ticks (reserved for chains)", commit));
+		return box;
+	}
+
 	var api = {
 		render: render,
+		renderTiming: renderTiming,
 		inferControl: inferControl,
 		BINDINGS: BINDINGS,
 		NEEDS_POS: NEEDS_POS,
