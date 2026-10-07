@@ -126,7 +126,11 @@ public class VFXClient {
 	private static void message(final String text) {
 		final Minecraft minecraft = Minecraft.getInstance();
 		if (minecraft.player != null) {
+			//? if <26.1 {
+			/*minecraft.player.displayClientMessage(Component.literal(text), false);
+			*///?} else {
 			minecraft.player.sendSystemMessage(Component.literal(text));
+			//?}
 		}
 		LOGGER.info(text);
 	}
