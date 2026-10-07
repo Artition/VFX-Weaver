@@ -35,10 +35,12 @@ If your browser does not open, copy the printed URL into it by hand.
 | Left: **Effects** | One button per effect type the game declares (from the live schema). Filter with the search box; click a type to start a tab of it. |
 | Centre: **Canvas** | A [LiteGraph](https://github.com/jagenjo/litegraph.js) node graph. The effect node is the graph root. |
 | Right: **Inspector** | The selected param's control: constant slider, `start`/`end` animation, keyframes, a world/camera binding, or an `expr`. |
-| Bottom: **Timeline** | One lane per animated param, draggable key dots, a playhead and the transport (play / stop / loop). |
+| Bottom: **Timeline** | One lane per animated param, a tick ruler, a draggable duration bar, draggable key dots, a playhead and the transport (play / stop / replay / loop). |
 
 The tab bar is one tab per effect; a tab name is the effect id it compiles to (`<namespace>:<name>`,
-or a reserved `vfxweaver:` preview id for a scratch tab).
+or a reserved `vfxweaver:` preview id for a scratch tab). A tab may be **empty**: delete its effect
+node (with `Del`) and the canvas shows a **+ Add effect** placeholder listing the effect types;
+picking one fills the same tab, so a tab can be retyped without opening a new one.
 
 ## Editing and live playback
 
@@ -51,14 +53,46 @@ Every change goes to the running game through the local bridge:
 - **Dragging a slider** (a constant param) or **a key dot** sends an incremental live update, debounced
   (~80 ms), so the running effect follows without a restart. **Pause** is not a VFXweaver operation and
   is shown disabled.
-- **Undo/redo** is `Ctrl`/`Cmd`+`Z` and `Ctrl`/`Cmd`+`Shift`+`Z` (or `Ctrl`+`Y`). The web model is the
-  source of truth: an undo restores the model snapshot and then **recompiles the whole effect** - it is
-  never sent to the game as an incremental undo.
+- **Undo/redo** is `Ctrl`/`Cmd`+`Z` and `Ctrl`/`Cmd`+`Shift`+`Z` (or `Ctrl`+`Y`). Undo is
+  **snapshot-based**: one drag (`pointerdown`→`up`) or one discrete action is one step, up to 100
+  steps. The web model is the source of truth: an undo restores the model snapshot and then
+  **recompiles the whole effect** — it is never sent to the game as an incremental undo.
 - The game echoes a monotonic **revision** on every reply. If the connection drops, the editor
   reconnects on its own with a growing backoff (1 s, 2 s, 4 s, …) and, when it finds the game's
   revision has diverged, re-sends the full effect so model and game agree again.
 
 The editor clock is local and display-only (20 ticks/s); scrubbing the playhead sends a real seek.
+Keyframes are clamped to `[0, duration]` when dragged (a key outside that range is invisible to the
+engine), and a key whose value leaves the param's schema `min`/`max` turns red with a tooltip. The
+timeline's **duration bar** end handle drags the effect's duration right on the timeline.
+
+Value-node numeric slots and inspector parameters follow the same **driven** rule: a slot with a wire
+connected shows a read-only value plus its source badge (with a **go to node** affordance) and cannot
+be edited there — edit the source node instead. Unwired slots are edited inline, select-on-focus; the
+`bind` node carries a binding dropdown and labels its output by the binding's unit (`UV 0..1`,
+`blocks`, `world`, `deg/tick`, …).
+
+## Keyboard shortcuts
+
+Press `?` in the editor to toggle this list. Shortcuts are ignored while typing in a field.
+
+| Key | Action |
+|---|---|
+| `Del` / `Backspace` | delete the selected nodes (on the effect node: empty the tab) |
+| `Ctrl`+`C` / `Ctrl`+`V` / `Ctrl`+`D` | copy / paste / duplicate |
+| `Ctrl`+`A` | select all |
+| `Ctrl`+`Z` / `Ctrl`+`Shift`+`Z` / `Ctrl`+`Y` | undo / redo |
+| `Space` | play or stop the preview |
+| `R` | replay from the start |
+| `K` | add a keyframe at the playhead on the selected slot |
+| `F` / `Home` | frame the selection / frame everything |
+| `Ctrl`+`S` | save (compile + preview) |
+| `Tab` / double-click | node search-add |
+| `Ctrl`+`G` | group the selection on the canvas (canvas-only, not exported) |
+| `[` / `]` | previous / next tab |
+| middle-drag / `Space`+drag | pan the canvas |
+| `Ctrl`+wheel | zoom |
+| `?` | toggle the shortcut help |
 
 ## Exporting a datapack
 

@@ -148,19 +148,25 @@ window.__vfxSelftest = function () {
 		eq(def.params.radius.keyframes[1].easing, "ease_out_quad", "key[1].easing");
 	});
 
-	test("(f) CommandStack do/undo/redo", function () {
-		var value = 0;
-		var stack = new VFXIR.CommandStack();
-		stack["do"]({
-			"do": function () { value = 1; },
-			undo: function () { value = 0; }
-		});
-		eq(value, 1, "after do");
-		stack.undo();
-		eq(value, 0, "after undo");
-		stack.redo();
-		eq(value, 1, "after redo");
-		ok(stack.canUndo(), "canUndo after redo");
+	test("(f) SnapshotHistory record/undo/redo + cap", function () {
+		var history = new VFXIR.SnapshotHistory(3);
+		ok(!history.canUndo(), "nothing to undo before a baseline");
+		history.reset({ n: 0 });
+		ok(!history.canUndo(), "baseline only -> nothing to undo");
+		history.record({ n: 1 });
+		history.record({ n: 2 });
+		eq(history.undo().n, 1, "undo to 1");
+		eq(history.undo().n, 0, "undo to 0");
+		ok(!history.canUndo(), "at the baseline");
+		eq(history.redo().n, 1, "redo to 1");
+		// A record after an undo drops the redo branch.
+		history.record({ n: 9 });
+		ok(!history.canRedo(), "redo branch dropped by a new record");
+		// The cap keeps the newest states only.
+		history.record({ n: 10 });
+		history.record({ n: 11 });
+		eq(history.states.length, 3, "capped at 3 states");
+		eq(history.states[history.index].n, 11, "newest state retained");
 	});
 
 	test("(g) value-wire IR: a node edge is {from,to,input}, a param wire is inputs.<name>.from", function () {

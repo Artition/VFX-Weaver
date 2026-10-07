@@ -174,6 +174,7 @@
 	}
 
 	function newTab(name, type) {
+		ensureHistoryBaseline();
 		var graph = newGraph();
 		// The IR `Tab` (Task 13) carries params/keys/valueNodes/edges; fall back to an
 		// equivalent plain object when ir.js has not loaded (e.g. a broken asset chain).
@@ -191,6 +192,7 @@
 			attachEffect(tab, type);
 		}
 		selectTab(project.active);
+		commitHistory();
 		return tab;
 	}
 
@@ -211,6 +213,28 @@
 		return node;
 	}
 
+	/**
+	 * Remove a tab's effect node, leaving an empty (but valid) tab that can be re-typed (design
+	 * §15.2, fix 1). Its effect-specific params/keys go with it; the value graph is kept.
+	 *
+	 * @param {Object} tab the tab to empty
+	 */
+	function detachEffect(tab) {
+		if (!tab) {
+			return;
+		}
+		if (tab.root && tab.graph) {
+			// The root carries `ignore_remove` so LiteGraph's own delete never drops it; lift it here
+			// for the explicit "empty this tab" path only.
+			tab.root.ignore_remove = false;
+			tab.graph.remove(tab.root);
+		}
+		tab.root = null;
+		tab.type = null;
+		tab.params = {};
+		tab.keys = {};
+	}
+
 	function selectTab(index) {
 		if (index < 0 || index >= project.tabs.length) {
 			return;
@@ -229,6 +253,7 @@
 		status(tab.type ? tab.name : tab.name + " — choose an effect type");
 		renderInspector();
 		renderTimeline();
+		showEmptyPlaceholder();
 	}
 
 	function closeTab(index) {
@@ -249,11 +274,14 @@
 			status("Choose an effect type to start");
 			renderInspector();
 			renderTimeline();
+			showEmptyPlaceholder();
+			commitHistory();
 			return;
 		}
 		if (wasActive) {
 			// Select the neighbour now at this index (the next tab, or the new last).
 			selectTab(Math.min(index, project.tabs.length - 1));
+			commitHistory();
 			return;
 		}
 		// Closing another tab must not move the selection.
@@ -322,6 +350,7 @@
 	function chooseType(typeName) {
 		var tab = activeTab();
 		if (tab && !tab.type) {
+			ensureHistoryBaseline();
 			attachEffect(tab, typeName);
 			tab.name = typeName;
 			if (dom.tabName) {
@@ -331,9 +360,57 @@
 			status(tab.name);
 			renderInspector();
 			renderTimeline();
+			showEmptyPlaceholder();
+			commitHistory();
 			return;
 		}
 		newTab(typeName, typeName);
+	}
+
+	/**
+	 * The canvas placeholder shown while a tab has no effect (design §15.2, fix 1): a list of the
+	 * palette's effect types; clicking one fills the empty tab. Hidden whenever the active tab has an
+	 * effect (or there is no tab at all).
+	 */
+	function showEmptyPlaceholder() {
+		var wrap = dom.wrap;
+		if (!wrap) {
+			return;
+		}
+		var node = document.getElementById("vfx-empty");
+		var tab = activeTab();
+		var empty = !tab || !tab.type;
+		if (!node) {
+			if (!empty) {
+				return;
+			}
+			node = document.createElement("div");
+			node.id = "vfx-empty";
+			node.className = "vfx-empty";
+			wrap.appendChild(node);
+		}
+		node.hidden = !empty;
+		if (!empty) {
+			return;
+		}
+		node.textContent = "";
+		var heading = document.createElement("p");
+		heading.className = "vfx-empty-head";
+		heading.textContent = "+ Add effect";
+		node.appendChild(heading);
+		var list = document.createElement("div");
+		list.className = "vfx-empty-list";
+		paletteTypes().forEach(function (typeName) {
+			var button = document.createElement("button");
+			button.type = "button";
+			button.className = "vfx-type";
+			button.textContent = typeName;
+			button.addEventListener("click", function () {
+				chooseType(typeName);
+			});
+			list.appendChild(button);
+		});
+		node.appendChild(list);
 	}
 
 	function filterPalette(needle) {
@@ -394,6 +471,31 @@
 
 	function needsPosBindings() {
 		return (window.VFXInspector && window.VFXInspector.NEEDS_POS) || [];
+	}
+
+	/**
+	 * The unit / range a world binding yields (design §15.1, fix 6): used to type and label a `bind`
+	 * value node's output. Order of the checks does not matter; each key is exact.
+	 */
+	var BINDING_UNITS = {
+		screen_x: "UV 0..1", screen_y: "UV 0..1",
+		proximity: "0..1", health: "0..1", hunger: "0..1", look: "0..1", look_at: "0..1",
+		distance: "blocks",
+		look_x: "-1..1", look_y: "-1..1", look_z: "-1..1",
+		player_x: "world", player_y: "world", player_z: "world",
+		camera_yaw_delta: "deg/tick", camera_pitch_delta: "deg/tick",
+		time_of_day: "0..1", light_level: "0..1", speed: "0..1",
+		scoreboard: "raw"
+	};
+
+	/** The unit label for a binding name (falls back to the raw binding name). */
+	function bindingUnit(bind) {
+		return BINDING_UNITS[bind] || String(bind == null ? "" : bind);
+	}
+
+	/** The label a bind node's single output carries for the chosen binding. */
+	function bindOutputLabel(bind) {
+		return String(bind == null ? "await" : bind) + " · " + bindingUnit(bind);
 	}
 
 	function isRef(value) {
@@ -492,6 +594,20 @@
 		if (node.__widgets.objective) {
 			node.__widgets.objective.value = spec.objective == null ? "" : String(spec.objective);
 		}
+		refreshBindOutput(node);
+	}
+
+	/** Show the chosen binding on the node and label its output by the binding's unit (fix 6). */
+	function refreshBindOutput(node) {
+		if (!node || !node.__kindSpec || node.__kindSpec.bind !== true) {
+			return;
+		}
+		var bind = bindSpec(node).bind;
+		if (node.outputs && node.outputs[0]) {
+			node.outputs[0].label = bindOutputLabel(bind);
+			node.outputs[0].name = bindOutputLabel(bind);
+		}
+		node.title = "bind · " + bind;
 	}
 
 	function initCurve(node) {
@@ -609,6 +725,11 @@
 				initSwitch(this);
 			}
 			this.addOutput("out", "*");
+			if (spec.bind) {
+				refreshBindOutput(this);
+			}
+			this.onDrawForeground = drawDrivenSlots;
+			this.onMouseDown = drivenSlotClick;
 		}
 
 		ValueNode.title = kind;
@@ -622,12 +743,6 @@
 			valueNodes: snapshot(tab && tab.valueNodes ? tab.valueNodes : []),
 			edges: snapshot(tab && tab.edges ? tab.edges : [])
 		};
-	}
-
-	/** Restore a graph snapshot into the IR (used by the undo/redo command). */
-	function restoreIR(tab, snap) {
-		tab.valueNodes = snapshot(snap && snap.valueNodes ? snap.valueNodes : []);
-		tab.edges = snapshot(snap && snap.edges ? snap.edges : []);
 	}
 
 	/** The first input slot index named {@code name} on {@code node}, or -1. */
@@ -684,6 +799,146 @@
 			}
 		});
 		return wired;
+	}
+
+	/** input name -> source value-node id, for a node's wired inputs. */
+	function wiredSources(node) {
+		var sources = {};
+		var graph = node.graph;
+		if (!graph || !graph.links) {
+			return sources;
+		}
+		Object.keys(graph.links).forEach(function (linkId) {
+			var link = graph.links[linkId];
+			if (link.target_id !== node.id) {
+				return;
+			}
+			var slot = node.inputs ? node.inputs[link.target_slot] : null;
+			var origin = graph.getNodeById(link.origin_id);
+			if (slot && origin && origin.properties) {
+				sources[slot.name] = origin.properties.irId;
+			}
+		});
+		return sources;
+	}
+
+	/**
+	 * Apply the driven→read-only rule to a value node's numeric slots (design §15.1, fix 5): a
+	 * wired input hides its editable widget (drawn as a read-only value + source badge instead),
+	 * an unwired one restores it. The widget is kept in place (only its type is swapped) so the
+	 * node's vertical layout does not jump.
+	 *
+	 * @param {Object} node a canvas value node
+	 */
+	function applySlotState(node) {
+		if (!node || !node.__kindSpec || !node.__widgets) {
+			return;
+		}
+		var sources = wiredSources(node);
+		if (!node.__driven) {
+			node.__driven = {};
+		}
+		(node.__kindSpec.sockets || []).forEach(function (name) {
+			var widget = node.__widgets[name];
+			if (!widget) {
+				return;
+			}
+			if (sources[name]) {
+				if (widget.type !== "__driven") {
+					widget.__savedType = widget.type;
+					widget.type = "__driven";
+				}
+				node.__driven[name] = sources[name];
+			} else if (widget.type === "__driven") {
+				widget.type = widget.__savedType || "number";
+				delete node.__driven[name];
+			}
+		});
+	}
+
+	/** Re-apply the driven rule across every value node on a tab. */
+	function syncAllSlots(tab) {
+		if (!tab || !tab.graph || applyingGraph) {
+			return;
+		}
+		tab.graph._nodes.forEach(function (node) {
+			if (node !== tab.root) {
+				applySlotState(node);
+			}
+		});
+	}
+
+	/** Draw the read-only value + source badge over a value node's driven slots. */
+	function drawDrivenSlots(ctx, canvas) {
+		var node = this;
+		var driven = node.__driven;
+		if (!driven) {
+			return;
+		}
+		var scale = canvas && canvas.ds ? canvas.ds.scale : 1;
+		ctx.save();
+		ctx.font = (11 / scale) + "px sans-serif";
+		ctx.textAlign = "left";
+		Object.keys(driven).forEach(function (name) {
+			var widget = node.__widgets ? node.__widgets[name] : null;
+			if (!widget || widget.last_y == null) {
+				return;
+			}
+			var y = widget.last_y;
+			var value = node.properties && node.properties.inputs ? node.properties.inputs[name] : "";
+			ctx.fillStyle = "#2b3550";
+			ctx.strokeStyle = "#4f9dff";
+			ctx.fillRect(15, y, node.size[0] - 30, LiteGraph.NODE_WIDGET_HEIGHT);
+			ctx.strokeRect(15, y, node.size[0] - 30, LiteGraph.NODE_WIDGET_HEIGHT);
+			ctx.fillStyle = "#cfe0ff";
+			ctx.fillText(num(value) + "  <- " + name + " (" + driven[name] + ")", 20, y + LiteGraph.NODE_WIDGET_HEIGHT * 0.7);
+		});
+		ctx.restore();
+	}
+
+	/** Click on a driven badge jumps to the source node (cheap "go to node" affordance). */
+	function drivenSlotClick(event, pos, canvas) {
+		var node = this;
+		var driven = node.__driven;
+		if (!driven) {
+			return false;
+		}
+		var hit = null;
+		Object.keys(driven).forEach(function (name) {
+			var widget = node.__widgets ? node.__widgets[name] : null;
+			if (!widget || widget.last_y == null) {
+				return;
+			}
+			if (pos[1] >= widget.last_y && pos[1] <= widget.last_y + LiteGraph.NODE_WIDGET_HEIGHT
+					&& pos[0] >= 15 && pos[0] <= node.size[0] - 15) {
+				hit = driven[name];
+			}
+		});
+		if (hit) {
+			focusNode(hit);
+			return true;
+		}
+		return false;
+	}
+
+	/** Centre the canvas on a value node by IR id (the driven badge's "go to node"). */
+	function focusNode(irId) {
+		var tab = activeTab();
+		if (!tab || !tab.graph || !scene) {
+			return false;
+		}
+		var target = null;
+		tab.graph._nodes.forEach(function (node) {
+			if (node.properties && node.properties.irId === irId) {
+				target = node;
+			}
+		});
+		if (!target) {
+			return false;
+		}
+		scene.selectNodes([target]);
+		scene.centerOnNode(target);
+		return true;
 	}
 
 	/**
@@ -908,6 +1163,7 @@
 		} finally {
 			applyingGraph = false;
 		}
+		syncAllSlots(tab);
 		if (scene) {
 			scene.setDirty(true, true);
 		}
@@ -946,19 +1202,7 @@
 		if (JSON.stringify(after) === JSON.stringify(pending.before)) {
 			return;
 		}
-		var commands = commandStack();
-		if (commands) {
-			commands["do"]({
-				tab: tab,
-				graph: true,
-				"do": function () {
-					restoreIR(tab, after);
-				},
-				undo: function () {
-					restoreIR(tab, pending.before);
-				}
-			});
-		}
+		commitHistory();
 		if (window.VFXTimeline && typeof window.VFXTimeline.structural === "function") {
 			window.VFXTimeline.structural(tab);
 		}
@@ -997,6 +1241,7 @@
 		// LiteGraph fires `connectionChange` on the LGraph for both connect and disconnect
 		// (litegraph.js `LGraph.prototype.connectionChange`); there is no `onNodeConnectionChange`.
 		tab.graph.onConnectionChange = function () {
+			syncAllSlots(tab);
 			scheduleGraphEdit(tab);
 		};
 		tab.graph.onNodeRemoved = function () {
@@ -1031,71 +1276,165 @@
 	/** The param shown in the inspector, by name; reset when it is not on the active tab. */
 	var inspectorName = null;
 
-	/** The undo/redo stack (ir.js `CommandStack`); created lazily once ir.js has loaded. */
+	/** The snapshot undo/redo stack (ir.js `SnapshotHistory`); created lazily once ir.js has loaded. */
 	var stack = null;
+	/** Maximum retained snapshots; one drag or one discrete action is one snapshot (design §15.7). */
+	var HISTORY_LIMIT = 100;
 
-	function commandStack() {
-		if (!stack && window.VFXIR) {
-			stack = new window.VFXIR.CommandStack();
-			wireHistory(stack);
+	/** The serialisable snapshot history, or null until ir.js has loaded. */
+	function history() {
+		if (!stack && window.VFXIR && window.VFXIR.SnapshotHistory) {
+			stack = new window.VFXIR.SnapshotHistory(HISTORY_LIMIT);
 		}
 		return stack;
 	}
 
-	/**
-	 * A full re-sync after the model moved under an undo/redo (Task 16, design §6.2): the command has
-	 * already applied the model snapshot, so we push the whole definition with a full `/compile` —
-	 * never an incremental game undo. The command carries the tab it edited, so the recompile targets
-	 * that tab even when it is not the active one; the inspector/timeline are only rebuilt for the
-	 * active tab (they render whichever tab is selected).
-	 *
-	 * @param {Object} [command] the undo/redo command that just applied, carrying `tab`
-	 */
-	function afterHistory(command) {
-		var tab = (command && command.tab) || activeTab();
-		if (command && command.graph && tab && tab.graph) {
-			materializeGraph(tab);
-			if (scene && tab === activeTab()) {
-				scene.setDirty(true, true);
-			}
+	/** One tab's model, minus the LiteGraph canvas (which is rebuilt from this on restore). */
+	function snapshotTab(tab) {
+		return {
+			name: tab.name,
+			type: tab.type,
+			duration: tab.duration,
+			easing: tab.easing,
+			params: snapshot(tab.params || {}),
+			keys: snapshot(tab.keys || {}),
+			valueNodes: snapshot(tab.valueNodes || []),
+			edges: snapshot(tab.edges || []),
+			source: snapshot(tab.source),
+			timeline: snapshot(tab.timeline),
+			root: tab.root && Array.isArray(tab.root.pos)
+					? [num(tab.root.pos[0]), num(tab.root.pos[1])] : null,
+			valueSeq: tab.__valueSeq || 0
+		};
+	}
+
+	/** The whole project as a serialisable snapshot. */
+	function snapshotProject() {
+		return { active: project.active, tabs: project.tabs.map(snapshotTab) };
+	}
+
+	/** Make sure a baseline exists before the first mutation, so the first action is undoable. */
+	function ensureHistoryBaseline() {
+		var h = history();
+		if (h && h.states.length === 0) {
+			h.reset(snapshotProject());
 		}
-		if (tab === activeTab()) {
-			renderInspector();
-			renderTimeline();
-		}
-		if (tab && tab.type && window.VFXTimeline && typeof window.VFXTimeline.structural === "function") {
-			status("history → recompile " + tab.name);
-			window.VFXTimeline.structural(tab);
+		return h;
+	}
+
+	/** Capture the current project as the baseline (called once the shell is up). */
+	function resetHistory() {
+		var h = history();
+		if (h) {
+			h.reset(snapshotProject());
 		}
 	}
 
-	/**
-	 * Wrap a {@link VFXIR.CommandStack} so applying a snapshot via undo/redo also recompiles. The IR
-	 * stays the source of truth; this only observes its history transitions.
-	 *
-	 * @param {Object} commands the command stack
-	 */
-	function wireHistory(commands) {
-		if (!commands || commands.__vfxWired) {
+	/** Record the current project state as one undo step (skips an unchanged state). */
+	function commitHistory() {
+		var h = ensureHistoryBaseline();
+		if (!h) {
 			return;
 		}
-		commands.__vfxWired = true;
-		var undo = commands.undo;
-		var redo = commands.redo;
-		commands.undo = function () {
-			var applied = undo.call(this);
-			if (applied) {
-				afterHistory(applied);
+		var next = snapshotProject();
+		if (h.index >= 0 && JSON.stringify(h.states[h.index]) === JSON.stringify(next)) {
+			return;
+		}
+		h.record(next);
+	}
+
+	/** Debounced {@link commitHistory}, so a slider drag commits as one transaction. */
+	var commitTimer = 0;
+	function scheduleCommitHistory() {
+		clearTimeout(commitTimer);
+		commitTimer = setTimeout(function () {
+			commitTimer = 0;
+			commitHistory();
+		}, 250);
+	}
+
+	/** Rebuild every tab (and its canvas graph) from a project snapshot, then re-render the shell. */
+	function restoreProject(snap) {
+		if (!snap || !Array.isArray(snap.tabs)) {
+			return;
+		}
+		// Drop any pending debounced edit/commit so a stale timer cannot re-commit after the restore.
+		clearTimeout(commitTimer);
+		commitTimer = 0;
+		Object.keys(graphEdits).forEach(function (key) {
+			clearTimeout(graphEdits[key].timer);
+			delete graphEdits[key];
+		});
+		project.tabs = snap.tabs.map(function (state) {
+			var tab = window.VFXIR ? new window.VFXIR.Tab(state.name, state.type)
+					: { name: state.name, type: state.type, duration: 40, easing: "linear",
+						params: {}, valueNodes: [], edges: [], keys: {} };
+			tab.duration = num(state.duration, 40);
+			tab.easing = state.easing == null ? "linear" : String(state.easing);
+			tab.params = snapshot(state.params) || {};
+			tab.keys = snapshot(state.keys) || {};
+			tab.valueNodes = snapshot(state.valueNodes) || [];
+			tab.edges = snapshot(state.edges) || [];
+			tab.source = snapshot(state.source);
+			tab.timeline = snapshot(state.timeline) || {};
+			tab.__valueSeq = state.valueSeq || 0;
+			tab.graph = newGraph();
+			tab.root = null;
+			wireGraphHooks(tab);
+			if (tab.type) {
+				attachEffect(tab, tab.type);
+				if (tab.root && Array.isArray(state.root)) {
+					tab.root.pos = [num(state.root[0]), num(state.root[1])];
+				}
 			}
-			return applied;
-		};
-		commands.redo = function () {
-			var applied = redo.call(this);
-			if (applied) {
-				afterHistory(applied);
-			}
-			return applied;
-		};
+			return tab;
+		});
+		var index = Number(snap.active);
+		project.active = index >= 0 && index < project.tabs.length ? index
+				: (project.tabs.length ? 0 : -1);
+		if (scene) {
+			scene.setGraph(project.active >= 0 ? project.tabs[project.active].graph : newGraph());
+		}
+		if (project.active >= 0) {
+			materializeGraph(project.tabs[project.active]);
+		}
+		renderTabs();
+		if (dom.tabName) {
+			dom.tabName.value = project.active >= 0 ? project.tabs[project.active].name : "";
+		}
+		renderInspector();
+		renderTimeline();
+		showEmptyPlaceholder();
+	}
+
+	/** Apply a snapshot and recompile the restored tab through the full `/compile` bridge path. */
+	function applyHistory(snap) {
+		restoreProject(snap);
+		var tab = activeTab();
+		if (tab && tab.type && window.VFXBridge && typeof window.VFXBridge.fullCompile === "function") {
+			status("history → recompile " + tab.name);
+			window.VFXBridge.fullCompile();
+		}
+	}
+
+	/** Undo one transaction. */
+	function undoHistory() {
+		var h = history();
+		var snap = h ? h.undo() : null;
+		if (snap) {
+			applyHistory(snap);
+		}
+		return snap;
+	}
+
+	/** Redo one transaction. */
+	function redoHistory() {
+		var h = history();
+		var snap = h ? h.redo() : null;
+		if (snap) {
+			applyHistory(snap);
+		}
+		return snap;
 	}
 
 	function inspectorMessage(text) {
@@ -1111,10 +1450,10 @@
 	}
 
 	/**
-	 * The inspector edit hook: the inspector has already mutated `tab.params[name]`; record an
-	 * undoable command around the new value, surface the form in the status line and hand the edit to
-	 * Task 15's live sync (a constant slider -> `set_param`, anything structural -> `/compile`), then
-	 * refresh the timeline so a new/edited key lane appears.
+	 * The inspector edit hook: the inspector has already mutated `tab.params[name]`; record a
+	 * snapshot (debounced so a slider drag is one step), surface the form in the status line and hand
+	 * the edit to Task 15's live sync (a constant slider -> `set_param`, anything structural ->
+	 * `/compile`), then refresh the timeline so a new/edited key lane appears.
 	 */
 	function onInspectorEdit(name, spec, previous) {
 		var tab = activeTab();
@@ -1122,28 +1461,7 @@
 			return;
 		}
 		status("param " + name + " → " + (spec && spec.control ? spec.control : "constant"));
-		var next = snapshot(spec);
-		var before = snapshot(previous);
-		var commands = commandStack();
-		if (commands) {
-			commands["do"]({
-				tab: tab,
-				"do": function () {
-					if (next == null) {
-						delete tab.params[name];
-					} else {
-						tab.params[name] = next;
-					}
-				},
-				undo: function () {
-					if (before == null) {
-						delete tab.params[name];
-					} else {
-						tab.params[name] = before;
-					}
-				}
-			});
-		}
+		scheduleCommitHistory();
 		if (window.VFXTimeline && typeof window.VFXTimeline.onEdit === "function") {
 			window.VFXTimeline.onEdit(tab, name, spec, previous);
 		}
@@ -1162,6 +1480,24 @@
 	}
 
 	/** Rebuild the inspector panel for the active tab: a param list plus the selected control. */
+	/** The source value-node id wiring an effect param, or null when the param is free (fix 5). */
+	function drivenParamSource(tab, name) {
+		if (!tab || !tab.edges) {
+			return null;
+		}
+		for (var i = 0; i < tab.edges.length; i++) {
+			var edge = tab.edges[i];
+			if (edge && edge.to === name && edge.input == null && edge.from != null) {
+				return edge.from;
+			}
+		}
+		return null;
+	}
+
+	/**
+	 * Rebuild the inspector panel for the active tab: a param list plus the selected control. A param
+	 * driven by a wire is rendered read-only with its source badge (design §15.1, fix 5).
+	 */
 	function renderInspector() {
 		if (!dom.inspector) {
 			return;
@@ -1196,10 +1532,13 @@
 		var chooser = document.createElement("div");
 		chooser.className = "vfx-params";
 		params.forEach(function (param) {
+			var source = drivenParamSource(tab, param.name);
 			var item = document.createElement("button");
 			item.type = "button";
-			item.className = "vfx-param" + (param.name === inspectorName ? " active" : "");
-			item.textContent = param.name;
+			item.className = "vfx-param" + (param.name === inspectorName ? " active" : "")
+					+ (source ? " driven" : "");
+			item.textContent = param.name + (source ? " ←" : "");
+			item.title = source ? ("driven by " + source) : "";
 			item.addEventListener("click", function () {
 				inspectorName = param.name;
 				renderInspector();
@@ -1207,7 +1546,8 @@
 			chooser.appendChild(item);
 		});
 		dom.inspector.appendChild(chooser);
-		dom.inspector.appendChild(window.VFXInspector.render(tab, current, onInspectorEdit));
+		dom.inspector.appendChild(window.VFXInspector.render(tab, current, onInspectorEdit,
+				drivenParamSource(tab, current.name)));
 	}
 
 	/* ------------------------------------------------------------------ */
@@ -1518,14 +1858,10 @@
 		valueKinds: VALUE_KINDS,
 		addValueNode: addValueNode,
 		materializeGraph: materializeGraph,
-		undo: function () {
-			var commands = commandStack();
-			return commands ? commands.undo() : null;
-		},
-		redo: function () {
-			var commands = commandStack();
-			return commands ? commands.redo() : null;
-		}
+		commit: commitHistory,
+		focusNode: focusNode,
+		undo: undoHistory,
+		redo: redoHistory
 	};
 	Object.defineProperty(VFXEditor, "graph", {
 		enumerable: true,
@@ -1537,7 +1873,7 @@
 	Object.defineProperty(VFXEditor, "stack", {
 		enumerable: true,
 		get: function () {
-			return commandStack();
+			return history();
 		}
 	});
 	Object.defineProperty(VFXEditor, "bridge", {
@@ -1588,20 +1924,498 @@
 		return tag === "input" || tag === "textarea" || target.isContentEditable === true;
 	}
 
-	/** Ctrl/Cmd+Z undoes, Ctrl/Cmd+Shift+Z or Ctrl/Cmd+Y redoes; both recompile (Task 16). */
-	function wireHistoryKeys() {
+	/* ------------------------------------------------------------------ */
+	/* Hotkeys (design §15.6/b)                                            */
+	/* ------------------------------------------------------------------ */
+
+	/** The selected value nodes on the active tab (the effect root is never selected for ops). */
+	function selectedNodes() {
+		var out = [];
+		if (!scene || !scene.selected_nodes) {
+			return out;
+		}
+		Object.keys(scene.selected_nodes).forEach(function (id) {
+			out.push(scene.selected_nodes[id]);
+		});
+		return out;
+	}
+
+	/** Delete the selected nodes; deleting the effect root empties the tab (fix 1). */
+	function deleteSelection() {
+		var tab = activeTab();
+		if (!tab) {
+			return;
+		}
+		var changed = false;
+		selectedNodes().forEach(function (node) {
+			if (node === tab.root) {
+				detachEffect(tab);
+				changed = true;
+			} else if (node.properties && node.properties.kind) {
+				tab.graph.remove(node);
+				changed = true;
+			}
+		});
+		if (changed) {
+			refreshFromCanvas(tab);
+			renderInspector();
+			renderTimeline();
+			showEmptyPlaceholder();
+			commitHistory();
+			if (window.VFXTimeline && tab.type) {
+				window.VFXTimeline.structural(tab);
+			}
+		}
+	}
+
+	/** The module-level value-node clipboard (`{ nodes, edges }` of IR fragments). */
+	var clipboard = null;
+
+	/** Copy the selected value nodes (with the wires wholly inside the selection). */
+	function copySelection() {
+		var tab = activeTab();
+		var nodes = selectedNodes().filter(function (node) {
+			return tab && node !== tab.root && node.properties && node.properties.kind;
+		});
+		if (!nodes.length) {
+			return;
+		}
+		var index = {};
+		nodes.forEach(function (node, i) {
+			index[node.id] = i;
+		});
+		var edges = [];
+		Object.keys(tab.graph.links).forEach(function (linkId) {
+			var link = tab.graph.links[linkId];
+			var target = tab.graph.getNodeById(link.target_id);
+			if (index[link.origin_id] != null && target && index[target.id] != null) {
+				var slot = target.inputs ? target.inputs[link.target_slot] : null;
+				if (slot) {
+					edges.push({ from: index[link.origin_id], to: index[target.id], input: slot.name });
+				}
+			}
+		});
+		clipboard = {
+			nodes: nodes.map(function (node) {
+				return nodeToIR(node);
+			}),
+			edges: edges
+		};
+		status("copied " + clipboard.nodes.length + " node" + (clipboard.nodes.length === 1 ? "" : "s"));
+	}
+
+	/** Paste the clipboard into the active tab as new nodes (fresh ids, offset positions). */
+	function pasteClipboard() {
+		var tab = activeTab();
+		if (!tab || !clipboard || !clipboard.nodes.length) {
+			return;
+		}
+		applyingGraph = true;
+		var created = [];
+		try {
+			clipboard.nodes.forEach(function (ir) {
+				var kind = ir.kind;
+				var registered = "vfx/value/" + kind;
+				if (!LiteGraph.registered_node_types[registered]) {
+					created.push(null);
+					return;
+				}
+				var node = LiteGraph.createNode(registered);
+				node.__tab = tab;
+				node.properties.irId = uniqueNodeId(tab, kind);
+				var copy = snapshot(ir);
+				copy.id = node.properties.irId;
+				copy.pos = [num(ir.pos ? ir.pos[0] : 0) + 30, num(ir.pos ? ir.pos[1] : 0) + 30];
+				applyIR(node, copy);
+				node.pos = copy.pos.slice();
+				tab.graph.add(node);
+				created.push(node);
+			});
+		} finally {
+			applyingGraph = false;
+		}
+		clipboard.edges.forEach(function (edge) {
+			var from = created[edge.from];
+			var to = created[edge.to];
+			var slot = to ? inputIndex(to, edge.input) : -1;
+			if (from && to && slot >= 0) {
+				from.connect(0, to, slot);
+			}
+		});
+		syncAllSlots(tab);
+		var fresh = created.filter(Boolean);
+		if (scene) {
+			scene.selectNodes(fresh);
+		}
+		refreshFromCanvas(tab);
+		commitHistory();
+		if (window.VFXTimeline && tab.type) {
+			window.VFXTimeline.structural(tab);
+		}
+	}
+
+	/** Duplicate the selection in place (copy + paste as one action). */
+	function duplicateSelection() {
+		copySelection();
+		pasteClipboard();
+	}
+
+	/** Select every node on the active graph. */
+	function selectAllNodes() {
+		if (scene) {
+			scene.selectNodes();
+		}
+	}
+
+	/** Frame the given nodes (or all when none): set the pan offset and zoom to fit. */
+	function frameNodes(nodes) {
+		if (!scene || !nodes || !nodes.length) {
+			return;
+		}
+		var minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+		nodes.forEach(function (node) {
+			var size = node.size || [120, 40];
+			minX = Math.min(minX, node.pos[0]);
+			minY = Math.min(minY, node.pos[1] - LiteGraph.NODE_TITLE_HEIGHT);
+			maxX = Math.max(maxX, node.pos[0] + size[0]);
+			maxY = Math.max(maxY, node.pos[1] + size[1]);
+		});
+		var pad = 60;
+		var width = Math.max(1, maxX - minX);
+		var height = Math.max(1, maxY - minY);
+		var scale = Math.min(scene.canvas.width / (width + pad * 2),
+				scene.canvas.height / (height + pad * 2));
+		scene.ds.scale = Math.max(0.2, Math.min(2, scale));
+		scene.ds.offset[0] = scene.canvas.width / (2 * scene.ds.scale) - (minX + maxX) / 2;
+		scene.ds.offset[1] = scene.canvas.height / (2 * scene.ds.scale) - (minY + maxY) / 2;
+		scene.setDirty(true, true);
+	}
+
+	/** Frame the selected nodes, else everything on the active graph. */
+	function frameSelected() {
+		var tab = activeTab();
+		var selected = selectedNodes();
+		frameNodes(selected.length ? selected : (tab && tab.graph ? tab.graph._nodes : []));
+	}
+
+	/** Frame every node on the active graph. */
+	function frameAll() {
+		var tab = activeTab();
+		if (tab && tab.graph) {
+			frameNodes(tab.graph._nodes);
+		}
+	}
+
+	/**
+	 * Group the selected nodes on the canvas (design §15.6 Ctrl+G). Groups are a canvas-only
+	 * convenience: they are not part of the effect IR, so they are not exported and not undoable.
+	 */
+	function groupSelection() {
+		var nodes = selectedNodes();
+		if (!scene || !nodes.length) {
+			return;
+		}
+		var minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+		nodes.forEach(function (node) {
+			minX = Math.min(minX, node.pos[0]);
+			minY = Math.min(minY, node.pos[1] - LiteGraph.NODE_TITLE_HEIGHT);
+			maxX = Math.max(maxX, node.pos[0] + node.size[0]);
+			maxY = Math.max(maxY, node.pos[1] + node.size[1]);
+		});
+		var group = new LiteGraph.LGraphGroup();
+		group.pos = [minX - 12, minY - 24];
+		group.size = [maxX - minX + 24, maxY - minY + 36];
+		group.title = "group";
+		scene.graph.add(group);
+		scene.setDirty(true, true);
+	}
+
+	/** Open LiteGraph's node search box at the canvas centre (Tab). */
+	function openNodeSearch() {
+		if (!scene || typeof scene.showSearchBox !== "function") {
+			return;
+		}
+		var rect = dom.canvas.getBoundingClientRect();
+		scene.showSearchBox({
+			clientX: rect.left + rect.width / 2,
+			clientY: rect.top + rect.height / 2,
+			preventDefault: function () {},
+			stopPropagation: function () {}
+		});
+	}
+
+	/** Toggle the keyboard-shortcut help overlay (?). */
+	function toggleHelp() {
+		var node = document.getElementById("vfx-hotkeys");
+		if (!node) {
+			node = document.createElement("div");
+			node.id = "vfx-hotkeys";
+			node.className = "vfx-hotkeys";
+			var rows = [				["Del / Backspace", "delete selected nodes (empties the tab on the effect node)"],
+				["Ctrl+C / Ctrl+V / Ctrl+D", "copy / paste / duplicate"],
+				["Ctrl+A", "select all"],
+				["Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y", "undo / redo"],
+				["Space", "play or stop the preview"],
+				["R", "replay from the start"],
+				["K", "add a keyframe at the playhead on the selected slot"],
+				["F / Home", "frame selected / frame all"],
+				["Ctrl+S", "save (compile + preview)"],
+				["Tab / double-click", "node search-add"],
+				["Ctrl+G", "group selection (canvas only)"],
+				["[ / ]", "previous / next tab"],
+				["MMB / Space+drag", "pan the canvas"],
+				["Ctrl+wheel", "zoom"],
+				["?", "toggle this help"]
+			];
+			var list = document.createElement("ul");
+			rows.forEach(function (row) {
+				var li = document.createElement("li");
+				var key = document.createElement("b");
+				key.textContent = row[0];
+				li.appendChild(key);
+				li.appendChild(document.createTextNode(" — " + row[1]));
+				list.appendChild(li);
+			});
+			var title = document.createElement("h2");
+			title.textContent = "Keyboard shortcuts";
+			node.appendChild(title);
+			node.appendChild(list);
+			document.body.appendChild(node);
+			node.hidden = false;
+			return;
+		}
+		node.hidden = !node.hidden;
+	}
+
+	/** Space: play the active tab, or stop it when already playing. */
+	function transportToggle() {
+		var tab = activeTab();
+		if (!tab || !tab.type || !window.VFXTimeline) {
+			return;
+		}
+		if (typeof window.VFXTimeline.isPlaying === "function" && window.VFXTimeline.isPlaying()) {
+			window.VFXTimeline.stop(tab);
+		} else {
+			window.VFXTimeline.play(tab);
+		}
+	}
+
+	/** Add a keyframe at the playhead on the inspector's selected slot (K). */
+	function addKeyAtPlayhead() {
+		var tab = activeTab();
+		if (!tab || !tab.type || !inspectorName || !window.VFXTimeline) {
+			return;
+		}
+		var descriptor = schema[tab.type];
+		var param = null;
+		((descriptor && descriptor.params) || []).forEach(function (candidate) {
+			if (candidate.name === inspectorName) {
+				param = candidate;
+			}
+		});
+		var time = typeof window.VFXTimeline.playhead === "function"
+				? Math.round(window.VFXTimeline.playhead()) : 0;
+		var existing = tab.keys[inspectorName];
+		var value = existing && existing.length ? existing[existing.length - 1].value
+				: (param && isFiniteNumber(param.defaultValue) ? param.defaultValue : 0);
+		tab.addKey(inspectorName, time, value);
+		var spec = tab.params[inspectorName];
+		if (spec && typeof spec === "object") {
+			spec.control = "keyframes";
+		} else {
+			tab.params[inspectorName] = { control: "keyframes" };
+		}
+		commitHistory();
+		renderTimeline();
+		window.VFXTimeline.structural(tab);
+	}
+
+	/** Switch to the previous/next tab, wrapping ([/]). */
+	function switchTab(delta) {
+		if (project.tabs.length < 2) {
+			return;
+		}
+		var next = (project.active + delta + project.tabs.length) % project.tabs.length;
+		selectTab(next);
+	}
+
+	/** Save: compile and play the active tab (Ctrl+S). */
+	function saveProject() {
+		var tab = activeTab();
+		if (tab && tab.type && window.VFXTimeline) {
+			window.VFXTimeline.play(tab);
+			status("saved / previewing " + tab.name);
+		}
+	}
+
+	/**
+	 * Wire the editor keyboard shortcuts. Runs in the capture phase so it can pre-empt LiteGraph's
+	 * own canvas handlers for the keys we own; text fields always keep the browser's defaults.
+	 */
+	function wireHotkeys() {
+		var spaceDown = false;
+		var spaceDragged = false;
+
+		document.addEventListener("mousemove", function () {
+			if (spaceDown) {
+				spaceDragged = true;
+			}
+		});
+
 		document.addEventListener("keydown", function (event) {
-			if (!(event.ctrlKey || event.metaKey) || isEditable(event.target)) {
+			if (isEditable(event.target)) {
 				return;
 			}
-			var key = String(event.key || "").toLowerCase();
-			if (key === "z" && !event.shiftKey) {
-				event.preventDefault();
-				VFXEditor.undo();
-			} else if (key === "y" || (key === "z" && event.shiftKey)) {
-				event.preventDefault();
-				VFXEditor.redo();
+			var key = String(event.key || "");
+			var lower = key.toLowerCase();
+			var mod = event.ctrlKey || event.metaKey;
+			var handled = true;
+
+			if (mod && lower === "z" && !event.shiftKey) {
+				undoHistory();
+			} else if (mod && (lower === "y" || (lower === "z" && event.shiftKey))) {
+				redoHistory();
+			} else if (mod && lower === "c") {
+				copySelection();
+			} else if (mod && lower === "v") {
+				pasteClipboard();
+			} else if (mod && lower === "d") {
+				duplicateSelection();
+			} else if (mod && lower === "a") {
+				selectAllNodes();
+			} else if (mod && lower === "s") {
+				saveProject();
+			} else if (mod && lower === "g") {
+				groupSelection();
+			} else if (key === "Delete" || key === "Backspace") {
+				deleteSelection();
+			} else if (key === "Tab") {
+				openNodeSearch();
+			} else if (key === "[") {
+				switchTab(-1);
+			} else if (key === "]") {
+				switchTab(1);
+			} else if (key === "?" || (event.shiftKey && key === "/")) {
+				toggleHelp();
+			} else if (lower === "r" && !mod) {
+				var tab = activeTab();
+				if (tab && tab.type && window.VFXTimeline) {
+					window.VFXTimeline.play(tab);
+				}
+			} else if (lower === "k" && !mod) {
+				addKeyAtPlayhead();
+			} else if (lower === "f" && !mod) {
+				frameSelected();
+			} else if (key === "Home") {
+				frameAll();
+			} else if (key === " " && !mod) {
+				// Let keydown reach LiteGraph for Space+drag pan; toggle on a tap-release.
+				if (!spaceDown) {
+					spaceDown = true;
+					spaceDragged = false;
+				}
+				handled = false;
+			} else {
+				handled = false;
 			}
+
+			if (handled) {
+				event.preventDefault();
+				event.stopPropagation();
+			}
+		}, true);
+
+		document.addEventListener("keyup", function (event) {
+			if (event.key !== " " || isEditable(event.target)) {
+				return;
+			}
+			var wasDragged = spaceDragged;
+			spaceDown = false;
+			if (!wasDragged) {
+				transportToggle();
+			}
+		}, true);
+	}
+
+	/**
+	 * Replace LiteGraph's floating value dialog with an inline, select-on-focus editor positioned over
+	 * the widget (design §15.1, fix 5). Only the number widget's prompt is intercepted; every other
+	 * prompt (node titles, string widgets) keeps the stock behaviour.
+	 */
+	function wireInlineWidgetEdit() {
+		if (!window.LGraphCanvas || LGraphCanvas.prototype.__vfxInlineEdit) {
+			return;
+		}
+		LGraphCanvas.prototype.__vfxInlineEdit = true;
+		var original = LGraphCanvas.prototype.prompt;
+		LGraphCanvas.prototype.prompt = function (title, value, callback, event, multiline) {
+			var pair = this.node_widget;
+			if (!multiline && event && pair && pair[1] && pair[1].type === "number") {
+				inlineEditNumber(this, pair[0], pair[1], value, callback, event);
+				return;
+			}
+			return original.apply(this, arguments);
+		};
+	}
+
+	/** The DOM input shown over a number widget; commits on Enter/blur, cancels on Escape. */
+	function inlineEditNumber(canvas, node, widget, value, callback, event) {
+		var scale = canvas.ds && canvas.ds.scale ? canvas.ds.scale : 1;
+		var rect = canvas.canvas.getBoundingClientRect();
+		var input = document.createElement("input");
+		input.type = "text";
+		input.className = "vfx-inline-edit";
+		input.value = value;
+		input.title = widget.name;
+		input.style.width = Math.max(36, (widget.width || node.size[0]) * scale) + "px";
+		if (widget.last_y != null && canvas.ds) {
+			input.style.left = (rect.left + (node.pos[0] + canvas.ds.offset[0]) * scale) + "px";
+			input.style.top = (rect.top + (node.pos[1] + widget.last_y + canvas.ds.offset[1]) * scale) + "px";
+		} else {
+			input.style.left = event.clientX + "px";
+			input.style.top = event.clientY + "px";
+		}
+		document.body.appendChild(input);
+		input.focus();
+		input.select();
+
+		function done(commit) {
+			input.removeEventListener("keydown", onKey);
+			input.removeEventListener("blur", done);
+			if (commit) {
+				var raw = input.value;
+				if (/^[0-9+\-*/()\s]+|\d+\.\d+$/.test(raw)) {
+					try {
+						raw = eval(raw);
+					} catch (e) {
+						// keep the raw text; Number() below decides
+					}
+				}
+				var n = Number(raw);
+				if (callback && isFinite(n)) {
+					callback(n);
+				}
+			}
+			if (input.parentNode) {
+				input.parentNode.removeChild(input);
+			}
+			canvas.canvas.focus();
+			canvas.setDirty(true, true);
+		}
+
+		function onKey(e) {
+			if (e.keyCode === 13) {
+				e.preventDefault();
+				done(true);
+			} else if (e.keyCode === 27) {
+				e.preventDefault();
+				done(false);
+			}
+		}
+
+		input.addEventListener("keydown", onKey);
+		input.addEventListener("blur", function () {
+			done(true);
 		});
 	}
 
@@ -1620,8 +2434,10 @@
 		resizeCanvas();
 		scene = new LiteGraph.LGraphCanvas(dom.canvas, new LiteGraph.LGraph());
 		window.addEventListener("resize", resizeCanvas);
-		wireHistoryKeys();
+		wireInlineWidgetEdit();
+		wireHotkeys();
 		wireBridge();
+		resetHistory();
 
 		// Selecting an effect node shows its params in the inspector (param name defaults to the first).
 		scene.onNodeSelected = function (node) {
@@ -1658,6 +2474,7 @@
 				tab.name = value;
 				renderTabs();
 				status(tab.name);
+				commitHistory();
 			}
 		});
 		dom.exportBtn.addEventListener("click", exportPack);
@@ -1679,6 +2496,7 @@
 					status("Loaded " + Object.keys(schema).length + " effect types");
 					renderInspector();
 					renderTimeline();
+					showEmptyPlaceholder();
 				})
 				.catch(function (error) {
 					showBanner("Could not load /schema from the game bridge: " + error.message);

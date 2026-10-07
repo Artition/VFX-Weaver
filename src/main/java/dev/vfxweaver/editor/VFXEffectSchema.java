@@ -269,6 +269,12 @@ public final class VFXEffectSchema {
 	public static String toJson() {
 		final Map<String, Object> root = new LinkedHashMap<>();
 		for (final VFXEffectDescriptor descriptor : DESCRIPTORS.values()) {
+			// COLLECTION is a serialisation artifact, not a user-selectable effect (design §15.2): it is
+			// kept registered so compilation can still resolve it, but it must not appear in the schema
+			// the editor palette is built from.
+			if (descriptor.type() == VFXEffectType.COLLECTION) {
+				continue;
+			}
 			root.put(descriptor.type().getName(), Map.of("params", descriptor.params()));
 		}
 		final JsonElement tree = GSON.toJsonTree(root);

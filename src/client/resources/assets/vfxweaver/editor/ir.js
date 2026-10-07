@@ -163,88 +163,94 @@
 	};
 
 	/**
-	 * Undo/redo stack. A command is `{ do(), undo() }` (either side optional). Undo applies the
-	 * model snapshot held by the command; Task 16 then pushes the whole model with a full
-	 * `/compile`, never an incremental game undo (design §6.2).
+	 * Snapshot-based undo/redo (design §15.7). The IR is serialisable, so a transaction just pushes a
+	 * whole-project snapshot; undo/redo move a cursor over the snapshot list. This replaces the old
+	 * command stack: a transaction is one `pointerdown→up` drag or one discrete action, and the list
+	 * is capped at {@code limit} states (oldest dropped). After a move the shell recompiles the
+	 * affected tab with a full `/compile`, never an incremental game undo (design §6.2).
 	 *
+	 * @param {number} [limit] maximum number of retained states (default 100)
 	 * @constructor
 	 */
-	function CommandStack() {
-		this._undo = [];
-		this._redo = [];
+	function SnapshotHistory(limit) {
+		this.limit = limit && limit > 0 ? limit : 100;
+		this.states = [];
+		this.index = -1;
 	}
 
 	/**
-	 * Run a command and make it undoable (clears the redo branch).
+	 * Start from a fresh snapshot (clears any existing history).
 	 *
-	 * @param {{do: function, undo: function}} command the command
-	 * @returns {Object} the command
+	 * @param {*} state the initial serialisable state
+	 * @returns {number} the new index (0)
 	 */
-	CommandStack.prototype["do"] = function (command) {
-		if (!command) {
-			return command;
-		}
-		if (typeof command["do"] === "function") {
-			command["do"]();
-		}
-		this._undo.push(command);
-		this._redo.length = 0;
-		return command;
+	SnapshotHistory.prototype.reset = function (state) {
+		this.states = [state];
+		this.index = 0;
+		return this.index;
 	};
 
 	/**
-	 * Undo the most recent command.
+	 * Commit a new state, dropping the redo branch and trimming the oldest past the cap.
 	 *
-	 * @returns {Object|null} the command that was undone, or null when the stack is empty
+	 * @param {*} state the serialisable state after the action
+	 * @returns {number} the new index
 	 */
-	CommandStack.prototype.undo = function () {
-		var command = this._undo.pop();
-		if (!command) {
+	SnapshotHistory.prototype.record = function (state) {
+		this.states.length = this.index + 1;
+		this.states.push(state);
+		if (this.states.length > this.limit) {
+			this.states.shift();
+		}
+		this.index = this.states.length - 1;
+		return this.index;
+	};
+
+	/**
+	 * @returns {boolean} whether a previous state exists
+	 */
+	SnapshotHistory.prototype.canUndo = function () {
+		return this.index > 0;
+	};
+
+	/**
+	 * @returns {boolean} whether a redo state exists
+	 */
+	SnapshotHistory.prototype.canRedo = function () {
+		return this.index >= 0 && this.index < this.states.length - 1;
+	};
+
+	/**
+	 * Move the cursor one state back.
+	 *
+	 * @returns {*|null} the state to restore, or null when there is nothing to undo
+	 */
+	SnapshotHistory.prototype.undo = function () {
+		if (!this.canUndo()) {
 			return null;
 		}
-		if (typeof command.undo === "function") {
-			command.undo();
-		}
-		this._redo.push(command);
-		return command;
+		this.index--;
+		return this.states[this.index];
 	};
 
 	/**
-	 * Redo the most recently undone command.
+	 * Move the cursor one state forward.
 	 *
-	 * @returns {Object|null} the command that was redone, or null when there is nothing to redo
+	 * @returns {*|null} the state to restore, or null when there is nothing to redo
 	 */
-	CommandStack.prototype.redo = function () {
-		var command = this._redo.pop();
-		if (!command) {
+	SnapshotHistory.prototype.redo = function () {
+		if (!this.canRedo()) {
 			return null;
 		}
-		if (typeof command["do"] === "function") {
-			command["do"]();
-		}
-		this._undo.push(command);
-		return command;
-	};
-
-	/**
-	 * @returns {boolean} whether there is a command to undo
-	 */
-	CommandStack.prototype.canUndo = function () {
-		return this._undo.length > 0;
-	};
-
-	/**
-	 * @returns {boolean} whether there is a command to redo
-	 */
-	CommandStack.prototype.canRedo = function () {
-		return this._redo.length > 0;
+		this.index++;
+		return this.states[this.index];
 	};
 
 	var api = {
 		Project: Project,
 		Tab: Tab,
 		ParamSpec: ParamSpec,
-		CommandStack: CommandStack
+		SnapshotHistory: SnapshotHistory
 	};
 
 	root.VFXIR = api;

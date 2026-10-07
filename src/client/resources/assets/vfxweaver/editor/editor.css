@@ -650,3 +650,189 @@ body {
 	pointer-events: none;
 	z-index: 1;
 }
+
+/* v1.1 quick wins --------------------------------------------------- */
+
+/* Empty-tab placeholder (design §15.2, fix 1): shown over the canvas until an effect is picked. */
+.vfx-empty {
+	position: absolute;
+	inset: 0;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	gap: 8px;
+	background: rgba(20, 20, 24, 0.85);
+	z-index: 5;
+}
+
+.vfx-empty[hidden] {
+	display: none;
+}
+
+.vfx-empty-head {
+	margin: 0;
+	font-size: 16px;
+	color: var(--vfx-text-dim);
+}
+
+.vfx-empty-list {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 4px;
+	max-width: 420px;
+	justify-content: center;
+	max-height: 60%;
+	overflow: auto;
+}
+
+.vfx-empty-list .vfx-type {
+	background: var(--vfx-panel-alt);
+	border: 1px solid var(--vfx-border);
+	border-radius: 4px;
+	padding: 5px 10px;
+}
+
+.vfx-empty-list .vfx-type:hover {
+	border-color: var(--vfx-accent);
+}
+
+/* Inline number editor over a LiteGraph widget (design §15.1, fix 5). */
+.vfx-inline-edit {
+	position: fixed;
+	z-index: 20;
+	background: var(--vfx-bg);
+	color: var(--vfx-text);
+	border: 1px solid var(--vfx-accent);
+	border-radius: 3px;
+	padding: 2px 5px;
+	font: inherit;
+	box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+}
+
+/* Shortcut help overlay (?). */
+.vfx-hotkeys {
+	position: fixed;
+	right: 16px;
+	bottom: 16px;
+	z-index: 30;
+	width: 380px;
+	max-height: 70vh;
+	overflow: auto;
+	background: var(--vfx-panel);
+	border: 1px solid var(--vfx-border);
+	border-radius: 6px;
+	padding: 12px 14px;
+	box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6);
+}
+
+.vfx-hotkeys[hidden] {
+	display: none;
+}
+
+.vfx-hotkeys h2 {
+	margin: 0 0 8px;
+	font-size: 12px;
+	text-transform: uppercase;
+	letter-spacing: 0.08em;
+	color: var(--vfx-text-dim);
+}
+
+.vfx-hotkeys ul {
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+.vfx-hotkeys li {
+	margin: 3px 0;
+	color: var(--vfx-text-dim);
+}
+
+.vfx-hotkeys b {
+	color: var(--vfx-text);
+}
+
+/* Timeline ruler minor ticks + out-of-range keys + duration bar (design §15.4, fix 4). */
+.vfx-tl-tick-minor {
+	position: absolute;
+	bottom: 0;
+	width: 1px;
+	height: 5px;
+	background: var(--vfx-border);
+	pointer-events: none;
+}
+
+.vfx-tl-duration {
+	position: relative;
+	height: 12px;
+	background: var(--vfx-panel-alt);
+	border-bottom: 1px solid var(--vfx-border);
+}
+
+.vfx-tl-duration-fill {
+	position: absolute;
+	top: 0;
+	left: 0;
+	height: 100%;
+	background: rgba(79, 157, 255, 0.25);
+	pointer-events: none;
+}
+
+.vfx-tl-duration-handle {
+	position: absolute;
+	top: 0;
+	width: 8px;
+	height: 100%;
+	margin-left: -4px;
+	background: var(--vfx-accent);
+	border: 1px solid #cfe4ff;
+	border-radius: 2px;
+	cursor: ew-resize;
+	z-index: 4;
+}
+
+.vfx-tl-key.vfx-tl-out {
+	background: #ff5a5a;
+	border-color: #ffd0d0;
+}
+
+.vfx-tl-key.vfx-tl-clamped {
+	border-style: dashed;
+	border-color: #ffb454;
+}
+
+/* Driven (wired) slots are read-only (design §15.1, fix 5). */
+.vfx-param.driven {
+	color: #ffd257;
+}
+
+.vfx-driven-badge {
+	display: inline-block;
+	margin: 4px 0;
+	padding: 2px 6px;
+	background: #2b3550;
+	border: 1px solid var(--vfx-accent);
+	border-radius: 3px;
+	color: #cfe0ff;
+	font-size: 11px;
+}
+
+.vfx-driven-value {
+	color: var(--vfx-text);
+}
+
+.vfx-driven-go {
+	margin-top: 4px;
+	background: var(--vfx-panel-alt);
+	color: var(--vfx-text);
+	border: 1px solid var(--vfx-border);
+	border-radius: 4px;
+	cursor: pointer;
+	font: inherit;
+	padding: 3px 7px;
+}
+
+.vfx-driven-go:hover {
+	border-color: var(--vfx-accent);
+}

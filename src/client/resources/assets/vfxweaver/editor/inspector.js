@@ -389,9 +389,11 @@
 	 * @param {Object} tab the selected `VFXIR.Tab` (its `params`/`keys` are mutated)
 	 * @param {Object} param the `VFXParamDescriptor` to edit
 	 * @param {function} [onEdit] called `(name, spec, previous)` after every edit
+	 * @param {string|null} [driven] the source value-node id wiring this param, for a read-only view
+	 *        (design §15.1, fix 5); null/absent keeps the normal editable form
 	 * @returns {HTMLElement} the inspector element
 	 */
-	function render(tab, param, onEdit) {
+	function render(tab, param, onEdit, driven) {
 		if (!param || !param.name) {
 			throw new Error("inspector.render: a param descriptor is required");
 		}
@@ -620,9 +622,44 @@
 
 		var content = el("div", { class: "vfx-inspect-content" });
 		var rootEl = el("div", { class: "vfx-inspector" }, [header, content]);
+		// Inline editing: every field selects its content on focus (design §15.1, fix 5).
+		rootEl.addEventListener("focusin", function (event) {
+			var target = event.target;
+			if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA")
+					&& typeof target.select === "function") {
+				try {
+					target.select();
+				} catch (e) {
+					// number inputs in some engines reject select(); harmless
+				}
+			}
+		});
+
+		/** The read-only view shown when a wire drives this param (fix 5). */
+		function drivenBody() {
+			var box = el("div", { class: "vfx-body vfx-driven" });
+			var badge = el("span", { class: "vfx-driven-badge", text: "driven by " + driven });
+			box.appendChild(el("div", { class: "vfx-field" }, [
+				el("span", { text: "value" }),
+				el("span", { class: "vfx-driven-value", text: String(num(currentValue())) })
+			]));
+			box.appendChild(badge);
+			if (root.VFXEditor && typeof root.VFXEditor.focusNode === "function") {
+				var go = el("button", { type: "button", class: "vfx-driven-go", text: "go to node" });
+				go.addEventListener("click", function () {
+					root.VFXEditor.focusNode(driven);
+				});
+				box.appendChild(go);
+			}
+			return box;
+		}
 
 		function refresh() {
 			content.textContent = "";
+			if (driven) {
+				content.appendChild(drivenBody());
+				return;
+			}
 			content.appendChild(formTabs());
 			content.appendChild(bodyFor());
 		}

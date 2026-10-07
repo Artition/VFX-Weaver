@@ -112,6 +112,14 @@
 		}
 	}
 
+	/** Record one undo snapshot through the shell (no-op when the shell is absent). */
+	function commit(tab) {
+		var editor = root.VFXEditor;
+		if (editor && typeof editor.commit === "function") {
+			editor.commit();
+		}
+	}
+
 	/* ------------------------------------------------------------------ */
 	/* Request bodies (pure — pinned by the headless harness)              */
 	/* ------------------------------------------------------------------ */
@@ -591,7 +599,7 @@
 		}
 	}
 
-	/** Drag a key dot: x -> time (ticks), y -> value within the lane; commits on mouseup. */
+	/** Drag a key dot: x -> time (ticks, clamped to [0, duration]), y -> value; commits on mouseup. */
 	function beginDrag(tab, name, key, dot) {
 		return function (event) {
 			event.preventDefault();
@@ -602,15 +610,22 @@
 			var t0 = Number(key.time) || 0;
 			var v0 = Number(key.value) || 0;
 			var range = ui.ranges[name];
+			var total = duration(tab);
+			var descriptor = paramDescriptor(tab, name);
 			var moved = false;
 
 			function move(ev) {
 				moved = true;
 				var dTicks = (ev.clientX - startX) / ui.pxPerTick;
 				var dValue = -((ev.clientY - startY) / (INNER || 1)) * (range.hi - range.lo);
-				key.time = Math.max(0, Math.round(t0 + dTicks));
+				var rawTime = Math.round(t0 + dTicks);
+				// Keys outside [0, duration] are invisible to the engine (design §15.4, I3): clamp.
+				var clamped = Math.max(0, Math.min(total, rawTime));
+				dot.classList.toggle("vfx-tl-clamped", rawTime !== clamped);
+				key.time = clamped;
 				key.value = round3(v0 + dValue);
 				positionKey(dot, name, key);
+				markOutOfRange(dot, descriptor, key.value);
 				if (ui && ui.easingRow && !ui.easingRow.hidden && ui.easingLabel) {
 					ui.easingLabel.textContent = name + " @" + key.time;
 				}
@@ -621,12 +636,24 @@
 				document.removeEventListener("mouseup", up);
 				if (moved) {
 					setKeyframe(tab, name, key);
+					commit(tab);
 				}
 			}
 
 			document.addEventListener("mousemove", move);
 			document.addEventListener("mouseup", up);
 		};
+	}
+
+	/** Red-flag a value outside the descriptor's min/max with an explanatory tooltip (§15.4). */
+	function markOutOfRange(dot, descriptor, value) {
+		var out = descriptor && ((isFiniteNumber(descriptor.min) && value < descriptor.min)
+				|| (isFiniteNumber(descriptor.max) && value > descriptor.max));
+		dot.classList.toggle("vfx-tl-out", Boolean(out));
+		if (out) {
+			dot.title = "value " + value + " is outside the schema range ["
+					+ descriptor.min + ", " + descriptor.max + "]";
+		}
 	}
 
 	function round3(value) {
@@ -676,10 +703,11 @@
 
 	function transportBar(tab) {
 		var bar = el("div", { class: "vfx-tl-transport" });
-		bar.appendChild(button("▶", "Play (compile + play)", false, function () { play(tab); }));
+		bar.appendChild(button("▶", "Play (Space)", false, function () { play(tab); }));
 		// R11: the bridge accepts /transport pause but there is no game pause - disable, don't fake.
 		bar.appendChild(button("⏸", "Pause is not supported by VFXweaver — use Stop", true, null));
-		bar.appendChild(button("■", "Stop", false, function () { stop(tab); }));
+		bar.appendChild(button("■", "Stop (Space)", false, function () { stop(tab); }));
+		bar.appendChild(button("⟲", "Replay from the start (R)", false, function () { play(tab); }));
 
 		var loop = button("⟳", "Loop", false, function () {
 			clock.loop = !clock.loop;
@@ -702,6 +730,7 @@
 				return;
 			}
 			selected.key.easing = easing.value;
+			commit(tab);
 			structural(tab);
 		});
 		easingRow.appendChild(easingLabel);
@@ -716,23 +745,80 @@
 		return { bar: bar, readout: readout, easing: easing, easingRow: easingRow, easingLabel: easingLabel };
 	}
 
+	/**
+	 * The tick ruler: a labelled major tick every {@code step} ticks (adaptive to the zoom) plus
+	 * lighter minor ticks in between (design §15.4, fix 4).
+	 */
 	function ruler(tab, pxPerTick) {
 		var bar = el("div", { class: "vfx-tl-ruler" });
 		var total = duration(tab);
-		var step = 1;
 		var steps = [1, 2, 5, 10, 20, 50, 100, 200, 500];
+		var step = steps[steps.length - 1];
 		for (var i = 0; i < steps.length; i++) {
-			if (steps[i] * pxPerTick >= 50) {
+			if (steps[i] * pxPerTick >= 60) {
 				step = steps[i];
 				break;
 			}
-			step = steps[i];
+		}
+		var minor = step / 5;
+		if (minor * pxPerTick < 6) {
+			minor = 0;
+		}
+		if (minor > 0) {
+			for (var t = 0; t <= total; t += minor) {
+				var minorMark = el("span", { class: "vfx-tl-tick-minor" });
+				minorMark.style.left = t * pxPerTick + "px";
+				bar.appendChild(minorMark);
+			}
 		}
 		for (var tick = 0; tick <= total; tick += step) {
 			var mark = el("span", { class: "vfx-tl-tick", text: String(tick) });
 			mark.style.left = tick * pxPerTick + "px";
 			bar.appendChild(mark);
 		}
+		return bar;
+	}
+
+	/**
+	 * The duration bar: spans 0..duration with a draggable end handle that edits `tab.duration`
+	 * (design §15.4, fix 4), snapping to whole ticks and clamped to at least one tick.
+	 */
+	function durationBar(tab, pxPerTick) {
+		var bar = el("div", { class: "vfx-tl-duration" });
+		var total = duration(tab);
+		var fill = el("div", { class: "vfx-tl-duration-fill" });
+		fill.style.width = total * pxPerTick + "px";
+		var handle = el("div", { class: "vfx-tl-duration-handle" });
+		handle.style.left = total * pxPerTick + "px";
+		handle.title = "Drag to change the effect duration (currently " + Math.round(total) + " ticks)";
+		handle.addEventListener("mousedown", function (event) {
+			event.preventDefault();
+			event.stopPropagation();
+			function move(ev) {
+				var ticks = Math.max(1, Math.round(tickAt(ev.clientX)));
+				tab.duration = ticks;
+				handle.style.left = ticks * pxPerTick + "px";
+				fill.style.width = ticks * pxPerTick + "px";
+				if (ui && ui.content) {
+					ui.content.style.width = Math.max(1, ticks * pxPerTick + 20) + "px";
+				}
+				setPlayhead(elapsedNow());
+			}
+			function up() {
+				document.removeEventListener("mousemove", move);
+				document.removeEventListener("mouseup", up);
+				commit(tab);
+				structural(tab);
+				var panel = bar.closest ? bar.closest(".vfx-tl") : null;
+				if (panel && panel.parentNode) {
+					renderInto(panel.parentNode, tab);
+				}
+			}
+			document.addEventListener("mousemove", move);
+			document.addEventListener("mouseup", up);
+		});
+		bar.appendChild(fill);
+		bar.appendChild(handle);
 		return bar;
 	}
 
@@ -782,6 +868,7 @@
 		}
 
 		content.appendChild(ruler(tab, pxPerTick));
+		content.appendChild(durationBar(tab, pxPerTick));
 		names.forEach(function (name) {
 			var lane = el("div", { class: "vfx-tl-lane" });
 			lane.style.height = LANE_HEIGHT + "px";
@@ -796,6 +883,10 @@
 				dot.addEventListener("mousedown", beginDrag(tab, name, key, dot));
 				lane.appendChild(dot);
 				positionKeyLater(dot, name, key, pxPerTick, ranges);
+				markOutOfRange(dot, paramDescriptor(tab, name), key.value);
+				if (Number(key.time) < 0 || Number(key.time) > total) {
+					dot.classList.add("vfx-tl-clamped");
+				}
 			});
 			content.appendChild(lane);
 		});
@@ -866,6 +957,11 @@
 		setParam: setParam,
 		setKeyframe: setKeyframe,
 		effectId: effectId,
+		isPlaying: function () {
+			return clock.playing;
+		},
+		playhead: elapsedNow,
+		duration: duration,
 		bodies: {
 			compile: compileBody,
 			transport: transportBody,

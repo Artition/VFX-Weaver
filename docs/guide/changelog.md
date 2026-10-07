@@ -5,8 +5,21 @@ documentation changed. A guide revision is not a mod version — the two numbers
 released mod versions are recorded on the **[mod Changelog](../CHANGELOG.md)** instead. Where a guide
 revision shipped with a release, the entry says so (for example `v47 — released as 2.0.0`).
 
-Current guide revision: **v79**. Mod version it documents: **2.3.0** (not yet released). Which jar
+Current guide revision: **v80**. Mod version it documents: **2.3.0** (not yet released). Which jar
 to download is in the [download table](../index.md#download).
+
+### v80 — documents 2.3.0 (unreleased)
+- **The visual node editor's v1.1 "quick wins".** The [editor page](editor.md) now documents: an
+  **empty tab is valid** (delete the effect node and the canvas shows a **+ Add effect** placeholder
+  to retype the tab); **snapshot undo/redo** (one drag or one action is one step, capped at 100) in
+  place of the old command stack; a **keyboard-shortcut table** (`Del`, `Ctrl+C/V/D/A`, `Ctrl+Z`,
+  `Space`, `R`, `K`, `F`/`Home`, `Ctrl+S`, `Tab`/double-click, `Ctrl+G`, `[`/`]`, `?`); a timeline
+  **tick ruler** with adaptive major/minor ticks, **keyframes clamped to `[0, duration]` on drag** and
+  a red out-of-schema-range highlight, and a draggable **duration bar**; **inline select-on-focus**
+  editing with no floating value popup, and the **driven→read-only** rule for value-node slots and
+  inspector params (read-only value + source badge + "go to node"); and the `bind` value node's
+  binding dropdown with its output labelled by the binding's unit. Editor-only; no datapack field,
+  UBO, API or wire change.
 
 ### v79 — documents 2.3.0 (unreleased)
 - **A new page `Visual node editor` documents the local web editor.** Start it with `/vfxeditor` (it
