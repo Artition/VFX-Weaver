@@ -101,9 +101,13 @@
 </div>
 <main id="vfx-main">
 	<aside id="vfx-palette" aria-label="Schema palette">
-		<h2>Effects</h2>
-		<input id="vfx-filter" type="search" placeholder="Filter effects..." aria-label="Filter effects">
-		<div id="vfx-types"></div>
+		<input id="vfx-filter" type="search" placeholder="Filter nodes..." aria-label="Filter nodes">
+		<div class="vfx-pal-scroll">
+			<h2>Effects</h2>
+			<div id="vfx-types"></div>
+			<h2>Value nodes</h2>
+			<div id="vfx-value-types"></div>
+		</div>
 	</aside>
 	<section id="vfx-canvas-wrap">
 		<canvas id="vfx-canvas"></canvas>

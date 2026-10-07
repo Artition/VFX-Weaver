@@ -223,9 +223,14 @@ body {
 	font: inherit;
 }
 
-#vfx-types {
+.vfx-pal-scroll {
 	flex: 1 1 auto;
 	overflow-y: auto;
+	min-height: 0;
+}
+
+#vfx-types,
+#vfx-value-types {
 	padding: 0 6px 8px;
 }
 

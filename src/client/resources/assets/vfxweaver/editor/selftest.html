@@ -163,6 +163,55 @@ window.__vfxSelftest = function () {
 		ok(stack.canUndo(), "canUndo after redo");
 	});
 
+	test("(g) value-wire IR: a node edge is {from,to,input}, a param wire is inputs.<name>.from", function () {
+		var tab = new VFXIR.Tab("wired", "blur");
+		tab.valueNodes = [
+			{ id: "clock", kind: "time", inputs: { speed: 2 } },
+			{ id: "sum", kind: "math", op: "add", inputs: { a: 1 } }
+		];
+		tab.connect("clock", "sum", "b");   // node -> node
+		tab.connect("sum", "radius");       // node -> effect param
+		var def = parse(compileTab(tab));
+		eq(def.graph.edges.length, 1, "one node->node edge");
+		eq(JSON.stringify(def.graph.edges[0]), JSON.stringify({ from: "clock", to: "sum", input: "b" }),
+				"exact node->node edge shape");
+		eq(def.inputs.radius.from, "sum", "node->param wire lands in inputs");
+		eq(def.graph.edges[0].to, "sum", "the param wire is not duplicated into edges");
+		// The wired input must not also sit in the node's `inputs` (datapack: "receives two sources").
+		eq(def.graph.nodes[1].op, "add", "math op passes through");
+		ok(!("b" in def.graph.nodes[1].inputs), "a wired input is excluded from node.inputs");
+		eq(def.graph.nodes[1].inputs.a, 1, "an unwired literal stays on the node");
+	});
+
+	test("(h) structural fields per kind survive compile (points/expr/bind/switch)", function () {
+		var tab = new VFXIR.Tab("kinds", "blur");
+		tab.valueNodes = [
+			{ id: "c", kind: "curve", inputs: { time: 4, points: [
+				{ time: 0, value: 0 }, { time: 50, value: 3, easing: "ease_out_quad" } ] } },
+			{ id: "e", kind: "expr", inputs: { expr: "sin(t * 0.1)" } },
+			{ id: "b", kind: "bind", inputs: { bind: "health", fallback: 0.5 } },
+			{ id: "s", kind: "switch", inputs: { index: 1, "case_0": 10, "case_1": 20, "default": 0 } },
+			{ id: "n", kind: "noise", inputs: { scale: 2 } }
+		];
+		var byId = {};
+		parse(compileTab(tab)).graph.nodes.forEach(function (node) { byId[node.id] = node; });
+		eq(byId.c.inputs.points[1].value, 3, "curve points");
+		eq(byId.c.inputs.points[1].easing, "ease_out_quad", "curve point easing");
+		eq(byId.e.inputs.expr, "sin(t * 0.1)", "expr string");
+		eq(byId.b.inputs.bind, "health", "bind kind");
+		eq(byId.b.inputs.fallback, 0.5, "bind fallback");
+		eq(byId.s.inputs.case_1, 20, "switch case_1");
+		eq(byId.n.inputs.scale, 2, "noise scale");
+	});
+
+	test("(i) Tab.connect builds the exact wire objects the UI records", function () {
+		var tab = new VFXIR.Tab("wires", "blur");
+		var nodeEdge = tab.connect("a", "b", "input");
+		var paramEdge = tab.connect("a", "radius");
+		eq(JSON.stringify(nodeEdge), JSON.stringify({ from: "a", to: "b", input: "input" }), "node edge");
+		eq(JSON.stringify(paramEdge), JSON.stringify({ from: "a", to: "radius" }), "param edge has no input");
+	});
+
 	return results;
 };
 /* SELFTEST:END */
