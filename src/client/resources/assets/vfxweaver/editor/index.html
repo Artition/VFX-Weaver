@@ -48,7 +48,15 @@
 	loadCss(ASSET_ROOT + "editor.css" + q);
 	document.addEventListener("DOMContentLoaded", function () {
 		loadJs(ASSET_ROOT + "litegraph.js" + q, function () {
-			loadJs(ASSET_ROOT + "app.js" + q);
+			// app.js owns window.VFXEditor; ir.js/compiler.js/inspector.js load after it and
+			// merge onto it (VFXEditor.ir / .compiler / .inspector) instead of being clobbered.
+			loadJs(ASSET_ROOT + "app.js" + q, function () {
+				loadJs(ASSET_ROOT + "ir.js" + q, function () {
+					loadJs(ASSET_ROOT + "compiler.js" + q, function () {
+						loadJs(ASSET_ROOT + "inspector.js" + q);
+					});
+				});
+			});
 		});
 	});
 })();
@@ -71,6 +79,7 @@
 	<section id="vfx-canvas-wrap">
 		<canvas id="vfx-canvas"></canvas>
 	</section>
+	<aside id="vfx-inspector" aria-label="Inspector"></aside>
 </main>
 </body>
 </html>

@@ -41,7 +41,8 @@
 		types: document.getElementById("vfx-types"),
 		filter: document.getElementById("vfx-filter"),
 		canvas: document.getElementById("vfx-canvas"),
-		wrap: document.getElementById("vfx-canvas-wrap")
+		wrap: document.getElementById("vfx-canvas-wrap"),
+		inspector: document.getElementById("vfx-inspector")
 	};
 
 	function showBanner(message) {
@@ -143,7 +144,14 @@
 
 	function newTab(name, type) {
 		var graph = newGraph();
-		var tab = { name: name || "untitled", type: null, graph: graph, root: null };
+		// The IR `Tab` (Task 13) carries params/keys/valueNodes/edges; fall back to an
+		// equivalent plain object when ir.js has not loaded (e.g. a broken asset chain).
+		var tab = window.VFXIR
+				? new window.VFXIR.Tab(name, type)
+				: { name: name || "untitled", type: null, duration: 40, easing: "linear",
+					params: {}, valueNodes: [], edges: [], keys: {} };
+		tab.graph = graph;
+		tab.root = null;
 		project.tabs.push(tab);
 		project.active = project.tabs.length - 1;
 		if (type) {
@@ -180,6 +188,7 @@
 		}
 		renderTabs();
 		status(tab.type ? tab.name : tab.name + " — choose an effect type");
+		renderInspector();
 	}
 
 	function closeTab(index) {
@@ -195,6 +204,7 @@
 			}
 			renderTabs();
 			status("Choose an effect type to start");
+			renderInspector();
 			return;
 		}
 		if (wasActive) {
@@ -271,6 +281,7 @@
 			tab.name = typeName;
 			renderTabs();
 			status(tab.name);
+			renderInspector();
 			return;
 		}
 		newTab(typeName, typeName);
@@ -283,6 +294,119 @@
 			var match = items[i].dataset.type.toLowerCase().indexOf(query) >= 0;
 			items[i].style.display = match ? "" : "none";
 		}
+	}
+
+	/* ------------------------------------------------------------------ */
+	/* Inspector                                                           */
+	/* ------------------------------------------------------------------ */
+
+	/** The param shown in the inspector, by name; reset when it is not on the active tab. */
+	var inspectorName = null;
+
+	/** The undo/redo stack (ir.js `CommandStack`); created lazily once ir.js has loaded. */
+	var stack = null;
+
+	function commandStack() {
+		if (!stack && window.VFXIR) {
+			stack = new window.VFXIR.CommandStack();
+		}
+		return stack;
+	}
+
+	function inspectorMessage(text) {
+		var p = document.createElement("p");
+		p.className = "vfx-inspect-empty";
+		p.textContent = text;
+		return p;
+	}
+
+	/** A deep JSON snapshot of a spec, so an undo command holds a value, not a live reference. */
+	function snapshot(value) {
+		return value == null ? null : JSON.parse(JSON.stringify(value));
+	}
+
+	/**
+	 * The inspector edit hook: the inspector has already mutated `tab.params[name]`; record an
+	 * undoable command around the new value and surface the form in the status line. Live sync
+	 * (set_param / /compile) is Task 15/16's job.
+	 */
+	function onInspectorEdit(name, spec, previous) {
+		var tab = activeTab();
+		if (!tab) {
+			return;
+		}
+		status("param " + name + " → " + (spec && spec.control ? spec.control : "constant"));
+		var next = snapshot(spec);
+		var before = snapshot(previous);
+		var commands = commandStack();
+		if (!commands) {
+			return;
+		}
+		commands["do"]({
+			"do": function () {
+				if (next == null) {
+					delete tab.params[name];
+				} else {
+					tab.params[name] = next;
+				}
+			},
+			undo: function () {
+				if (before == null) {
+					delete tab.params[name];
+				} else {
+					tab.params[name] = before;
+				}
+			}
+		});
+	}
+
+	/** Rebuild the inspector panel for the active tab: a param list plus the selected control. */
+	function renderInspector() {
+		if (!dom.inspector) {
+			return;
+		}
+		dom.inspector.textContent = "";
+		if (!window.VFXInspector) {
+			return;
+		}
+		var tab = activeTab();
+		var descriptor = tab && tab.type ? schema[tab.type] : null;
+		if (!descriptor || !descriptor.params || descriptor.params.length === 0) {
+			dom.inspector.appendChild(inspectorMessage(
+					!tab ? "No active tab" : (tab.type ? "No editable parameters" : "Choose an effect type")));
+			return;
+		}
+		var params = descriptor.params;
+		var current = null;
+		for (var i = 0; i < params.length; i++) {
+			if (params[i].name === inspectorName) {
+				current = params[i];
+				break;
+			}
+		}
+		if (!current) {
+			current = params[0];
+			inspectorName = current.name;
+		}
+		var heading = document.createElement("h2");
+		heading.textContent = "Inspector";
+		dom.inspector.appendChild(heading);
+
+		var chooser = document.createElement("div");
+		chooser.className = "vfx-params";
+		params.forEach(function (param) {
+			var item = document.createElement("button");
+			item.type = "button";
+			item.className = "vfx-param" + (param.name === inspectorName ? " active" : "");
+			item.textContent = param.name;
+			item.addEventListener("click", function () {
+				inspectorName = param.name;
+				renderInspector();
+			});
+			chooser.appendChild(item);
+		});
+		dom.inspector.appendChild(chooser);
+		dom.inspector.appendChild(window.VFXInspector.render(tab, current, onInspectorEdit));
 	}
 
 	/* ------------------------------------------------------------------ */
@@ -332,6 +456,7 @@
 		project: project,
 		openPack: openPack,
 		newTab: newTab,
+		renderInspector: renderInspector,
 		schema: schema,
 		token: token,
 		url: url,
@@ -342,6 +467,12 @@
 		get: function () {
 			var tab = activeTab();
 			return tab ? tab.graph : null;
+		}
+	});
+	Object.defineProperty(VFXEditor, "stack", {
+		enumerable: true,
+		get: function () {
+			return commandStack();
 		}
 	});
 	window.VFXEditor = VFXEditor;
@@ -375,6 +506,18 @@
 		scene = new LiteGraph.LGraphCanvas(dom.canvas, new LiteGraph.LGraph());
 		window.addEventListener("resize", resizeCanvas);
 
+		// Selecting an effect node shows its params in the inspector (param name defaults to the first).
+		scene.onNodeSelected = function (node) {
+			var tab = activeTab();
+			if (node && node.properties && node.properties.effectType && tab && node === tab.root) {
+				var descriptor = schema[tab.type];
+				if (descriptor && descriptor.params && descriptor.params.length) {
+					inspectorName = descriptor.params[0].name;
+				}
+				renderInspector();
+			}
+		};
+
 		dom.newTab.addEventListener("click", function () {
 			newTab("untitled", null);
 		});
@@ -396,6 +539,7 @@
 					registerNodeTypes();
 					buildPalette();
 					status("Loaded " + Object.keys(schema).length + " effect types");
+					renderInspector();
 				})
 				.catch(function (error) {
 					showBanner("Could not load /schema from the game bridge: " + error.message);
