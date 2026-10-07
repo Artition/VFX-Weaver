@@ -1,0 +1,42 @@
+LiteGraph.js — vendored dependency
+==================================
+
+Package:  litegraph.js
+Version:  0.7.18 (pinned; npm package version; the build's internal
+          LiteGraph.VERSION constant is 0.4)
+Author:   Javi Agenjo (jagenjo)
+Project:  https://github.com/jagenjo/litegraph.js
+Source:   https://cdn.jsdelivr.net/npm/litegraph.js@0.7.18/build/litegraph.js
+          https://cdn.jsdelivr.net/npm/litegraph.js@0.7.18/css/litegraph.css
+License:  MIT
+
+Vendored files (kept byte-for-byte identical to the pinned source):
+  litegraph.js   sha256 A53F4A5BFB85520CE11A652C4E883757F477CC62873C1438E0ADE330106A24E4
+  litegraph.css  sha256 565CEE8D54E7DFD16295F0EC7B19F910A739C0F42D5263198E3416A38A6006B3
+
+These files are static assets served straight from the mod jar; there is no
+build step and no npm dependency. Do not edit them by hand — to upgrade,
+re-download a pinned version and update the hashes above.
+
+--------------------------------------------------------------------------
+MIT License (https://github.com/jagenjo/litegraph.js/blob/master/LICENSE)
+
+Copyright (C) 2013 by Javi Agenjo
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.

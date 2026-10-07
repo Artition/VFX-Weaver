@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VFXweaver Editor</title>
+<!--
+  Every request (static assets included) is gated on the bridge token, which is
+  passed on the page URL (`/?token=...`). Static link/script tags cannot send it,
+  so this small bootstrap reads the token and injects the asset tags with the
+  token appended. Nothing else lives here.
+-->
+<script>
+(function () {
+	"use strict";
+	var token = "";
+	try {
+		var m = /[?&]token=([^&]+)/.exec(location.search);
+		token = m ? decodeURIComponent(m[1]) : "";
+	} catch (e) {
+		token = "";
+	}
+	window.VFX_TOKEN = token;
+	var q = token ? "?token=" + encodeURIComponent(token) : "";
+
+	function loadCss(href) {
+		var link = document.createElement("link");
+		link.rel = "stylesheet";
+		link.href = href;
+		document.head.appendChild(link);
+	}
+
+	function loadJs(src, done) {
+		var script = document.createElement("script");
+		script.src = src;
+		// app.js must run after litegraph.js, and the "unsupported browser" banner
+		// must still run if litegraph.js failed, so both onload and onerror chain.
+		script.onload = done;
+		script.onerror = done;
+		document.body.appendChild(script);
+	}
+
+	loadCss("litegraph.css" + q);
+	loadCss("editor.css" + q);
+	document.addEventListener("DOMContentLoaded", function () {
+		loadJs("litegraph.js" + q, function () {
+			loadJs("app.js" + q);
+		});
+	});
+})();
+</script>
+</head>
+<body>
+<div id="vfx-banner" role="alert" hidden></div>
+<header id="vfx-topbar">
+	<span id="vfx-title">VFXweaver Editor</span>
+	<nav id="vfx-tabs" aria-label="Effect tabs"></nav>
+	<button id="vfx-new-tab" type="button" title="New effect tab">+</button>
+	<span id="vfx-status" aria-live="polite"></span>
+</header>
+<main id="vfx-main">
+	<aside id="vfx-palette" aria-label="Schema palette">
+		<h2>Effects</h2>
+		<input id="vfx-filter" type="search" placeholder="Filter effects..." aria-label="Filter effects">
+		<div id="vfx-types"></div>
+	</aside>
+	<section id="vfx-canvas-wrap">
+		<canvas id="vfx-canvas"></canvas>
+	</section>
+</main>
+</body>
+</html>

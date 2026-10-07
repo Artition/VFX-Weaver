@@ -1,2 +1,8 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+
+# Vendored LiteGraph build: keep the bytes exactly as pinned (its sha256 is
+# recorded in assets/vfxweaver/editor/LICENSE-litegraph.txt), so no EOL rewrite.
+src/client/resources/assets/vfxweaver/editor/litegraph.js -text
+src/client/resources/assets/vfxweaver/editor/litegraph.css -text
+
