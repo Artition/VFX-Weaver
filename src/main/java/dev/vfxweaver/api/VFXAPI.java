@@ -190,12 +190,14 @@ public final class VFXAPI {
 	}
 
 	/**
-	 * Re-plays a live effect locally at a tick offset into its timeline (a seek), using the effect's
-	 * definition default duration and its default parameters. Returns {@code false} when running
+	 * Starts a new local instance of the effect at a tick offset into its timeline - the local
+	 * no-packet equivalent of playing a definition with an initial offset, using the effect's
+	 * definition default duration and its default parameters. It does <b>not</b> stop or re-anchor an
+	 * already-running instance: each call starts another one. Returns {@code false} when running
 	 * without a client (e.g. on a dedicated server).
 	 *
 	 * @param effectId     effect id (built-in or datapack-defined)
-	 * @param elapsedTicks how far into the timeline to seek, in ticks
+	 * @param elapsedTicks how far into the timeline the new instance starts, in ticks
 	 * @return {@code true} when the request was accepted
 	 */
 	public static boolean seekEffect(final Identifier effectId, final int elapsedTicks) {

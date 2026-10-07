@@ -122,7 +122,7 @@ public class VFXClient {
 		return 1;
 	}
 
-	/** Sends a client chat message and logs it at INFO. */
+	/** Sends a client chat message and logs it at INFO (any bridge token is stripped from the log). */
 	private static void message(final String text) {
 		final Minecraft minecraft = Minecraft.getInstance();
 		if (minecraft.player != null) {
@@ -132,7 +132,12 @@ public class VFXClient {
 			minecraft.player.sendSystemMessage(Component.literal(text));
 			//?}
 		}
-		LOGGER.info(text);
+		LOGGER.info(redactToken(text));
+	}
+
+	/** Replaces a {@code token=...} query value with {@code ***}, so the bridge secret never reaches the log. */
+	private static String redactToken(final String text) {
+		return text.replaceAll("([?&]token=)[^&\\s]+", "$1***");
 	}
 
 	/**

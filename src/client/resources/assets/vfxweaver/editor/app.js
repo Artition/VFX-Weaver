@@ -128,7 +128,7 @@
 
 	/** Register one `vfx/effect/<name>` node type per schema effect type. */
 	function registerNodeTypes() {
-		var names = Object.keys(schema).sort();
+		var names = paletteTypes();
 		for (var i = 0; i < names.length; i++) {
 			var typeName = names[i];
 			var registered = "vfx/effect/" + typeName;
@@ -137,6 +137,17 @@
 			}
 			LiteGraph.registerNodeType(registered, makeEffectNode(typeName, schema[typeName]));
 		}
+	}
+
+	/**
+	 * The effect types the v1 palette offers, sorted. `COLLECTION` plays an `effects[]` list and has no
+	 * editable canvas yet (design §13.3), so it is not a v1 type and must not present as a working one
+	 * (a collection compile produces no play instance and would be reported as `game_rejected`).
+	 */
+	function paletteTypes() {
+		return Object.keys(schema).filter(function (name) {
+			return name !== "COLLECTION";
+		}).sort();
 	}
 
 	/* ------------------------------------------------------------------ */
@@ -277,7 +288,7 @@
 
 	function buildPalette() {
 		dom.types.textContent = "";
-		Object.keys(schema).sort().forEach(function (typeName) {
+		paletteTypes().forEach(function (typeName) {
 			var item = document.createElement("button");
 			item.type = "button";
 			item.className = "vfx-type";
@@ -338,12 +349,18 @@
 	/**
 	 * A full re-sync after the model moved under an undo/redo (Task 16, design §6.2): the command has
 	 * already applied the model snapshot, so we push the whole definition with a full `/compile` —
-	 * never an incremental game undo.
+	 * never an incremental game undo. The command carries the tab it edited, so the recompile targets
+	 * that tab even when it is not the active one; the inspector/timeline are only rebuilt for the
+	 * active tab (they render whichever tab is selected).
+	 *
+	 * @param {Object} [command] the undo/redo command that just applied, carrying `tab`
 	 */
-	function afterHistory() {
-		renderInspector();
-		renderTimeline();
-		var tab = activeTab();
+	function afterHistory(command) {
+		var tab = (command && command.tab) || activeTab();
+		if (tab === activeTab()) {
+			renderInspector();
+			renderTimeline();
+		}
 		if (tab && tab.type && window.VFXTimeline && typeof window.VFXTimeline.structural === "function") {
 			status("history → recompile " + tab.name);
 			window.VFXTimeline.structural(tab);
@@ -366,14 +383,14 @@
 		commands.undo = function () {
 			var applied = undo.call(this);
 			if (applied) {
-				afterHistory();
+				afterHistory(applied);
 			}
 			return applied;
 		};
 		commands.redo = function () {
 			var applied = redo.call(this);
 			if (applied) {
-				afterHistory();
+				afterHistory(applied);
 			}
 			return applied;
 		};
@@ -408,6 +425,7 @@
 		var commands = commandStack();
 		if (commands) {
 			commands["do"]({
+				tab: tab,
 				"do": function () {
 					if (next == null) {
 						delete tab.params[name];
@@ -545,6 +563,10 @@
 		if (!tab || !def || typeof def !== "object") {
 			return;
 		}
+		// Keep the full parsed definition, so `compileTab` can re-emit it and let every top-level field
+		// the IR does not model (loop, persistent, fade_ticks, sound, positions, mask, field, subgraphs,
+		// ...) round-trip unchanged instead of being silently dropped on re-export.
+		tab.source = snapshot(def);
 		if (def.duration != null) {
 			tab.duration = num(def.duration, tab.duration);
 		}
@@ -562,7 +584,11 @@
 					}
 					return out;
 				});
+				// Keep any `multiply` bound spec on the keyframed param, or a round-trip would drop it.
 				tab.params[name] = { control: "keyframes" };
+				if (raw.multiply) {
+					tab.params[name].multiply = raw.multiply;
+				}
 			} else {
 				tab.params[name] = raw;
 			}
@@ -622,7 +648,7 @@
 			tabs: project.tabs.filter(function (tab) {
 				return tab.type;
 			}).map(function (tab) {
-				var entry = { name: effectName(tab) };
+				var entry = { name: safeName(effectName(tab)) };
 				if (tab.root && Array.isArray(tab.root.pos)) {
 					entry.root = [num(tab.root.pos[0]), num(tab.root.pos[1])];
 				}
@@ -660,7 +686,7 @@
 			}
 		});
 		tabs.forEach(function (tab) {
-			var entry = byName[effectName(tab)];
+			var entry = byName[safeName(effectName(tab))];
 			if (!entry) {
 				return;
 			}

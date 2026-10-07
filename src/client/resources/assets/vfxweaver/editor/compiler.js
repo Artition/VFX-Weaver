@@ -26,6 +26,11 @@
 		return fallback == null ? 0 : fallback;
 	}
 
+	/** A deep copy of plain JSON data, so an emitted definition never aliases the tab's source. */
+	function clone(value) {
+		return value == null ? value : JSON.parse(JSON.stringify(value));
+	}
+
 	/** Copy a keyframe list into the datapack shape, dropping editor-only fields. */
 	function copyKeys(list) {
 		var out = [];
@@ -155,12 +160,14 @@
 		if (!tab || typeof tab !== "object") {
 			throw new Error("compileTab: a tab is required");
 		}
-		var def = {
-			type: tab.type == null ? "" : String(tab.type),
-			duration: num(tab.duration, 40),
-			easing: tab.easing == null ? "linear" : tab.easing,
-			params: {}
-		};
+		// Start from the imported definition (when the tab came from a pack) so unknown/unsupported
+		// top-level fields (loop, persistent, fade_ticks, sound, positions, mask, field, subgraphs, ...)
+		// round-trip unchanged. Only the fields this IR owns are overwritten.
+		var def = clone(tab.source) || {};
+		def.type = tab.type == null ? "" : String(tab.type);
+		def.duration = num(tab.duration, 40);
+		def.easing = tab.easing == null ? "linear" : tab.easing;
+		def.params = {};
 		var source = tab.params || {};
 		Object.keys(source).forEach(function (name) {
 			def.params[name] = compileParam(name, source[name], tab.keys || {});
@@ -169,13 +176,28 @@
 		var nodes = Array.isArray(tab.valueNodes) ? tab.valueNodes : [];
 		if (nodes.length > 0) {
 			var built = compileGraph(tab);
-			def.graph = { version: 1, nodes: built.nodes, edges: built.edges };
-			if (Object.keys(built.meta).length > 0) {
-				def.graph.meta = built.meta;
+			// Reuse the imported graph object so unknown graph-level fields are kept; the IR owns
+			// nodes/edges/meta (and supplies the version a fresh graph needs).
+			var graph = def.graph && typeof def.graph === "object" && !Array.isArray(def.graph) ? def.graph : {};
+			if (graph.version == null) {
+				graph.version = 1;
 			}
+			graph.nodes = built.nodes;
+			graph.edges = built.edges;
+			if (Object.keys(built.meta).length > 0) {
+				graph.meta = built.meta;
+			} else {
+				delete graph.meta;
+			}
+			def.graph = graph;
 			if (Object.keys(built.inputs).length > 0) {
 				def.inputs = built.inputs;
+			} else {
+				delete def.inputs;
 			}
+		} else {
+			delete def.graph;
+			delete def.inputs;
 		}
 		return JSON.stringify(def, null, "\t");
 	}

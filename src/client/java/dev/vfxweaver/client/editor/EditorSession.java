@@ -2,6 +2,7 @@ package dev.vfxweaver.client.editor;
 
 import com.google.gson.JsonParser;
 import com.google.gson.JsonSyntaxException;
+import java.util.concurrent.atomic.AtomicLong;
 import org.jspecify.annotations.Nullable;
 
 /**
@@ -20,7 +21,7 @@ public final class EditorSession {
 	private static final String TRANSPORT_PLAY = "play";
 
 	private final EditorGame game;
-	private long revision;
+	private final AtomicLong revision = new AtomicLong();
 
 	/**
 	 * @param game the game-side bridge all requests are forwarded to
@@ -33,7 +34,7 @@ public final class EditorSession {
 	 * @return the current revision, {@code 0} until the first successful compile
 	 */
 	public long revision() {
-		return this.revision;
+		return this.revision.get();
 	}
 
 	/**
@@ -63,16 +64,16 @@ public final class EditorSession {
 		try {
 			JsonParser.parseString(json);
 		} catch (final JsonSyntaxException | NullPointerException e) {
-			return new EditorResult(false, this.revision, EditorResult.INVALID_JSON, e.getMessage());
+			return new EditorResult(false, this.revision.get(), EditorResult.INVALID_JSON, e.getMessage());
 		}
 		final long instanceId = this.game.applyAndPlay(effectId, json, transport);
 		if (instanceId == 0L && "play".equalsIgnoreCase(transport)) {
 			// A "stop" compile legitimately plays nothing; a "play" that produced no instance did not
 			// apply (unknown type, empty graph, ...) and must not be reported as success.
-			return new EditorResult(false, this.revision, EditorResult.GAME_REJECTED,
+			return new EditorResult(false, this.revision.get(), EditorResult.GAME_REJECTED,
 					"definition for " + effectId + " produced no play instance");
 		}
-		final long next = ++this.revision;
+		final long next = this.revision.incrementAndGet();
 		return new EditorResult(true, next, null, null);
 	}
 
@@ -86,7 +87,7 @@ public final class EditorSession {
 	 * @return the outcome; {@code stale_revision} when the revision is not current
 	 */
 	public EditorResult setParam(final String effectId, final String name, final float value, final long revision) {
-		if (revision != this.revision) {
+		if (revision != this.revision.get()) {
 			return stale(revision);
 		}
 		final boolean ok = this.game.setParam(effectId, name, value);
@@ -104,7 +105,7 @@ public final class EditorSession {
 	 * @return the outcome; {@code stale_revision} when the revision is not current
 	 */
 	public EditorResult setKeyframe(final String effectId, final String name, final int time, final float value, final long revision) {
-		if (revision != this.revision) {
+		if (revision != this.revision.get()) {
 			return stale(revision);
 		}
 		final boolean ok = this.game.setKeyframe(effectId, name, time, value);
@@ -119,9 +120,9 @@ public final class EditorSession {
 	 */
 	public EditorResult stop(final String effectId) {
 		if (this.game.stop(effectId)) {
-			return new EditorResult(true, this.revision, null, null);
+			return new EditorResult(true, this.revision.get(), null, null);
 		}
-		return new EditorResult(false, this.revision, EditorResult.UNKNOWN_EFFECT,
+		return new EditorResult(false, this.revision.get(), EditorResult.UNKNOWN_EFFECT,
 				"no playing effect " + effectId);
 	}
 
@@ -135,21 +136,21 @@ public final class EditorSession {
 	 */
 	public EditorResult seek(final String effectId, final int elapsedTicks) {
 		if (this.game.seek(effectId, elapsedTicks)) {
-			return new EditorResult(true, this.revision, null, null);
+			return new EditorResult(true, this.revision.get(), null, null);
 		}
-		return new EditorResult(false, this.revision, EditorResult.UNKNOWN_EFFECT,
+		return new EditorResult(false, this.revision.get(), EditorResult.UNKNOWN_EFFECT,
 				"no live effect " + effectId);
 	}
 
 	private EditorResult stale(final long revision) {
-		return new EditorResult(false, this.revision, EditorResult.STALE_REVISION,
-				"expected revision " + this.revision + ", got " + revision);
+		return new EditorResult(false, this.revision.get(), EditorResult.STALE_REVISION,
+				"expected revision " + this.revision.get() + ", got " + revision);
 	}
 
 	private EditorResult result(final boolean ok, final String action) {
 		if (ok) {
-			return new EditorResult(true, this.revision, null, null);
+			return new EditorResult(true, this.revision.get(), null, null);
 		}
-		return new EditorResult(false, this.revision, EditorResult.GAME_REJECTED, action + " rejected by the game");
+		return new EditorResult(false, this.revision.get(), EditorResult.GAME_REJECTED, action + " rejected by the game");
 	}
 }

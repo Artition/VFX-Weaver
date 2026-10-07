@@ -412,7 +412,12 @@
 				if (!tab.keys[param.name]) {
 					tab.keys[param.name] = seedKeys();
 				}
-				tab.params[param.name] = { control: "keyframes" };
+				// Carry any bound `multiply` on the keyframed param, or a re-export would drop it.
+				var keySpec = { control: "keyframes" };
+				if (spec.multiply) {
+					keySpec.multiply = spec.multiply;
+				}
+				tab.params[param.name] = keySpec;
 			} else {
 				tab.params[param.name] = clone(spec);
 			}
@@ -512,7 +517,15 @@
 					commit();
 				});
 				var remove = el("button", { type: "button", class: "vfx-key-remove", text: "x", title: "Remove keyframe" });
+				// The game's AnimatedValue requires at least two keys, so the last two may never be dropped.
+				if (list.length <= 2) {
+					remove.disabled = true;
+					remove.title = "A keyframed param needs at least two keys";
+				}
 				remove.addEventListener("click", function () {
+					if (list.length <= 2) {
+						return;
+					}
 					list.splice(index, 1);
 					commit();
 					refresh();
