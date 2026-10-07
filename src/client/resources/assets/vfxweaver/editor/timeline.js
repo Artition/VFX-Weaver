@@ -201,6 +201,10 @@
 			body: JSON.stringify(body)
 		}).then(function (response) {
 			return response.json();
+		}).catch(function (error) {
+			// A dropped connection or a non-JSON body must be visible, not an unhandled rejection.
+			surface("bridge: " + (error && error.message ? error.message : error));
+			return null;
 		});
 	}
 
@@ -273,7 +277,8 @@
 	/** Play: compile with `transport:"play"` (registers + plays), then run the local clock. */
 	function play(tab) {
 		return compile(tab, "play").then(function (result) {
-			if (result && result.ok) {
+			// Success carries a revision; `ok` is absent on some bridge replies, so test `!== false`.
+			if (result && result.ok !== false) {
 				startClock(tab, 0);
 			}
 			return result;
@@ -295,7 +300,7 @@
 	/** Seek: move the local playhead immediately and send a debounced `/transport seek`. */
 	function seek(tab, ticks) {
 		var target = Math.max(0, Number(ticks) || 0);
-		if (target === null || !tab) {
+		if (!tab) {
 			return;
 		}
 		if (clock.playing) {
@@ -327,9 +332,10 @@
 		if (!tab || !name || !key) {
 			return;
 		}
-		var body = setKeyframeBody(tab, name, key.time, key.value);
 		debounce("key:" + effectId(tab) + ":" + name, function () {
-			post("/set_keyframe", body).then(function (result) {
+			// Build the body (and read `revision`) at send time, so a compile landing inside the
+			// debounce window cannot make this keyframe stale.
+			post("/set_keyframe", setKeyframeBody(tab, name, key.time, key.value)).then(function (result) {
 				return handleResult(result, tab, true);
 			});
 		});
