@@ -246,11 +246,33 @@
 		return this.states[this.index];
 	};
 
+	/** Whether `value` is a real, finite number (not a numeric string, not NaN/Infinity). */
+	function isFiniteNumber(value) {
+		return typeof value === "number" && isFinite(value);
+	}
+
+	/**
+	 * Parse a strict decimal number (optional sign, fraction, exponent) from user text.
+	 *
+	 * @param {*} text the text to parse
+	 * @returns {number|null} the number, or null when the text is not one (never evaluates code)
+	 */
+	function parseNumber(text) {
+		var trimmed = String(text == null ? "" : text).trim();
+		if (!/^[-+]?(\d+\.?\d*|\.\d+)([eE][-+]?\d+)?$/.test(trimmed)) {
+			return null;
+		}
+		var n = Number(trimmed);
+		return isFinite(n) ? n : null;
+	}
+
 	var api = {
 		Project: Project,
 		Tab: Tab,
 		ParamSpec: ParamSpec,
-		SnapshotHistory: SnapshotHistory
+		SnapshotHistory: SnapshotHistory,
+		isFiniteNumber: isFiniteNumber,
+		parseNumber: parseNumber
 	};
 
 	root.VFXIR = api;

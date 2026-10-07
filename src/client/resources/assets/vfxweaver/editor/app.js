@@ -294,6 +294,7 @@
 			renderTabs();
 			renderTimeline();
 		}
+		commitHistory();
 	}
 
 	function renderTabs() {
@@ -500,6 +501,26 @@
 
 	function isRef(value) {
 		return value != null && typeof value === "object" && value.from != null;
+	}
+
+	/** Whether `value` is a real, finite number (delegates to the IR helper when available). */
+	function isFiniteNumber(value) {
+		return window.VFXIR && typeof window.VFXIR.isFiniteNumber === "function"
+				? window.VFXIR.isFiniteNumber(value)
+				: (typeof value === "number" && isFinite(value));
+	}
+
+	/** Parse a strict decimal number from user text, or null (delegates to the IR helper). */
+	function parseNumber(text) {
+		if (window.VFXIR && typeof window.VFXIR.parseNumber === "function") {
+			return window.VFXIR.parseNumber(text);
+		}
+		var trimmed = String(text == null ? "" : text).trim();
+		if (!/^[-+]?(\d+\.?\d*|\.\d+)([eE][-+]?\d+)?$/.test(trimmed)) {
+			return null;
+		}
+		var n = Number(trimmed);
+		return isFinite(n) ? n : null;
 	}
 
 	/** A per-node numeric input: a socket that also carries a literal widget value. */
@@ -1962,8 +1983,8 @@
 			renderTimeline();
 			showEmptyPlaceholder();
 			commitHistory();
-			if (window.VFXTimeline && tab.type) {
-				window.VFXTimeline.structural(tab);
+			if (tab.type) {
+				requestStructural(tab);
 			}
 		}
 	}
@@ -2049,8 +2070,8 @@
 		}
 		refreshFromCanvas(tab);
 		commitHistory();
-		if (window.VFXTimeline && tab.type) {
-			window.VFXTimeline.structural(tab);
+		if (tab.type) {
+			requestStructural(tab);
 		}
 	}
 
@@ -2227,7 +2248,22 @@
 		}
 		commitHistory();
 		renderTimeline();
-		window.VFXTimeline.structural(tab);
+		requestStructural(tab);
+	}
+
+	/**
+	 * Ask for a structural recompile (revision++ + replay). Prefers the timeline's debounced
+	 * `structural`; falls back to the bridge's full `/compile` so a hotkey never throws when the
+	 * timeline module is absent.
+	 *
+	 * @param {Object} tab the tab that changed
+	 */
+	function requestStructural(tab) {
+		if (window.VFXTimeline && typeof window.VFXTimeline.structural === "function") {
+			window.VFXTimeline.structural(tab);
+		} else if (window.VFXBridge && typeof window.VFXBridge.fullCompile === "function") {
+			window.VFXBridge.fullCompile();
+		}
 	}
 
 	/** Switch to the previous/next tab, wrapping ([/]). */
@@ -2256,8 +2292,10 @@
 		var spaceDown = false;
 		var spaceDragged = false;
 
-		document.addEventListener("mousemove", function () {
-			if (spaceDown) {
+		// A Space+drag pan counts as a drag only when the primary mouse button is actually held; a
+		// tap with a pixel of pointer drift must still toggle the transport.
+		document.addEventListener("mousemove", function (event) {
+			if (spaceDown && (event.buttons & 1)) {
 				spaceDragged = true;
 			}
 		});
@@ -2383,16 +2421,10 @@
 			input.removeEventListener("keydown", onKey);
 			input.removeEventListener("blur", done);
 			if (commit) {
-				var raw = input.value;
-				if (/^[0-9+\-*/()\s]+|\d+\.\d+$/.test(raw)) {
-					try {
-						raw = eval(raw);
-					} catch (e) {
-						// keep the raw text; Number() below decides
-					}
-				}
-				var n = Number(raw);
-				if (callback && isFinite(n)) {
+				// A strict decimal number only; no eval of the field's text (the stock LiteGraph
+				// prompt evaluated it, which is an injection sink).
+				var n = parseNumber(input.value);
+				if (callback && n != null) {
 					callback(n);
 				}
 			}

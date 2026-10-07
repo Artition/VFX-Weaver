@@ -218,6 +218,23 @@ window.__vfxSelftest = function () {
 		eq(JSON.stringify(paramEdge), JSON.stringify({ from: "a", to: "radius" }), "param edge has no input");
 	});
 
+	test("(j) isFiniteNumber / parseNumber pins the hotkey default-value + inline-edit checks", function () {
+		// The `K` default-value check: a descriptor default must be a real number.
+		ok(VFXIR.isFiniteNumber(4), "a finite number passes");
+		ok(!VFXIR.isFiniteNumber("4"), "a numeric string does not");
+		ok(!VFXIR.isFiniteNumber(NaN), "NaN does not");
+		ok(!VFXIR.isFiniteNumber(Infinity), "Infinity does not");
+		ok(!VFXIR.isFiniteNumber(null), "null does not");
+		ok(!VFXIR.isFiniteNumber(undefined), "undefined does not");
+		// The inline-edit parser accepts a strict decimal only (never evaluates code).
+		eq(VFXIR.parseNumber(" 2.5 "), 2.5, "decimal with padding");
+		eq(VFXIR.parseNumber("-3"), -3, "negative integer");
+		eq(VFXIR.parseNumber("1e2"), 100, "exponent");
+		eq(VFXIR.parseNumber("alert(1)"), null, "code-ish text rejected");
+		eq(VFXIR.parseNumber("1+2"), null, "arithmetic rejected (no eval)");
+		eq(VFXIR.parseNumber(""), null, "empty rejected");
+	});
+
 	return results;
 };
 /* SELFTEST:END */

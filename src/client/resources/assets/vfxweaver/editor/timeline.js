@@ -647,12 +647,17 @@
 
 	/** Red-flag a value outside the descriptor's min/max with an explanatory tooltip (§15.4). */
 	function markOutOfRange(dot, descriptor, value) {
+		if (dot.__baseTitle == null) {
+			dot.__baseTitle = dot.title;
+		}
 		var out = descriptor && ((isFiniteNumber(descriptor.min) && value < descriptor.min)
 				|| (isFiniteNumber(descriptor.max) && value > descriptor.max));
 		dot.classList.toggle("vfx-tl-out", Boolean(out));
 		if (out) {
 			dot.title = "value " + value + " is outside the schema range ["
 					+ descriptor.min + ", " + descriptor.max + "]";
+		} else {
+			dot.title = dot.__baseTitle || "";
 		}
 	}
 
@@ -752,7 +757,8 @@
 	function ruler(tab, pxPerTick) {
 		var bar = el("div", { class: "vfx-tl-ruler" });
 		var total = duration(tab);
-		var steps = [1, 2, 5, 10, 20, 50, 100, 200, 500];
+		// Labelled major ticks never crowd below ~5 ticks (design §15.4); minor ticks subdivide.
+		var steps = [5, 10, 20, 50, 100, 200, 500];
 		var step = steps[steps.length - 1];
 		for (var i = 0; i < steps.length; i++) {
 			if (steps[i] * pxPerTick >= 60) {
@@ -956,6 +962,7 @@
 		seek: seek,
 		setParam: setParam,
 		setKeyframe: setKeyframe,
+		structural: structural,
 		effectId: effectId,
 		isPlaying: function () {
 			return clock.playing;
