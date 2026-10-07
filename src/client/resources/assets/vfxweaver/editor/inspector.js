@@ -625,9 +625,15 @@
 			}
 		});
 		// Right-click a slot (design §15.1): replace with an expr/bind node, remove the driver,
-		// key/clear the track, or toggle the multiplier.
+		// key/clear the track, or toggle the multiplier. A right-click inside a text field is left to
+		// the browser (the slot menu would hijack copy/paste in an expr textarea or number input).
 		rootEl.addEventListener("contextmenu", function (event) {
 			if (!slot || !root.VFXEditor || typeof root.VFXEditor.showMenu !== "function") {
+				return;
+			}
+			var target = event.target;
+			if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA"
+					|| target.tagName === "SELECT")) {
 				return;
 			}
 			event.preventDefault();
@@ -683,11 +689,19 @@
 	/** The source value node driving a param (its `driven` id), or null when it is free. */
 	function drivenSource(tab, name) {
 		var edges = tab && Array.isArray(tab.edges) ? tab.edges : [];
+		var active = tab && tab.effects && tab.effects.length > 1 ? tab.effect() : null;
+		var activeId = active ? active.id : null;
 		for (var i = 0; i < edges.length; i++) {
 			var edge = edges[i];
-			if (edge && edge.to === name && edge.input == null && edge.from != null) {
-				return edge.from;
+			if (!edge || edge.to !== name || edge.input != null || edge.from == null) {
+				continue;
 			}
+			// A chain param wire belongs to one effect node; don't show a slot driven by another
+			// node's wire (mirrors app.js `edgeOwnedByActive`).
+			if (activeId != null && edge.effect != null && edge.effect !== activeId) {
+				continue;
+			}
+			return edge.from;
 		}
 		return null;
 	}
@@ -789,6 +803,8 @@
 			if (spec && spec.value !== undefined) {
 				input.value = String(num(spec.value));
 			}
+			// A driven group has no shared literal to edit, so the collapsed value input is inert.
+			input.disabled = groupState() === "driven";
 			input.addEventListener("input", function () {
 				broadcast(num(input.value, 0));
 			});

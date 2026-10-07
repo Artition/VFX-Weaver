@@ -528,6 +528,34 @@
 	}
 
 	/**
+	 * The unit-space y change of a curve segment's tangent handle for a vertical drag, so the handle
+	 * tracks the pointer. The handle is drawn at `v0 + (v1 - v0) * bez`, and the value axis maps a
+	 * pixel to `axisSpan / innerHeight` values, so the change in `bez` is the pixel delta divided by
+	 * the segment's value span (`v1 - v0`). A zero value span has no vertical geometry, so the delta
+	 * is zero (guard `v1 === v0`). Linear in both the axis range and the pixel delta; the caller
+	 * subtracts the result (dragging up raises the drawn value).
+	 *
+	 * @param {number} pixelDelta the vertical drag in pixels (screen y grows downward)
+	 * @param {number} innerHeight the curve plot's inner pixel height
+	 * @param {number} valueSpan `v1 - v0` of the segment being edited
+	 * @param {number} axisSpan `axis.hi - axis.lo` of the value axis
+	 * @returns {number} the change to apply to the Bézier control point's y component
+	 */
+	function bezierHandleDeltaY(pixelDelta, innerHeight, valueSpan, axisSpan) {
+		var span = Number(valueSpan);
+		if (!isFinite(span) || span === 0) {
+			return 0;
+		}
+		var pixels = Number(pixelDelta);
+		var inner = Number(innerHeight);
+		var axis = Number(axisSpan);
+		if (!isFinite(pixels) || !isFinite(inner) || !isFinite(axis)) {
+			return 0;
+		}
+		return pixels / (inner || 1) * (axis / span);
+	}
+
+	/**
 	 * Normalise a datapack easing reference to the IR segment model: a name string stays a string,
 	 * `{ "cubicBezier": [x1,y1,x2,y2] }` becomes the bare four-number array (design §15.4/§15.8).
 	 *
@@ -882,16 +910,20 @@
 	/**
 	 * Re-hydrate a `collection` root into a chain of effect entries (design §15.2, P6). Each child is
 	 * resolved to its own definition through `resolve` (an effect id -> parsed definition map), so the
-	 * child's `type`, params and unknown top-level fields are carried. When a child cannot be resolved
-	 * (an external or built-in id), the id's path names the type and the entry's own `params` overrides
-	 * are used, so a hand-written collection still imports.
+	 * child's `type`, params and unknown top-level fields are carried. Each entry's own `params`
+	 * overrides the resolved child's (the engine merges entry params on top), and its `duration`/
+	 * `delay`/`easing` are read directly. When a child cannot be resolved (an external or built-in
+	 * id), the id's path names the type and the entry's own `params` overrides are used, so a
+	 * hand-written collection still imports; `external: true` and `effectId` let the compiler keep the
+	 * original reference on export instead of renaming it to a local `__n` def.
 	 *
 	 * @param {Object} def the parsed collection definition (`type:"collection"`, `effects:[...]`)
 	 * @param {Function} [resolve] `id -> child definition` lookup
 	 * @returns {Array<Object>|null} the chain entries in array order, or null when `def` is not a collection
 	 */
 	function chainFromDefinition(def, resolve) {
-		if (!def || typeof def !== "object" || !Array.isArray(def.effects)) {
+		if (!def || typeof def !== "object" || def.type !== "collection"
+				|| !Array.isArray(def.effects)) {
 			return null;
 		}
 		var out = [];
@@ -907,15 +939,27 @@
 				var colon = id.indexOf(":");
 				type = colon >= 0 ? id.substring(colon + 1) : id;
 			}
+			var params = {};
+			if (child && child.params && typeof child.params === "object") {
+				Object.keys(child.params).forEach(function (name) {
+					params[name] = child.params[name];
+				});
+			}
+			if (entry.params && typeof entry.params === "object") {
+				Object.keys(entry.params).forEach(function (name) {
+					params[name] = entry.params[name];
+				});
+			}
 			out.push({
 				type: type,
 				delay: isFiniteNumber(Number(entry.delay)) ? Number(entry.delay) : 0,
 				duration: entry.duration != null && isFiniteNumber(Number(entry.duration))
 						? Number(entry.duration) : 0,
 				easing: entry.easing == null ? null : entry.easing,
-				params: child && child.params && typeof child.params === "object" ? child.params : {},
+				params: params,
 				source: child || null,
-				effectId: id
+				effectId: id,
+				external: child == null
 			});
 		}
 		return out.length ? out : null;
@@ -941,6 +985,7 @@
 		EASING_BEZIER: EASING_BEZIER,
 		SNAP_EPSILON: SNAP_EPSILON,
 		bezierY: bezierY,
+		bezierHandleDeltaY: bezierHandleDeltaY,
 		normalizeEasing: normalizeEasing,
 		easingToBezier: easingToBezier,
 		snapEasing: snapEasing,

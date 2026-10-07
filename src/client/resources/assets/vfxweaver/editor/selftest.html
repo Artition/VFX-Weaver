@@ -596,6 +596,111 @@ window.__vfxSelftest = function () {
 				1, "a chain of one writes a single file");
 	});
 
+	test("(AF) multiply survives on a driven slot (design §15.8)", function () {
+		var tab = new VFXIR.Tab("blur", "blur");
+		tab.duration = 40;
+		tab.params.radius = { multiply: { bind: "health" } };
+		tab.valueNodes = [{ id: "e1", kind: "expr", inputs: { expr: "t*2" } }];
+		tab.edges = [{ from: "e1", to: "radius" }];
+		var def = parse(compileTab(tab));
+		eq(def.params.radius.expr, "t*2", "driver folded to expr");
+		eq(JSON.stringify(def.params.radius.multiply), JSON.stringify({ bind: "health" }),
+				"multiply carried onto the folded driven spec");
+
+		// A keyed slot with a driver: the track form keeps its multiply too.
+		var keyed = new VFXIR.Tab("blur", "blur");
+		keyed.params.radius = { multiply: { bind: "health" } };
+		keyed.addKey("radius", 0, 0);
+		keyed.addKey("radius", 20, 5);
+		var kf = parse(compileTab(keyed)).params.radius;
+		ok(Array.isArray(kf.keyframes) && kf.keyframes.length === 2, "track stays a track");
+		eq(JSON.stringify(kf.multiply), JSON.stringify({ bind: "health" }),
+				"multiply survives on a keyed slot");
+	});
+
+	test("(AG) preview has a large sentinel duration + fade 0; authored is unchanged", function () {
+		var tab = new VFXIR.Tab("blur", "blur");
+		tab.duration = 25;
+		tab.fade_ticks = 7;
+		tab.params.radius = VFXIR.ParamSpec.constant(4);
+		var authored = parse(compileTab(tab));
+		eq(authored.duration, 25, "authored duration");
+		eq(authored.fade_ticks, 7, "authored fade");
+		var preview = parse(window.VFXCompiler.compileForPreview(tab));
+		eq(preview.duration, 6000, "preview sentinel duration");
+		eq(preview.loop, true, "preview loops");
+		eq(preview.fade_ticks, 0, "preview fade 0");
+		eq(parse(compileTab(tab)).duration, 25, "authored compile is unchanged after preview");
+
+		var long = new VFXIR.Tab("blur", "blur");
+		long.duration = 9000;
+		eq(parse(window.VFXCompiler.compileForPreview(long)).duration, 9000,
+				"a duration longer than the sentinel is kept");
+	});
+
+	test("(AH) collection import keeps entry params + preserves an external id on export", function () {
+		var root = { type: "collection", duration: 40, effects: [
+			{ effect: "vfxweaver:blur", delay: 3, duration: 20, params: { radius: 5, order: 0 } }
+		] };
+		var chain = VFXIR.chainFromDefinition(root, function () { return null; });
+		eq(chain.length, 1, "one entry");
+		eq(chain[0].params.radius, 5, "entry params read (not just child.params)");
+		eq(chain[0].delay, 3, "entry delay read");
+		eq(chain[0].external, true, "unresolved child is external");
+
+		var tab = new VFXIR.Tab("show", null);
+		tab.duration = 40;
+		tab.effects = [];
+		tab.activeEffect = -1;
+		var e0 = tab.addEffect("blur");
+		e0.effectId = "vfxweaver:blur";
+		e0.external = true;
+		e0.params = { radius: { value: 5 } };
+		var e1 = tab.addEffect("pixelate");
+		e1.effectId = "vfxweaver:pixelate";
+		e1.external = true;
+		e1.params = { size: { value: 8 } };
+		var def = parse(compileTab(tab, { namespace: "ns", baseName: "show" }));
+		eq(def.type, "collection", "root is the collection");
+		eq(def.effects[0].effect, "vfxweaver:blur", "external id kept (not renamed to __0)");
+		eq(def.effects[1].effect, "vfxweaver:pixelate", "second external id kept");
+		eq(def.effects[0].params.radius, 5, "entry params emitted on the root");
+		eq(def.effects[1].params.size, 8, "second entry params emitted");
+		eq(def.effects[0].params.order, 0, "order still pinned");
+		var files = window.VFXCompiler.compileTabFiles(tab, { namespace: "ns", baseName: "show" });
+		eq(Object.keys(files).length, 1, "no local child file for an external child");
+	});
+
+	test("(AI) a collection root carries only timing + effects (no leaked single-effect fields)", function () {
+		var tab = new VFXIR.Tab("combo", "blur");
+		tab.duration = 60;
+		tab.source = {
+			type: "blur", sound: "vfxweaver:ding", mask: { pattern: "p" },
+			positions: [[0, 0, 0]], pattern: "x", surface: "y", anchor: "z",
+			particle: "flame", shape: "ring", block: "stone", item: "apple",
+			entity_selector: "@e", window: "0", screen_image: "img",
+			params: { radius: 3 }, graph: { nodes: [] }, inputs: { radius: { from: "n" } }
+		};
+		tab.addEffect("pixelate");
+		var def = parse(compileTab(tab, { namespace: "ns", baseName: "combo" }));
+		["sound", "mask", "positions", "pattern", "surface", "anchor", "particle", "shape",
+			"block", "item", "entity_selector", "window", "screen_image"].forEach(function (field) {
+			ok(!(field in def), "collection root must not leak " + field);
+		});
+		eq(def.type, "collection", "root type");
+		eq(def.duration, 60, "root duration kept");
+		eq(def.effects.length, 2, "two children");
+	});
+
+	test("(AJ) bezier tangent mapping is linear in the axis range and value span", function () {
+		var q = VFXIR.bezierHandleDeltaY;
+		eq(q(10, 200, 4, 4), 10 / 200, "unit value span = pixel/inner");
+		eq(q(10, 200, 8, 4), 10 / 200 * 0.5, "doubling the value span halves the delta");
+		eq(q(20, 200, 4, 4), 10 / 200 * 2, "doubling the pixel delta doubles the result");
+		eq(q(10, 200, 4, 8), 10 / 200 * 2, "doubling the axis range doubles the result");
+		eq(q(10, 200, 0, 4), 0, "a zero value span is guarded to zero");
+	});
+
 	return results;
 };
 /* SELFTEST:END */

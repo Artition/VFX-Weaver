@@ -393,6 +393,46 @@
 	}
 
 	/**
+	 * Compile one effect's params (design §15.1/§15.8), folding leaf drivers into the param spec and
+	 * carrying a slot's `multiply` onto the folded (driven) form. Shared by {@link compileSingle}
+	 * (which also emits the graph) and by a chain child imported from an existing definition.
+	 *
+	 * @param {Object} tab the owning tab
+	 * @param {Object|null} effect the effect entry, or null for a legacy/single tab
+	 * @param {string|null} effectId the effect id param wires are tagged with (null = legacy)
+	 * @param {boolean} multi whether the tab is a chain
+	 * @param {number} duration the effect duration in ticks (keyframe clamp, I3)
+	 * @returns {{value: Object, warnings: Array, folded: Object}} the params object plus the fold data
+	 */
+	function compileParamMap(tab, effect, effectId, multi, duration) {
+		var warnings = [];
+		var folded = foldDrivers(tab, effectId, multi);
+		var source = effect ? effect.params : tab.params;
+		source = source || {};
+		var keys = effect ? effect.keys : tab.keys;
+		keys = keys || {};
+		var params = {};
+		Object.keys(source).forEach(function (name) {
+			var raw = source[name];
+			var spec = folded.specs[name] != null ? folded.specs[name] : raw;
+			// §15.8: `multiply` layers on top of ANY form, including a driven slot whose form was
+			// folded to `{bind|expr|value}` — carry the slot's multiplier onto the folded spec.
+			var multiply = raw && typeof raw === "object" ? raw.multiply : null;
+			if (multiply && spec && typeof spec === "object" && spec.multiply == null) {
+				spec = copyExcept(spec, []);
+				spec.multiply = multiply;
+			}
+			params[name] = compileParam(name, spec, keys, duration, warnings);
+		});
+		Object.keys(folded.specs).forEach(function (name) {
+			if (!Object.prototype.hasOwnProperty.call(params, name)) {
+				params[name] = compileParam(name, folded.specs[name], keys, duration, warnings);
+			}
+		});
+		return { value: params, warnings: warnings, folded: folded };
+	}
+
+	/**
 	 * Compile one effect (a child of a chain, or the tab's only effect) into a datapack definition.
 	 *
 	 * @param {Object} tab the owning tab (timing + value graph live here)
@@ -414,22 +454,10 @@
 		if (def.easing == null) {
 			def.easing = "linear";
 		}
-		def.params = {};
-		var warnings = [];
-		var folded = foldDrivers(tab, effectId, multi);
-		var source = effect ? effect.params : tab.params;
-		source = source || {};
-		var keys = effect ? effect.keys : tab.keys;
-		keys = keys || {};
-		Object.keys(source).forEach(function (name) {
-			var spec = folded.specs[name] != null ? folded.specs[name] : source[name];
-			def.params[name] = compileParam(name, spec, keys, def.duration, warnings);
-		});
-		Object.keys(folded.specs).forEach(function (name) {
-			if (!Object.prototype.hasOwnProperty.call(def.params, name)) {
-				def.params[name] = compileParam(name, folded.specs[name], keys, def.duration, warnings);
-			}
-		});
+		var built = compileParamMap(tab, effect, effectId, multi, def.duration);
+		def.params = built.value;
+		var warnings = built.warnings;
+		var folded = built.folded;
 		lastWarnings = warnings;
 
 		var nodes = Array.isArray(tab.valueNodes) ? tab.valueNodes : [];
@@ -437,21 +465,21 @@
 			return !folded.skip[node.id];
 		});
 		if (activeNodes.length > 0) {
-			var built = compileGraph(tab, folded.skip, effectId, multi);
+			var graphBuilt = compileGraph(tab, folded.skip, effectId, multi);
 			var graph = def.graph && typeof def.graph === "object" && !Array.isArray(def.graph) ? def.graph : {};
 			if (graph.version == null) {
 				graph.version = 1;
 			}
-			graph.nodes = built.nodes;
-			graph.edges = built.edges;
-			if (Object.keys(built.meta).length > 0) {
-				graph.meta = built.meta;
+			graph.nodes = graphBuilt.nodes;
+			graph.edges = graphBuilt.edges;
+			if (Object.keys(graphBuilt.meta).length > 0) {
+				graph.meta = graphBuilt.meta;
 			} else {
 				delete graph.meta;
 			}
 			def.graph = graph;
-			if (Object.keys(built.inputs).length > 0) {
-				def.inputs = built.inputs;
+			if (Object.keys(graphBuilt.inputs).length > 0) {
+				def.inputs = graphBuilt.inputs;
 			} else {
 				delete def.inputs;
 			}
@@ -474,29 +502,41 @@
 	 * @returns {string} the collection root JSON text
 	 */
 	function compileCollection(tab, chain, options) {
-		var def = clone(tab.source) || {};
-		def.type = "collection";
-		def.duration = num(tab.duration, 40);
-		def.loop = Boolean(tab.loop);
-		def.persistent = Boolean(tab.persistent);
-		def.fade_ticks = num(tab.fade_ticks, 0);
-		def.easing = tab.easing == null ? "linear" : tab.easing;
-		delete def.params;
-		delete def.graph;
-		delete def.inputs;
+		// A chain root is ONLY the collection's own timing + `effects` (design §15.2): a `tab.source`
+		// may be a previously-imported single effect, so cloning it would leak its `sound`/`mask`/
+		// `positions`/`particle`/... onto the root (and make the collection play the old sound).
+		var def = {
+			type: "collection",
+			duration: num(tab.duration, 40),
+			loop: Boolean(tab.loop),
+			persistent: Boolean(tab.persistent),
+			fade_ticks: num(tab.fade_ticks, 0),
+			easing: tab.easing == null ? "linear" : tab.easing
+		};
+		var multi = true;
 		var namespace = namespaceOf(options);
 		var base = baseNameOf(tab, options);
 		var effects = [];
 		chain.forEach(function (effect, index) {
+			// A child imported from an existing definition id keeps that id and is NOT re-emitted as a
+			// new local `__n` def (its params are carried as overrides); a locally-authored child gets
+			// `<ns>:<base>__<index>` plus its own `<base>__<index>.json` file (compileTabFiles).
+			var external = effect.external === true && effect.effectId != null;
+			var duration = childDurationTicks(tab, effect);
 			var entry = {
-				effect: namespace + ":" + base + "__" + index,
+				effect: external ? String(effect.effectId) : namespace + ":" + base + "__" + index,
 				delay: num(effect.delay, 0),
-				duration: childDurationTicks(tab, effect)
+				duration: duration
 			};
 			if (effect.easing != null) {
 				entry.easing = effect.easing;
 			}
-			entry.params = { order: index };
+			var params = {};
+			if (external) {
+				params = compileParamMap(tab, effect, effect.id, multi, duration).value;
+			}
+			params.order = index;
+			entry.params = params;
 			effects.push(entry);
 		});
 		def.effects = effects;
@@ -553,6 +593,11 @@
 			return out;
 		}
 		activeChain(tab).forEach(function (effect, index) {
+			// A child imported from an existing definition id is referenced as-is and already ships
+			// elsewhere, so no local child file is written for it (design §15.2).
+			if (effect.external === true && effect.effectId != null) {
+				return;
+			}
 			out[base + "__" + index] = compileSingle(tab, effect, effect.id, effect.source);
 		});
 		return out;
@@ -560,9 +605,10 @@
 
 	/**
 	 * Compile the PREVIEW artifact: the same IR as {@link compileTab}, but with playback overrides so
-	 * editing stays pleasant (`loop:true`, `fade_ticks:0`) — the in-game preview never dies and never
-	 * fades the animation out (design §15.5, fixes #4/#15). The authored compile is unchanged, so
-	 * File→Export still writes the user's real timing.
+	 * editing stays pleasant (`loop:true`, `fade_ticks:0`, and a large sentinel `duration`) — the
+	 * in-game preview never dies and never fades the animation out (design §15.5, fixes #4/#15). A
+	 * type that ignores `loop` still cannot vanish mid-inspection because the sentinel duration is
+	 * large. The authored compile is unchanged, so File→Export still writes the user's real timing.
 	 *
 	 * @param {Object} tab a `VFXIR.Tab`
 	 * @returns {string} the preview effect JSON text
@@ -571,6 +617,7 @@
 		var def = JSON.parse(compileTab(tab));
 		def.loop = true;
 		def.fade_ticks = 0;
+		def.duration = Math.max(num(def.duration, 0), 6000);
 		return JSON.stringify(def, null, "\t");
 	}
 

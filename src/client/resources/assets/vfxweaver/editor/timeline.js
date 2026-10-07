@@ -306,6 +306,15 @@
 			surface("choose an effect type before playing");
 			return Promise.resolve(null);
 		}
+		// A chain preview cannot register its child definitions (one `/compile` carries one file), so
+		// say so once per tab instead of silently playing nothing (known v1.1 gap).
+		if (transport !== "stop" && tab.effects && tab.effects.length >= 2) {
+			var key = effectId(tab);
+			if (!chainPreviewHinted[key]) {
+				chainPreviewHinted[key] = true;
+				surface("chain preview is export-only for now — export + /reload to see it");
+			}
+		}
 		return post("/compile", compileBody(tab, transport)).then(function (result) {
 			return handleResult(result, tab, false);
 		});
@@ -470,6 +479,10 @@
 	var curveOpen = null;
 	var curvePanel = null;
 	var curveKeyHandler = null;
+	/** A single-click key add deferred so a following double-click (open curve) can cancel it. */
+	var pendingLaneAdd = null;
+	/** Tabs already told that a chain preview cannot register its child defs (hint once per tab). */
+	var chainPreviewHinted = {};
 
 	/** The Bézier the curve editor draws a segment with (delegates to the IR's canonical table). */
 	function easingBezier(easing) {
@@ -933,12 +946,17 @@
 	/**
 	 * Click a lane (not an existing key) to add a key at the clicked tick, pinned to the lane's
 	 * current value and selected. A drag is left to the background scrub, so only a click (<3 px of
-	 * movement between down and up) adds a key.
+	 * movement between down and up) adds a key. The add is deferred briefly so the double-click that
+	 * opens the curve editor cancels it instead of also dropping a stray key.
 	 */
 	function beginLaneAdd(tab, name, panel) {
 		return function (event) {
 			if (event.target && event.target.classList
 					&& event.target.classList.contains("vfx-tl-key")) {
+				return;
+			}
+			// The second click of a double-click must not schedule its own add.
+			if (event.detail > 1) {
 				return;
 			}
 			var startX = event.clientX;
@@ -949,10 +967,25 @@
 					return;
 				}
 				var time = Math.round(clampToDuration(tab, tickAt(ev.clientX)));
-				addKeyToLane(tab, name, time, laneValue(tab, name), panel);
+				var value = laneValue(tab, name);
+				cancelPendingLaneAdd();
+				pendingLaneAdd = {
+					timer: setTimeout(function () {
+						pendingLaneAdd = null;
+						addKeyToLane(tab, name, time, value, panel);
+					}, 220)
+				};
 			}
 			document.addEventListener("mouseup", up);
 		};
+	}
+
+	/** Drop a deferred lane key add (a double-click beat the single click to the event). */
+	function cancelPendingLaneAdd() {
+		if (pendingLaneAdd) {
+			clearTimeout(pendingLaneAdd.timer);
+			pendingLaneAdd = null;
+		}
 	}
 
 	/* ------------------------------------------------------------------ */
@@ -1254,6 +1287,11 @@
 			}
 			var segW = ((Number(next.time) || 0) - (Number(key.time) || 0)) * pxPerTick;
 			var innerH = CURVE_HEIGHT - CURVE_PAD_TOP - CURVE_PAD_BOTTOM;
+			var axis = curveAxis(range);
+			// The handle is drawn at `v0 + (v1 - v0) * bez`, so a vertical drag must be scaled by the
+			// value span (guarded against v1 === v0) as well as the axis range — see
+			// `VFXIR.bezierHandleDeltaY` (design §15.4).
+			var valueSpan = (Number(next.value) || 0) - (Number(key.value) || 0);
 			var moved = false;
 
 			function move(ev) {
@@ -1262,7 +1300,13 @@
 				if (segW !== 0) {
 					b[xi] = Math.max(0, Math.min(1, b[xi] + (ev.clientX - startX) / segW));
 				}
-				b[xi + 1] = b[xi + 1] - (ev.clientY - startY) / (innerH || 1);
+				if (valueSpan !== 0) {
+					var dy = ev.clientY - startY;
+					var delta = root.VFXIR && typeof root.VFXIR.bezierHandleDeltaY === "function"
+							? root.VFXIR.bezierHandleDeltaY(dy, innerH, valueSpan, axis.hi - axis.lo)
+							: dy / (innerH || 1) * ((axis.hi - axis.lo) / valueSpan);
+					b[xi + 1] = b[xi + 1] - delta;
+				}
 				key.easing = [b[0], b[1], b[2], b[3]];
 				refreshCurve(tab);
 			}
@@ -1528,6 +1572,7 @@
 				lane.addEventListener("dblclick", function (event) {
 					event.preventDefault();
 					event.stopPropagation();
+					cancelPendingLaneAdd();
 					openCurve(tab, name, panel);
 				});
 				(tab.keys[name] || []).forEach(function (key) {

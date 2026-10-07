@@ -1840,6 +1840,8 @@
 					entry.mute = saved.mute === true;
 					entry.solo = saved.solo === true;
 					entry.source = snapshot(saved.source);
+					entry.effectId = saved.effectId == null ? null : String(saved.effectId);
+					entry.external = saved.external === true;
 					if (Array.isArray(saved.pos)) {
 						entry.pos = [num(saved.pos[0]), num(saved.pos[1])];
 					}
@@ -2890,6 +2892,10 @@
 				effect.duration = num(entry.duration, 0);
 				effect.easing = entry.easing == null ? null : entry.easing;
 				effect.source = entry.source ? snapshot(entry.source) : null;
+				// Keep the imported reference id so export can re-emit an external/built-in child as
+				// itself instead of renaming it to a local `__n` def (design §15.2 round-trip).
+				effect.effectId = entry.effectId == null ? null : String(entry.effectId);
+				effect.external = entry.external === true;
 				hydrateEffectParams(tab, effect, entry.params, num(entry.duration, tab.duration), drivers);
 				if (entry.source) {
 					hydrateEffectGraph(tab, effect, entry.source, used);
@@ -2964,7 +2970,7 @@
 					var node = nodeForEffect(tab, effect.id);
 					var pos = node && Array.isArray(node.pos) ? [num(node.pos[0]), num(node.pos[1])]
 							: (Array.isArray(effect.pos) ? [num(effect.pos[0]), num(effect.pos[1])] : null);
-					return {
+					var out = {
 						id: effect.id,
 						type: effect.type,
 						pos: pos,
@@ -2973,6 +2979,14 @@
 						delay: num(effect.delay, 0),
 						duration: num(effect.duration, 0)
 					};
+					// Persist an imported external reference so a saved project keeps the id on export.
+					if (effect.effectId != null) {
+						out.effectId = String(effect.effectId);
+					}
+					if (effect.external === true) {
+						out.external = true;
+					}
+					return out;
 				});
 				return entry;
 			})
@@ -3033,6 +3047,12 @@
 					}
 					effect.mute = saved.mute === true;
 					effect.solo = saved.solo === true;
+					if (saved.effectId != null) {
+						effect.effectId = String(saved.effectId);
+					}
+					if (saved.external === true) {
+						effect.external = true;
+					}
 				});
 				materializeGraph(tab);
 			}
