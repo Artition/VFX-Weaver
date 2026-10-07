@@ -2,13 +2,16 @@ package dev.vfxweaver.client.editor;
 
 import dev.vfxweaver.editor.VFXPackFormat;
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
 import java.util.zip.ZipEntry;
+import java.util.zip.ZipInputStream;
 import java.util.zip.ZipOutputStream;
 import org.jspecify.annotations.Nullable;
 
@@ -113,6 +116,104 @@ public final class EditorPack {
 	 */
 	public static Path worldPackDir(final Path worldSaveDir, final String namespace) {
 		return worldSaveDir.resolve("datapacks").resolve(safeName(namespace));
+	}
+
+	/**
+	 * Reads a datapack folder or zip back into its raw pieces: the namespace, the effect name to
+	 * JSON text, and the optional editor sidecar. This is the inverse of {@link #write} /
+	 * {@link #writeZip}, so it accepts what either produced.
+	 *
+	 * <p><b>It never parses or validates effect JSON.</b> A corrupt or unknown {@code vfx/*.json} is
+	 * returned as its exact raw string so the caller (the web model) can surface it without the whole
+	 * import failing. A pack with no sidecar imports fine ({@link ImportedPack#sidecarJson()} is
+	 * {@code null}).
+	 *
+	 * @param packDirOrZip a pack folder, or a pack zip archive
+	 * @return the raw namespace, effects and sidecar
+	 * @throws IOException if the folder/archive cannot be read
+	 */
+	public static ImportedPack read(final Path packDirOrZip) throws IOException {
+		return Files.isDirectory(packDirOrZip) ? readDir(packDirOrZip) : readZip(packDirOrZip);
+	}
+
+	/** Walks {@code data/<namespace>/vfx/*.json} under a pack folder. */
+	private static ImportedPack readDir(final Path packDir) throws IOException {
+		final Map<String, String> effects = new LinkedHashMap<>();
+		String namespace = "";
+		final Path data = packDir.resolve("data");
+		if (Files.isDirectory(data)) {
+			try (Stream<Path> namespaces = Files.list(data)) {
+				for (final Path namespaceDir : (Iterable<Path>) namespaces::iterator) {
+					final Path vfx = namespaceDir.resolve("vfx");
+					if (!Files.isDirectory(vfx)) {
+						continue;
+					}
+					if (namespace.isEmpty()) {
+						namespace = namespaceDir.getFileName().toString();
+					}
+					try (Stream<Path> files = Files.list(vfx)) {
+						for (final Path file : (Iterable<Path>) files::iterator) {
+							putIfEffect(effects, file.getFileName().toString(), Files.readString(file, StandardCharsets.UTF_8));
+						}
+					}
+				}
+			}
+		}
+		final Path sidecar = packDir.resolve(SIDECAR_NAME);
+		final String sidecarJson = Files.isRegularFile(sidecar)
+				? Files.readString(sidecar, StandardCharsets.UTF_8) : null;
+		return new ImportedPack(namespace, effects, sidecarJson);
+	}
+
+	/** Walks the same layout inside a zip; entries always use forward slashes. */
+	private static ImportedPack readZip(final Path zip) throws IOException {
+		final Map<String, String> effects = new LinkedHashMap<>();
+		String namespace = "";
+		String sidecarJson = null;
+		try (ZipInputStream in = new ZipInputStream(Files.newInputStream(zip))) {
+			ZipEntry entry;
+			while ((entry = in.getNextEntry()) != null) {
+				if (entry.isDirectory()) {
+					continue;
+				}
+				final String name = entry.getName();
+				if (sidecarJson == null && SIDECAR_NAME.equals(name)) {
+					sidecarJson = readAll(in);
+					continue;
+				}
+				final String[] parts = name.split("/");
+				if (parts.length == 4 && "data".equals(parts[0]) && "vfx".equals(parts[2])) {
+					if (namespace.isEmpty()) {
+						namespace = parts[1];
+					}
+					putIfEffect(effects, parts[3], readAll(in));
+				}
+			}
+		}
+		return new ImportedPack(namespace, effects, sidecarJson);
+	}
+
+	/** Adds an effect when the entry is a {@code <name>.json} file; other files are ignored. */
+	private static void putIfEffect(final Map<String, String> effects, final String fileName, final String json) {
+		if (fileName.length() > ".json".length() && fileName.endsWith(".json")) {
+			effects.put(fileName.substring(0, fileName.length() - ".json".length()), json);
+		}
+	}
+
+	/** Reads the current zip entry (or a file stream) to its end, as UTF-8 text. */
+	private static String readAll(final InputStream in) throws IOException {
+		return new String(in.readAllBytes(), StandardCharsets.UTF_8);
+	}
+
+	/**
+	 * A datapack read back into raw pieces.
+	 *
+	 * @param namespace   the data namespace taken from the {@code data/<namespace>/vfx} path, or
+	 *                    {@code ""} when the pack has no vfx entries
+	 * @param effectsJson effect name (no {@code .json}) to its exact JSON text, never parsed
+	 * @param sidecarJson the sidecar project JSON, or {@code null} when absent
+	 */
+	public record ImportedPack(String namespace, Map<String, String> effectsJson, @Nullable String sidecarJson) {
 	}
 
 	/**

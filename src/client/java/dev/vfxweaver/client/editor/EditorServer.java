@@ -1,8 +1,10 @@
 package dev.vfxweaver.client.editor;
 
 import com.google.gson.JsonElement;
+import com.google.gson.JsonNull;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import com.google.gson.JsonPrimitive;
 import com.google.gson.JsonSyntaxException;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
@@ -13,9 +15,11 @@ import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.security.SecureRandom;
 import java.util.Base64;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -202,6 +206,8 @@ public final class EditorServer {
 				case "/transport" -> handleTransport(exchange);
 				case "/set_param" -> handleSetParam(exchange);
 				case "/set_keyframe" -> handleSetKeyframe(exchange);
+				case "/import" -> handleImport(exchange);
+				case "/export" -> handleExport(exchange);
 				default -> respondText(exchange, 404, "not found");
 			}
 		} catch (final RuntimeException e) {
@@ -333,6 +339,137 @@ public final class EditorServer {
 		final EditorResult result = this.session.setKeyframe(effectId, name, time, value, revision);
 		mirror(result);
 		respondResult(exchange, result);
+	}
+
+	/**
+	 * {@code POST /import}: read a datapack folder or zip into raw effect strings. The effect JSON is
+	 * never parsed here, so a corrupt entry is returned as-is rather than failing the import.
+	 *
+	 * @param exchange the {@code /import} exchange
+	 * @throws IOException when the response cannot be sent
+	 */
+	private void handleImport(final HttpExchange exchange) throws IOException {
+		final JsonObject body = readObject(exchange);
+		if (body == null) {
+			respondActionError(exchange, EditorResult.INVALID_JSON, "request body must be a JSON object");
+			return;
+		}
+		final String path = string(body, "path");
+		if (path == null || path.isBlank()) {
+			respondActionError(exchange, EditorResult.BAD_REQUEST, "path is required");
+			return;
+		}
+		try {
+			final EditorPack.ImportedPack pack = EditorPack.read(Path.of(path));
+			final JsonObject effects = new JsonObject();
+			for (final Map.Entry<String, String> entry : pack.effectsJson().entrySet()) {
+				effects.addProperty(entry.getKey(), entry.getValue());
+			}
+			final JsonObject out = new JsonObject();
+			out.addProperty("ok", true);
+			out.addProperty("namespace", pack.namespace());
+			out.add("effects", effects);
+			out.add("sidecar", pack.sidecarJson() == null ? JsonNull.INSTANCE : parseOrString(pack.sidecarJson()));
+			respondJson(exchange, out);
+		} catch (final RuntimeException | IOException e) {
+			respondActionError(exchange, EditorResult.BAD_REQUEST, String.valueOf(e.getMessage()));
+		}
+	}
+
+	/**
+	 * {@code POST /export}: write the posted effects as a datapack, reusing {@link EditorPack}'s
+	 * validated writers. {@code world} resolves {@code <path>/datapacks/<namespace>}; {@code folder}
+	 * and {@code zip} treat {@code path} as the pack root / archive.
+	 *
+	 * @param exchange the {@code /export} exchange
+	 * @throws IOException when the response cannot be sent
+	 */
+	private void handleExport(final HttpExchange exchange) throws IOException {
+		final JsonObject body = readObject(exchange);
+		if (body == null) {
+			respondActionError(exchange, EditorResult.INVALID_JSON, "request body must be a JSON object");
+			return;
+		}
+		final String destination = string(body, "destination");
+		final String path = string(body, "path");
+		final String namespace = string(body, "namespace");
+		final JsonElement effectsElement = body.get("effects");
+		if (destination == null || path == null || path.isBlank() || namespace == null
+				|| effectsElement == null || !effectsElement.isJsonObject()) {
+			respondActionError(exchange, EditorResult.BAD_REQUEST,
+					"destination, path, namespace and effects are required");
+			return;
+		}
+		final Path target = exportTarget(destination, path, namespace);
+		if (target == null) {
+			respondActionError(exchange, EditorResult.BAD_REQUEST, "destination must be world, folder or zip");
+			return;
+		}
+		final Map<String, String> effects = new LinkedHashMap<>();
+		for (final Map.Entry<String, JsonElement> entry : effectsElement.getAsJsonObject().entrySet()) {
+			final JsonElement value = entry.getValue();
+			if (value != null && !value.isJsonNull()) {
+				effects.put(entry.getKey(), value.isJsonPrimitive() && value.getAsJsonPrimitive().isString()
+						? value.getAsString() : value.toString());
+			}
+		}
+		try {
+			if ("zip".equals(destination)) {
+				EditorPack.writeZip(target, namespace, effects, sidecarString(body));
+			} else {
+				EditorPack.write(target, namespace, effects, sidecarString(body));
+			}
+			final JsonObject out = new JsonObject();
+			out.addProperty("ok", true);
+			out.addProperty("path", target.toString());
+			respondJson(exchange, out);
+		} catch (final RuntimeException | IOException e) {
+			respondActionError(exchange, EditorResult.BAD_REQUEST, String.valueOf(e.getMessage()));
+		}
+	}
+
+	@Nullable
+	private static Path exportTarget(final String destination, final String path, final String namespace) {
+		return switch (destination) {
+			case "world" -> EditorPack.worldPackDir(Path.of(path), namespace);
+			case "folder", "zip" -> Path.of(path);
+			default -> null;
+		};
+	}
+
+	/** The request's {@code sidecar} as JSON text, or {@code null} when absent. */
+	@Nullable
+	private static String sidecarString(final JsonObject body) {
+		final JsonElement element = body.get("sidecar");
+		if (element == null || element.isJsonNull()) {
+			return null;
+		}
+		return element.isJsonPrimitive() && element.getAsJsonPrimitive().isString()
+				? element.getAsString() : element.toString();
+	}
+
+	/** Parse stored sidecar text as JSON, falling back to a JSON string if it is not valid JSON. */
+	private static JsonElement parseOrString(final String json) {
+		try {
+			return JsonParser.parseString(json);
+		} catch (final JsonSyntaxException e) {
+			return new JsonPrimitive(json);
+		}
+	}
+
+	private void respondActionError(final HttpExchange exchange, final String error, final String detail)
+			throws IOException {
+		final JsonObject out = new JsonObject();
+		out.addProperty("ok", false);
+		out.addProperty("error", error);
+		if (detail != null) {
+			out.addProperty("detail", detail);
+		}
+		respondJson(exchange, out);
+	}
+
+	private void respondJson(final HttpExchange exchange, final JsonObject out) throws IOException {
+		respond(exchange, 200, "application/json", out.toString().getBytes(StandardCharsets.UTF_8));
 	}
 
 	private EditorResult badRequest(final String detail) {
