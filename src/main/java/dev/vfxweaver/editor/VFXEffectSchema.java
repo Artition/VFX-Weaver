@@ -223,9 +223,11 @@ public final class VFXEffectSchema {
 				animatable,
 				false,
 				List.of(),
-				finite ? neutral : null));
+				finite ? neutral : null,
+				null,
+				0));
 		}
-		register(new VFXEffectDescriptor(type, params));
+		register(new VFXEffectDescriptor(type, withVectorGroups(params)));
 	}
 
 	/**
@@ -253,9 +255,73 @@ public final class VFXEffectSchema {
 				true,
 				fieldCapable,
 				List.of(),
-				Float.isNaN(neutral) ? null : neutral));
+				Float.isNaN(neutral) ? null : neutral,
+				null,
+				0));
 		}
-		return new VFXEffectDescriptor(type, params);
+		return new VFXEffectDescriptor(type, withVectorGroups(params));
+	}
+
+	/**
+	 * Assigns vector-group metadata (design §15.9.6/P4, fix #21) to a param list by a naming
+	 * convention over the existing names:
+	 *
+	 * <ul>
+	 *   <li>a trailing {@code _x}/{@code _y}/{@code _z} (component index 0/1/2) groups under the
+	 *       name with the suffix removed (e.g. {@code pos_x/_y/_z} → {@code pos});</li>
+	 *   <li>a trailing {@code _r}/{@code _g}/{@code _b} (component index 0/1/2) groups under the
+	 *       prefix (e.g. {@code color_r/_g/_b} → {@code color}).</li>
+	 * </ul>
+	 *
+	 * <p>A group is only marked when <b>all three</b> components exist for this effect: a partial
+	 * triple ({@code center_x}/{@code center_y} with no {@code center_z}) stays ungrouped and no
+	 * component is ever invented. Only an exact suffix matches, so an ambiguous name such as
+	 * {@code x0} or {@code tex_u0} is never grouped. The result is a new list; ungrouped params are
+	 * reused unchanged and grouped ones are copied with {@code vectorGroup}/{@code vectorIndex} set.
+	 *
+	 * @param params the params in display order
+	 * @return the params with vector grouping filled in
+	 */
+	private static List<VFXParamDescriptor> withVectorGroups(final List<VFXParamDescriptor> params) {
+		final String[] suffixes = {"_r", "_g", "_b", "_x", "_y", "_z"};
+		final int[] axes = {0, 1, 2, 0, 1, 2};
+		// prefix -> component index -> param index, for every name ending in one of the suffixes.
+		final Map<String, Map<Integer, Integer>> candidates = new LinkedHashMap<>();
+		for (int i = 0; i < params.size(); i++) {
+			final String name = params.get(i).name();
+			for (int s = 0; s < suffixes.length; s++) {
+				if (name.endsWith(suffixes[s])) {
+					final String prefix = name.substring(0, name.length() - suffixes[s].length());
+					if (!prefix.isEmpty()) {
+						candidates.computeIfAbsent(prefix, key -> new LinkedHashMap<>()).put(axes[s], i);
+					}
+					break;
+				}
+			}
+		}
+		final String[] group = new String[params.size()];
+		final int[] index = new int[params.size()];
+		candidates.forEach((prefix, byAxis) -> {
+			if (byAxis.containsKey(0) && byAxis.containsKey(1) && byAxis.containsKey(2)) {
+				byAxis.forEach((axis, paramIndex) -> {
+					group[paramIndex] = prefix;
+					index[paramIndex] = axis;
+				});
+			}
+		});
+		final List<VFXParamDescriptor> out = new ArrayList<>(params.size());
+		for (int i = 0; i < params.size(); i++) {
+			final VFXParamDescriptor param = params.get(i);
+			if (group[i] == null) {
+				out.add(param);
+			} else {
+				out.add(new VFXParamDescriptor(param.name(), param.kind(), param.defaultValue(),
+						param.min(), param.max(), param.step(), param.group(), param.animatable(),
+						param.bindable(), param.fieldCapable(), param.enumValues(), param.neutral(),
+						group[i], index[i]));
+			}
+		}
+		return out;
 	}
 
 	/**

@@ -1621,6 +1621,58 @@
 	}
 
 	/**
+	 * The schema param list collapsed into inspector rows (design §15.9.6/P4): each vector group
+	 * (see {@code VFXIR.paramGroups}) is one row, every other param is its own. Falls back to the
+	 * flat list when ir.js has not loaded.
+	 *
+	 * @param {Array<Object>} params the `VFXParamDescriptor[]`
+	 * @returns {Array<Object>} the rows `{ group, name, components }`
+	 */
+	function groupedParamRows(params) {
+		if (window.VFXIR && typeof window.VFXIR.paramGroups === "function") {
+			return window.VFXIR.paramGroups(params);
+		}
+		return params.map(function (param) {
+			return { group: null, name: param.name, components: [param] };
+		});
+	}
+
+	/** A chooser label: the name, or for a group `name = value` / `name = mixed` (design §15.9.6/P4). */
+	function rowLabel(tab, row) {
+		if (!row.group) {
+			return row.name;
+		}
+		if (!window.VFXIR || typeof window.VFXIR.uniformGroupSpec !== "function") {
+			return row.name;
+		}
+		var spec = window.VFXIR.uniformGroupSpec(tab, row.components);
+		if (!spec) {
+			return row.name + " = mixed";
+		}
+		return row.name + " = " + (spec.value != null ? spec.value : "—");
+	}
+
+	/**
+	 * The real scalar param names behind an inspector selection (design §15.9.6/P4): a group
+	 * selection expands to its components, a single param is itself. Empty when the selection is stale.
+	 *
+	 * @param {Object} tab the active tab
+	 * @param {string} name the selected row name (group or param)
+	 * @returns {Array<string>} the scalar param names
+	 */
+	function selectedParamNames(tab, name) {
+		var descriptor = tab && tab.type ? schema[tab.type] : null;
+		var rows = groupedParamRows((descriptor && descriptor.params) || []);
+		for (var i = 0; i < rows.length; i++) {
+			if (rows[i].name === name
+					|| rows[i].components.some(function (component) { return component.name === name; })) {
+				return rows[i].components.map(function (component) { return component.name; });
+			}
+		}
+		return [];
+	}
+
+	/**
 	 * Rebuild the inspector panel for the active tab: a param list plus the selected control. A param
 	 * driven by a wire is rendered read-only with its source badge (design §15.1, fix 5).
 	 */
@@ -1648,15 +1700,18 @@
 			return;
 		}
 		var params = descriptor.params;
+		// Collapse vector groups into one row (design §15.9.6/P4, fix #21): color_r/_g/_b -> `color`.
+		var rows = groupedParamRows(params);
 		var current = null;
-		for (var i = 0; i < params.length; i++) {
-			if (params[i].name === inspectorName) {
-				current = params[i];
+		for (var i = 0; i < rows.length; i++) {
+			if (rows[i].name === inspectorName
+					|| rows[i].components.some(function (component) { return component.name === inspectorName; })) {
+				current = rows[i];
 				break;
 			}
 		}
 		if (!current) {
-			current = params[0];
+			current = rows[0];
 			inspectorName = current.name;
 		}
 		var heading = document.createElement("h2");
@@ -1665,23 +1720,31 @@
 
 		var chooser = document.createElement("div");
 		chooser.className = "vfx-params";
-		params.forEach(function (param) {
-			var source = drivenParamSource(tab, param.name);
+		rows.forEach(function (row) {
+			var source = row.group
+					? (row.components.some(function (component) { return drivenParamSource(tab, component.name); })
+							? "group" : null)
+					: drivenParamSource(tab, row.components[0].name);
 			var item = document.createElement("button");
 			item.type = "button";
-			item.className = "vfx-param" + (param.name === inspectorName ? " active" : "")
+			item.className = "vfx-param" + (row.name === inspectorName ? " active" : "")
 					+ (source ? " driven" : "");
-			item.textContent = param.name + (source ? " ←" : "");
+			item.textContent = rowLabel(tab, row) + (source ? " ←" : "");
 			item.title = source ? ("driven by " + source) : "";
 			item.addEventListener("click", function () {
-				inspectorName = param.name;
+				inspectorName = row.name;
 				renderInspector();
 			});
 			chooser.appendChild(item);
 		});
 		dom.inspector.appendChild(chooser);
-		dom.inspector.appendChild(window.VFXInspector.render(tab, current, onInspectorEdit,
-				drivenParamSource(tab, current.name)));
+		if (current.group && typeof window.VFXInspector.renderGroup === "function") {
+			dom.inspector.appendChild(window.VFXInspector.renderGroup(tab, current, onInspectorEdit));
+		} else {
+			var param = current.components[0];
+			dom.inspector.appendChild(window.VFXInspector.render(tab, param, onInspectorEdit,
+					drivenParamSource(tab, param.name)));
+		}
 	}
 
 	/* ------------------------------------------------------------------ */
@@ -3310,7 +3373,10 @@
 		if (!tab || !tab.type || !inspectorName) {
 			return;
 		}
-		slotAnimate(tab, inspectorName, null);
+		// A selected vector group keys every component (design §15.9.6/P4), never a group pseudo-name.
+		selectedParamNames(tab, inspectorName).forEach(function (name) {
+			slotAnimate(tab, name, null);
+		});
 		commitHistory();
 		renderTimeline();
 	}

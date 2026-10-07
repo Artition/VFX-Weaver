@@ -434,6 +434,38 @@ window.__vfxSelftest = function () {
 		ok(!("graph" in def), "no graph block after folding");
 	});
 
+	test("(w) vector group: a group constant expands to three scalars; an override wins", function () {
+		var params = [
+			{ name: "color_r", vectorGroup: "color", vectorIndex: 0, defaultValue: 1 },
+			{ name: "color_g", vectorGroup: "color", vectorIndex: 1, defaultValue: 1 },
+			{ name: "color_b", vectorGroup: "color", vectorIndex: 2, defaultValue: 1 }
+		];
+		var rows = VFXIR.paramGroups(params);
+		eq(rows.length, 1, "three grouped params collapse to one row");
+		eq(rows[0].group, "color", "the row is keyed by the group");
+		eq(rows[0].components.length, 3, "three components on the row");
+		eq(rows[0].components[1].vectorIndex, 1, "components keep their order");
+		var tab = new VFXIR.Tab("grade", "color_grade");
+		var written = VFXIR.applyGroupSpec(tab, rows[0].components, { value: 2 });
+		eq(written.length, 3, "the group edit wrote every component");
+		eq(tab.params.color_r.value, 2, "r broadcast");
+		eq(tab.params.color_g.value, 2, "g broadcast");
+		eq(tab.params.color_b.value, 2, "b broadcast");
+		ok(VFXIR.uniformGroupSpec(tab, rows[0].components) != null, "uniform after the broadcast");
+		// A per-component override wins; the group turns mixed and compiles to the three scalars.
+		tab.params.color_b = { value: 5 };
+		ok(VFXIR.uniformGroupSpec(tab, rows[0].components) === null, "an override makes the group mixed");
+		var def = parse(compileTab(tab));
+		eq(def.params.color_r, 2, "r is an individual scalar param");
+		eq(def.params.color_g, 2, "g is an individual scalar param");
+		eq(def.params.color_b, 5, "the per-component override wins");
+		ok(!("vectorGroup" in def), "no group field leaks into the datapack");
+		// An ungrouped param stays a singleton row, never invented into a group.
+		var flat = VFXIR.paramGroups([ { name: "intensity" } ]);
+		eq(flat.length, 1, "an ungrouped param stays its own row");
+		eq(flat[0].group, null, "an ungrouped row has no group");
+	});
+
 	return results;
 };
 /* SELFTEST:END */

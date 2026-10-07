@@ -607,6 +607,35 @@ body {
 	cursor: help;
 }
 
+/* Vector group row (design §15.9.6/P4): one collapsed control with an expandable component list. */
+.vfx-group-toggle {
+	background: none;
+	border: 0;
+	color: var(--vfx-text-dim);
+	cursor: pointer;
+	font: inherit;
+	padding: 0 2px 0 0;
+}
+
+.vfx-group-toggle:hover {
+	color: var(--vfx-text);
+}
+
+.vfx-group-count {
+	font-size: 11px;
+	color: var(--vfx-text-dim);
+}
+
+.vfx-group-value {
+	max-width: 96px;
+}
+
+.vfx-group > .vfx-inspect-content > .vfx-inspector {
+	border-left: 2px solid var(--vfx-border);
+	margin-top: 4px;
+	padding-left: 8px;
+}
+
 /* Node timing section (design §15.3), above the per-param controls in the inspector. */
 .vfx-timing {
 	border-bottom: 1px solid var(--vfx-border);

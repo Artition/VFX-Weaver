@@ -19,6 +19,11 @@ import java.util.Objects;
  * @param fieldCapable whether the value accepts a per-pixel field form
  * @param enumValues   the allowed values for {@link VFXParamKind#ENUM}, otherwise empty
  * @param neutral      the value that leaves the scene unchanged, or {@code null} when it must not fade
+ * @param vectorGroup  the vector group this param belongs to (e.g. {@code pos}, {@code color}), or
+ *                     {@code null} when it is a standalone scalar. Assigned by the naming convention
+ *                     in {@link VFXEffectSchema} (design §15.9.6/P4), never authored by hand.
+ * @param vectorIndex  the component's position inside {@link #vectorGroup()} (0/1/2 for the
+ *                     x/y/z or r/g/b axes); ignored when {@code vectorGroup} is {@code null}
  */
 public record VFXParamDescriptor(
 	String name,
@@ -32,12 +37,15 @@ public record VFXParamDescriptor(
 	boolean bindable,
 	boolean fieldCapable,
 	List<String> enumValues,
-	Float neutral
+	Float neutral,
+	String vectorGroup,
+	int vectorIndex
 ) {
 	public VFXParamDescriptor {
 		Objects.requireNonNull(name, "name");
 		Objects.requireNonNull(kind, "kind");
 		group = group == null ? "" : group;
+		vectorGroup = vectorGroup == null || vectorGroup.isEmpty() ? null : vectorGroup;
 		enumValues = enumValues == null ? List.of() : List.copyOf(enumValues);
 	}
 }

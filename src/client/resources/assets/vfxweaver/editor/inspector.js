@@ -673,6 +673,192 @@
 		return rootEl;
 	}
 
+	/* ------------------------------------------------------------------ */
+	/* Vector groups (design §15.9.6 P4, fix #21)                          */
+	/* ------------------------------------------------------------------ */
+
+	/** Group rows the user has explicitly disclosed, keyed by group name; survives re-renders. */
+	var expandedGroups = {};
+
+	/** The source value node driving a param (its `driven` id), or null when it is free. */
+	function drivenSource(tab, name) {
+		var edges = tab && Array.isArray(tab.edges) ? tab.edges : [];
+		for (var i = 0; i < edges.length; i++) {
+			var edge = edges[i];
+			if (edge && edge.to === name && edge.input == null && edge.from != null) {
+				return edge.from;
+			}
+		}
+		return null;
+	}
+
+	/**
+	 * Render a vector group (design §15.9.6/P4, fix #21) as ONE collapsed control: the components
+	 * share a single value, and editing it broadcasts the same inline spec to every component. The
+	 * header context menu applies a bind/expr/multiply to all components at once. A disclosure
+	 * toggle reveals the per-component rows, each the normal P3 slot inspector (inline / track /
+	 * driven + diamond + right-click replace + multiply), so a per-component override stays
+	 * reachable. A group whose components differ opens expanded (the importer's mixed rule).
+	 *
+	 * @param {Object} tab the selected `VFXIR.Tab`
+	 * @param {{group: string, components: Array<Object>}} entry a group row from `VFXIR.paramGroups`
+	 * @param {function} [onEdit] called `(name, spec, previous)` after every edit
+	 * @returns {HTMLElement} the group inspector element
+	 */
+	function renderGroup(tab, entry, onEdit) {
+		var components = entry.components.slice();
+		var names = components.map(function (param) { return param.name; });
+		var groupName = entry.group || names[0];
+		var first = components[0];
+		var slot = root.VFXEditor && root.VFXEditor.slot ? root.VFXEditor.slot : null;
+
+		/** The spec every component shares, or null when the group is mixed. */
+		function uniformSpec() {
+			return root.VFXIR && typeof root.VFXIR.uniformGroupSpec === "function"
+					? root.VFXIR.uniformGroupSpec(tab, components) : null;
+		}
+
+		/** The collapsed state: driven when any component is wired, else track, else inline. */
+		function groupState() {
+			var state = "inline";
+			components.forEach(function (param) {
+				var one = slotState(tab, param.name, drivenSource(tab, param.name));
+				if (one === "driven") {
+					state = "driven";
+				} else if (one === "track" && state === "inline") {
+					state = "track";
+				}
+			});
+			return state;
+		}
+
+		/** Broadcast one inline constant to every component (auto-keying a track), keeping multiply. */
+		function broadcast(value) {
+			names.forEach(function (name) {
+				if (!tab.params) {
+					tab.params = {};
+				}
+				var raw = tab.params[name];
+				var next = { value: value };
+				if (raw && typeof raw === "object" && raw.multiply) {
+					next.multiply = raw.multiply;
+				}
+				if (tab.keys && tab.keys[name] && tab.keys[name].length && slot
+						&& typeof slot.addKey === "function") {
+					slot.addKey(tab, name, value);
+				} else {
+					tab.params[name] = next;
+				}
+				if (typeof onEdit === "function") {
+					onEdit(name, next, raw);
+				}
+			});
+		}
+
+		/** Apply one slot operation to every component (design §15.9.6/P4). */
+		function applyAll(operation) {
+			if (!slot) {
+				return;
+			}
+			names.forEach(function (name) {
+				operation(name);
+			});
+		}
+
+		var expanded = Object.prototype.hasOwnProperty.call(expandedGroups, groupName)
+				? expandedGroups[groupName] : !uniformSpec();
+
+		var toggle = el("button", { type: "button", class: "vfx-group-toggle",
+			text: expanded ? "\u25BE" : "\u25B8", title: "Show the component rows" });
+		var header = el("div", { class: "vfx-inspect-head vfx-group-head" }, [
+			toggle,
+			el("span", { class: "vfx-inspect-name", text: groupName }),
+			el("span", { class: "vfx-inspect-kind", text: first.kind || "FLOAT" }),
+			el("span", { class: "vfx-group-count", text: names.length + " components" }),
+			el("span", { class: "vfx-state-badge " + groupState(), text: groupState() })
+		]);
+
+		var content = el("div", { class: "vfx-inspect-content" });
+
+		function refresh() {
+			content.textContent = "";
+			var body = el("div", { class: "vfx-body" });
+			var input = el("input", { type: "number", class: "vfx-num vfx-group-value" });
+			input.placeholder = "mixed";
+			var spec = uniformSpec();
+			if (spec && spec.value !== undefined) {
+				input.value = String(num(spec.value));
+			}
+			input.addEventListener("input", function () {
+				broadcast(num(input.value, 0));
+			});
+			body.appendChild(el("label", { class: "vfx-field" }, [el("span", { text: "value" }), input]));
+
+			var anyMultiply = names.some(function (name) {
+				return slot && typeof slot.multiply === "function" && slot.multiply(tab, name);
+			});
+			var check = el("input", { type: "checkbox", class: "vfx-check" });
+			check.checked = Boolean(anyMultiply);
+			check.addEventListener("change", function () {
+				applyAll(function (name) { slot.setMultiply(tab, name, check.checked); });
+			});
+			body.appendChild(el("div", { class: "vfx-multiply" }, [
+				el("label", { class: "vfx-field" }, [el("span", { text: "\u00D7 multiply" }), check])
+			]));
+			content.appendChild(body);
+
+			if (expanded) {
+				components.forEach(function (param) {
+					content.appendChild(render(tab, param, onEdit, drivenSource(tab, param.name)));
+				});
+			}
+		}
+
+		toggle.addEventListener("click", function (event) {
+			event.preventDefault();
+			expanded = !expanded;
+			expandedGroups[groupName] = expanded;
+			toggle.textContent = expanded ? "\u25BE" : "\u25B8";
+			refresh();
+		});
+
+		var rootEl = el("div", { class: "vfx-inspector vfx-group" }, [header, content]);
+		rootEl.addEventListener("focusin", function (event) {
+			var target = event.target;
+			if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA")
+					&& typeof target.select === "function") {
+				try {
+					target.select();
+				} catch (e) {
+					// number inputs in some engines reject select(); harmless
+				}
+			}
+		});
+		// Right-click the group header applies a driver/multiplier to every component at once.
+		header.addEventListener("contextmenu", function (event) {
+			if (!slot || !root.VFXEditor || typeof root.VFXEditor.showMenu !== "function") {
+				return;
+			}
+			event.preventDefault();
+			var anyMultiply = names.some(function (name) {
+				return typeof slot.multiply === "function" && slot.multiply(tab, name);
+			});
+			root.VFXEditor.showMenu([
+				{ label: "Replace with expression",
+					action: function () { applyAll(function (name) { slot.replaceWithExpr(tab, name); }); } },
+				{ label: "Replace with binding",
+					action: function () { applyAll(function (name) { slot.replaceWithBind(tab, name); }); } },
+				{ label: anyMultiply ? "Remove multiplier" : "Add multiplier",
+					action: function () {
+						applyAll(function (name) { slot.setMultiply(tab, name, !anyMultiply); });
+					} }
+			], event);
+		});
+
+		refresh();
+		return rootEl;
+	}
+
 	/** Game ticks per second, for the duration field's ticks<->seconds toggle (20 tps, §15.3). */
 	var TICKS_PER_SECOND = 20;
 	/** Preferred duration unit across renders/tabs: "ticks" or "seconds". */
@@ -779,6 +965,7 @@
 
 	var api = {
 		render: render,
+		renderGroup: renderGroup,
 		renderTiming: renderTiming,
 		slotState: slotState,
 		BINDINGS: BINDINGS,

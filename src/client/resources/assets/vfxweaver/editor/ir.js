@@ -439,6 +439,129 @@
 		return body;
 	}
 
+	/**
+	 * Split a schema param list into the rows the inspector renders (design §15.9.6/P4, fix #21):
+	 * descriptors sharing a non-empty `vectorGroup` collapse into one entry keyed by the group,
+	 * with `components` ordered by `vectorIndex`; a descriptor without a group is its own singleton
+	 * entry. Order follows the schema, by the first component of each group seen.
+	 *
+	 * @param {Array<Object>} params the `VFXParamDescriptor[]` of one effect type
+	 * @returns {Array<{group: (string|null), name: string, components: Array<Object>}>} the rows
+	 */
+	function paramGroups(params) {
+		var out = [];
+		var byGroup = {};
+		(Array.isArray(params) ? params : []).forEach(function (param) {
+			if (!param || !param.name) {
+				return;
+			}
+			var group = param.vectorGroup;
+			if (!group) {
+				out.push({ group: null, name: param.name, components: [param] });
+				return;
+			}
+			if (!byGroup[group]) {
+				byGroup[group] = { group: group, name: group, components: [] };
+				out.push(byGroup[group]);
+			}
+			byGroup[group].components.push(param);
+		});
+		out.forEach(function (entry) {
+			if (entry.group) {
+				entry.components.sort(function (a, b) {
+					var ai = Number(a.vectorIndex);
+					var bi = Number(b.vectorIndex);
+					return (isFinite(ai) ? ai : 0) - (isFinite(bi) ? bi : 0);
+				});
+			}
+		});
+		return out;
+	}
+
+	/**
+	 * Broadcast one spec to every component of a group (design §15.9.6/P4): the group-level edit a
+	 * collapsed row performs, expanded to the underlying scalar params. Each component gets its own
+	 * deep copy, so a later per-component edit changes only that name and wins at compile time.
+	 *
+	 * @param {Object} tab the tab whose `params` are written
+	 * @param {Array<Object>} descriptors the group's component descriptors
+	 * @param {Object} spec the group-level spec (e.g. `{ value: 1 }`)
+	 * @returns {Array<string>} the component names written
+	 */
+	function applyGroupSpec(tab, descriptors, spec) {
+		var names = [];
+		if (!tab) {
+			return names;
+		}
+		if (!tab.params) {
+			tab.params = {};
+		}
+		(Array.isArray(descriptors) ? descriptors : []).forEach(function (param) {
+			if (!param || !param.name) {
+				return;
+			}
+			tab.params[param.name] = spec == null ? spec : JSON.parse(JSON.stringify(spec));
+			names.push(param.name);
+		});
+		return names;
+	}
+
+	/**
+	 * The spec every component of a group shares, or null when they differ (design §15.9.6/P4).
+	 * Drives the collapsed row's uniform/mixed display and the importer's collapse: mixed or
+	 * overridden components render expanded instead. A component that is a track or driven by a
+	 * wire is never "uniform" (there is no shared inline literal), so such a group stays expanded.
+	 *
+	 * @param {Object} tab the tab
+	 * @param {Array<Object>} descriptors the group's component descriptors
+	 * @returns {Object|null} the shared spec, or null when mixed (or when there is no component)
+	 */
+	function uniformGroupSpec(tab, descriptors) {
+		var list = Array.isArray(descriptors) ? descriptors : [];
+		if (list.length === 0) {
+			return null;
+		}
+		var first = null;
+		for (var i = 0; i < list.length; i++) {
+			var name = list[i].name;
+			var keys = tab && tab.keys ? tab.keys[name] : null;
+			if (Array.isArray(keys) && keys.length > 0) {
+				return null;
+			}
+			if (hasDriver(tab, name)) {
+				return null;
+			}
+			var spec = componentSpec(tab, list[i]);
+			if (i === 0) {
+				first = spec;
+			} else if (JSON.stringify(spec) !== JSON.stringify(first)) {
+				return null;
+			}
+		}
+		return first;
+	}
+
+	/** Whether a value node is wired into a param. */
+	function hasDriver(tab, name) {
+		var edges = tab && Array.isArray(tab.edges) ? tab.edges : [];
+		for (var i = 0; i < edges.length; i++) {
+			var edge = edges[i];
+			if (edge && edge.to === name && edge.input == null && edge.from != null) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/** The inline spec of one param: the stored object, a `{ value }` wrapper for a literal, or its default. */
+	function componentSpec(tab, param) {
+		var raw = tab && tab.params ? tab.params[param.name] : undefined;
+		if (raw != null && typeof raw === "object") {
+			return raw;
+		}
+		return { value: raw == null ? param.defaultValue : raw };
+	}
+
 	var api = {
 		Project: Project,
 		Tab: Tab,
@@ -451,7 +574,10 @@
 		graphToCanvas: graphToCanvas,
 		validNamespace: validNamespace,
 		exportZipBody: exportZipBody,
-		exportTargetBody: exportTargetBody
+		exportTargetBody: exportTargetBody,
+		paramGroups: paramGroups,
+		applyGroupSpec: applyGroupSpec,
+		uniformGroupSpec: uniformGroupSpec
 	};
 
 	root.VFXIR = api;
