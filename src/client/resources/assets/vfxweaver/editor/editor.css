@@ -22,7 +22,7 @@ body {
 
 body {
 	display: grid;
-	grid-template-rows: auto 1fr;
+	grid-template-rows: auto 1fr auto;
 	height: 100vh;
 	overflow: hidden;
 	background: var(--vfx-bg);
@@ -428,4 +428,160 @@ body {
 
 .vfx-add-key:hover {
 	border-color: var(--vfx-accent);
+}
+
+/* ------------------------------------------------------------------ */
+/* Timeline panel (Task 15)                                            */
+/* ------------------------------------------------------------------ */
+
+#vfx-timeline {
+	height: 176px;
+	background: var(--vfx-panel);
+	border-top: 1px solid var(--vfx-border);
+	overflow: hidden;
+}
+
+.vfx-tl {
+	display: flex;
+	flex-direction: column;
+	height: 100%;
+}
+
+.vfx-tl-empty,
+.vfx-tl-hint {
+	margin: 0;
+	padding: 8px 12px;
+	color: var(--vfx-text-dim);
+}
+
+.vfx-tl-transport {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	padding: 5px 8px;
+	border-bottom: 1px solid var(--vfx-border);
+	flex: 0 0 auto;
+}
+
+.vfx-tl-btn {
+	width: 26px;
+	height: 22px;
+	background: var(--vfx-panel-alt);
+	color: var(--vfx-text);
+	border: 1px solid var(--vfx-border);
+	border-radius: 4px;
+	cursor: pointer;
+	font: inherit;
+	line-height: 1;
+}
+
+.vfx-tl-btn:hover:not(:disabled) {
+	border-color: var(--vfx-accent);
+}
+
+.vfx-tl-btn.active {
+	border-color: var(--vfx-accent);
+	color: var(--vfx-accent);
+}
+
+.vfx-tl-btn:disabled {
+	opacity: 0.4;
+	cursor: not-allowed;
+}
+
+.vfx-tl-readout {
+	margin-left: 4px;
+	color: var(--vfx-text-dim);
+	font-variant-numeric: tabular-nums;
+}
+
+.vfx-tl-easing {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	margin-left: auto;
+}
+
+.vfx-tl-easing-label {
+	color: var(--vfx-text-dim);
+}
+
+.vfx-tl-scroll {
+	flex: 1 1 auto;
+	overflow: auto;
+	position: relative;
+	background: var(--vfx-bg);
+}
+
+.vfx-tl-content {
+	position: relative;
+	min-width: 100%;
+	min-height: 100%;
+}
+
+.vfx-tl-ruler {
+	position: relative;
+	height: 18px;
+	border-bottom: 1px solid var(--vfx-border);
+}
+
+.vfx-tl-tick {
+	position: absolute;
+	top: 2px;
+	font-size: 10px;
+	color: var(--vfx-text-dim);
+	border-left: 1px solid var(--vfx-border);
+	padding-left: 3px;
+	height: 100%;
+	pointer-events: none;
+}
+
+.vfx-tl-lane {
+	position: relative;
+	border-bottom: 1px solid var(--vfx-panel-alt);
+}
+
+.vfx-tl-label {
+	position: sticky;
+	left: 4px;
+	top: 2px;
+	display: inline-block;
+	padding: 1px 4px;
+	background: var(--vfx-panel);
+	border: 1px solid var(--vfx-border);
+	border-radius: 3px;
+	color: var(--vfx-text-dim);
+	font-size: 11px;
+	pointer-events: none;
+	z-index: 2;
+}
+
+.vfx-tl-key {
+	position: absolute;
+	width: 10px;
+	height: 10px;
+	margin-left: -5px;
+	padding: 0;
+	background: var(--vfx-accent);
+	border: 1px solid #cfe4ff;
+	border-radius: 50%;
+	cursor: grab;
+	z-index: 3;
+}
+
+.vfx-tl-key:hover,
+.vfx-tl-key.active {
+	background: #ffd257;
+	border-color: #fff;
+}
+
+.vfx-tl-playhead {
+	position: absolute;
+	top: 0;
+	bottom: 0;
+	width: 2px;
+	margin-left: -1px;
+	background: #ff5a5a;
+	pointer-events: none;
+	z-index: 1;
 }

@@ -42,7 +42,8 @@
 		filter: document.getElementById("vfx-filter"),
 		canvas: document.getElementById("vfx-canvas"),
 		wrap: document.getElementById("vfx-canvas-wrap"),
-		inspector: document.getElementById("vfx-inspector")
+		inspector: document.getElementById("vfx-inspector"),
+		timeline: document.getElementById("vfx-timeline")
 	};
 
 	function showBanner(message) {
@@ -189,6 +190,7 @@
 		renderTabs();
 		status(tab.type ? tab.name : tab.name + " — choose an effect type");
 		renderInspector();
+		renderTimeline();
 	}
 
 	function closeTab(index) {
@@ -205,6 +207,7 @@
 			renderTabs();
 			status("Choose an effect type to start");
 			renderInspector();
+			renderTimeline();
 			return;
 		}
 		if (wasActive) {
@@ -220,6 +223,7 @@
 			selectTab(project.active);
 		} else {
 			renderTabs();
+			renderTimeline();
 		}
 	}
 
@@ -282,6 +286,7 @@
 			renderTabs();
 			status(tab.name);
 			renderInspector();
+			renderTimeline();
 			return;
 		}
 		newTab(typeName, typeName);
@@ -327,8 +332,9 @@
 
 	/**
 	 * The inspector edit hook: the inspector has already mutated `tab.params[name]`; record an
-	 * undoable command around the new value and surface the form in the status line. Live sync
-	 * (set_param / /compile) is Task 15/16's job.
+	 * undoable command around the new value, surface the form in the status line and hand the edit to
+	 * Task 15's live sync (a constant slider -> `set_param`, anything structural -> `/compile`), then
+	 * refresh the timeline so a new/edited key lane appears.
 	 */
 	function onInspectorEdit(name, spec, previous) {
 		var tab = activeTab();
@@ -339,25 +345,39 @@
 		var next = snapshot(spec);
 		var before = snapshot(previous);
 		var commands = commandStack();
-		if (!commands) {
+		if (commands) {
+			commands["do"]({
+				"do": function () {
+					if (next == null) {
+						delete tab.params[name];
+					} else {
+						tab.params[name] = next;
+					}
+				},
+				undo: function () {
+					if (before == null) {
+						delete tab.params[name];
+					} else {
+						tab.params[name] = before;
+					}
+				}
+			});
+		}
+		if (window.VFXTimeline && typeof window.VFXTimeline.onEdit === "function") {
+			window.VFXTimeline.onEdit(tab, name, spec, previous);
+		}
+		renderTimeline();
+	}
+
+	/** Mount the timeline panel (Task 15) for the active tab. */
+	function renderTimeline() {
+		if (!dom.timeline) {
 			return;
 		}
-		commands["do"]({
-			"do": function () {
-				if (next == null) {
-					delete tab.params[name];
-				} else {
-					tab.params[name] = next;
-				}
-			},
-			undo: function () {
-				if (before == null) {
-					delete tab.params[name];
-				} else {
-					tab.params[name] = before;
-				}
-			}
-		});
+		dom.timeline.textContent = "";
+		if (window.VFXTimeline && typeof window.VFXTimeline.render === "function") {
+			dom.timeline.appendChild(window.VFXTimeline.render(activeTab()));
+		}
 	}
 
 	/** Rebuild the inspector panel for the active tab: a param list plus the selected control. */
@@ -457,6 +477,8 @@
 		openPack: openPack,
 		newTab: newTab,
 		renderInspector: renderInspector,
+		renderTimeline: renderTimeline,
+		status: status,
 		schema: schema,
 		token: token,
 		url: url,
@@ -540,6 +562,7 @@
 					buildPalette();
 					status("Loaded " + Object.keys(schema).length + " effect types");
 					renderInspector();
+					renderTimeline();
 				})
 				.catch(function (error) {
 					showBanner("Could not load /schema from the game bridge: " + error.message);
