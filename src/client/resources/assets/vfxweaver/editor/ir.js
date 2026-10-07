@@ -17,13 +17,20 @@
 
 	/**
 	 * The whole editor project. `revision` is the monotonic counter echoed to the game bridge
-	 * (design §7); `tabs` is one entry per edited effect.
+	 * (design §7); `tabs` is one entry per edited effect. `name`/`namespace`/`defaults` make the
+	 * project an object (design §15.6): the namespace is the datapack namespace every effect is
+	 * exported under, and `defaults` carries the global timing defaults new tabs inherit.
 	 *
 	 * @constructor
 	 */
 	function Project() {
 		this.revision = 0;
+		this.name = "Untitled project";
+		this.namespace = "vfx_project";
+		/** @type {Object<string, *>} global defaults (e.g. duration, easing) new tabs inherit */
+		this.defaults = {};
 		this.tabs = [];
+		this.active = -1;
 	}
 
 	/**
@@ -304,6 +311,57 @@
 		return [(Number(p[0]) + Number(o[0])) * s, (Number(p[1]) + Number(o[1])) * s];
 	}
 
+	/** A valid datapack namespace: non-empty and only `[a-z0-9_.-]` (design §15.6). */
+	var NAMESPACE_RE = /^[a-z0-9_.-]+$/;
+
+	/**
+	 * @param {*} value the candidate namespace
+	 * @returns {boolean} true when it matches `[a-z0-9_.-]+`
+	 */
+	function validNamespace(value) {
+		return typeof value === "string" && NAMESPACE_RE.test(value);
+	}
+
+	/**
+	 * Body for `POST /export/zip` (the staged, browser-download path). `sidecar` is included only
+	 * when present, matching the bridge's optional-field contract.
+	 *
+	 * @param {string} namespace the datapack namespace
+	 * @param {Object} effects effect name -> compiled JSON text
+	 * @param {*} [sidecar] the editor project document, or null
+	 * @returns {Object} the request body
+	 */
+	function exportZipBody(namespace, effects, sidecar) {
+		var body = { namespace: namespace, effects: effects || {} };
+		if (sidecar != null) {
+			body.sidecar = sidecar;
+		}
+		return body;
+	}
+
+	/**
+	 * Body for `POST /export` to a folder or world target.
+	 *
+	 * @param {string} namespace the datapack namespace
+	 * @param {string} destination `"folder"` or `"world"`
+	 * @param {string} path the pack root (folder) or world save directory (world)
+	 * @param {Object} effects effect name -> compiled JSON text
+	 * @param {*} [sidecar] the editor project document, or null
+	 * @returns {Object} the request body
+	 */
+	function exportTargetBody(namespace, destination, path, effects, sidecar) {
+		var body = {
+			namespace: namespace,
+			destination: destination,
+			path: path,
+			effects: effects || {}
+		};
+		if (sidecar != null) {
+			body.sidecar = sidecar;
+		}
+		return body;
+	}
+
 	var api = {
 		Project: Project,
 		Tab: Tab,
@@ -312,7 +370,10 @@
 		isFiniteNumber: isFiniteNumber,
 		parseNumber: parseNumber,
 		clampTime: clampTime,
-		graphToCanvas: graphToCanvas
+		graphToCanvas: graphToCanvas,
+		validNamespace: validNamespace,
+		exportZipBody: exportZipBody,
+		exportTargetBody: exportTargetBody
 	};
 
 	root.VFXIR = api;

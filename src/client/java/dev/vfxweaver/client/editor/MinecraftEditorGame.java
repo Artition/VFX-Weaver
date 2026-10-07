@@ -6,6 +6,7 @@ import dev.vfxweaver.api.VFXAPI;
 import dev.vfxweaver.effect.EasingType;
 import dev.vfxweaver.effect.VFXEffectType;
 import dev.vfxweaver.resource.VFXDefinitionManager;
+import java.io.File;
 import java.util.Map;
 import java.util.Set;
 import net.minecraft.client.Minecraft;
@@ -81,6 +82,13 @@ public final class MinecraftEditorGame implements EditorGame {
 			VFXAPI.playEffectAt(id, 0, elapsedTicks, Map.of(), null);
 		});
 		return true;
+	}
+
+	@Override
+	public @Nullable String savesDir() {
+		// `gameDirectory` is a public field on Minecraft on every supported node (verified with javap
+		// against 26.2 / 26.1.2 / 1.21.11); the `saves` folder is its conventional child.
+		return new File(Minecraft.getInstance().gameDirectory, "saves").getAbsolutePath();
 	}
 
 	/** {@code true} when {@code json} is an object whose {@code type} resolves to a known effect type. */

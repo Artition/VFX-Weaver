@@ -1,5 +1,6 @@
 package dev.vfxweaver.client.editor;
 
+import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonNull;
 import com.google.gson.JsonObject;
@@ -9,12 +10,14 @@ import com.google.gson.JsonSyntaxException;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import dev.vfxweaver.editor.VFXEffectSchema;
+import java.awt.GraphicsEnvironment;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.security.SecureRandom;
@@ -23,10 +26,16 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.Stream;
+import javax.swing.JFileChooser;
+import javax.swing.SwingUtilities;
 import org.jspecify.annotations.Nullable;
 
 /**
@@ -46,6 +55,8 @@ public final class EditorServer {
 	private static final long RATE_WINDOW_MS = 1000L;
 	/** Upper bound on a POST body, so a local client cannot exhaust memory. */
 	private static final int MAX_BODY_BYTES = 16 * 1024 * 1024;
+	/** Upper bound on worlds listed by {@code GET /worlds}. */
+	private static final int MAX_WORLDS = 256;
 
 	private final HttpServer server;
 	private final EditorSession session;
@@ -54,6 +65,8 @@ public final class EditorServer {
 	private final int rateLimitPerSec;
 	private final ExecutorService executor;
 	private final Map<String, Window> windows = new ConcurrentHashMap<>();
+	/** Staged export zips for the one-shot browser download (bounded, TTL'd). */
+	private final EditorExport exports = new EditorExport();
 
 	private EditorServer(final HttpServer server, final EditorSession session, final String token,
 			final int rateLimitPerSec, final ExecutorService executor) {
@@ -175,6 +188,14 @@ public final class EditorServer {
 					VFXEffectSchema.toJson().getBytes(StandardCharsets.UTF_8));
 			return;
 		}
+		if (path.equals("/worlds")) {
+			handleWorlds(exchange);
+			return;
+		}
+		if (path.equals("/export/download")) {
+			handleExportDownload(exchange);
+			return;
+		}
 		if (path.equals("/") || path.startsWith("/assets/")) {
 			final byte[] body = EditorAssets.resolve(path);
 			if (body != null) {
@@ -208,6 +229,8 @@ public final class EditorServer {
 				case "/set_keyframe" -> handleSetKeyframe(exchange);
 				case "/import" -> handleImport(exchange);
 				case "/export" -> handleExport(exchange);
+				case "/export/zip" -> handleExportZip(exchange);
+				case "/pick-folder" -> handlePickFolder(exchange);
 				default -> respondText(exchange, 404, "not found");
 			}
 		} catch (final RuntimeException e) {
@@ -405,14 +428,7 @@ public final class EditorServer {
 			respondActionError(exchange, EditorResult.BAD_REQUEST, "destination must be world, folder or zip");
 			return;
 		}
-		final Map<String, String> effects = new LinkedHashMap<>();
-		for (final Map.Entry<String, JsonElement> entry : effectsElement.getAsJsonObject().entrySet()) {
-			final JsonElement value = entry.getValue();
-			if (value != null && !value.isJsonNull()) {
-				effects.put(entry.getKey(), value.isJsonPrimitive() && value.getAsJsonPrimitive().isString()
-						? value.getAsString() : value.toString());
-			}
-		}
+		final Map<String, String> effects = effectsMap(effectsElement);
 		try {
 			if ("zip".equals(destination)) {
 				EditorPack.writeZip(target, namespace, effects, sidecarString(body));
@@ -426,6 +442,165 @@ public final class EditorServer {
 		} catch (final RuntimeException | IOException e) {
 			respondActionError(exchange, EditorResult.BAD_REQUEST, String.valueOf(e.getMessage()));
 		}
+	}
+
+	/**
+	 * {@code POST /export/zip}: build the posted effects into a pack zip entirely in memory and stage
+	 * it for a one-shot browser download. The response is {@code {ok:true,id,filename,size}}.
+	 *
+	 * @param exchange the {@code /export/zip} exchange
+	 * @throws IOException when the response cannot be sent
+	 */
+	private void handleExportZip(final HttpExchange exchange) throws IOException {
+		final JsonObject body = readObject(exchange);
+		if (body == null) {
+			respondActionError(exchange, EditorResult.INVALID_JSON, "request body must be a JSON object");
+			return;
+		}
+		final String namespace = string(body, "namespace");
+		final JsonElement effectsElement = body.get("effects");
+		if (namespace == null || namespace.isBlank() || effectsElement == null || !effectsElement.isJsonObject()) {
+			respondActionError(exchange, EditorResult.BAD_REQUEST, "namespace and effects are required");
+			return;
+		}
+		try {
+			final byte[] zip = EditorPack.zipBytes(namespace, effectsMap(effectsElement), sidecarString(body));
+			final String filename = namespace + ".zip";
+			final String id = this.exports.stage(zip, filename);
+			final JsonObject out = new JsonObject();
+			out.addProperty("ok", true);
+			out.addProperty("id", id);
+			out.addProperty("filename", filename);
+			out.addProperty("size", zip.length);
+			respondJson(exchange, out);
+		} catch (final RuntimeException | IOException e) {
+			respondActionError(exchange, EditorResult.BAD_REQUEST, String.valueOf(e.getMessage()));
+		}
+	}
+
+	/**
+	 * {@code GET /export/download?id=...}: stream a staged zip with a native-save disposition. The
+	 * entry is claimed (one-shot), so a repeat request 404s rather than keeping bytes alive.
+	 *
+	 * @param exchange the {@code /export/download} exchange
+	 * @throws IOException when the response cannot be sent
+	 */
+	private void handleExportDownload(final HttpExchange exchange) throws IOException {
+		final EditorExport.Staged staged = this.exports.take(queryParam(exchange, "id"));
+		if (staged == null) {
+			respondText(exchange, 404, "not found");
+			return;
+		}
+		exchange.getResponseHeaders().set("Cache-Control", "no-store");
+		exchange.getResponseHeaders().set("Content-Disposition",
+				"attachment; filename=\"" + staged.filename() + "\"");
+		respond(exchange, 200, "application/zip", staged.bytes());
+	}
+
+	/**
+	 * {@code POST /pick-folder}: native directory chooser. The dialog is created on the AWT event
+	 * dispatch thread via {@link SwingUtilities#invokeLater}; this HTTP pool thread only waits on a
+	 * latch, so the Minecraft render thread is never touched. Headless JVMs report
+	 * {@code {ok:false,error:"unsupported"}} and the web falls back to a manual path.
+	 *
+	 * @param exchange the {@code /pick-folder} exchange
+	 * @throws IOException when the response cannot be sent
+	 */
+	private void handlePickFolder(final HttpExchange exchange) throws IOException {
+		// The body is optional; drain it so the connection is reusable.
+		readObject(exchange);
+		if (GraphicsEnvironment.isHeadless()) {
+			respondActionError(exchange, "unsupported", "no display available (headless)");
+			return;
+		}
+		final AtomicReference<String> chosen = new AtomicReference<>();
+		final CountDownLatch done = new CountDownLatch(1);
+		try {
+			SwingUtilities.invokeLater(() -> {
+				try {
+					final JFileChooser chooser = new JFileChooser();
+					chooser.setDialogTitle("Choose an export folder");
+					chooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
+					chooser.setAcceptAllFileFilterUsed(false);
+					if (chooser.showSaveDialog(null) == JFileChooser.APPROVE_OPTION
+							&& chooser.getSelectedFile() != null) {
+						chosen.set(chooser.getSelectedFile().getAbsolutePath());
+					}
+				} finally {
+					done.countDown();
+				}
+			});
+		} catch (final RuntimeException e) {
+			respondActionError(exchange, "unsupported", String.valueOf(e.getMessage()));
+			return;
+		}
+		boolean finished;
+		try {
+			finished = done.await(5, TimeUnit.MINUTES);
+		} catch (final InterruptedException e) {
+			Thread.currentThread().interrupt();
+			respondActionError(exchange, "timeout", "interrupted while waiting for the picker");
+			return;
+		}
+		if (!finished) {
+			respondActionError(exchange, "timeout", "the folder picker did not close");
+			return;
+		}
+		final String path = chosen.get();
+		final JsonObject out = new JsonObject();
+		out.addProperty("ok", path != null);
+		if (path != null) {
+			out.addProperty("path", path);
+		} else {
+			out.addProperty("error", "cancelled");
+		}
+		respondJson(exchange, out);
+	}
+
+	/**
+	 * {@code GET /worlds}: directory names under the client's {@code saves} folder, plus the saves
+	 * root so the web can build a full world path. Never throws out of the handler.
+	 *
+	 * @param exchange the {@code /worlds} exchange
+	 * @throws IOException when the response cannot be sent
+	 */
+	private void handleWorlds(final HttpExchange exchange) throws IOException {
+		final JsonArray worlds = new JsonArray();
+		String root = null;
+		try {
+			root = this.session.savesDir();
+			if (root != null) {
+				final Path dir = Path.of(root);
+				if (Files.isDirectory(dir)) {
+					try (Stream<Path> entries = Files.list(dir)) {
+						entries.filter(Files::isDirectory)
+								.map(entry -> entry.getFileName().toString())
+								.sorted()
+								.limit(MAX_WORLDS)
+								.forEach(worlds::add);
+					}
+				}
+			}
+		} catch (final RuntimeException | IOException e) {
+			// Fall through with whatever was collected; a worlds listing must never 500 the bridge.
+		}
+		final JsonObject out = new JsonObject();
+		out.add("worlds", worlds);
+		out.addProperty("root", root == null ? "" : root);
+		respondJson(exchange, out);
+	}
+
+	/** The {@code effects} object as effect-name to JSON text (a primitive is taken verbatim). */
+	private static Map<String, String> effectsMap(final JsonElement effectsElement) {
+		final Map<String, String> effects = new LinkedHashMap<>();
+		for (final Map.Entry<String, JsonElement> entry : effectsElement.getAsJsonObject().entrySet()) {
+			final JsonElement value = entry.getValue();
+			if (value != null && !value.isJsonNull()) {
+				effects.put(entry.getKey(), value.isJsonPrimitive() && value.getAsJsonPrimitive().isString()
+						? value.getAsString() : value.toString());
+			}
+		}
+		return effects;
 	}
 
 	@Nullable
@@ -600,6 +775,22 @@ public final class EditorServer {
 		}
 		return MessageDigest.isEqual(presented.getBytes(StandardCharsets.UTF_8),
 				this.token.getBytes(StandardCharsets.UTF_8));
+	}
+
+	/** A decoded query-string value by name, or {@code null} when absent. */
+	@Nullable
+	private static String queryParam(final HttpExchange exchange, final String name) {
+		final String query = exchange.getRequestURI().getRawQuery();
+		if (query == null) {
+			return null;
+		}
+		for (final String pair : query.split("&")) {
+			final int eq = pair.indexOf('=');
+			if (eq > 0 && name.equals(pair.substring(0, eq))) {
+				return URLDecoder.decode(pair.substring(eq + 1), StandardCharsets.UTF_8);
+			}
+		}
+		return null;
 	}
 
 	@Nullable

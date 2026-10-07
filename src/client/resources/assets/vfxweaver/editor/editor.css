@@ -40,8 +40,17 @@ body {
 	font-size: 14px;
 }
 
+/*
+ * Keep the banner as a zero-height grid row while hidden: the body grid has four tracks
+ * (banner, top bar, main, timeline) and a display:none item would shift main onto the wrong one.
+ */
 #vfx-banner[hidden] {
-	display: none;
+	display: block;
+	visibility: hidden;
+	height: 0;
+	padding: 0;
+	border: 0;
+	overflow: hidden;
 }
 
 #vfx-topbar {
@@ -130,18 +139,44 @@ body {
 	white-space: nowrap;
 }
 
-/* Project / pack toolbar: namespace, tab name, export and import. */
-#vfx-packbar {
-	display: flex;
-	align-items: center;
-	gap: 8px;
-	padding: 5px 10px;
-	background: var(--vfx-panel-alt);
-	border-bottom: 1px solid var(--vfx-border);
-	flex-wrap: wrap;
+/* App shell top bar: File menu, project name, tabs, transport, revision badge (design §15.6). */
+.vfx-menubtn,
+.vfx-project-btn {
+	background: transparent;
+	color: var(--vfx-text);
+	border: 1px solid transparent;
+	border-radius: 4px;
+	padding: 4px 8px;
+	cursor: pointer;
+	font: inherit;
+	white-space: nowrap;
 }
 
-.vfx-pack-field {
+.vfx-menubtn:hover,
+.vfx-project-btn:hover {
+	background: var(--vfx-panel-alt);
+	border-color: var(--vfx-border);
+}
+
+.vfx-project-btn {
+	display: inline-flex;
+	align-items: baseline;
+	gap: 6px;
+	max-width: 240px;
+}
+
+#vfx-project-name {
+	font-weight: 600;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.vfx-project-ns {
+	color: var(--vfx-text-dim);
+	font-size: 11px;
+}
+
+.vfx-tab-field {
 	display: inline-flex;
 	align-items: center;
 	gap: 4px;
@@ -149,8 +184,8 @@ body {
 	white-space: nowrap;
 }
 
-#vfx-packbar input,
-#vfx-packbar select {
+#vfx-tab-name {
+	width: 120px;
 	background: var(--vfx-bg);
 	color: var(--vfx-text);
 	border: 1px solid var(--vfx-border);
@@ -159,28 +194,51 @@ body {
 	font: inherit;
 }
 
-#vfx-project,
-#vfx-tab-name {
-	width: 120px;
+#vfx-transport {
+	display: inline-flex;
+	gap: 2px;
 }
 
-.vfx-pack-path {
-	flex: 1 1 180px;
-	min-width: 120px;
-}
-
-#vfx-packbar button {
-	background: var(--vfx-panel);
+#vfx-transport button {
+	width: 26px;
+	height: 26px;
+	background: var(--vfx-panel-alt);
 	color: var(--vfx-text);
 	border: 1px solid var(--vfx-border);
 	border-radius: 4px;
-	padding: 3px 10px;
 	cursor: pointer;
 	font: inherit;
+	line-height: 1;
 }
 
-#vfx-packbar button:hover {
+#vfx-transport button:hover {
 	border-color: var(--vfx-accent);
+}
+
+.vfx-badge {
+	margin-left: auto;
+	padding: 3px 8px;
+	border-radius: 999px;
+	border: 1px solid var(--vfx-border);
+	background: var(--vfx-panel-alt);
+	color: var(--vfx-text-dim);
+	font-size: 11px;
+	white-space: nowrap;
+}
+
+.vfx-badge.error {
+	border-color: #8a3030;
+	color: #ffb3b3;
+}
+
+.vfx-badge.offline {
+	border-color: #7a6a30;
+	color: #ffe08a;
+}
+
+.vfx-badge.syncing {
+	border-color: var(--vfx-accent);
+	color: #cfe0ff;
 }
 
 .vfx-sep {
@@ -188,6 +246,212 @@ body {
 	align-self: stretch;
 	margin: 0 2px;
 	background: var(--vfx-border);
+}
+
+/* File dropdown. */
+.vfx-menu {
+	position: fixed;
+	z-index: 40;
+	min-width: 200px;
+	background: var(--vfx-panel);
+	border: 1px solid var(--vfx-border);
+	border-radius: 6px;
+	padding: 4px;
+	box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6);
+}
+
+.vfx-menu-item {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+	width: 100%;
+	text-align: left;
+	background: transparent;
+	color: var(--vfx-text);
+	border: 0;
+	border-radius: 4px;
+	padding: 6px 9px;
+	cursor: pointer;
+	font: inherit;
+}
+
+.vfx-menu-item:hover {
+	background: var(--vfx-panel-alt);
+}
+
+.vfx-menu-hint {
+	color: var(--vfx-text-dim);
+	font-size: 11px;
+}
+
+.vfx-menu-head {
+	padding: 6px 9px 2px;
+	color: var(--vfx-text-dim);
+	font-size: 10px;
+	text-transform: uppercase;
+	letter-spacing: 0.08em;
+}
+
+.vfx-menu-sep {
+	height: 1px;
+	margin: 4px 2px;
+	background: var(--vfx-border);
+}
+
+/* Modal dialogs (project, open, export). */
+.vfx-modal {
+	position: fixed;
+	inset: 0;
+	z-index: 50;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	background: rgba(0, 0, 0, 0.5);
+}
+
+.vfx-modal-box {
+	width: min(560px, 92vw);
+	max-height: 86vh;
+	display: flex;
+	flex-direction: column;
+	background: var(--vfx-panel);
+	border: 1px solid var(--vfx-border);
+	border-radius: 8px;
+	box-shadow: 0 12px 40px rgba(0, 0, 0, 0.7);
+}
+
+.vfx-modal-head {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	padding: 10px 14px;
+	border-bottom: 1px solid var(--vfx-border);
+	font-weight: 600;
+}
+
+.vfx-modal-close {
+	background: transparent;
+	color: var(--vfx-text-dim);
+	border: 0;
+	font-size: 18px;
+	line-height: 1;
+	cursor: pointer;
+}
+
+.vfx-modal-close:hover {
+	color: #ff8a8a;
+}
+
+.vfx-modal-body {
+	padding: 14px;
+	overflow: auto;
+	min-height: 0;
+}
+
+.vfx-dialog-field {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	margin-bottom: 10px;
+	color: var(--vfx-text-dim);
+}
+
+.vfx-dialog-field > span {
+	width: 150px;
+	flex: 0 0 auto;
+}
+
+.vfx-dialog-field input,
+.vfx-dialog-field select {
+	flex: 1 1 auto;
+	min-width: 0;
+	background: var(--vfx-bg);
+	color: var(--vfx-text);
+	border: 1px solid var(--vfx-border);
+	border-radius: 4px;
+	padding: 5px 8px;
+	font: inherit;
+}
+
+.vfx-dialog-actions {
+	display: flex;
+	justify-content: flex-end;
+	gap: 8px;
+	margin-top: 12px;
+}
+
+.vfx-dialog-btn {
+	background: var(--vfx-panel-alt);
+	color: var(--vfx-text);
+	border: 1px solid var(--vfx-border);
+	border-radius: 4px;
+	padding: 6px 14px;
+	cursor: pointer;
+	font: inherit;
+}
+
+.vfx-dialog-btn:hover {
+	border-color: var(--vfx-accent);
+}
+
+.vfx-dialog-btn.primary {
+	background: var(--vfx-accent);
+	border-color: var(--vfx-accent);
+	color: #08111f;
+	font-weight: 600;
+}
+
+.vfx-dialog-msg {
+	margin: 6px 0 0;
+	padding: 6px 9px;
+	border-radius: 4px;
+	background: var(--vfx-panel-alt);
+	color: var(--vfx-text-dim);
+	font-size: 12px;
+}
+
+.vfx-dialog-msg[hidden] {
+	display: none;
+}
+
+.vfx-dialog-msg.error {
+	background: #3a1d1d;
+	color: #ffb3b3;
+}
+
+/* Export target switcher. */
+.vfx-export-tabs {
+	display: flex;
+	gap: 4px;
+	margin-bottom: 12px;
+}
+
+.vfx-export-tab {
+	flex: 1 1 0;
+	background: var(--vfx-panel-alt);
+	color: var(--vfx-text-dim);
+	border: 1px solid var(--vfx-border);
+	border-radius: 4px;
+	padding: 6px 10px;
+	cursor: pointer;
+	font: inherit;
+}
+
+.vfx-export-tab:hover {
+	color: var(--vfx-text);
+}
+
+.vfx-export-tab.active {
+	background: var(--vfx-accent);
+	border-color: var(--vfx-accent);
+	color: #08111f;
+	font-weight: 600;
+}
+
+.vfx-export-pane p {
+	margin: 0 0 8px;
+	color: var(--vfx-text-dim);
 }
 
 #vfx-main {

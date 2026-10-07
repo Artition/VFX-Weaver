@@ -258,6 +258,41 @@ window.__vfxSelftest = function () {
 		eq(panned[1], 2.5, "panned y = (3 + 2) * 0.5");
 	});
 
+	test("(m) validNamespace accepts [a-z0-9_.-]+ only (design §15.6)", function () {
+		ok(VFXIR.validNamespace("vfx_demos"), "lowercase + underscore");
+		ok(VFXIR.validNamespace("my.pack-1"), "dot and dash allowed");
+		ok(VFXIR.validNamespace("a"), "single char");
+		ok(!VFXIR.validNamespace(""), "empty rejected");
+		ok(!VFXIR.validNamespace("VFX"), "uppercase rejected");
+		ok(!VFXIR.validNamespace("has space"), "space rejected");
+		ok(!VFXIR.validNamespace("../evil"), "path traversal rejected");
+		ok(!VFXIR.validNamespace(null), "null rejected");
+		ok(!VFXIR.validNamespace(7), "non-string rejected");
+	});
+
+	test("(n) exportZipBody matches the bridge's POST /export/zip shape", function () {
+		var body = VFXIR.exportZipBody("vfx_demos", { spark: "{}" }, { version: 1 });
+		eq(body.namespace, "vfx_demos", "namespace");
+		eq(body.effects.spark, "{}", "effects carried verbatim");
+		eq(body.sidecar.version, 1, "sidecar carried");
+		ok(!("destination" in body), "a zip body has no destination");
+		ok(!("path" in body), "a zip body has no path");
+		// A null sidecar is omitted, not serialised as null.
+		var bare = VFXIR.exportZipBody("ns", {});
+		ok(!("sidecar" in bare), "absent sidecar is omitted");
+	});
+
+	test("(o) exportTargetBody carries destination + path for folder/world", function () {
+		var folder = VFXIR.exportTargetBody("ns", "folder", "C:\\packs\\ns", { blur: "{}" }, null);
+		eq(folder.destination, "folder", "folder destination");
+		eq(folder.path, "C:\\packs\\ns", "folder path");
+		eq(folder.namespace, "ns", "namespace");
+		ok(!("sidecar" in folder), "null sidecar omitted");
+		var world = VFXIR.exportTargetBody("ns", "world", "C:/saves/New World", { blur: "{}" }, { tabs: [] });
+		eq(world.destination, "world", "world destination");
+		ok(world.sidecar != null, "sidecar included when present");
+	});
+
 	return results;
 };
 /* SELFTEST:END */

@@ -67,11 +67,19 @@
 		return isFinite(value) ? value : 0;
 	}
 
-	/** Store the revision the game echoed, on the IR project. */
+	/**
+	 * Store the revision the game echoed, on the IR project, and announce a change so the shell's
+	 * revision badge can follow every POST response (not only SSE frames).
+	 */
 	function setRevision(value) {
 		var project = root.VFXEditor && root.VFXEditor.project;
-		if (project && typeof value === "number") {
-			project.revision = value;
+		if (!project || typeof value !== "number") {
+			return;
+		}
+		var changed = project.revision !== value;
+		project.revision = value;
+		if (changed) {
+			emit("revision", { revision: value });
 		}
 	}
 

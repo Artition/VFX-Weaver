@@ -1,6 +1,7 @@
 package dev.vfxweaver.client.editor;
 
 import dev.vfxweaver.editor.VFXPackFormat;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
@@ -87,22 +88,55 @@ public final class EditorPack {
 	 */
 	public static void writeZip(final Path zip, final String namespace, final Map<String, String> effectsJson,
 			final @Nullable String sidecarJson) throws IOException {
-		final String ns = safeName(namespace);
-		for (final String name : effectsJson.keySet()) {
-			safeName(name);
-		}
+		final String ns = validate(namespace, effectsJson);
 		final Path parent = zip.getParent();
 		if (parent != null) {
 			Files.createDirectories(parent);
 		}
 		try (ZipOutputStream out = new ZipOutputStream(Files.newOutputStream(zip))) {
-			put(out, "pack.mcmeta", VFXPackFormat.mcmeta());
-			for (final Map.Entry<String, String> entry : effectsJson.entrySet()) {
-				put(out, "data/" + ns + "/vfx/" + entry.getKey() + ".json", entry.getValue());
-			}
-			if (sidecarJson != null) {
-				put(out, SIDECAR_NAME, sidecarJson);
-			}
+			writeZipEntries(out, ns, effectsJson, sidecarJson);
+		}
+	}
+
+	/**
+	 * The same zip layout as {@link #writeZip}, built entirely in memory. Used by the staged
+	 * browser-download path ({@code POST /export/zip}) so no temporary file is needed.
+	 *
+	 * @param namespace   the data namespace
+	 * @param effectsJson effect name to JSON text
+	 * @param sidecarJson the editor project JSON, or {@code null} to omit the sidecar
+	 * @return the zip archive bytes
+	 * @throws IllegalArgumentException if the namespace or an effect name is unsafe
+	 * @throws IOException if writing fails
+	 */
+	public static byte[] zipBytes(final String namespace, final Map<String, String> effectsJson,
+			final @Nullable String sidecarJson) throws IOException {
+		final String ns = validate(namespace, effectsJson);
+		final ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+		try (ZipOutputStream out = new ZipOutputStream(buffer)) {
+			writeZipEntries(out, ns, effectsJson, sidecarJson);
+		}
+		return buffer.toByteArray();
+	}
+
+	/** Validate the namespace and every effect name, returning the validated namespace. */
+	private static String validate(final String namespace, final Map<String, String> effectsJson) {
+		final String ns = safeName(namespace);
+		for (final String name : effectsJson.keySet()) {
+			safeName(name);
+		}
+		return ns;
+	}
+
+	/** Write the pack's entries into an already-open zip stream (namespace/names pre-validated). */
+	private static void writeZipEntries(final ZipOutputStream out, final String ns,
+			final Map<String, String> effectsJson, final @Nullable String sidecarJson) throws IOException {
+		put(out, "pack.mcmeta", VFXPackFormat.mcmeta());
+		for (final Map.Entry<String, String> entry : effectsJson.entrySet()) {
+			put(out, "data/" + ns + "/vfx/" + entry.getKey() + ".json", entry.getValue());
+		}
+		if (sidecarJson != null) {
+			put(out, SIDECAR_NAME, sidecarJson);
 		}
 	}
 

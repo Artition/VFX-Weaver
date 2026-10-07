@@ -1,5 +1,7 @@
 package dev.vfxweaver.client.editor;
 
+import org.jspecify.annotations.Nullable;
+
 /**
  * The game-side operations the visual editor drives.
  *
@@ -43,4 +45,14 @@ public interface EditorGame {
 	 * @return {@code true} if the effect was seeked
 	 */
 	boolean seek(String effectId, int elapsedTicks);
+
+	/**
+	 * The client's {@code saves} directory, so the bridge can list world saves to export into. A
+	 * default keeps the interface backward compatible for any test double.
+	 *
+	 * @return the absolute saves directory, or {@code null} when it is unknown
+	 */
+	default @Nullable String savesDir() {
+		return null;
+	}
 }

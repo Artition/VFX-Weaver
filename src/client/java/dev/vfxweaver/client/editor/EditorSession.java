@@ -142,6 +142,15 @@ public final class EditorSession {
 				"no live effect " + effectId);
 	}
 
+	/**
+	 * The client's world-saves directory, for the {@code GET /worlds} route.
+	 *
+	 * @return the absolute saves directory, or {@code null} when the game cannot provide one
+	 */
+	public @Nullable String savesDir() {
+		return this.game.savesDir();
+	}
+
 	private EditorResult stale(final long revision) {
 		return new EditorResult(false, this.revision.get(), EditorResult.STALE_REVISION,
 				"expected revision " + this.revision.get() + ", got " + revision);

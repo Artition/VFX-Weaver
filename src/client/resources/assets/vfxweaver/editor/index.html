@@ -71,34 +71,25 @@
 <body>
 <div id="vfx-banner" role="alert" hidden></div>
 <header id="vfx-topbar">
-	<span id="vfx-title">VFXweaver Editor</span>
+	<button id="vfx-file" type="button" class="vfx-menubtn" aria-haspopup="true" aria-expanded="false">File</button>
+	<button id="vfx-project" type="button" class="vfx-project-btn" title="Project settings (name, namespace, defaults)">
+		<span id="vfx-project-name">Untitled project</span>
+		<span id="vfx-project-ns" class="vfx-project-ns"></span>
+	</button>
+	<span class="vfx-sep" aria-hidden="true"></span>
 	<nav id="vfx-tabs" role="tablist" aria-label="Effect tabs"></nav>
 	<button id="vfx-new-tab" type="button" title="New effect tab">+</button>
-	<span id="vfx-status" aria-live="polite"></span>
-</header>
-<div id="vfx-packbar" aria-label="Project and pack controls">
-	<label class="vfx-pack-field">Project
-		<input id="vfx-project" type="text" placeholder="namespace" aria-label="Project namespace">
-	</label>
-	<label class="vfx-pack-field">Tab
+	<label class="vfx-tab-field" title="Active tab name">Tab
 		<input id="vfx-tab-name" type="text" placeholder="effect name" aria-label="Active tab name">
 	</label>
-	<span class="vfx-sep" aria-hidden="true"></span>
-	<label class="vfx-pack-field">Export
-		<select id="vfx-export-dest" aria-label="Export destination">
-			<option value="world">to world</option>
-			<option value="folder">to folder</option>
-			<option value="zip">to zip</option>
-		</select>
-	</label>
-	<input id="vfx-export-path" type="text" class="vfx-pack-path" placeholder="world folder / pack root / zip path"
-		aria-label="Export path">
-	<button id="vfx-export" type="button">Export</button>
-	<span class="vfx-sep" aria-hidden="true"></span>
-	<input id="vfx-import-path" type="text" class="vfx-pack-path" placeholder="pack folder or zip to import"
-		aria-label="Import path">
-	<button id="vfx-import" type="button">Import</button>
-</div>
+	<div id="vfx-transport" role="group" aria-label="Transport">
+		<button id="vfx-play" type="button" title="Play / pause (Space)">▶</button>
+		<button id="vfx-stop" type="button" title="Stop">■</button>
+		<button id="vfx-replay" type="button" title="Replay from the start (R)">⟳</button>
+	</div>
+	<span id="vfx-revbadge" class="vfx-badge" aria-live="polite"></span>
+	<span id="vfx-status" aria-live="polite"></span>
+</header>
 <main id="vfx-main">
 	<aside id="vfx-palette" aria-label="Schema palette">
 		<input id="vfx-filter" type="search" placeholder="Filter nodes..." aria-label="Filter nodes">

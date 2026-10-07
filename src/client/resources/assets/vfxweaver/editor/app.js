@@ -45,13 +45,15 @@
 		wrap: document.getElementById("vfx-canvas-wrap"),
 		inspector: document.getElementById("vfx-inspector"),
 		timeline: document.getElementById("vfx-timeline"),
-		project: document.getElementById("vfx-project"),
+		file: document.getElementById("vfx-file"),
+		projectBtn: document.getElementById("vfx-project"),
+		projectName: document.getElementById("vfx-project-name"),
+		projectNs: document.getElementById("vfx-project-ns"),
 		tabName: document.getElementById("vfx-tab-name"),
-		exportDest: document.getElementById("vfx-export-dest"),
-		exportPath: document.getElementById("vfx-export-path"),
-		exportBtn: document.getElementById("vfx-export"),
-		importPath: document.getElementById("vfx-import-path"),
-		importBtn: document.getElementById("vfx-import")
+		play: document.getElementById("vfx-play"),
+		stop: document.getElementById("vfx-stop"),
+		replay: document.getElementById("vfx-replay"),
+		revbadge: document.getElementById("vfx-revbadge")
 	};
 
 	function showBanner(message) {
@@ -64,12 +66,20 @@
 	}
 
 	/**
-	 * The project model. Minimal for the shell; Task 13 replaces the tab objects
-	 * with the real IR (`ir.js`).
+	 * The project model (design §15.6): an object with the datapack `namespace`, a display `name`,
+	 * `defaults` new tabs inherit, and the tabs themselves. `revision` is the bridge counter echoed
+	 * on every reply (`bridge.js`).
 	 *
-	 * @type {{revision: number, tabs: Array, active: number}}
+	 * @type {{revision: number, name: string, namespace: string, defaults: Object, tabs: Array, active: number}}
 	 */
-	var project = { revision: 0, tabs: [], active: -1 };
+	var project = {
+		revision: 0,
+		name: "Untitled project",
+		namespace: "vfx_project",
+		defaults: {},
+		tabs: [],
+		active: -1
+	};
 
 	/** The parsed GET /schema payload: `{ "<type>": { params: [...] } }`. */
 	var schema = {};
@@ -182,6 +192,14 @@
 				? new window.VFXIR.Tab(name, type)
 				: { name: name || "untitled", type: null, duration: 40, easing: "linear",
 					params: {}, valueNodes: [], edges: [], keys: {} };
+		if (project.defaults) {
+			if (isFiniteNumber(project.defaults.duration)) {
+				tab.duration = Number(project.defaults.duration);
+			}
+			if (typeof project.defaults.easing === "string" && project.defaults.easing) {
+				tab.easing = project.defaults.easing;
+			}
+		}
 		tab.graph = graph;
 		tab.root = null;
 		tab.__valueSeq = 0;
@@ -1329,9 +1347,15 @@
 		};
 	}
 
-	/** The whole project as a serialisable snapshot. */
+	/** The whole project as a serialisable snapshot (project object fields included, so undoable). */
 	function snapshotProject() {
-		return { active: project.active, tabs: project.tabs.map(snapshotTab) };
+		return {
+			active: project.active,
+			name: project.name,
+			namespace: project.namespace,
+			defaults: snapshot(project.defaults || {}),
+			tabs: project.tabs.map(snapshotTab)
+		};
 	}
 
 	/** Make sure a baseline exists before the first mutation, so the first action is undoable. */
@@ -1379,6 +1403,10 @@
 		if (!snap || !Array.isArray(snap.tabs)) {
 			return;
 		}
+		project.name = snap.name == null ? project.name : String(snap.name);
+		project.namespace = snap.namespace == null ? project.namespace : String(snap.namespace);
+		project.defaults = snapshot(snap.defaults) || {};
+		setProjectName();
 		// Drop any pending debounced edit/commit so a stale timer cannot re-commit after the restore.
 		clearTimeout(commitTimer);
 		commitTimer = 0;
@@ -1765,58 +1793,565 @@
 		});
 	}
 
-	/** Export every effect tab as a datapack to the chosen destination (world / folder / zip). */
-	function exportPack() {
-		var bridge = window.VFXBridge;
-		if (!bridge) {
-			status("export: the bridge is not available");
-			return;
+	/* ------------------------------------------------------------------ */
+	/* Project / settings (design §15.6)                                   */
+	/* ------------------------------------------------------------------ */
+
+	/** A local namespace check with an ir.js fallback, so the shell works before ir.js loads. */
+	function validNamespace(value) {
+		return window.VFXIR && typeof window.VFXIR.validNamespace === "function"
+				? window.VFXIR.validNamespace(value)
+				: /^[a-z0-9_.-]+$/.test(String(value == null ? "" : value));
+	}
+
+	/** Project name + namespace in the top bar. */
+	function setProjectName() {
+		if (dom.projectName) {
+			dom.projectName.textContent = project.name || "Untitled project";
 		}
-		var namespace = safeName(dom.project.value);
-		if (!namespace) {
-			status("export: enter a project namespace");
-			return;
+		if (dom.projectNs) {
+			dom.projectNs.textContent = project.namespace || "";
 		}
-		var destination = dom.exportDest.value;
-		var path = dom.exportPath.value.trim();
-		if (!path) {
-			status("export: enter a destination path");
-			return;
+	}
+
+	/** Reset to a fresh project: new name/namespace, no tabs. */
+	function newProject(name, namespace) {
+		project.name = name || "Untitled project";
+		project.namespace = namespace || "vfx_project";
+		project.defaults = project.defaults || {};
+		project.tabs = [];
+		project.active = -1;
+		if (scene) {
+			scene.setGraph(newGraph());
 		}
-		var effects = gatherEffects();
-		if (Object.keys(effects).length === 0) {
-			status("export: no effect tabs to export");
-			return;
+		if (dom.tabName) {
+			dom.tabName.value = "";
 		}
-		status("exporting " + namespace + "…");
-		bridge.post("/export", {
-			destination: destination,
-			path: path,
-			namespace: namespace,
-			effects: effects,
-			sidecar: buildSidecar()
-		}).then(function (result) {
-			if (!result || result.ok === false) {
-				status("export failed: " + ((result && (result.detail || result.error)) || "no response"));
-				return;
+		setProjectName();
+		renderTabs();
+		renderInspector();
+		renderTimeline();
+		showEmptyPlaceholder();
+		commitHistory();
+		status("new project: " + project.name + " (" + project.namespace + ")");
+	}
+
+	/* ------------------------------------------------------------------ */
+	/* Small dialog/menu widgets                                           */
+	/* ------------------------------------------------------------------ */
+
+	/** Open a modal; `build(body, close)` fills the body. Returns the handle. */
+	function openModal(title, build) {
+		var overlay = document.createElement("div");
+		overlay.className = "vfx-modal";
+		var box = document.createElement("div");
+		box.className = "vfx-modal-box";
+		var head = document.createElement("div");
+		head.className = "vfx-modal-head";
+		var heading = document.createElement("span");
+		heading.textContent = title;
+		var closeBtn = document.createElement("button");
+		closeBtn.type = "button";
+		closeBtn.className = "vfx-modal-close";
+		closeBtn.textContent = "×";
+		closeBtn.title = "Close";
+		head.appendChild(heading);
+		head.appendChild(closeBtn);
+		var body = document.createElement("div");
+		body.className = "vfx-modal-body";
+		box.appendChild(head);
+		box.appendChild(body);
+		overlay.appendChild(box);
+		function close() {
+			document.removeEventListener("keydown", onKey, true);
+			if (overlay.parentNode) {
+				overlay.parentNode.removeChild(overlay);
 			}
-			status("exported " + namespace + " → " + (result.path || path));
+		}
+		function onKey(event) {
+			if (event.key === "Escape") {
+				event.stopPropagation();
+				close();
+			}
+		}
+		closeBtn.addEventListener("click", close);
+		overlay.addEventListener("mousedown", function (event) {
+			if (event.target === overlay) {
+				close();
+			}
+		});
+		document.addEventListener("keydown", onKey, true);
+		document.body.appendChild(overlay);
+		if (build) {
+			build(body, close);
+		}
+		return { body: body, close: close, overlay: overlay };
+	}
+
+	/** A labelled text input row inside a dialog; returns the input element. */
+	function dialogInput(parent, label, value, placeholder) {
+		var row = document.createElement("label");
+		row.className = "vfx-dialog-field";
+		var span = document.createElement("span");
+		span.textContent = label;
+		var input = document.createElement("input");
+		input.type = "text";
+		input.value = value == null ? "" : value;
+		if (placeholder) {
+			input.placeholder = placeholder;
+		}
+		row.appendChild(span);
+		row.appendChild(input);
+		parent.appendChild(row);
+		return input;
+	}
+
+	/** A right-aligned action row inside a dialog. */
+	function dialogActions(parent) {
+		var row = document.createElement("div");
+		row.className = "vfx-dialog-actions";
+		parent.appendChild(row);
+		return row;
+	}
+
+	/** Append a button to an actions row. */
+	function dialogButton(parent, label, primary, action) {
+		var button = document.createElement("button");
+		button.type = "button";
+		button.className = "vfx-dialog-btn" + (primary ? " primary" : "");
+		button.textContent = label;
+		button.addEventListener("click", action);
+		parent.appendChild(button);
+		return button;
+	}
+
+	/** A message line that can be shown/hidden in a dialog. */
+	function dialogMessage(parent) {
+		var p = document.createElement("p");
+		p.className = "vfx-dialog-msg";
+		p.hidden = true;
+		parent.appendChild(p);
+		return {
+			show: function (text, isError) {
+				p.textContent = text;
+				p.className = "vfx-dialog-msg" + (isError ? " error" : "");
+				p.hidden = false;
+			},
+			hide: function () {
+				p.hidden = true;
+			}
+		};
+	}
+
+	/* ------------------------------------------------------------------ */
+	/* File menu                                                           */
+	/* ------------------------------------------------------------------ */
+
+	var RECENT_KEY = "vfxweaver.recent";
+	var RECENT_MAX = 8;
+
+	/** Recent import paths from localStorage (bounded, never throws). */
+	function recentPaths() {
+		try {
+			var raw = window.localStorage.getItem(RECENT_KEY);
+			var list = raw ? JSON.parse(raw) : [];
+			return Array.isArray(list) ? list.filter(function (p) { return typeof p === "string"; }) : [];
+		} catch (e) {
+			return [];
+		}
+	}
+
+	/** Remember a path as most-recent. */
+	function pushRecent(path) {
+		if (!path) {
+			return;
+		}
+		try {
+			var list = recentPaths().filter(function (p) { return p !== path; });
+			list.unshift(path);
+			window.localStorage.setItem(RECENT_KEY, JSON.stringify(list.slice(0, RECENT_MAX)));
+		} catch (e) {
+			// localStorage may be unavailable; recents are a convenience only
+		}
+	}
+
+	/** The last path segment, for a compact menu label. */
+	function shortPath(path) {
+		var parts = String(path).split(/[\\/]/);
+		return parts[parts.length - 1] || String(path);
+	}
+
+	function closeFileMenu() {
+		if (window.__vfxFileMenu && window.__vfxFileMenu.parentNode) {
+			window.__vfxFileMenu.parentNode.removeChild(window.__vfxFileMenu);
+		}
+		window.__vfxFileMenu = null;
+		if (dom.file) {
+			dom.file.setAttribute("aria-expanded", "false");
+		}
+	}
+
+	/** Toggle the File dropdown, anchored under the File button. */
+	function openFileMenu() {
+		if (window.__vfxFileMenu && window.__vfxFileMenu.parentNode) {
+			closeFileMenu();
+			return;
+		}
+		var menu = document.createElement("div");
+		menu.className = "vfx-menu";
+		window.__vfxFileMenu = menu;
+
+		function close() {
+			if (menu.parentNode) {
+				menu.parentNode.removeChild(menu);
+			}
+			window.__vfxFileMenu = null;
+			dom.file.setAttribute("aria-expanded", "false");
+			document.removeEventListener("mousedown", onDoc, true);
+		}
+		function onDoc(event) {
+			if (!menu.contains(event.target) && event.target !== dom.file) {
+				close();
+			}
+		}
+		function item(label, hint, action) {
+			var button = document.createElement("button");
+			button.type = "button";
+			button.className = "vfx-menu-item";
+			button.textContent = label;
+			if (hint) {
+				var span = document.createElement("span");
+				span.className = "vfx-menu-hint";
+				span.textContent = hint;
+				button.appendChild(span);
+			}
+			button.addEventListener("click", function () {
+				close();
+				action();
+			});
+			menu.appendChild(button);
+		}
+		function sep() {
+			var line = document.createElement("div");
+			line.className = "vfx-menu-sep";
+			menu.appendChild(line);
+		}
+
+		item("New Project…", "", openNewProjectDialog);
+		item("Open…", "", openOpenDialog);
+		var recents = recentPaths();
+		if (recents.length) {
+			var head = document.createElement("div");
+			head.className = "vfx-menu-head";
+			head.textContent = "Recent";
+			menu.appendChild(head);
+			recents.forEach(function (path) {
+				item(shortPath(path), "", function () {
+					importPack(path);
+				});
+			});
+		}
+		sep();
+		item("Save (preview)", "Ctrl+S", saveProject);
+		item("Export…", "", openExportDialog);
+		sep();
+		item("Settings…", "", openSettingsDialog);
+
+		var rect = dom.file.getBoundingClientRect();
+		menu.style.left = rect.left + "px";
+		menu.style.top = rect.bottom + "px";
+		document.body.appendChild(menu);
+		dom.file.setAttribute("aria-expanded", "true");
+		// Attach after this click finishes, or the same click closes the menu immediately.
+		setTimeout(function () {
+			document.addEventListener("mousedown", onDoc, true);
+		}, 0);
+	}
+
+	/* ------------------------------------------------------------------ */
+	/* File menu dialogs                                                   */
+	/* ------------------------------------------------------------------ */
+
+	function openNewProjectDialog() {
+		openModal("New project", function (body, close) {
+			var nameInput = dialogInput(body, "Name", project.name, "My effects");
+			var nsInput = dialogInput(body, "Namespace", project.namespace, "my_effects");
+			var msg = dialogMessage(body);
+			var actions = dialogActions(body);
+			dialogButton(actions, "Cancel", false, close);
+			dialogButton(actions, "Create", true, function () {
+				var ns = nsInput.value.trim();
+				if (!validNamespace(ns)) {
+					msg.show("namespace must match [a-z0-9_.-]+", true);
+					return;
+				}
+				newProject(nameInput.value.trim(), ns);
+				close();
+			});
 		});
 	}
 
+	function openSettingsDialog() {
+		openModal("Project settings", function (body, close) {
+			var nameInput = dialogInput(body, "Name", project.name, "My effects");
+			var nsInput = dialogInput(body, "Namespace", project.namespace, "my_effects");
+			var durInput = dialogInput(body, "Default duration (ticks)",
+					project.defaults && project.defaults.duration != null ? project.defaults.duration : 40, "40");
+			var easeInput = dialogInput(body, "Default easing",
+					project.defaults && project.defaults.easing ? project.defaults.easing : "linear", "linear");
+			var msg = dialogMessage(body);
+			var actions = dialogActions(body);
+			dialogButton(actions, "Cancel", false, close);
+			dialogButton(actions, "Apply", true, function () {
+				var ns = nsInput.value.trim();
+				if (!validNamespace(ns)) {
+					msg.show("namespace must match [a-z0-9_.-]+", true);
+					return;
+				}
+				project.name = nameInput.value.trim() || "Untitled project";
+				project.namespace = ns;
+				project.defaults = project.defaults || {};
+				var duration = parseNumber(durInput.value);
+				if (duration != null) {
+					project.defaults.duration = duration;
+				}
+				var easing = easeInput.value.trim();
+				if (easing) {
+					project.defaults.easing = easing;
+				}
+				setProjectName();
+				commitHistory();
+				status("project: " + project.name + " (" + project.namespace + ")");
+				close();
+			});
+		});
+	}
+
+	function openOpenDialog() {
+		openModal("Open datapack", function (body, close) {
+			var pathInput = dialogInput(body, "Pack folder or zip", "", "C:\\...\\vfx_demos");
+			var msg = dialogMessage(body);
+			var actions = dialogActions(body);
+			dialogButton(actions, "Cancel", false, close);
+			dialogButton(actions, "Open", true, function () {
+				var path = pathInput.value.trim();
+				if (!path) {
+					msg.show("enter a pack folder or zip path", true);
+					return;
+				}
+				close();
+				importPack(path);
+			});
+		});
+	}
+
+	/* ------------------------------------------------------------------ */
+	/* Export dialog (design §15.6)                                        */
+	/* ------------------------------------------------------------------ */
+
+	/** Every effect tab + the sidecar, or null when there is nothing to export. */
+	function exportPayload() {
+		var effects = gatherEffects();
+		if (Object.keys(effects).length === 0) {
+			return null;
+		}
+		return { namespace: project.namespace, effects: effects, sidecar: buildSidecar() };
+	}
+
+	/** Open the single export dialog with its three targets. */
+	function openExportDialog() {
+		openModal("Export " + (project.namespace || "project"), function (body, close) {
+			var tabs = document.createElement("div");
+			tabs.className = "vfx-export-tabs";
+			body.appendChild(tabs);
+
+			var pane = document.createElement("div");
+			pane.className = "vfx-export-pane";
+			body.appendChild(pane);
+
+			var msg = dialogMessage(body);
+
+			function target(buttonLabel, view) {
+				var button = document.createElement("button");
+				button.type = "button";
+				button.className = "vfx-export-tab";
+				button.textContent = buttonLabel;
+				button.addEventListener("click", function () {
+					Array.prototype.forEach.call(tabs.children, function (child) {
+						child.classList.toggle("active", child === button);
+					});
+					pane.textContent = "";
+					msg.hide();
+					view();
+				});
+				tabs.appendChild(button);
+				return button;
+			}
+
+			function exportToTarget(destination, path) {
+				var payload = exportPayload();
+				if (!payload) {
+					msg.show("no effect tabs to export", true);
+					return;
+				}
+				msg.show("exporting to " + destination + "…", false);
+				window.VFXBridge.post("/export", window.VFXIR.exportTargetBody(
+						payload.namespace, destination, path, payload.effects, payload.sidecar)).then(function (result) {
+					if (!result || result.ok === false) {
+						msg.show("export failed: " + ((result && (result.detail || result.error)) || "no response"), true);
+						return;
+					}
+					pushRecent(result.path || path);
+					msg.show("exported → " + (result.path || path), false);
+				});
+			}
+
+			// ZIP: stage on the bridge, then navigate to the download URL (native OS save dialog).
+			function viewZip() {
+				var intro = document.createElement("p");
+				intro.textContent = "Build a .zip and download it via your browser's save dialog.";
+				pane.appendChild(intro);
+				var actions = dialogActions(pane);
+				dialogButton(actions, "Download .zip", true, function () {
+					var payload = exportPayload();
+					if (!payload) {
+						msg.show("no effect tabs to export", true);
+						return;
+					}
+					msg.show("building zip…", false);
+					window.VFXBridge.post("/export/zip", window.VFXIR.exportZipBody(
+							payload.namespace, payload.effects, payload.sidecar)).then(function (result) {
+						if (!result || result.ok === false || !result.id) {
+							msg.show("zip failed: " + ((result && (result.detail || result.error)) || "no response"), true);
+							return;
+						}
+						msg.show("zip ready (" + result.size + " bytes) — starting download…", false);
+						window.location.href = window.VFXBridge.url(
+								"/export/download?id=" + encodeURIComponent(result.id));
+					});
+				});
+			}
+
+			// Folder: native directory picker (bridge), with a manual path fallback.
+			function viewFolder() {
+				var pathInput = dialogInput(pane, "Folder", "", "C:\\...\\export");
+				var actions = dialogActions(pane);
+				dialogButton(actions, "Choose…", false, function () {
+					msg.show("waiting for the folder picker…", false);
+					window.VFXBridge.post("/pick-folder", {}).then(function (result) {
+						if (result && result.ok && result.path) {
+							pathInput.value = result.path;
+							msg.show("folder: " + result.path, false);
+						} else {
+							msg.show("native picker unavailable ("
+									+ ((result && result.error) || "no response")
+									+ ") — enter a path manually", true);
+							pathInput.focus();
+						}
+					});
+				});
+				dialogButton(actions, "Export", true, function () {
+					var path = pathInput.value.trim();
+					if (!path) {
+						msg.show("choose or enter a folder", true);
+						return;
+					}
+					exportToTarget("folder", path);
+				});
+			}
+
+			// World: pick a save from the bridge list, confirm overwrite, export there.
+			function viewWorld() {
+				var row = document.createElement("label");
+				row.className = "vfx-dialog-field";
+				var span = document.createElement("span");
+				span.textContent = "World";
+				var select = document.createElement("select");
+				row.appendChild(span);
+				row.appendChild(select);
+				pane.appendChild(row);
+				var rootPath = "";
+				select.disabled = true;
+				var loading = document.createElement("option");
+				loading.textContent = "loading…";
+				loading.value = "";
+				select.appendChild(loading);
+				window.fetch(window.VFXBridge.url("/worlds")).then(function (response) {
+					return response.json();
+				}).then(function (data) {
+					select.textContent = "";
+					select.disabled = false;
+					rootPath = data && data.root ? String(data.root) : "";
+					var worlds = data && Array.isArray(data.worlds) ? data.worlds : [];
+					if (!worlds.length) {
+						var none = document.createElement("option");
+						none.textContent = "(no worlds found)";
+						none.value = "";
+						select.appendChild(none);
+						return;
+					}
+					worlds.forEach(function (name) {
+						var opt = document.createElement("option");
+						opt.value = name;
+						opt.textContent = name;
+						select.appendChild(opt);
+					});
+				}).catch(function () {
+					select.textContent = "";
+					var failed = document.createElement("option");
+					failed.textContent = "(could not list worlds)";
+					failed.value = "";
+					select.appendChild(failed);
+				});
+				var actions = dialogActions(pane);
+				dialogButton(actions, "Export", true, function () {
+					var world = select.value;
+					if (!world || !rootPath) {
+						msg.show("pick a world first", true);
+						return;
+					}
+					var dir = rootPath.replace(/[\\/]+$/, "") + "/" + world;
+					if (!window.confirm("Export into world \"" + world + "\"? Existing files for this "
+							+ "namespace will be overwritten.")) {
+						return;
+					}
+					exportToTarget("world", dir);
+				});
+			}
+
+			var zipButton = target("ZIP", viewZip);
+			target("Folder", viewFolder);
+			target("World", viewWorld);
+			zipButton.classList.add("active");
+			viewZip();
+		});
+	}
+
+	/* ------------------------------------------------------------------ */
+	/* Export / import transport                                           */
+	/* ------------------------------------------------------------------ */
+
+	/** Backward-compatible entry point: opens the unified export dialog. */
+	function exportPack() {
+		if (!window.VFXBridge) {
+			status("export: the bridge is not available");
+			return;
+		}
+		openExportDialog();
+	}
+
 	/** Import a datapack folder or zip: rebuild one tab per effect and restore the sidecar layout. */
-	function importPack() {
+	function importPack(path) {
 		var bridge = window.VFXBridge;
 		if (!bridge) {
 			status("import: the bridge is not available");
 			return;
 		}
-		var path = dom.importPath.value.trim();
 		if (!path) {
-			status("import: enter a pack folder or zip");
+			openOpenDialog();
 			return;
 		}
-		status("importing…");
+		status("importing " + shortPath(path) + "…");
 		bridge.post("/import", { path: path }).then(function (result) {
 			if (!result || result.ok === false) {
 				status("import failed: " + ((result && (result.detail || result.error)) || "no response"));
@@ -1826,6 +2361,7 @@
 			var before = project.tabs.length;
 			var created = openPack(namespace, result.effects || {});
 			applySidecar(result.sidecar, project.tabs.slice(before));
+			pushRecent(path);
 			status("imported " + created + " effect" + (created === 1 ? "" : "s")
 					+ (namespace ? " from " + namespace : ""));
 		});
@@ -1869,6 +2405,13 @@
 		newTab: newTab,
 		exportPack: exportPack,
 		importPack: importPack,
+		openExportDialog: openExportDialog,
+		openFileMenu: openFileMenu,
+		openSettingsDialog: openSettingsDialog,
+		openNewProjectDialog: openNewProjectDialog,
+		newProject: newProject,
+		setProjectName: setProjectName,
+		validNamespace: validNamespace,
 		renderInspector: renderInspector,
 		renderTimeline: renderTimeline,
 		status: status,
@@ -1918,7 +2461,28 @@
 		}
 	}
 
-	/** Start the bridge (SSE + reconnect) and surface its health in the status line. */
+	/** The revision-status badge in the top bar: "rev N → in game", offline, syncing or error. */
+	function updateRevBadge(state) {
+		if (!dom.revbadge) {
+			return;
+		}
+		var rev = Number(project.revision) || 0;
+		if (state === "offline") {
+			dom.revbadge.textContent = "offline";
+			dom.revbadge.className = "vfx-badge offline";
+		} else if (state === "error") {
+			dom.revbadge.textContent = "rev " + rev + " — error";
+			dom.revbadge.className = "vfx-badge error";
+		} else if (state === "syncing") {
+			dom.revbadge.textContent = "rev " + rev + " — syncing…";
+			dom.revbadge.className = "vfx-badge syncing";
+		} else {
+			dom.revbadge.textContent = "rev " + rev + " → in game";
+			dom.revbadge.className = "vfx-badge";
+		}
+	}
+
+	/** Start the bridge (SSE + reconnect) and surface its health in the status line + badge. */
 	function wireBridge() {
 		var bridge = window.VFXBridge;
 		if (!bridge) {
@@ -1926,12 +2490,24 @@
 		}
 		bridge.on("transport-error", function (message) {
 			status("bridge: " + message);
+			updateRevBadge("offline");
 		});
 		bridge.on("error", function (data) {
 			status("bridge: " + ((data && (data.detail || data.error)) || "error"));
+			updateRevBadge("error");
+		});
+		bridge.on("revision", function () {
+			updateRevBadge();
 		});
 		bridge.on("reconcile", function (info) {
 			status("re-syncing with the game (revision " + info.game + ")");
+			updateRevBadge("syncing");
+		});
+		bridge.on("open", function () {
+			updateRevBadge();
+		});
+		bridge.on("disconnect", function () {
+			updateRevBadge("offline");
 		});
 		bridge.connect(token);
 	}
@@ -2534,8 +3110,33 @@
 				commitHistory();
 			}
 		});
-		dom.exportBtn.addEventListener("click", exportPack);
-		dom.importBtn.addEventListener("click", importPack);
+		if (dom.file) {
+			dom.file.addEventListener("click", openFileMenu);
+		}
+		if (dom.projectBtn) {
+			dom.projectBtn.addEventListener("click", openSettingsDialog);
+		}
+		if (dom.play) {
+			dom.play.addEventListener("click", transportToggle);
+		}
+		if (dom.stop) {
+			dom.stop.addEventListener("click", function () {
+				var tab = activeTab();
+				if (tab && window.VFXTimeline) {
+					window.VFXTimeline.stop(tab);
+				}
+			});
+		}
+		if (dom.replay) {
+			dom.replay.addEventListener("click", function () {
+				var tab = activeTab();
+				if (tab && tab.type && window.VFXTimeline) {
+					window.VFXTimeline.play(tab);
+				}
+			});
+		}
+		setProjectName();
+		updateRevBadge();
 
 		status("Loading schema…");
 		window.fetch(url("/schema"))
