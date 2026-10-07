@@ -994,7 +994,9 @@
 
 	/** Register the canvas hooks that turn a user edit into a debounced IR update. */
 	function wireGraphHooks(tab) {
-		tab.graph.onNodeConnectionChange = function () {
+		// LiteGraph fires `connectionChange` on the LGraph for both connect and disconnect
+		// (litegraph.js `LGraph.prototype.connectionChange`); there is no `onNodeConnectionChange`.
+		tab.graph.onConnectionChange = function () {
 			scheduleGraphEdit(tab);
 		};
 		tab.graph.onNodeRemoved = function () {
