@@ -334,6 +334,7 @@
 		if (typeof window.LiteGraph === "undefined"
 				|| typeof window.LGraph === "undefined"
 				|| typeof window.LGraphCanvas === "undefined"
+				|| typeof window.fetch === "undefined"
 				|| !window.HTMLCanvasElement
 				|| !dom.canvas.getContext) {
 			showBanner("Unsupported browser: the LiteGraph canvas failed to load. "
