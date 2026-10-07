@@ -117,10 +117,22 @@
 	 * declared param, its colour keyed to the param's `group` (a lightweight visual
 	 * grouping). Value widgets and the inspector are Tasks 13-16.
 	 */
+	var FLOW_COLOR = "#8fb3ff";
+
+	/**
+	 * Build a LiteGraph node constructor for one effect type: a flow `in`/`out` pair (design §15.2,
+	 * P6 — connect `out -> in` to chain) plus one input socket per declared param, its colour keyed
+	 * to the param's `group`. The chain order is the layering order for post effects.
+	 */
 	function makeEffectNode(typeName, descriptor) {
 		var params = (descriptor && descriptor.params) || [];
 
 		function EffectNode() {
+			var inSlot = this.addInput("in", "flow");
+			if (inSlot) {
+				inSlot.color_on = FLOW_COLOR;
+				inSlot.color_off = FLOW_COLOR;
+			}
 			for (var i = 0; i < params.length; i++) {
 				var param = params[i];
 				var slot = this.addInput(param.name, socketType(param));
@@ -129,12 +141,78 @@
 					slot.color_off = slot.color_on;
 				}
 			}
+			var outSlot = this.addOutput("out", "flow");
+			if (outSlot) {
+				outSlot.color_on = FLOW_COLOR;
+				outSlot.color_off = FLOW_COLOR;
+			}
 			this.properties = { effectType: typeName };
 		}
 
 		EffectNode.title = typeName;
 		EffectNode.desc = "VFXweaver effect: " + typeName;
 		return EffectNode;
+	}
+
+	/** Whether a canvas node is an effect node (vs a value node / group). */
+	function isEffectNode(node) {
+		return !!(node && node.properties && node.properties.effectType);
+	}
+
+	/** The effect nodes on a tab's canvas, in insertion order. */
+	function effectNodes(tab) {
+		var out = [];
+		if (tab && tab.graph && tab.graph._nodes) {
+			tab.graph._nodes.forEach(function (node) {
+				if (isEffectNode(node)) {
+					out.push(node);
+				}
+			});
+		}
+		return out;
+	}
+
+	/** The canvas node of an effect entry, or null. */
+	function nodeForEffect(tab, id) {
+		var found = null;
+		effectNodes(tab).forEach(function (node) {
+			if (node.properties.effectId === id) {
+				found = node;
+			}
+		});
+		return found;
+	}
+
+	/** The index of an effect id in `tab.effects`, or -1. */
+	function indexOfEffect(tab, id) {
+		for (var i = 0; i < (tab.effects || []).length; i++) {
+			if (tab.effects[i].id === id) {
+				return i;
+			}
+		}
+		return -1;
+	}
+
+	/** The output slot index named `name` on `node`, or -1. */
+	function outputIndex(node, name) {
+		if (!node || !node.outputs) {
+			return -1;
+		}
+		for (var i = 0; i < node.outputs.length; i++) {
+			if (node.outputs[i].name === name) {
+				return i;
+			}
+		}
+		return -1;
+	}
+
+	/** Create a canvas node for one effect type (not yet added to a graph). */
+	function createEffectNode(type) {
+		var registered = "vfx/effect/" + type;
+		if (!LiteGraph.registered_node_types[registered]) {
+			return null;
+		}
+		return LiteGraph.createNode(registered);
 	}
 
 	/** Register one `vfx/effect/<name>` node type per schema effect type. */
@@ -189,9 +267,9 @@
 		// The IR `Tab` (Task 13) carries params/keys/valueNodes/edges; fall back to an
 		// equivalent plain object when ir.js has not loaded (e.g. a broken asset chain).
 		var tab = window.VFXIR
-				? new window.VFXIR.Tab(name, type)
-				: { name: name || "untitled", type: null, duration: 40, easing: "linear",
-					params: {}, valueNodes: [], edges: [], keys: {} };
+				? new window.VFXIR.Tab(name, null)
+				: { name: name || "untitled", effects: [], activeEffect: -1, duration: 40,
+					easing: "linear", params: {}, valueNodes: [], edges: [], keys: {} };
 		if (project.defaults) {
 			if (isFiniteNumber(project.defaults.duration)) {
 				tab.duration = Number(project.defaults.duration);
@@ -214,26 +292,37 @@
 		return tab;
 	}
 
-	/** Put the effect node of {@code type} on {@code tab}'s graph as its root. */
+	/**
+	 * Append an effect of {@code type} to {@code tab}'s chain (design §15.2, P6): adds the model
+	 * entry and its canvas node (with the flow in/out ports), then rewires the flow chain and makes
+	 * it the active effect.
+	 *
+	 * @param {Object} tab the tab
+	 * @param {string} type the schema effect type
+	 * @returns {Object|null} the created canvas node
+	 */
 	function attachEffect(tab, type) {
-		var registered = "vfx/effect/" + type;
-		if (!LiteGraph.registered_node_types[registered]) {
+		var node = createEffectNode(type);
+		if (!node) {
 			status("unknown effect type: " + type);
 			return null;
 		}
-		var node = LiteGraph.createNode(registered);
-		node.pos = [80, 80];
+		var count = effectNodes(tab).length;
+		var effect = tab.addEffect(type);
+		node.pos = [80 + count * 260, 80];
 		node.ignore_remove = true;
 		node.__tab = tab;
+		node.properties.effectId = effect.id;
 		tab.graph.add(node);
-		tab.type = type;
+		tab.activeEffect = indexOfEffect(tab, effect.id);
 		tab.root = node;
+		rewireChain(tab);
 		return node;
 	}
 
 	/**
-	 * Remove a tab's effect node, leaving an empty (but valid) tab that can be re-typed (design
-	 * §15.2, fix 1). Its effect-specific params/keys go with it; the value graph is kept.
+	 * Remove every effect node from a tab, leaving an empty (but valid) tab that can be re-typed
+	 * (design §15.2, fix 1). Its params/keys go with it; the value graph is kept.
 	 *
 	 * @param {Object} tab the tab to empty
 	 */
@@ -241,16 +330,120 @@
 		if (!tab) {
 			return;
 		}
-		if (tab.root && tab.graph) {
-			// The root carries `ignore_remove` so LiteGraph's own delete never drops it; lift it here
-			// for the explicit "empty this tab" path only.
-			tab.root.ignore_remove = false;
-			tab.graph.remove(tab.root);
+		if (tab.graph) {
+			effectNodes(tab).forEach(function (node) {
+				// The effect nodes carry `ignore_remove` so LiteGraph's own delete never drops them;
+				// lift it here for the explicit "empty this tab" path only.
+				node.ignore_remove = false;
+				tab.graph.remove(node);
+			});
 		}
+		if (tab.effects) {
+			tab.effects = [];
+		}
+		tab.activeEffect = -1;
 		tab.root = null;
-		tab.type = null;
 		tab.params = {};
 		tab.keys = {};
+	}
+
+	/**
+	 * The chain order implied by the canvas flow links: start at the effect node with no incoming
+	 * `in` link and follow `out -> in`. Returns null when the flow graph is not a single full path
+	 * (a fork, a cycle, a disconnected node), so the model order is kept instead.
+	 *
+	 * @param {Object} tab the tab
+	 * @returns {Array<string>|null} effect ids in order, or null
+	 */
+	function orderEffectsFromCanvas(tab) {
+		if (!tab || !tab.graph) {
+			return null;
+		}
+		var nodes = effectNodes(tab);
+		if (nodes.length < 2) {
+			return null;
+		}
+		var next = {};
+		var incoming = {};
+		var byId = {};
+		nodes.forEach(function (node) {
+			byId[node.id] = node;
+		});
+		Object.keys(tab.graph.links).forEach(function (linkId) {
+			var link = tab.graph.links[linkId];
+			var origin = byId[link.origin_id];
+			var target = byId[link.target_id];
+			if (!origin || !target) {
+				return;
+			}
+			var slot = target.inputs ? target.inputs[link.target_slot] : null;
+			if (slot && slot.name === "in") {
+				next[origin.properties.effectId] = target.properties.effectId;
+				incoming[target.properties.effectId] = true;
+			}
+		});
+		var head = null;
+		nodes.forEach(function (node) {
+			if (head == null && !incoming[node.properties.effectId]) {
+				head = node.properties.effectId;
+			}
+		});
+		if (head == null) {
+			return null;
+		}
+		var order = [];
+		var seen = {};
+		var cursor = head;
+		while (cursor != null && !seen[cursor]) {
+			seen[cursor] = true;
+			order.push(cursor);
+			cursor = next[cursor] != null ? next[cursor] : null;
+		}
+		return order.length === nodes.length ? order : null;
+	}
+
+	/** Rewrite the flow links so they connect the effect nodes in `tab.effects` order. */
+	function rewireChain(tab) {
+		if (!tab || !tab.graph) {
+			return;
+		}
+		Object.keys(tab.graph.links).forEach(function (linkId) {
+			var link = tab.graph.links[linkId];
+			var target = tab.graph.getNodeById(link.target_id);
+			if (target && isEffectNode(target)) {
+				var slot = target.inputs ? target.inputs[link.target_slot] : null;
+				if (slot && slot.name === "in") {
+					tab.graph.removeLink(linkId);
+				}
+			}
+		});
+		var chain = [];
+		(tab.effects || []).forEach(function (effect) {
+			var node = nodeForEffect(tab, effect.id);
+			if (node) {
+				chain.push(node);
+			}
+		});
+		for (var i = 0; i + 1 < chain.length; i++) {
+			var out = outputIndex(chain[i], "out");
+			var into = inputIndex(chain[i + 1], "in");
+			if (out >= 0 && into >= 0) {
+				chain[i].connect(out, chain[i + 1], into);
+			}
+		}
+	}
+
+	/** Make {@code effect} the effect the inspector/timeline edit and highlight its node. */
+	function selectEffect(tab, effect) {
+		if (!tab || !effect) {
+			return;
+		}
+		tab.activeEffect = indexOfEffect(tab, effect.id);
+		tab.root = nodeForEffect(tab, effect.id);
+		inspectorName = null;
+		renderInspector();
+		renderTimeline();
+		renderTabs();
 	}
 
 	function selectTab(index) {
@@ -365,25 +558,31 @@
 		});
 	}
 
-	/** Fill the active empty tab, else open a new tab of that effect type. */
+	/**
+	 * Add an effect of that type to the active tab's chain (design §15.2, P6), creating a tab when
+	 * there is none. The first add also names the tab after the type.
+	 */
 	function chooseType(typeName) {
 		var tab = activeTab();
-		if (tab && !tab.type) {
-			ensureHistoryBaseline();
-			attachEffect(tab, typeName);
+		if (!tab) {
+			newTab(typeName, typeName);
+			return;
+		}
+		ensureHistoryBaseline();
+		attachEffect(tab, typeName);
+		if (!tab.name || tab.name === "untitled") {
 			tab.name = typeName;
 			if (dom.tabName) {
 				dom.tabName.value = tab.name;
 			}
-			renderTabs();
-			status(tab.name);
-			renderInspector();
-			renderTimeline();
-			showEmptyPlaceholder();
-			commitHistory();
-			return;
 		}
-		newTab(typeName, typeName);
+		renderTabs();
+		status(tab.name);
+		renderInspector();
+		renderTimeline();
+		showEmptyPlaceholder();
+		commitHistory();
+		requestStructural(tab);
 	}
 
 	/**
@@ -398,7 +597,7 @@
 		}
 		var node = document.getElementById("vfx-empty");
 		var tab = activeTab();
-		var empty = !tab || !tab.type;
+		var empty = !tab || !(tab.effects && tab.effects.length);
 		if (!node) {
 			if (!empty) {
 				return;
@@ -790,11 +989,12 @@
 		return ValueNode;
 	}
 
-	/** A deep JSON snapshot of the tab's value graph. */
+	/** A deep JSON snapshot of the tab's value graph and chain shape (for a debounced change check). */
 	function snapshotIR(tab) {
 		return {
 			valueNodes: snapshot(tab && tab.valueNodes ? tab.valueNodes : []),
-			edges: snapshot(tab && tab.edges ? tab.edges : [])
+			edges: snapshot(tab && tab.edges ? tab.edges : []),
+			effects: snapshot(tab && tab.effects ? tab.effects : [])
 		};
 	}
 
@@ -1091,20 +1291,103 @@
 		return ir;
 	}
 
-	/** Rebuild `tab.valueNodes`/`tab.edges` from the canvas. */
+	/**
+	 * Sync the tab's effect entries with the effect nodes on the canvas (design §15.2, P6): add an
+	 * entry for a node without one, drop an entry whose node is gone, and mirror each node's
+	 * position onto its entry. Keeps `tab.root` on the active effect.
+	 */
+	function reconcileEffects(tab) {
+		if (!tab || !tab.graph) {
+			return;
+		}
+		if (!tab.effects) {
+			tab.effects = [];
+		}
+		var nodes = effectNodes(tab);
+		// An inactive tab is materialized lazily (only the active tab's graph holds nodes), so an
+		// empty canvas with a non-empty model must not be read as "every effect was deleted".
+		if (nodes.length === 0 && tab.effects.length > 0) {
+			return;
+		}
+		var present = {};
+		nodes.forEach(function (node) {
+			node.__tab = tab;
+			node.ignore_remove = true;
+			if (!node.properties.effectId) {
+				node.properties.effectId = "fx_" + ((tab.__effectSeq = (tab.__effectSeq || 0) + 1));
+			}
+			present[node.properties.effectId] = node;
+		});
+		var byId = {};
+		tab.effects.forEach(function (effect) {
+			byId[effect.id] = effect;
+		});
+		for (var i = tab.effects.length - 1; i >= 0; i--) {
+			if (!present[tab.effects[i].id]) {
+				tab.effects.splice(i, 1);
+			}
+		}
+		nodes.forEach(function (node) {
+			if (!byId[node.properties.effectId]) {
+				var effect = tab.addEffect(node.properties.effectType || node.title, node.properties.effectId);
+				byId[effect.id] = effect;
+			}
+			var entry = byId[node.properties.effectId];
+			entry.type = node.properties.effectType || entry.type;
+			entry.pos = [Math.round(num(node.pos[0])), Math.round(num(node.pos[1]))];
+		});
+		if (tab.activeEffect >= tab.effects.length) {
+			tab.activeEffect = tab.effects.length - 1;
+		}
+		if (tab.activeEffect < 0 && tab.effects.length) {
+			tab.activeEffect = 0;
+		}
+		var active = tab.effect();
+		tab.root = active ? present[active.id] || null : null;
+	}
+
+	/** Reorder `tab.effects` to the given id order, keeping any entry the order omitted. */
+	function reorderEffects(tab, order) {
+		var byId = {};
+		(tab.effects || []).forEach(function (effect) {
+			byId[effect.id] = effect;
+		});
+		var next = [];
+		order.forEach(function (id) {
+			if (byId[id]) {
+				next.push(byId[id]);
+				delete byId[id];
+			}
+		});
+		(tab.effects || []).forEach(function (effect) {
+			if (byId[effect.id]) {
+				next.push(effect);
+			}
+		});
+		tab.effects = next;
+	}
+
+	/** Rebuild `tab.effects`/`tab.valueNodes`/`tab.edges` from the canvas. */
 	function refreshFromCanvas(tab) {
 		if (!tab || !tab.graph) {
 			return;
 		}
+		reconcileEffects(tab);
+		var order = orderEffectsFromCanvas(tab);
+		if (order) {
+			reorderEffects(tab, order);
+		}
+		reconcileEffects(tab);
 		var irByGraphId = {};
 		var nodes = [];
 		tab.graph._nodes.forEach(function (node) {
-			if (node === tab.root || !node.properties || !node.properties.kind || !node.properties.irId) {
+			if (isEffectNode(node) || !node.properties || !node.properties.kind || !node.properties.irId) {
 				return;
 			}
 			irByGraphId[node.id] = node.properties.irId;
 			nodes.push(nodeToIR(node));
 		});
+		var multi = Boolean(tab.effects && tab.effects.length > 1);
 		var edges = [];
 		Object.keys(tab.graph.links).forEach(function (linkId) {
 			var link = tab.graph.links[linkId];
@@ -1116,10 +1399,14 @@
 			if (!target) {
 				return;
 			}
-			if (target === tab.root) {
+			if (isEffectNode(target)) {
 				var param = target.inputs ? target.inputs[link.target_slot] : null;
-				if (param) {
-					edges.push({ from: from, to: param.name });
+				if (param && param.name !== "in") {
+					var edge = { from: from, to: param.name };
+					if (multi) {
+						edge.effect = target.properties.effectId;
+					}
+					edges.push(edge);
 				}
 			} else if (target.properties && target.properties.kind && irByGraphId[target.id]) {
 				var socket = target.inputs ? target.inputs[link.target_slot] : null;
@@ -1209,13 +1496,46 @@
 		if (!tab || !tab.graph) {
 			return;
 		}
+		var effectNodeById = {};
 		applyingGraph = true;
 		try {
 			tab.graph._nodes.slice().forEach(function (node) {
-				if (node !== tab.root && node.properties && node.properties.kind) {
+				if (isEffectNode(node) || (node.properties && node.properties.kind)) {
+					if (isEffectNode(node)) {
+						node.ignore_remove = false;
+					}
 					tab.graph.remove(node);
 				}
 			});
+			var count = 0;
+			(tab.effects || []).forEach(function (effect) {
+				var node = createEffectNode(effect.type);
+				if (!node) {
+					return;
+				}
+				node.__tab = tab;
+				node.properties.effectId = effect.id;
+				node.ignore_remove = true;
+				node.pos = Array.isArray(effect.pos) && effect.pos.length === 2
+						? [num(effect.pos[0]), num(effect.pos[1])]
+						: [80 + count * 260, 80];
+				count++;
+				tab.graph.add(node);
+				effectNodeById[effect.id] = node;
+			});
+			var chain = [];
+			(tab.effects || []).forEach(function (effect) {
+				if (effectNodeById[effect.id]) {
+					chain.push(effectNodeById[effect.id]);
+				}
+			});
+			for (var c = 0; c + 1 < chain.length; c++) {
+				var outSlot = outputIndex(chain[c], "out");
+				var intoSlot = inputIndex(chain[c + 1], "in");
+				if (outSlot >= 0 && intoSlot >= 0) {
+					chain[c].connect(outSlot, chain[c + 1], intoSlot);
+				}
+			}
 			var byId = {};
 			(tab.valueNodes || []).forEach(function (ir) {
 				var registered = "vfx/value/" + ir.kind;
@@ -1235,6 +1555,7 @@
 				tab.graph.add(node);
 				byId[ir.id] = node;
 			});
+			var multi = Boolean(tab.effects && tab.effects.length > 1);
 			(tab.edges || []).forEach(function (edge) {
 				var from = byId[edge.from];
 				if (!from) {
@@ -1245,9 +1566,11 @@
 				if (edge.input != null) {
 					target = byId[edge.to];
 					slot = target ? inputIndex(target, edge.input) : -1;
-				} else if (tab.root) {
-					target = tab.root;
-					slot = inputIndex(tab.root, edge.to);
+				} else {
+					target = multi && edge.effect != null
+							? effectNodeById[edge.effect]
+							: (tab.effects && tab.effects.length ? effectNodeById[tab.effects[0].id] : null);
+					slot = target ? inputIndex(target, edge.to) : -1;
 				}
 				if (target && slot >= 0) {
 					from.connect(0, target, slot);
@@ -1267,6 +1590,8 @@
 		} finally {
 			applyingGraph = false;
 		}
+		var active = tab.effect();
+		tab.root = active ? effectNodeById[active.id] || null : (effectNodes(tab)[0] || null);
 		syncAllSlots(tab);
 		if (scene) {
 			scene.setDirty(true, true);
@@ -1395,9 +1720,13 @@
 
 	/** One tab's model, minus the LiteGraph canvas (which is rebuilt from this on restore). */
 	function snapshotTab(tab) {
+		reconcileEffects(tab);
 		return {
 			name: tab.name,
 			type: tab.type,
+			effects: snapshot(tab.effects || []),
+			activeEffect: tab.activeEffect,
+			effectSeq: tab.__effectSeq || 0,
 			duration: tab.duration,
 			easing: tab.easing,
 			loop: tab.loop,
@@ -1484,8 +1813,8 @@
 			delete graphEdits[key];
 		});
 		project.tabs = snap.tabs.map(function (state) {
-			var tab = window.VFXIR ? new window.VFXIR.Tab(state.name, state.type)
-					: { name: state.name, type: state.type, duration: 40, easing: "linear",
+			var tab = window.VFXIR ? new window.VFXIR.Tab(state.name, null)
+					: { name: state.name, effects: [], activeEffect: -1, duration: 40, easing: "linear",
 						params: {}, valueNodes: [], edges: [], keys: {} };
 			tab.duration = num(state.duration, 40);
 			tab.easing = state.easing == null ? "linear" : String(state.easing);
@@ -1493,22 +1822,47 @@
 			tab.persistent = state.persistent === true;
 			tab.fade_ticks = num(state.fade_ticks, 0);
 			tab.delay = num(state.delay, 0);
-			tab.params = snapshot(state.params) || {};
-			tab.keys = snapshot(state.keys) || {};
 			tab.valueNodes = snapshot(state.valueNodes) || [];
 			tab.edges = snapshot(state.edges) || [];
 			tab.source = snapshot(state.source);
 			tab.timeline = snapshot(state.timeline) || {};
 			tab.__valueSeq = state.valueSeq || 0;
+			if (Array.isArray(state.effects) && state.effects.length) {
+				tab.effects = [];
+				tab.activeEffect = -1;
+				state.effects.forEach(function (saved) {
+					var entry = tab.addEffect(saved.type, saved.id);
+					entry.params = snapshot(saved.params) || {};
+					entry.keys = snapshot(saved.keys) || {};
+					entry.delay = num(saved.delay, 0);
+					entry.duration = num(saved.duration, 0);
+					entry.easing = saved.easing == null ? null : saved.easing;
+					entry.mute = saved.mute === true;
+					entry.solo = saved.solo === true;
+					entry.source = snapshot(saved.source);
+					if (Array.isArray(saved.pos)) {
+						entry.pos = [num(saved.pos[0]), num(saved.pos[1])];
+					}
+				});
+				tab.activeEffect = Number(state.activeEffect);
+				if (!(tab.activeEffect >= 0 && tab.activeEffect < tab.effects.length)) {
+					tab.activeEffect = tab.effects.length ? 0 : -1;
+				}
+				tab.__effectSeq = num(state.effectSeq, tab.effects.length);
+			} else if (state.type) {
+				var restored = tab.addEffect(state.type);
+				restored.params = snapshot(state.params) || {};
+				restored.keys = snapshot(state.keys) || {};
+				if (Array.isArray(state.root)) {
+					restored.pos = [num(state.root[0]), num(state.root[1])];
+				}
+			} else {
+				tab.params = snapshot(state.params) || {};
+				tab.keys = snapshot(state.keys) || {};
+			}
 			tab.graph = newGraph();
 			tab.root = null;
 			wireGraphHooks(tab);
-			if (tab.type) {
-				attachEffect(tab, tab.type);
-				if (tab.root && Array.isArray(state.root)) {
-					tab.root.pos = [num(state.root[0]), num(state.root[1])];
-				}
-			}
 			return tab;
 		});
 		var index = Number(snap.active);
@@ -1627,7 +1981,8 @@
 		}
 		for (var i = 0; i < tab.edges.length; i++) {
 			var edge = tab.edges[i];
-			if (edge && edge.to === name && edge.input == null && edge.from != null) {
+			if (edge && edge.to === name && edge.input == null && edge.from != null
+					&& edgeOwnedByActive(tab, edge)) {
 				return edge.from;
 			}
 		}
@@ -1686,9 +2041,190 @@
 		return [];
 	}
 
+	/** The layer row being dragged in the Layers panel, or null. */
+	var dragLayerIndex = null;
+	/** A ▲/▼ reorder button for the Layers panel. */
+	function layerMoveButton(tab, index, delta, label) {
+		var button = document.createElement("button");
+		button.type = "button";
+		button.className = "vfx-layer-btn";
+		button.textContent = label;
+		button.title = delta < 0 ? "Move up (earlier layer)" : "Move down (later layer)";
+		button.disabled = index + delta < 0 || index + delta >= tab.effects.length;
+		button.addEventListener("click", function (event) {
+			event.stopPropagation();
+			moveLayer(tab, index, index + delta);
+		});
+		return button;
+	}
+
+	/** Reorder the chain, dragging or via ▲/▼; the reorder rewires the canvas flow links (P6). */
+	function moveLayer(tab, from, to) {
+		if (!tab || !tab.effects || from == null || !isFinite(Number(from))) {
+			return;
+		}
+		from = Number(from);
+		if (from < 0 || from >= tab.effects.length || from === to) {
+			return;
+		}
+		var active = tab.effect();
+		var activeId = active ? active.id : null;
+		var moved = tab.effects.splice(from, 1)[0];
+		var target = Math.max(0, Math.min(tab.effects.length, to));
+		tab.effects.splice(target, 0, moved);
+		if (activeId) {
+			tab.activeEffect = indexOfEffect(tab, activeId);
+		}
+		rewireChain(tab);
+		renderInspector();
+		renderTimeline();
+		commitHistory();
+		requestStructural(tab);
+	}
+
 	/**
-	 * Rebuild the inspector panel for the active tab: a param list plus the selected control. A param
-	 * driven by a wire is rendered read-only with its source badge (design §15.1, fix 5).
+	 * The Layers panel (design §15.2, P6): the tab's effects in application order, drag-to-reorder,
+	 * mute/solo, per-node delay/duration, all synchronized with the canvas chain.
+	 *
+	 * @param {Object} tab the active tab
+	 * @returns {HTMLElement} the panel
+	 */
+	function renderLayers(tab) {
+		var wrap = document.createElement("div");
+		wrap.className = "vfx-layers";
+		var heading = document.createElement("h2");
+		heading.textContent = "Layers";
+		wrap.appendChild(heading);
+		if (!tab || !tab.effects || !tab.effects.length) {
+			wrap.appendChild(inspectorMessage("No effects — add one from the palette"));
+			return wrap;
+		}
+		var list = document.createElement("div");
+		list.className = "vfx-layer-list";
+		tab.effects.forEach(function (effect, index) {
+			var row = document.createElement("div");
+			row.className = "vfx-layer" + (index === tab.activeEffect ? " active" : "")
+					+ (effect.mute ? " muted" : "") + (effect.solo ? " solo" : "");
+			row.draggable = true;
+			row.dataset.index = String(index);
+			row.dataset.id = effect.id;
+			row.title = "Drag to reorder (application order)";
+
+			var mute = document.createElement("button");
+			mute.type = "button";
+			mute.className = "vfx-layer-btn";
+			mute.textContent = "M";
+			mute.title = "Mute (disable this effect)";
+			mute.addEventListener("click", function (event) {
+				event.stopPropagation();
+				effect.mute = !effect.mute;
+				commitHistory();
+				renderInspector();
+				renderTimeline();
+				requestStructural(tab);
+			});
+
+			var solo = document.createElement("button");
+			solo.type = "button";
+			solo.className = "vfx-layer-btn";
+			solo.textContent = "S";
+			solo.title = "Solo (play only the soloed effects)";
+			solo.addEventListener("click", function (event) {
+				event.stopPropagation();
+				effect.solo = !effect.solo;
+				commitHistory();
+				renderInspector();
+				renderTimeline();
+				requestStructural(tab);
+			});
+
+			var label = document.createElement("span");
+			label.className = "vfx-layer-name";
+			label.textContent = (index + 1) + ". " + (effect.type || "—");
+			label.title = effect.type || "";
+
+			var delay = document.createElement("input");
+			delay.type = "number";
+			delay.className = "vfx-layer-num";
+			delay.value = String(num(effect.delay, 0));
+			delay.title = "Delay (ticks) before this effect starts";
+			delay.addEventListener("click", function (event) { event.stopPropagation(); });
+			delay.addEventListener("change", function () {
+				effect.delay = num(delay.value, 0);
+				commitHistory();
+				renderTimeline();
+				requestStructural(tab);
+			});
+
+			var duration = document.createElement("input");
+			duration.type = "number";
+			duration.className = "vfx-layer-num";
+			duration.value = String(num(effect.duration, 0));
+			duration.title = "Duration (ticks); 0 inherits the tab duration";
+			duration.addEventListener("click", function (event) { event.stopPropagation(); });
+			duration.addEventListener("change", function () {
+				effect.duration = num(duration.value, 0);
+				commitHistory();
+				renderTimeline();
+				requestStructural(tab);
+			});
+
+			row.appendChild(mute);
+			row.appendChild(solo);
+			row.appendChild(label);
+			row.appendChild(delay);
+			row.appendChild(duration);
+			row.appendChild(layerMoveButton(tab, index, -1, "▲"));
+			row.appendChild(layerMoveButton(tab, index, 1, "▼"));
+
+			row.addEventListener("click", function () {
+				if (tab.activeEffect !== index) {
+					selectEffect(tab, effect);
+					var node = nodeForEffect(tab, effect.id);
+					if (scene && node) {
+						scene.selectNodes([node]);
+					}
+				}
+			});
+			row.addEventListener("dragstart", function (event) {
+				dragLayerIndex = index;
+				if (event.dataTransfer) {
+					event.dataTransfer.effectAllowed = "move";
+					event.dataTransfer.setData("text/plain", String(index));
+				}
+			});
+			row.addEventListener("dragover", function (event) {
+				event.preventDefault();
+				if (event.dataTransfer) {
+					event.dataTransfer.dropEffect = "move";
+				}
+				row.classList.add("dragover");
+			});
+			row.addEventListener("dragleave", function () {
+				row.classList.remove("dragover");
+			});
+			row.addEventListener("drop", function (event) {
+				event.preventDefault();
+				row.classList.remove("dragover");
+				var from = dragLayerIndex;
+				if (from == null && event.dataTransfer) {
+					from = Number(event.dataTransfer.getData("text/plain"));
+				}
+				dragLayerIndex = null;
+				moveLayer(tab, from, index);
+			});
+			list.appendChild(row);
+		});
+		list.addEventListener("dragend", function () {
+			dragLayerIndex = null;
+		});
+		wrap.appendChild(list);
+		return wrap;
+	}
+
+	/**
+	 * Rebuild the inspector panel for the active tab: the Layers list, node timing and the selected
+	 * parameter. A param driven by a wire is rendered read-only with its source badge (design §15.1).
 	 */
 	function renderInspector() {
 		if (!dom.inspector) {
@@ -1704,6 +2240,8 @@
 			dom.inspector.appendChild(inspectorMessage("No active tab"));
 			return;
 		}
+		// Layers panel (design §15.2, P6): the chain order, before the per-node sections.
+		dom.inspector.appendChild(renderLayers(tab));
 		// Node timing section (design §15.3): duration/loop/persistent/fade_ticks/delay on the tab.
 		if (typeof window.VFXInspector.renderTiming === "function") {
 			dom.inspector.appendChild(window.VFXInspector.renderTiming(tab, onTimingEdit));
@@ -1765,14 +2303,25 @@
 	/* Slot model (design §15.1/§15.8)                                     */
 	/* ------------------------------------------------------------------ */
 
-	/** Find the edge wiring a value node into an effect param, or null. */
+	/** Whether a param wire belongs to the effect the inspector is editing (an untagged legacy wire
+	 *  belongs to a single-effect tab). */
+	function edgeOwnedByActive(tab, edge) {
+		if (!tab || !tab.effects || tab.effects.length <= 1) {
+			return true;
+		}
+		var active = tab.effect();
+		return active ? edge.effect === active.id : edge.effect == null;
+	}
+
+	/** Find the edge wiring a value node into an effect param of the active effect, or null. */
 	function driverEdge(tab, name) {
 		if (!tab || !Array.isArray(tab.edges)) {
 			return null;
 		}
 		for (var i = 0; i < tab.edges.length; i++) {
 			var edge = tab.edges[i];
-			if (edge && edge.to === name && edge.input == null && edge.from != null) {
+			if (edge && edge.to === name && edge.input == null && edge.from != null
+					&& edgeOwnedByActive(tab, edge)) {
 				return edge;
 			}
 		}
@@ -2217,7 +2766,96 @@
 	 * @param {Object} tab a freshly created tab
 	 * @param {Object|null} def the parsed effect JSON, or null
 	 */
-	function hydrateTab(tab, def) {
+	/**
+	 * Normalise one effect's raw `params` back to the slot model (design §15.8): keyframes -> a
+	 * track, a bind/expr form -> a driver node + wire, start/end -> a two-key track, value/number ->
+	 * an inline constant. Drivers are collected for the caller to materialize after the graph.
+	 */
+	function hydrateEffectParams(tab, effect, paramsRaw, duration, drivers) {
+		var params = paramsRaw && typeof paramsRaw === "object" ? paramsRaw : {};
+		Object.keys(params).forEach(function (name) {
+			var norm = window.VFXIR && typeof window.VFXIR.normalizeParam === "function"
+					? window.VFXIR.normalizeParam(params[name], duration) : null;
+			if (!norm) {
+				effect.params[name] = params[name];
+				return;
+			}
+			if (norm.keys) {
+				effect.keys[name] = norm.keys;
+			}
+			if (norm.driver) {
+				drivers.push({ effect: effect.id, name: name, kind: norm.driver.kind,
+					inputs: norm.driver.inputs });
+			}
+			if (norm.spec && Object.keys(norm.spec).length) {
+				effect.params[name] = snapshot(norm.spec);
+			}
+		});
+	}
+
+	/**
+	 * Merge one definition's value graph (`graph` + `inputs`) into the tab, tagging its param wires
+	 * with the owning effect so a chain's children keep their drivers (design §15.2, P6). Imported
+	 * node ids that collide across children are renamed.
+	 */
+	function hydrateEffectGraph(tab, effect, childDef, used) {
+		var graph = childDef && childDef.graph && typeof childDef.graph === "object" ? childDef.graph : null;
+		var rename = {};
+		if (graph && Array.isArray(graph.nodes)) {
+			graph.nodes.forEach(function (node) {
+				var base = String(node.id);
+				var mapped = base;
+				var suffix = 1;
+				while (used[mapped]) {
+					mapped = base + "_" + (suffix++);
+				}
+				used[mapped] = true;
+				rename[base] = mapped;
+				var out = { id: mapped, kind: node.kind, inputs: snapshot(node.inputs || {}) };
+				if (node.op != null) {
+					out.op = node.op;
+				}
+				var meta = graph.meta && graph.meta[node.id];
+				if (meta && Array.isArray(meta.pos) && meta.pos.length === 2) {
+					out.pos = [num(meta.pos[0]), num(meta.pos[1])];
+				}
+				tab.valueNodes.push(out);
+			});
+		}
+		if (graph && Array.isArray(graph.edges)) {
+			graph.edges.forEach(function (edge) {
+				var from = rename[String(edge.from)];
+				var to = rename[String(edge.to)];
+				if (from == null || to == null) {
+					return;
+				}
+				var out = { from: from, to: to };
+				if (edge.input != null) {
+					out.input = edge.input;
+				}
+				tab.edges.push(out);
+			});
+		}
+		if (childDef && childDef.inputs && typeof childDef.inputs === "object") {
+			Object.keys(childDef.inputs).forEach(function (param) {
+				var wire = childDef.inputs[param];
+				if (wire && wire.from != null && rename[String(wire.from)]) {
+					tab.edges.push({ from: rename[String(wire.from)], to: param, effect: effect.id });
+				}
+			});
+		}
+	}
+
+	/**
+	 * Restore a tab's model from a datapack definition on import: timing, one or more effect nodes
+	 * (a `collection` root becomes a chain, design §15.2/P6), params, keyframes and the value graph.
+	 * Layout is not here — it comes from the sidecar (see {@link applySidecar}).
+	 *
+	 * @param {Object} tab a freshly created tab
+	 * @param {Object|null} def the parsed effect JSON, or null
+	 * @param {Function} [resolve] `effect id -> child definition` for a collection root
+	 */
+	function hydrateTab(tab, def, resolve) {
 		if (!tab || !def || typeof def !== "object") {
 			return;
 		}
@@ -2239,78 +2877,70 @@
 		if (def.delay != null) {
 			tab.delay = num(def.delay, 0);
 		}
-		var params = def.params && typeof def.params === "object" ? def.params : {};
-		// Normalise every param back to the slot model (design §15.8): keyframes -> a track, a
-		// bind/expr form -> a driver node + wire (materialized after the graph below), start/end ->
-		// a two-key track, value/number -> an inline constant.
 		var drivers = [];
-		Object.keys(params).forEach(function (name) {
-			var norm = window.VFXIR && typeof window.VFXIR.normalizeParam === "function"
-					? window.VFXIR.normalizeParam(params[name], num(def.duration, tab.duration)) : null;
-			if (!norm) {
-				tab.params[name] = params[name];
-				return;
-			}
-			if (norm.keys) {
-				tab.keys[name] = norm.keys;
-			}
-			if (norm.driver) {
-				drivers.push({ name: name, kind: norm.driver.kind, inputs: norm.driver.inputs });
-			}
-			if (norm.spec && Object.keys(norm.spec).length) {
-				tab.params[name] = snapshot(norm.spec);
-			}
-		});
-		var graph = def.graph && typeof def.graph === "object" ? def.graph : null;
-		if (graph && Array.isArray(graph.nodes)) {
-			tab.valueNodes = graph.nodes.map(function (node) {
-				var out = { id: node.id, kind: node.kind, inputs: node.inputs || {} };
-				if (node.op != null) {
-					out.op = node.op;
-				}
-				var meta = graph.meta && graph.meta[node.id];
-				if (meta && Array.isArray(meta.pos) && meta.pos.length === 2) {
-					out.pos = [num(meta.pos[0]), num(meta.pos[1])];
-				}
-				return out;
-			});
-		}
-		if (graph && Array.isArray(graph.edges)) {
-			tab.edges = graph.edges.map(function (edge) {
-				var out = { from: edge.from, to: edge.to };
-				if (edge.input != null) {
-					out.input = edge.input;
-				}
-				return out;
-			});
-		}
-		if (def.inputs && typeof def.inputs === "object") {
-			Object.keys(def.inputs).forEach(function (param) {
-				var wire = def.inputs[param];
-				if (wire && wire.from != null) {
-					tab.edges.push({ from: wire.from, to: param });
+		var used = {};
+		var chain = window.VFXIR && typeof window.VFXIR.chainFromDefinition === "function"
+				? window.VFXIR.chainFromDefinition(def, resolve) : null;
+		if (chain) {
+			tab.effects = [];
+			tab.activeEffect = -1;
+			chain.forEach(function (entry) {
+				var effect = tab.addEffect(entry.type);
+				effect.delay = num(entry.delay, 0);
+				effect.duration = num(entry.duration, 0);
+				effect.easing = entry.easing == null ? null : entry.easing;
+				effect.source = entry.source ? snapshot(entry.source) : null;
+				hydrateEffectParams(tab, effect, entry.params, num(entry.duration, tab.duration), drivers);
+				if (entry.source) {
+					hydrateEffectGraph(tab, effect, entry.source, used);
 				}
 			});
+			if (tab.effects.length) {
+				tab.activeEffect = 0;
+			}
+		} else {
+			var effect = tab.effects && tab.effects.length ? tab.effects[0] : tab.addEffect(def.type);
+			effect.type = def.type == null ? effect.type : String(def.type);
+			hydrateEffectParams(tab, effect, def.params, num(def.duration, tab.duration), drivers);
+			hydrateEffectGraph(tab, effect, def, used);
 		}
 		// Materialize the bind/expr drivers as value nodes once the imported nodes exist, so a
 		// normalized driver id never collides with an imported one.
 		drivers.forEach(function (entry) {
 			var id = uniqueNodeId(tab, entry.kind);
+			used[id] = true;
 			tab.valueNodes.push({ id: id, kind: entry.kind, inputs: snapshot(entry.inputs) });
-			tab.edges.push({ from: id, to: entry.name });
+			var edge = { from: id, to: entry.name };
+			if (tab.effects && tab.effects.length > 1) {
+				edge.effect = entry.effect;
+			}
+			tab.edges.push(edge);
 		});
 	}
 
-	/** Every tab with an effect type, as `{ name: compiledJsonString }` for `/export`. */
+	/**
+	 * Every tab as `{ fileBaseName: compiledJsonString }` for `/export` (design §15.2, P6): a
+	 * single-effect tab is one flat file; a chain is a `collection` root plus one child definition
+	 * file per node, referenced by `<namespace>:<base>__<n>`.
+	 */
 	function gatherEffects() {
 		var effects = {};
+		var namespace = validNamespace(project.namespace) ? project.namespace : "vfx_project";
 		project.tabs.forEach(function (tab) {
-			if (!tab.type) {
+			if (!tab.effects || !tab.effects.length) {
 				return;
 			}
-			var name = safeName(effectName(tab));
-			if (name) {
-				effects[name] = window.VFXCompiler ? window.VFXCompiler.compileTab(tab) : "{}";
+			var base = safeName(effectName(tab));
+			if (!base) {
+				return;
+			}
+			if (window.VFXCompiler && typeof window.VFXCompiler.compileTabFiles === "function") {
+				var files = window.VFXCompiler.compileTabFiles(tab, { namespace: namespace, baseName: base });
+				Object.keys(files).forEach(function (name) {
+					effects[name] = files[name];
+				});
+			} else {
+				effects[base] = window.VFXCompiler ? window.VFXCompiler.compileTab(tab) : "{}";
 			}
 		});
 		return effects;
@@ -2321,7 +2951,7 @@
 		return {
 			version: 1,
 			tabs: project.tabs.filter(function (tab) {
-				return tab.type;
+				return tab.effects && tab.effects.length;
 			}).map(function (tab) {
 				var entry = { name: safeName(effectName(tab)) };
 				if (tab.root && Array.isArray(tab.root.pos)) {
@@ -2330,6 +2960,20 @@
 				if (tab.timeline && isFinite(Number(tab.timeline.pxPerTick))) {
 					entry.pxPerTick = Number(tab.timeline.pxPerTick);
 				}
+				entry.effects = (tab.effects || []).map(function (effect) {
+					var node = nodeForEffect(tab, effect.id);
+					var pos = node && Array.isArray(node.pos) ? [num(node.pos[0]), num(node.pos[1])]
+							: (Array.isArray(effect.pos) ? [num(effect.pos[0]), num(effect.pos[1])] : null);
+					return {
+						id: effect.id,
+						type: effect.type,
+						pos: pos,
+						mute: effect.mute === true,
+						solo: effect.solo === true,
+						delay: num(effect.delay, 0),
+						duration: num(effect.duration, 0)
+					};
+				});
 				return entry;
 			})
 		};
@@ -2367,6 +3011,30 @@
 			}
 			if (Array.isArray(entry.root) && tab.root) {
 				tab.root.pos = [num(entry.root[0]), num(entry.root[1])];
+			}
+			if (Array.isArray(entry.effects) && tab.effects) {
+				entry.effects.forEach(function (saved, index) {
+					var effect = saved && saved.id && window.VFXIR && typeof window.VFXIR.effectById === "function"
+							? window.VFXIR.effectById(tab, saved.id) : null;
+					if (!effect) {
+						effect = tab.effects[index];
+					}
+					if (!effect) {
+						return;
+					}
+					if (Array.isArray(saved.pos)) {
+						effect.pos = [num(saved.pos[0]), num(saved.pos[1])];
+					}
+					if (saved.delay != null) {
+						effect.delay = num(saved.delay, effect.delay);
+					}
+					if (saved.duration != null) {
+						effect.duration = num(saved.duration, effect.duration);
+					}
+					effect.mute = saved.mute === true;
+					effect.solo = saved.solo === true;
+				});
+				materializeGraph(tab);
 			}
 			if (isFinite(Number(entry.pxPerTick))) {
 				if (!tab.timeline) {
@@ -2973,10 +3641,38 @@
 				entries.push([key, effects[key]]);
 			});
 		}
+		// The parsed definitions by file name, so a collection can resolve its child files.
+		var defs = {};
 		entries.forEach(function (entry) {
-			var def = parseEffect(entry[1]);
-			var tab = newTab(namespace ? namespace + ":" + entry[0] : entry[0], def && def.type ? def.type : null);
-			hydrateTab(tab, def);
+			defs[entry[0]] = parseEffect(entry[1]);
+		});
+		var localName = function (id) {
+			var text = String(id);
+			var colon = text.indexOf(":");
+			return colon >= 0 ? text.substring(colon + 1) : text;
+		};
+		var resolve = function (id) {
+			return defs[localName(id)] || null;
+		};
+		// Child definitions consumed by a collection become chain nodes, not their own tabs.
+		var consumed = {};
+		Object.keys(defs).forEach(function (name) {
+			var def = defs[name];
+			if (def && def.type === "collection" && Array.isArray(def.effects)) {
+				def.effects.forEach(function (child) {
+					if (child && child.effect != null && defs[localName(child.effect)]) {
+						consumed[localName(child.effect)] = true;
+					}
+				});
+			}
+		});
+		entries.forEach(function (entry) {
+			if (consumed[entry[0]]) {
+				return;
+			}
+			var def = defs[entry[0]];
+			var tab = newTab(namespace ? namespace + ":" + entry[0] : entry[0], null);
+			hydrateTab(tab, def, resolve);
 			materializeGraph(tab);
 			created++;
 		});
@@ -3131,8 +3827,11 @@
 		}
 		var changed = false;
 		selectedNodes().forEach(function (node) {
-			if (node === tab.root) {
-				detachEffect(tab);
+			if (isEffectNode(node)) {
+				// Delete one chain node (design §15.2, P6); the chain and its flow links are rewired.
+				tab.removeEffect(node.properties.effectId);
+				node.ignore_remove = false;
+				tab.graph.remove(node);
 				changed = true;
 			} else if (node.properties && node.properties.kind) {
 				tab.graph.remove(node);
@@ -3141,11 +3840,12 @@
 		});
 		if (changed) {
 			refreshFromCanvas(tab);
+			rewireChain(tab);
 			renderInspector();
 			renderTimeline();
 			showEmptyPlaceholder();
 			commitHistory();
-			if (tab.type) {
+			if (tab.effects && tab.effects.length) {
 				requestStructural(tab);
 			}
 		}
@@ -3158,7 +3858,7 @@
 	function copySelection() {
 		var tab = activeTab();
 		var nodes = selectedNodes().filter(function (node) {
-			return tab && node !== tab.root && node.properties && node.properties.kind;
+			return tab && !isEffectNode(node) && node.properties && node.properties.kind;
 		});
 		if (!nodes.length) {
 			return;
@@ -3637,7 +4337,7 @@
 		var originalContextMenu = scene.processContextMenu;
 		scene.processContextMenu = function (node, event) {
 			var tab = activeTab();
-			if (node && tab && node !== tab.root && node.__kindSpec && node.__widgets) {
+			if (node && tab && !isEffectNode(node) && node.__kindSpec && node.__widgets) {
 				var input = fieldAtEvent(node, event);
 				if (input) {
 					openFieldMenu(node, input, event);
@@ -3654,20 +4354,30 @@
 		wireBridge();
 		resetHistory();
 
-		// Selecting an effect node shows its params in the inspector (param name defaults to the first).
+		// Selecting an effect node makes it the active effect (its params show in the inspector).
 		scene.onNodeSelected = function (node) {
 			var tab = activeTab();
-			if (node && node.properties && node.properties.effectType && tab && node === tab.root) {
-				var descriptor = schema[tab.type];
-				if (descriptor && descriptor.params && descriptor.params.length) {
-					inspectorName = descriptor.params[0].name;
-				}
-				renderInspector();
+			if (!tab || !isEffectNode(node)) {
+				return;
 			}
+			var effect = window.VFXIR && typeof window.VFXIR.effectById === "function"
+					? window.VFXIR.effectById(tab, node.properties.effectId) : null;
+			if (!effect) {
+				return;
+			}
+			tab.activeEffect = indexOfEffect(tab, effect.id);
+			tab.root = node;
+			var descriptor = schema[tab.type];
+			if (descriptor && descriptor.params && descriptor.params.length) {
+				inspectorName = descriptor.params[0].name;
+			}
+			renderInspector();
+			renderTimeline();
+			renderTabs();
 		};
 		// A dragged node's new position is persisted to the IR (and is undoable like any graph edit).
 		scene.onNodeMoved = function (node) {
-			if (!applyingGraph && node && node.__tab && node !== node.__tab.root) {
+			if (!applyingGraph && node && node.__tab) {
 				scheduleGraphEdit(node.__tab);
 			}
 		};

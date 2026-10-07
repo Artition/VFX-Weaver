@@ -1426,6 +1426,39 @@
 	 * @param {Object|null} tab the active `VFXIR.Tab` (may be null)
 	 * @returns {HTMLElement} the panel
 	 */
+	/**
+	 * One Gantt row per chain node (design §15.4, deferred from P5 to P6): a bar from
+	 * `delay` to `delay + duration` (or the tab duration when the node inherits it), so the
+	 * application order and any overlap are visible. Shown only for a real chain (>= 2 nodes).
+	 */
+	function gantt(tab, pxPerTick) {
+		var wrap = el("div", { class: "vfx-tl-gantt" });
+		var total = duration(tab);
+		(tab.effects || []).forEach(function (effect, index) {
+			var row = el("div", { class: "vfx-tl-gantt-row" });
+			var name = el("span", { class: "vfx-tl-gantt-name",
+				text: (index + 1) + ". " + (effect.type || "—") });
+			var track = el("div", { class: "vfx-tl-gantt-track" });
+			var delay = Math.max(0, Number(effect.delay) || 0);
+			var span = Number(effect.duration) > 0 ? Number(effect.duration) : total;
+			var bar = el("div", { class: "vfx-tl-gantt-bar" });
+			bar.style.left = (delay * pxPerTick) + "px";
+			bar.style.width = Math.max(2, span * pxPerTick) + "px";
+			bar.title = (effect.type || "") + " — delay " + delay + "t, duration " + span + "t";
+			if (effect.mute) {
+				bar.classList.add("muted");
+			}
+			if (index === tab.activeEffect) {
+				bar.classList.add("active");
+			}
+			track.appendChild(bar);
+			row.appendChild(name);
+			row.appendChild(track);
+			wrap.appendChild(row);
+		});
+		return wrap;
+	}
+
 	function render(tab) {
 		if (clock.tab && clock.tab !== tab) {
 			stopClock();
@@ -1473,6 +1506,9 @@
 
 		content.appendChild(ruler(tab, pxPerTick));
 		content.appendChild(durationBar(tab, pxPerTick));
+		if (tab.effects && tab.effects.length >= 2) {
+			content.appendChild(gantt(tab, pxPerTick));
+		}
 		// Curve view (design §15.4, fix #13) replaces the lane list while a track is expanded.
 		var curveActive = curveOpen && curveOpen.tab === tab
 				&& tab.keys && tab.keys[curveOpen.name] && tab.keys[curveOpen.name].length > 0;

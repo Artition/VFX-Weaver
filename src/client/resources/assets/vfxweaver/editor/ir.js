@@ -51,7 +51,6 @@
 	 */
 	function Tab(name, type) {
 		this.name = name || "untitled";
-		this.type = type || null;
 		this.duration = 40;
 		this.easing = "linear";
 		/** @type {boolean} preview/playback loop (design §15.3) */
@@ -60,17 +59,154 @@
 		this.persistent = false;
 		/** @type {number} post-life fade in ticks; 0 disables it (design §15.3, I2) */
 		this.fade_ticks = 0;
-		/** @type {number} reserved start delay for P6 chains (design §15.3); stored, not yet applied */
+		/** @type {number} reserved start delay for the collection root (design §15.3) */
 		this.delay = 0;
-		/** @type {Object<string, Object|number>} param name -> control-state spec */
-		this.params = {};
+		/**
+		 * @type {Array<Object>} the tab's effect nodes in chain (layering) order (design §15.2, P6).
+		 * Each entry: `{ id, type, params, keys, delay, duration, easing, mute, solo, source, pos? }`.
+		 */
+		this.effects = [];
+		/** @type {number} index into {@link Tab#effects} of the effect the inspector/timeline edits */
+		this.activeEffect = -1;
+		/** @type {number} monotonic counter for stable effect ids */
+		this.__effectSeq = 0;
+		/** scratch slot for an empty (effect-less) tab, so `tab.params` never throws */
+		this.__params = {};
+		this.__keys = {};
+		this.__type = type == null ? null : type;
 		/** @type {Array<Object>} value nodes: `{ id, kind, inputs, op? }` (+ editor `pos`) */
 		this.valueNodes = [];
-		/** @type {Array<Object>} wires: node->node `{ from, to, input }` or node->param `{ from, to }` */
+		/** @type {Array<Object>} wires: node->node `{ from, to, input }` or node->param `{ from, to, effect? }` */
 		this.edges = [];
-		/** @type {Object<string, Array<Object>>} param name -> keyframes `{ time, value, easing? }` */
-		this.keys = {};
+		if (type != null) {
+			this.addEffect(type);
+		}
 	}
+
+	/**
+	 * The effect entry the inspector/timeline is editing, or null for an empty tab.
+	 *
+	 * @returns {Object|null} `effects[activeEffect]`, or null when the tab has no effect
+	 */
+	Tab.prototype.effect = function () {
+		return this.effects && this.activeEffect >= 0 && this.activeEffect < this.effects.length
+				? this.effects[this.activeEffect] : null;
+	};
+
+	/**
+	 * Append a new effect node to the chain (design §15.2, P6) and return it.
+	 *
+	 * @param {string} [type] the schema effect type
+	 * @param {string} [id] a stable id; a fresh `fx_<n>` is allocated when omitted
+	 * @returns {Object} the added effect entry
+	 */
+	Tab.prototype.addEffect = function (type, id) {
+		if (!this.effects) {
+			this.effects = [];
+		}
+		var seq = (this.__effectSeq || 0) + 1;
+		this.__effectSeq = seq;
+		var effect = {
+			id: id || ("fx_" + seq),
+			type: type == null ? null : type,
+			params: {},
+			keys: {},
+			delay: 0,
+			duration: 0,
+			easing: null,
+			mute: false,
+			solo: false,
+			source: null
+		};
+		this.effects.push(effect);
+		if (this.activeEffect < 0) {
+			this.activeEffect = this.effects.length - 1;
+		}
+		return effect;
+	};
+
+	/**
+	 * Remove an effect entry by id.
+	 *
+	 * @param {string} id the effect id
+	 * @returns {boolean} true when an entry was removed
+	 */
+	Tab.prototype.removeEffect = function (id) {
+		if (!this.effects) {
+			return false;
+		}
+		for (var i = 0; i < this.effects.length; i++) {
+			if (this.effects[i].id === id) {
+				this.effects.splice(i, 1);
+				if (this.activeEffect >= this.effects.length) {
+					this.activeEffect = this.effects.length - 1;
+				}
+				return true;
+			}
+		}
+		return false;
+	};
+
+	/** The effect entry with `id`, or null. */
+	function effectById(tab, id) {
+		if (!tab || !tab.effects) {
+			return null;
+		}
+		for (var i = 0; i < tab.effects.length; i++) {
+			if (tab.effects[i].id === id) {
+				return tab.effects[i];
+			}
+		}
+		return null;
+	}
+
+	// The single-edit fields (`type`/`params`/`keys`) proxy to the active effect, so every existing
+	// inspector/timeline/compiler code path keeps working unchanged for a chain of one, and edits
+	// the selected node for a longer chain. An effect-less tab writes the scratch slots.
+	Object.defineProperty(Tab.prototype, "type", {
+		configurable: true,
+		get: function () {
+			var effect = this.effect();
+			return effect ? effect.type : (this.__type == null ? null : this.__type);
+		},
+		set: function (value) {
+			var effect = this.effect();
+			if (effect) {
+				effect.type = value;
+			}
+			this.__type = value;
+		}
+	});
+	Object.defineProperty(Tab.prototype, "params", {
+		configurable: true,
+		get: function () {
+			var effect = this.effect();
+			return effect ? effect.params : this.__params;
+		},
+		set: function (value) {
+			var effect = this.effect();
+			if (effect) {
+				effect.params = value;
+			} else {
+				this.__params = value;
+			}
+		}
+	});
+	Object.defineProperty(Tab.prototype, "keys", {
+		configurable: true,
+		get: function () {
+			var effect = this.effect();
+			return effect ? effect.keys : this.__keys;
+		},
+		set: function (value) {
+			var effect = this.effect();
+			if (effect) {
+				effect.keys = value;
+			} else {
+				this.__keys = value;
+			}
+		}
+	});
 
 	/**
 	 * @param {Object} node the value node to append
@@ -94,6 +230,13 @@
 		var edge = { from: from, to: to };
 		if (input != null) {
 			edge.input = input;
+		} else if (this.effects && this.effects.length > 1) {
+			// A param wire in a chain belongs to one effect node (P6); tag it so the compiler routes
+			// it into that child definition. A single-effect tab keeps the bare `{from,to}` shape.
+			var active = this.effect();
+			if (active) {
+				edge.effect = active.id;
+			}
 		}
 		this.edges.push(edge);
 		return edge;
@@ -718,16 +861,64 @@
 		return first;
 	}
 
-	/** Whether a value node is wired into a param. */
+	/** Whether a value node is wired into a param (of the active effect in a chain). */
 	function hasDriver(tab, name) {
 		var edges = tab && Array.isArray(tab.edges) ? tab.edges : [];
+		var active = tab && tab.effects && tab.effects.length > 1 ? tab.effect() : null;
+		var activeId = active ? active.id : null;
 		for (var i = 0; i < edges.length; i++) {
 			var edge = edges[i];
-			if (edge && edge.to === name && edge.input == null && edge.from != null) {
-				return true;
+			if (!edge || edge.to !== name || edge.input != null || edge.from == null) {
+				continue;
 			}
+			if (activeId != null && edge.effect != null && edge.effect !== activeId) {
+				continue;
+			}
+			return true;
 		}
 		return false;
+	}
+
+	/**
+	 * Re-hydrate a `collection` root into a chain of effect entries (design §15.2, P6). Each child is
+	 * resolved to its own definition through `resolve` (an effect id -> parsed definition map), so the
+	 * child's `type`, params and unknown top-level fields are carried. When a child cannot be resolved
+	 * (an external or built-in id), the id's path names the type and the entry's own `params` overrides
+	 * are used, so a hand-written collection still imports.
+	 *
+	 * @param {Object} def the parsed collection definition (`type:"collection"`, `effects:[...]`)
+	 * @param {Function} [resolve] `id -> child definition` lookup
+	 * @returns {Array<Object>|null} the chain entries in array order, or null when `def` is not a collection
+	 */
+	function chainFromDefinition(def, resolve) {
+		if (!def || typeof def !== "object" || !Array.isArray(def.effects)) {
+			return null;
+		}
+		var out = [];
+		for (var i = 0; i < def.effects.length; i++) {
+			var entry = def.effects[i];
+			if (!entry || entry.effect == null) {
+				continue;
+			}
+			var id = String(entry.effect);
+			var child = typeof resolve === "function" ? resolve(id) : null;
+			var type = child && child.type != null ? String(child.type) : null;
+			if (type == null) {
+				var colon = id.indexOf(":");
+				type = colon >= 0 ? id.substring(colon + 1) : id;
+			}
+			out.push({
+				type: type,
+				delay: isFiniteNumber(Number(entry.delay)) ? Number(entry.delay) : 0,
+				duration: entry.duration != null && isFiniteNumber(Number(entry.duration))
+						? Number(entry.duration) : 0,
+				easing: entry.easing == null ? null : entry.easing,
+				params: child && child.params && typeof child.params === "object" ? child.params : {},
+				source: child || null,
+				effectId: id
+			});
+		}
+		return out.length ? out : null;
 	}
 
 	/** The inline spec of one param: the stored object, a `{ value }` wrapper for a literal, or its default. */
@@ -755,6 +946,8 @@
 		snapEasing: snapEasing,
 		easingToJson: easingToJson,
 		normalizeParam: normalizeParam,
+		chainFromDefinition: chainFromDefinition,
+		effectById: effectById,
 		graphToCanvas: graphToCanvas,
 		validNamespace: validNamespace,
 		exportZipBody: exportZipBody,

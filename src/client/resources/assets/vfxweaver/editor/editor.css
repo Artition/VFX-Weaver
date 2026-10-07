@@ -1346,3 +1346,106 @@ body {
 	color: var(--vfx-text-dim);
 	cursor: default;
 }
+
+/* --- Layers panel (P6, design 15.2) ------------------------------------------------ */
+.vfx-layers {
+	margin-bottom: 10px;
+}
+.vfx-layer-list {
+	display: flex;
+	flex-direction: column;
+	gap: 3px;
+}
+.vfx-layer {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	padding: 3px 4px;
+	border: 1px solid var(--vfx-border);
+	border-radius: 4px;
+	background: var(--vfx-panel-alt);
+	cursor: grab;
+}
+.vfx-layer.active {
+	border-color: #4f9dff;
+}
+.vfx-layer.muted {
+	opacity: 0.5;
+}
+.vfx-layer.solo {
+	box-shadow: inset 0 0 0 1px #ffb454;
+}
+.vfx-layer.dragover {
+	border-color: #6dd36d;
+}
+.vfx-layer-name {
+	flex: 1 1 auto;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	color: var(--vfx-text);
+}
+.vfx-layer-btn {
+	min-width: 20px;
+	padding: 1px 4px;
+	font: inherit;
+	color: var(--vfx-text);
+	background: transparent;
+	border: 1px solid var(--vfx-border);
+	border-radius: 3px;
+	cursor: pointer;
+}
+.vfx-layer-btn:hover:not(:disabled) {
+	background: #2b3550;
+}
+.vfx-layer-btn:disabled {
+	color: var(--vfx-text-dim);
+	cursor: default;
+}
+.vfx-layer-num {
+	width: 46px;
+	font: inherit;
+	color: var(--vfx-text);
+	background: #1b1b1b;
+	border: 1px solid var(--vfx-border);
+	border-radius: 3px;
+}
+
+/* --- Timeline gantt rows (P6, design 15.4) ----------------------------------------- */
+.vfx-tl-gantt {
+	margin: 4px 0 6px;
+}
+.vfx-tl-gantt-row {
+	display: flex;
+	align-items: center;
+	height: 20px;
+}
+.vfx-tl-gantt-name {
+	flex: 0 0 120px;
+	padding-left: 8px;
+	color: var(--vfx-text-dim);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.vfx-tl-gantt-track {
+	position: relative;
+	flex: 1 1 auto;
+	height: 12px;
+	background: rgba(255, 255, 255, 0.06);
+	border-radius: 3px;
+}
+.vfx-tl-gantt-bar {
+	position: absolute;
+	top: 0;
+	height: 100%;
+	background: #4f9dff;
+	border-radius: 3px;
+}
+.vfx-tl-gantt-bar.active {
+	background: #6dd36d;
+}
+.vfx-tl-gantt-bar.muted {
+	background: #7f8aa3;
+	opacity: 0.5;
+}

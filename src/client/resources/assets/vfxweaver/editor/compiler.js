@@ -121,6 +121,28 @@
 	}
 
 	/**
+	 * Whether an edge belongs to the effect being compiled (design §15.2, P6). A param wire in a
+	 * chain carries `effect` = the owning node id; a single-effect tab (or a legacy file) leaves it
+	 * absent. A node->node edge (`input != null`) is shared by every effect and always in scope.
+	 */
+	function edgeInScope(edge, effectId, multi) {
+		if (edge == null) {
+			return false;
+		}
+		if (edge.input != null) {
+			return true;
+		}
+		if (effectId == null) {
+			return true;
+		}
+		if (edge.effect === effectId) {
+			return true;
+		}
+		// A legacy/untagged param wire only belongs to the single (non-chain) effect.
+		return !multi && edge.effect == null;
+	}
+
+	/**
 	 * Serialise one param slot, deriving the datapack form from the IR data (design §15.1/§15.8)
 	 * instead of the removed editor-only `control` discriminator:
 	 *
@@ -195,22 +217,26 @@
 	 * @returns {{specs: Object, skip: Object<string, boolean>}} folded param specs by name and the
 	 *          node ids to omit from the emitted graph
 	 */
-	function foldDrivers(tab) {
+	function foldDrivers(tab, effectId, multi) {
 		var specs = {};
 		var skip = {};
 		var nodes = Array.isArray(tab.valueNodes) ? tab.valueNodes : [];
-		var edges = Array.isArray(tab.edges) ? tab.edges : [];
+		var edges = (Array.isArray(tab.edges) ? tab.edges : []).filter(function (edge) {
+			return edgeInScope(edge, effectId, multi);
+		});
 		var outEdges = {};
 		var incoming = {};
-		edges.forEach(function (edge) {
+		(Array.isArray(tab.edges) ? tab.edges : []).forEach(function (edge) {
 			if (edge == null || edge.from == null || edge.to == null) {
 				return;
 			}
+			incoming[edge.to] = (incoming[edge.to] || 0) + 1;
+		});
+		edges.forEach(function (edge) {
 			if (!outEdges[edge.from]) {
 				outEdges[edge.from] = [];
 			}
 			outEdges[edge.from].push(edge);
-			incoming[edge.to] = (incoming[edge.to] || 0) + 1;
 		});
 		nodes.forEach(function (node) {
 			if (node.kind !== "bind" && node.kind !== "expr" && node.kind !== "constant") {
@@ -260,7 +286,7 @@
 	 * @param {Object<string, boolean>} [skip] node ids already folded into a param (design §15.8)
 	 * @returns {{nodes: Array, edges: Array, meta: Object, inputs: Object}}
 	 */
-	function compileGraph(tab, skip) {
+	function compileGraph(tab, skip, effectId, multi) {
 		skip = skip || {};
 		var nodes = Array.isArray(tab.valueNodes) ? tab.valueNodes : [];
 		var ids = {};
@@ -287,6 +313,9 @@
 			if (edge == null || edge.from == null || edge.to == null) {
 				return;
 			}
+			if (!edgeInScope(edge, effectId, multi)) {
+				return;
+			}
 			if (skip[edge.from] || skip[edge.to]) {
 				return;
 			}
@@ -306,42 +335,99 @@
 	/** Warning records from the most recent {@link compileTab} (clamped keyframes, I3). */
 	var lastWarnings = [];
 
-	/**
-	 * Compile one tab into the datapack effect JSON (tab-indented, as the built-in definitions).
-	 *
-	 * Timing (`duration`, `loop`, `persistent`, `fade_ticks`) is ALWAYS emitted explicitly, including
-	 * defaults, so a consumer never depends on the datapack's hidden defaults (design §15.3).
-	 *
-	 * @param {Object} tab a `VFXIR.Tab`
-	 * @returns {string} the JSON text, ready to POST to `/compile` or write to `data/<ns>/vfx/`
-	 */
-	function compileTab(tab) {
-		if (!tab || typeof tab !== "object") {
-			throw new Error("compileTab: a tab is required");
+	/** Lowercase a display name into the `[a-z0-9_.-]` a datapack file name allows. */
+	function safeName(value) {
+		return String(value == null ? "" : value).trim().toLowerCase()
+				.replace(/[^a-z0-9_.-]+/g, "_").replace(/^_+|_+$/g, "");
+	}
+
+	/** The effect-name part of a tab name (`<namespace>:<name>` -> `<name>`). */
+	function effectName(tab) {
+		var name = tab && tab.name ? String(tab.name) : "untitled";
+		var colon = name.indexOf(":");
+		return colon > 0 && colon < name.length - 1 ? name.substring(colon + 1) : name;
+	}
+
+	/** The project namespace when the shell is up, else a safe default. */
+	function namespaceOf(options) {
+		if (options && options.namespace) {
+			return String(options.namespace);
 		}
-		// Start from the imported definition (when the tab came from a pack) so unknown/unsupported
-		// top-level fields (sound, positions, mask, field, subgraphs, ...) round-trip unchanged. Only
-		// the fields this IR owns are overwritten.
-		var def = clone(tab.source) || {};
-		def.type = tab.type == null ? "" : String(tab.type);
-		def.duration = num(tab.duration, 40);
+		var project = root.VFXEditor && root.VFXEditor.project;
+		var ns = project && project.namespace ? String(project.namespace) : "";
+		return safeName(ns) || "vfx_project";
+	}
+
+	/** The file base name for a tab's chain (`options.baseName`, else the sanitised tab name). */
+	function baseNameOf(tab, options) {
+		if (options && options.baseName) {
+			return safeName(options.baseName);
+		}
+		return safeName(effectName(tab)) || "effect";
+	}
+
+	/** A child effect's effective duration: its own when set, else the root/tab duration. */
+	function childDurationTicks(tab, effect) {
+		var own = num(effect && effect.duration, 0);
+		return own > 0 ? own : num(tab.duration, 40);
+	}
+
+	/**
+	 * The tab's effects in application order with mute/solo applied (design §15.2, P6): when any node
+	 * is soloed only the soloed nodes play, and muted nodes never do. Order is preserved.
+	 *
+	 * @param {Object} tab the tab
+	 * @returns {Array<Object>} the active chain (possibly empty)
+	 */
+	function activeChain(tab) {
+		var all = (tab.effects || []).filter(function (effect) {
+			return effect && effect.type;
+		});
+		var soloed = all.filter(function (effect) {
+			return effect.solo === true;
+		});
+		var base = soloed.length ? soloed : all;
+		return base.filter(function (effect) {
+			return effect.mute !== true;
+		});
+	}
+
+	/**
+	 * Compile one effect (a child of a chain, or the tab's only effect) into a datapack definition.
+	 *
+	 * @param {Object} tab the owning tab (timing + value graph live here)
+	 * @param {Object|null} effect the effect entry, or null for a legacy/single tab
+	 * @param {string|null} effectId the effect id param wires are tagged with (null = legacy)
+	 * @param {Object|null} sourceDef the imported definition to round-trip, or null
+	 * @returns {string} the definition JSON text
+	 */
+	function compileSingle(tab, effect, effectId, sourceDef) {
+		var multi = Boolean(tab.effects && tab.effects.length > 1);
+		var def = clone(sourceDef) || {};
+		var type = effect ? effect.type : tab.type;
+		def.type = type == null ? "" : String(type);
+		def.duration = effect ? childDurationTicks(tab, effect) : num(tab.duration, 40);
 		def.loop = Boolean(tab.loop);
 		def.persistent = Boolean(tab.persistent);
 		def.fade_ticks = num(tab.fade_ticks, 0);
-		def.easing = tab.easing == null ? "linear" : tab.easing;
+		def.easing = (effect && effect.easing != null ? effect.easing : tab.easing);
+		if (def.easing == null) {
+			def.easing = "linear";
+		}
 		def.params = {};
 		var warnings = [];
-		// Fold bind/expr leaf drivers into their param before serialising (design §15.8), so a
-		// driven slot exports as a direct `bind`/`expr` and its node is left out of the graph.
-		var folded = foldDrivers(tab);
-		var source = tab.params || {};
+		var folded = foldDrivers(tab, effectId, multi);
+		var source = effect ? effect.params : tab.params;
+		source = source || {};
+		var keys = effect ? effect.keys : tab.keys;
+		keys = keys || {};
 		Object.keys(source).forEach(function (name) {
 			var spec = folded.specs[name] != null ? folded.specs[name] : source[name];
-			def.params[name] = compileParam(name, spec, tab.keys || {}, def.duration, warnings);
+			def.params[name] = compileParam(name, spec, keys, def.duration, warnings);
 		});
 		Object.keys(folded.specs).forEach(function (name) {
 			if (!Object.prototype.hasOwnProperty.call(def.params, name)) {
-				def.params[name] = compileParam(name, folded.specs[name], tab.keys || {}, def.duration, warnings);
+				def.params[name] = compileParam(name, folded.specs[name], keys, def.duration, warnings);
 			}
 		});
 		lastWarnings = warnings;
@@ -351,9 +437,7 @@
 			return !folded.skip[node.id];
 		});
 		if (activeNodes.length > 0) {
-			var built = compileGraph(tab, folded.skip);
-			// Reuse the imported graph object so unknown graph-level fields are kept; the IR owns
-			// nodes/edges/meta (and supplies the version a fresh graph needs).
+			var built = compileGraph(tab, folded.skip, effectId, multi);
 			var graph = def.graph && typeof def.graph === "object" && !Array.isArray(def.graph) ? def.graph : {};
 			if (graph.version == null) {
 				graph.version = 1;
@@ -379,6 +463,102 @@
 	}
 
 	/**
+	 * Compile a chain into a root `type:"collection"` (design §15.2, P6): the children are emitted in
+	 * chain order, never sorted by delay, each one referencing a *definition id* (`<ns>:<base>__<n>`).
+	 * A per-child `order` param pins the post-processing compositing order to the chain order even
+	 * when the children start at different delays (the engine sorts a screen layer by `order`).
+	 *
+	 * @param {Object} tab the tab
+	 * @param {Array<Object>} chain the active chain (mute/solo applied)
+	 * @param {Object} [options] `{ namespace, baseName }` overrides
+	 * @returns {string} the collection root JSON text
+	 */
+	function compileCollection(tab, chain, options) {
+		var def = clone(tab.source) || {};
+		def.type = "collection";
+		def.duration = num(tab.duration, 40);
+		def.loop = Boolean(tab.loop);
+		def.persistent = Boolean(tab.persistent);
+		def.fade_ticks = num(tab.fade_ticks, 0);
+		def.easing = tab.easing == null ? "linear" : tab.easing;
+		delete def.params;
+		delete def.graph;
+		delete def.inputs;
+		var namespace = namespaceOf(options);
+		var base = baseNameOf(tab, options);
+		var effects = [];
+		chain.forEach(function (effect, index) {
+			var entry = {
+				effect: namespace + ":" + base + "__" + index,
+				delay: num(effect.delay, 0),
+				duration: childDurationTicks(tab, effect)
+			};
+			if (effect.easing != null) {
+				entry.easing = effect.easing;
+			}
+			entry.params = { order: index };
+			effects.push(entry);
+		});
+		def.effects = effects;
+		return JSON.stringify(def, null, "\t");
+	}
+
+	/**
+	 * Compile one tab into the datapack effect JSON (tab-indented, as the built-in definitions).
+	 *
+	 * Timing (`duration`, `loop`, `persistent`, `fade_ticks`) is ALWAYS emitted explicitly, including
+	 * defaults, so a consumer never depends on the datapack's hidden defaults (design §15.3).
+	 *
+	 * @param {Object} tab a `VFXIR.Tab`
+	 * @param {Object} [options] `{ namespace, baseName }` for the child reference ids of a chain
+	 * @returns {string} the JSON text, ready to POST to `/compile` or write to `data/<ns>/vfx/`
+	 */
+	function compileTab(tab, options) {
+		if (!tab || typeof tab !== "object") {
+			throw new Error("compileTab: a tab is required");
+		}
+		var nodes = (tab.effects || []).filter(function (effect) {
+			return effect && effect.type;
+		});
+		if (nodes.length >= 2) {
+			return compileCollection(tab, activeChain(tab), options);
+		}
+		var effect = nodes.length === 1 ? nodes[0] : null;
+		if (effect && effect.mute === true) {
+			// A single muted/disabled node still compiles (to a silent collection) rather than falling
+			// back to the flat form, so a muted chain never plays.
+			return compileCollection(tab, [], options);
+		}
+		return compileSingle(tab, effect, effect ? effect.id : null,
+				effect ? (effect.source || tab.source) : tab.source);
+	}
+
+	/**
+	 * Compile a tab into the set of files an export writes: `<base>.json` (a flat definition for
+	 * one effect, a `collection` root for a chain) plus one `<base>__<n>.json` child definition per
+	 * chain node (design §15.2, P6). The root references each child by `<namespace>:<base>__<n>`.
+	 *
+	 * @param {Object} tab the tab
+	 * @param {Object} [options] `{ namespace, baseName }` overrides
+	 * @returns {Object<string, string>} file base name -> JSON text
+	 */
+	function compileTabFiles(tab, options) {
+		var nodes = (tab.effects || []).filter(function (effect) {
+			return effect && effect.type;
+		});
+		var base = baseNameOf(tab, options);
+		var out = {};
+		out[base] = compileTab(tab, options);
+		if (nodes.length < 2) {
+			return out;
+		}
+		activeChain(tab).forEach(function (effect, index) {
+			out[base + "__" + index] = compileSingle(tab, effect, effect.id, effect.source);
+		});
+		return out;
+	}
+
+	/**
 	 * Compile the PREVIEW artifact: the same IR as {@link compileTab}, but with playback overrides so
 	 * editing stays pleasant (`loop:true`, `fade_ticks:0`) — the in-game preview never dies and never
 	 * fades the animation out (design §15.5, fixes #4/#15). The authored compile is unchanged, so
@@ -396,6 +576,7 @@
 
 	var api = {
 		compileTab: compileTab,
+		compileTabFiles: compileTabFiles,
 		compileForPreview: compileForPreview,
 		/** @returns {Array} the clamped-keyframe warnings recorded by the last compile (I3). */
 		getWarnings: function () {

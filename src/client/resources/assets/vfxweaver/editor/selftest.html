@@ -506,6 +506,96 @@ window.__vfxSelftest = function () {
 		eq(norm.keys[1].easing, "ease_out_quad", "import keeps the name");
 	});
 
+	test("(AA) a 2-node chain compiles to a collection root, in chain order", function () {
+		var tab = new VFXIR.Tab("combo", "blur");
+		tab.duration = 60;
+		var second = tab.addEffect("pixelate");
+		tab.effects[0].delay = 5;
+		second.delay = 0;
+		tab.params.radius = VFXIR.ParamSpec.constant(4);
+		var def = parse(compileTab(tab, { namespace: "ns", baseName: "combo" }));
+		eq(def.type, "collection", "root type");
+		eq(def.effects.length, 2, "two children");
+		// Chain order is preserved even though the FIRST child starts later (never sorted by delay).
+		eq(def.effects[0].effect, "ns:combo__0", "first child id");
+		eq(def.effects[1].effect, "ns:combo__1", "second child id");
+		eq(def.effects[0].delay, 5, "first delay kept");
+		eq(def.effects[1].delay, 0, "second delay kept");
+		eq(def.effects[0].params.order, 0, "order pins layering 0");
+		eq(def.effects[1].params.order, 1, "order pins layering 1");
+		eq(def.effects[0].duration, 60, "child inherits the root duration");
+		ok(!("params" in def), "a collection root has no params block");
+	});
+
+	test("(AB) compileTabFiles emits a child definition per chain node, referenced by id", function () {
+		var tab = new VFXIR.Tab("combo", "blur");
+		tab.duration = 60;
+		var second = tab.addEffect("pixelate");
+		tab.params.radius = VFXIR.ParamSpec.constant(4);
+		second.params.size = VFXIR.ParamSpec.constant(8);
+		var files = window.VFXCompiler.compileTabFiles(tab, { namespace: "ns", baseName: "combo" });
+		eq(Object.keys(files).length, 3, "root + two child files");
+		eq(parse(files.combo).type, "collection", "root is the collection");
+		var child0 = parse(files.combo__0);
+		var child1 = parse(files.combo__1);
+		eq(child0.type, "blur", "child 0 type");
+		eq(child0.params.radius, 4, "child 0 params live in its own file");
+		eq(child1.type, "pixelate", "child 1 type");
+		eq(child1.params.size, 8, "child 1 params live in its own file");
+	});
+
+	test("(AC) a collection root re-hydrates to a chain of effect entries", function () {
+		var root = { type: "collection", duration: 60, effects: [
+			{ effect: "ns:combo__0", delay: 5, duration: 60, params: { order: 0 } },
+			{ effect: "ns:combo__1", delay: 0, duration: 60, params: { order: 1 } }
+		] };
+		var map = {
+			"ns:combo__0": { type: "blur", params: { radius: 4 } },
+			"ns:combo__1": { type: "pixelate", params: { size: 8 } }
+		};
+		var chain = VFXIR.chainFromDefinition(root, function (id) { return map[id]; });
+		eq(chain.length, 2, "two chain entries");
+		eq(chain[0].type, "blur", "first type from the resolved child");
+		eq(chain[0].delay, 5, "first delay");
+		eq(chain[1].type, "pixelate", "second type");
+		eq(chain[1].params.size, 8, "second child params carried");
+		// An unresolved external id falls back to the id path as the type.
+		var external = VFXIR.chainFromDefinition({ type: "collection", effects: [
+			{ effect: "vfxweaver:blur" } ] }, function () { return null; });
+		eq(external[0].type, "blur", "unresolved id path names the type");
+		ok(VFXIR.chainFromDefinition({ type: "blur" }, null) === null, "a non-collection is not a chain");
+	});
+
+	test("(AD) mute drops a node; solo keeps only the soloed ones", function () {
+		var muted = new VFXIR.Tab("mute", "blur");
+		muted.duration = 20;
+		muted.addEffect("pixelate");
+		muted.effects[0].mute = true;
+		var def = parse(compileTab(muted, { namespace: "ns", baseName: "mute" }));
+		eq(def.type, "collection", "still a collection with two nodes");
+		eq(def.effects.length, 1, "the muted node is dropped");
+		eq(def.effects[0].params.order, 0, "remaining child order restarts at 0");
+
+		var solo = new VFXIR.Tab("solo", "blur");
+		solo.addEffect("pixelate");
+		solo.addEffect("invert");
+		solo.effects[1].solo = true;
+		var d2 = parse(compileTab(solo, { namespace: "ns", baseName: "solo" }));
+		eq(d2.effects.length, 1, "only the soloed node plays");
+		eq(d2.effects[0].effect, "ns:solo__0", "the soloed child is referenced");
+	});
+
+	test("(AE) a chain of one still compiles to a flat definition", function () {
+		var tab = new VFXIR.Tab("one", "blur");
+		tab.params.radius = VFXIR.ParamSpec.constant(3);
+		var def = parse(compileTab(tab));
+		eq(def.type, "blur", "flat type");
+		ok(!("effects" in def), "no collection wrapper");
+		eq(def.params.radius, 3, "params flat");
+		eq(Object.keys(window.VFXCompiler.compileTabFiles(tab, { namespace: "ns", baseName: "one" })).length,
+				1, "a chain of one writes a single file");
+	});
+
 	return results;
 };
 /* SELFTEST:END */
