@@ -6,7 +6,8 @@ released mod versions are recorded on the **[mod Changelog](../CHANGELOG.md)** i
 revision shipped with a release, the entry says so (for example `v47 — released as 2.0.0`).
 
 Current guide revision: **v79**. Mod version it documents: **2.3.0** (not yet released). Which jar
-download in [download table](../index.md#download).
+to download is in the [download table](../index.md#download).
+
 ### v79 — documents 2.3.0 (unreleased)
 - **A new page `Visual node editor` documents the local web editor.** Start it with `/vfxeditor` (it
   toggles the loopback bridge, prints a token-bearing URL and opens it); the page covers the tab /

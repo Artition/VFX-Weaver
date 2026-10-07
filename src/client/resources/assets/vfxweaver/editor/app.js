@@ -43,7 +43,14 @@
 		canvas: document.getElementById("vfx-canvas"),
 		wrap: document.getElementById("vfx-canvas-wrap"),
 		inspector: document.getElementById("vfx-inspector"),
-		timeline: document.getElementById("vfx-timeline")
+		timeline: document.getElementById("vfx-timeline"),
+		project: document.getElementById("vfx-project"),
+		tabName: document.getElementById("vfx-tab-name"),
+		exportDest: document.getElementById("vfx-export-dest"),
+		exportPath: document.getElementById("vfx-export-path"),
+		exportBtn: document.getElementById("vfx-export"),
+		importPath: document.getElementById("vfx-import-path"),
+		importBtn: document.getElementById("vfx-import")
 	};
 
 	function showBanner(message) {
@@ -187,6 +194,9 @@
 			scene.setGraph(tab.graph);
 			scene.setDirty(true, true);
 		}
+		if (dom.tabName) {
+			dom.tabName.value = tab.name;
+		}
 		renderTabs();
 		status(tab.type ? tab.name : tab.name + " — choose an effect type");
 		renderInspector();
@@ -203,6 +213,9 @@
 			project.active = -1;
 			if (scene) {
 				scene.setGraph(newGraph());
+			}
+			if (dom.tabName) {
+				dom.tabName.value = "";
 			}
 			renderTabs();
 			status("Choose an effect type to start");
@@ -283,6 +296,9 @@
 		if (tab && !tab.type) {
 			attachEffect(tab, typeName);
 			tab.name = typeName;
+			if (dom.tabName) {
+				dom.tabName.value = tab.name;
+			}
 			renderTabs();
 			status(tab.name);
 			renderInspector();
@@ -478,10 +494,259 @@
 	/* Public API (Tasks 13-16 extend this object)                         */
 	/* ------------------------------------------------------------------ */
 
+	/* ------------------------------------------------------------------ */
+	/* Pack import / export                                                */
+	/* ------------------------------------------------------------------ */
+
+	/** Lowercase a namespace/effect name into the `[a-z0-9_.-]` the server's export accepts. */
+	function safeName(value) {
+		return String(value == null ? "" : value).trim().toLowerCase()
+				.replace(/[^a-z0-9_.-]+/g, "_").replace(/^_+|_+$/g, "");
+	}
+
+	/** The effect-name part of a tab name (`<namespace>:<name>` -> `<name>`). */
+	function effectName(tab) {
+		var name = tab && tab.name ? String(tab.name) : "untitled";
+		var colon = name.indexOf(":");
+		return colon > 0 && colon < name.length - 1 ? name.substring(colon + 1) : name;
+	}
+
+	/** Parse an imported effect entry (object or JSON string) into a definition object, or null. */
+	function parseEffect(raw) {
+		if (raw && typeof raw === "object") {
+			return raw;
+		}
+		if (typeof raw === "string") {
+			try {
+				var parsed = JSON.parse(raw);
+				return parsed && typeof parsed === "object" ? parsed : null;
+			} catch (e) {
+				return null;
+			}
+		}
+		return null;
+	}
+
+	/** Coerce to a finite number, falling back to `fallback` (default 0). */
+	function num(value, fallback) {
+		var n = Number(value);
+		return isFinite(n) ? n : (fallback == null ? 0 : fallback);
+	}
+
+	/**
+	 * Restore a tab's model from a datapack definition on import: timing, params (raw specs the
+	 * inspector infers a control from), keyframes into `Tab.keys`, and the value graph. Layout is
+	 * not here — it comes from the sidecar (see {@link applySidecar}).
+	 *
+	 * @param {Object} tab a freshly created tab
+	 * @param {Object|null} def the parsed effect JSON, or null
+	 */
+	function hydrateTab(tab, def) {
+		if (!tab || !def || typeof def !== "object") {
+			return;
+		}
+		if (def.duration != null) {
+			tab.duration = num(def.duration, tab.duration);
+		}
+		if (def.easing != null) {
+			tab.easing = String(def.easing);
+		}
+		var params = def.params && typeof def.params === "object" ? def.params : {};
+		Object.keys(params).forEach(function (name) {
+			var raw = params[name];
+			if (raw && typeof raw === "object" && Array.isArray(raw.keyframes)) {
+				tab.keys[name] = raw.keyframes.map(function (key) {
+					var out = { time: num(key.time), value: num(key.value) };
+					if (key.easing != null) {
+						out.easing = key.easing;
+					}
+					return out;
+				});
+				tab.params[name] = { control: "keyframes" };
+			} else {
+				tab.params[name] = raw;
+			}
+		});
+		var graph = def.graph && typeof def.graph === "object" ? def.graph : null;
+		if (graph && Array.isArray(graph.nodes)) {
+			tab.valueNodes = graph.nodes.map(function (node) {
+				var out = { id: node.id, kind: node.kind, inputs: node.inputs || {} };
+				if (node.op != null) {
+					out.op = node.op;
+				}
+				var meta = graph.meta && graph.meta[node.id];
+				if (meta && Array.isArray(meta.pos) && meta.pos.length === 2) {
+					out.pos = [num(meta.pos[0]), num(meta.pos[1])];
+				}
+				return out;
+			});
+		}
+		if (graph && Array.isArray(graph.edges)) {
+			tab.edges = graph.edges.map(function (edge) {
+				var out = { from: edge.from, to: edge.to };
+				if (edge.input != null) {
+					out.input = edge.input;
+				}
+				return out;
+			});
+		}
+		if (def.inputs && typeof def.inputs === "object") {
+			Object.keys(def.inputs).forEach(function (param) {
+				var wire = def.inputs[param];
+				if (wire && wire.from != null) {
+					tab.edges.push({ from: wire.from, to: param });
+				}
+			});
+		}
+	}
+
+	/** Every tab with an effect type, as `{ name: compiledJsonString }` for `/export`. */
+	function gatherEffects() {
+		var effects = {};
+		project.tabs.forEach(function (tab) {
+			if (!tab.type) {
+				return;
+			}
+			var name = safeName(effectName(tab));
+			if (name) {
+				effects[name] = window.VFXCompiler ? window.VFXCompiler.compileTab(tab) : "{}";
+			}
+		});
+		return effects;
+	}
+
+	/** The editor project document: tab layout (root position + timeline zoom) for a round-trip. */
+	function buildSidecar() {
+		return {
+			version: 1,
+			tabs: project.tabs.filter(function (tab) {
+				return tab.type;
+			}).map(function (tab) {
+				var entry = { name: effectName(tab) };
+				if (tab.root && Array.isArray(tab.root.pos)) {
+					entry.root = [num(tab.root.pos[0]), num(tab.root.pos[1])];
+				}
+				if (tab.timeline && isFinite(Number(tab.timeline.pxPerTick))) {
+					entry.pxPerTick = Number(tab.timeline.pxPerTick);
+				}
+				return entry;
+			})
+		};
+	}
+
+	/**
+	 * Apply an imported sidecar to the just-created tabs, by effect name. A missing or corrupt
+	 * sidecar is ignored, so an import without layout still works (nodes keep their default spot).
+	 *
+	 * @param {Object|string|null} sidecar the `/import` sidecar
+	 * @param {Array} tabs the tabs the import created
+	 */
+	function applySidecar(sidecar, tabs) {
+		var doc = sidecar;
+		if (typeof sidecar === "string") {
+			try {
+				doc = JSON.parse(sidecar);
+			} catch (e) {
+				return;
+			}
+		}
+		if (!doc || !Array.isArray(doc.tabs)) {
+			return;
+		}
+		var byName = {};
+		doc.tabs.forEach(function (entry) {
+			if (entry && entry.name) {
+				byName[String(entry.name)] = entry;
+			}
+		});
+		tabs.forEach(function (tab) {
+			var entry = byName[effectName(tab)];
+			if (!entry) {
+				return;
+			}
+			if (Array.isArray(entry.root) && tab.root) {
+				tab.root.pos = [num(entry.root[0]), num(entry.root[1])];
+			}
+			if (isFinite(Number(entry.pxPerTick))) {
+				if (!tab.timeline) {
+					tab.timeline = {};
+				}
+				tab.timeline.pxPerTick = Number(entry.pxPerTick);
+			}
+		});
+	}
+
+	/** Export every effect tab as a datapack to the chosen destination (world / folder / zip). */
+	function exportPack() {
+		var bridge = window.VFXBridge;
+		if (!bridge) {
+			status("export: the bridge is not available");
+			return;
+		}
+		var namespace = safeName(dom.project.value);
+		if (!namespace) {
+			status("export: enter a project namespace");
+			return;
+		}
+		var destination = dom.exportDest.value;
+		var path = dom.exportPath.value.trim();
+		if (!path) {
+			status("export: enter a destination path");
+			return;
+		}
+		var effects = gatherEffects();
+		if (Object.keys(effects).length === 0) {
+			status("export: no effect tabs to export");
+			return;
+		}
+		status("exporting " + namespace + "…");
+		bridge.post("/export", {
+			destination: destination,
+			path: path,
+			namespace: namespace,
+			effects: effects,
+			sidecar: buildSidecar()
+		}).then(function (result) {
+			if (!result || result.ok === false) {
+				status("export failed: " + ((result && (result.detail || result.error)) || "no response"));
+				return;
+			}
+			status("exported " + namespace + " → " + (result.path || path));
+		});
+	}
+
+	/** Import a datapack folder or zip: rebuild one tab per effect and restore the sidecar layout. */
+	function importPack() {
+		var bridge = window.VFXBridge;
+		if (!bridge) {
+			status("import: the bridge is not available");
+			return;
+		}
+		var path = dom.importPath.value.trim();
+		if (!path) {
+			status("import: enter a pack folder or zip");
+			return;
+		}
+		status("importing…");
+		bridge.post("/import", { path: path }).then(function (result) {
+			if (!result || result.ok === false) {
+				status("import failed: " + ((result && (result.detail || result.error)) || "no response"));
+				return;
+			}
+			var namespace = result.namespace || "";
+			var before = project.tabs.length;
+			var created = openPack(namespace, result.effects || {});
+			applySidecar(result.sidecar, project.tabs.slice(before));
+			status("imported " + created + " effect" + (created === 1 ? "" : "s")
+					+ (namespace ? " from " + namespace : ""));
+		});
+	}
+
 	/**
 	 * Open a pack: one tab per effect. {@code effects} is the `/import` shape
 	 * (`{ "<name>": "<effect JSON string>" }`); the effect's `type` selects the
-	 * node type, and the tab is named `<namespace>:<name>`.
+	 * node type, the tab is named `<namespace>:<name>`, and the effect's params,
+	 * keys and value graph are restored onto the tab.
 	 *
 	 * @param {string} namespace the pack namespace
 	 * @param {Object|Array} effects name -> raw effect JSON (object or string)
@@ -500,18 +765,9 @@
 			});
 		}
 		entries.forEach(function (entry) {
-			var type = null;
-			var raw = entry[1];
-			if (raw && typeof raw === "object") {
-				type = raw.type || null;
-			} else if (typeof raw === "string") {
-				try {
-					type = JSON.parse(raw).type || null;
-				} catch (e) {
-					type = null;
-				}
-			}
-			newTab(namespace ? namespace + ":" + entry[0] : entry[0], type);
+			var def = parseEffect(entry[1]);
+			var tab = newTab(namespace ? namespace + ":" + entry[0] : entry[0], def && def.type ? def.type : null);
+			hydrateTab(tab, def);
 			created++;
 		});
 		return created;
@@ -521,6 +777,8 @@
 		project: project,
 		openPack: openPack,
 		newTab: newTab,
+		exportPack: exportPack,
+		importPack: importPack,
 		renderInspector: renderInspector,
 		renderTimeline: renderTimeline,
 		status: status,
@@ -580,16 +838,28 @@
 		bridge.on("transport-error", function (message) {
 			status("bridge: " + message);
 		});
+		bridge.on("error", function (data) {
+			status("bridge: " + ((data && (data.detail || data.error)) || "error"));
+		});
 		bridge.on("reconcile", function (info) {
 			status("re-syncing with the game (revision " + info.game + ")");
 		});
 		bridge.connect(token);
 	}
 
+	/** Whether a key event targets a text field, where the browser's own undo must win. */
+	function isEditable(target) {
+		if (!target || target.nodeType !== 1) {
+			return false;
+		}
+		var tag = target.tagName ? target.tagName.toLowerCase() : "";
+		return tag === "input" || tag === "textarea" || target.isContentEditable === true;
+	}
+
 	/** Ctrl/Cmd+Z undoes, Ctrl/Cmd+Shift+Z or Ctrl/Cmd+Y redoes; both recompile (Task 16). */
 	function wireHistoryKeys() {
 		document.addEventListener("keydown", function (event) {
-			if (!(event.ctrlKey || event.metaKey)) {
+			if (!(event.ctrlKey || event.metaKey) || isEditable(event.target)) {
 				return;
 			}
 			var key = String(event.key || "").toLowerCase();
@@ -639,6 +909,17 @@
 		dom.filter.addEventListener("input", function () {
 			filterPalette(dom.filter.value);
 		});
+		dom.tabName.addEventListener("change", function () {
+			var tab = activeTab();
+			var value = dom.tabName.value.trim();
+			if (tab && value) {
+				tab.name = value;
+				renderTabs();
+				status(tab.name);
+			}
+		});
+		dom.exportBtn.addEventListener("click", exportPack);
+		dom.importBtn.addEventListener("click", importPack);
 
 		status("Loading schema…");
 		window.fetch(url("/schema"))

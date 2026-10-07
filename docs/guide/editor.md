@@ -31,6 +31,7 @@ If your browser does not open, copy the printed URL into it by hand.
 
 | Panel | What it is |
 |---|---|
+| Top: **Pack bar** | The project namespace, the active tab's name, the **Export** destination/path and the **Import** path - see below. |
 | Left: **Effects** | One button per effect type the game declares (from the live schema). Filter with the search box; click a type to start a tab of it. |
 | Centre: **Canvas** | A [LiteGraph](https://github.com/jagenjo/litegraph.js) node graph. The effect node is the graph root. |
 | Right: **Inspector** | The selected param's control: constant slider, `start`/`end` animation, keyframes, a world/camera binding, or an `expr`. |
@@ -61,40 +62,47 @@ The editor clock is local and display-only (20 ticks/s); scrubbing the playhead 
 
 ## Exporting a datapack
 
-Exports go to one of three **targets**:
+Type the pack namespace in the **Project** field, pick a destination in the **Export** dropdown, fill
+in the path, and press **Export**. Every tab that has an effect becomes one `data/<namespace>/vfx/<name>.json`
+file, where `<name>` is the tab's name (its part after the `:`, if any). Exports go to one of three
+**targets**:
 
-| Target | Where it writes |
-|---|---|
-| **world** | `<world>/datapacks/<namespace>/` - loadable immediately with `/reload`, no restart |
-| **folder** | A pack root directory you choose (unzipped, ready to copy or zip yourself) |
-| **zip** | A `.zip` datapack archive named after the namespace |
+| Target | Path field is | Where it writes |
+|---|---|---|
+| **world** | the world save folder | `<path>/datapacks/<namespace>/` - loadable immediately with `/reload`, no restart |
+| **folder** | a pack root directory to create/populate | that directory (ready to copy or zip yourself) |
+| **zip** | the `.zip` archive to create | that archive, named after the namespace |
 
-The exported pack contains a per-Minecraft-line `pack.mcmeta` and one `data/<namespace>/vfx/<name>.json`
-per tab, plus a sidecar holding the graph layout (node positions, collapse state, timeline zoom). The
-effect JSON is self-contained; the sidecar is convenience only - a pack without it still loads and the
-editor lays the graph out automatically.
+The exported pack contains a per-Minecraft-line `pack.mcmeta` and the effect JSON per tab, plus a
+sidecar (`vfxweaver_editor.vfxproj.json`) holding the editor layout (root node position and timeline
+zoom). The effect JSON is self-contained; the sidecar is convenience only - a pack without it still
+loads and the editor lays the graph out automatically. The status line shows the path the server wrote.
 
 ## Importing a pack
 
-Importing reads a datapack folder or zip (the exported one, or any hand-written pack) and reopens one
-tab per effect. The effect `type` selects the node type and the tab name becomes
-`<namespace>:<name>`. If the pack carries the editor sidecar (or a `graph.meta` block) the node layout
-is restored; otherwise nodes are auto-laid-out. An effect whose type your build does not know is kept
-as a tab rather than dropped, so a pack from a newer mod still opens.
+Fill in the **Import** path with a datapack folder or zip (the exported one, or any hand-written pack)
+and press **Import**. It reopens one tab per effect: the effect `type` selects the node type, the tab
+name becomes `<namespace>:<name>`, and the effect's params, keyframes and value graph are restored. If
+the pack carries the editor sidecar the node layout is restored; otherwise nodes auto-lay-out. An
+effect whose type your build does not know is kept as a tab rather than dropped, so a pack from a newer
+mod still opens.
 
 ## Golden path: from empty editor to a playing datapack effect
 
 1. In game: `/vfxeditor`. Open the printed URL.
-2. **New project `vfx_demos`** - create an empty tab and name the pack namespace `vfx_demos`.
-3. **New tab `my_blur`** - add a `blur` node as the tab's effect.
+2. Type `vfx_demos` in the **Project** field.
+3. Click `blur` in the **Effects** palette to create the tab (this makes the `blur` node the effect
+   root), then set the **Tab** field to `my_blur`.
 4. In the inspector pick `radius` → **Keyframes**; scrub the playhead and add a couple of keys (for
    example `0 → 2` and `40 → 24`) so the blur animates. A lane appears in the timeline.
 5. Press **Play** (▶) - the screen blurs and the animation plays live.
-6. **Export → to world**, namespace `vfx_demos`.
+6. Choose **Export → to world**, put the world save folder in the path field and press **Export**. The
+   status line shows the written path.
 7. In game: `/reload`, then `/vfx play vfx_demos:my_blur`. The effect now plays from the exported
    datapack - not just the editor's local preview layer. (`/vfx list` shows `vfx_demos:my_blur`.)
-8. **Import** the exported pack to confirm the round trip: both the tab and its effect return, with the
-   node layout restored (or auto-laid-out when the sidecar is absent).
+8. Put `<world>/datapacks/vfx_demos` in the **Import** path and press **Import** to confirm the round
+   trip: both the tab and its effect return, with the node layout restored (or auto-laid-out when the
+   sidecar is absent).
 
 ## Browser baseline
 

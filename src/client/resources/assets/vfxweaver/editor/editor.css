@@ -22,7 +22,7 @@ body {
 
 body {
 	display: grid;
-	grid-template-rows: auto 1fr auto;
+	grid-template-rows: auto auto 1fr auto;
 	height: 100vh;
 	overflow: hidden;
 	background: var(--vfx-bg);
@@ -128,6 +128,66 @@ body {
 #vfx-status {
 	color: var(--vfx-text-dim);
 	white-space: nowrap;
+}
+
+/* Project / pack toolbar: namespace, tab name, export and import. */
+#vfx-packbar {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 5px 10px;
+	background: var(--vfx-panel-alt);
+	border-bottom: 1px solid var(--vfx-border);
+	flex-wrap: wrap;
+}
+
+.vfx-pack-field {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	color: var(--vfx-text-dim);
+	white-space: nowrap;
+}
+
+#vfx-packbar input,
+#vfx-packbar select {
+	background: var(--vfx-bg);
+	color: var(--vfx-text);
+	border: 1px solid var(--vfx-border);
+	border-radius: 4px;
+	padding: 3px 6px;
+	font: inherit;
+}
+
+#vfx-project,
+#vfx-tab-name {
+	width: 120px;
+}
+
+.vfx-pack-path {
+	flex: 1 1 180px;
+	min-width: 120px;
+}
+
+#vfx-packbar button {
+	background: var(--vfx-panel);
+	color: var(--vfx-text);
+	border: 1px solid var(--vfx-border);
+	border-radius: 4px;
+	padding: 3px 10px;
+	cursor: pointer;
+	font: inherit;
+}
+
+#vfx-packbar button:hover {
+	border-color: var(--vfx-accent);
+}
+
+.vfx-sep {
+	width: 1px;
+	align-self: stretch;
+	margin: 0 2px;
+	background: var(--vfx-border);
 }
 
 #vfx-main {

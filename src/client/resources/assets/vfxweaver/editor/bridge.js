@@ -25,7 +25,7 @@
  * Same rule for undo: the command stack applies the model snapshot (`ir.js`), then `app.js` calls
  * `VFXTimeline.structural`, i.e. a full `/compile` — an undo is never sent as an incremental edit.
  *
- * Exposed as `window.VFXBridge`; also attached to `window.VFXEditor.bridge` once the shell is up.
+ * Exposed as `window.VFXBridge`; the shell surfaces it as `VFXEditor.bridge`.
  */
 (function () {
 	"use strict";
@@ -242,6 +242,14 @@
 	 * Compare our last-seen revision with the game's and recompile on divergence. Runs on every SSE
 	 * (re)connect: a lost response, a game restart or another writer can leave the two apart, and the
 	 * model (the source of truth) must win.
+	 *
+	 * <p><b>The probe is read-only (ruling R11 / Task 8).</b> {@code /transport} with
+	 * {@code action:"play"} is deliberately a no-op ack on the server: it neither touches a live
+	 * effect nor bumps the revision, it only echoes the session's current {@code revision} (see
+	 * {@code EditorServer.handleTransport} - play/pause return a fresh {@code EditorResult} with the
+	 * unchanged revision). So it is safe to use purely to read the game's revision. We capture
+	 * {@code local} *before* the probe, because {@link post} stores the echoed revision as a side
+	 * effect; if the two differ the recompile path below reasserts the model.
 	 */
 	function reconcile() {
 		var local = revision();
@@ -300,7 +308,4 @@
 	};
 
 	root.VFXBridge = api;
-	if (root.VFXEditor) {
-		root.VFXEditor.bridge = api;
-	}
 })();

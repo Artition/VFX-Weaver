@@ -76,6 +76,29 @@
 	<button id="vfx-new-tab" type="button" title="New effect tab">+</button>
 	<span id="vfx-status" aria-live="polite"></span>
 </header>
+<div id="vfx-packbar" aria-label="Project and pack controls">
+	<label class="vfx-pack-field">Project
+		<input id="vfx-project" type="text" placeholder="namespace" aria-label="Project namespace">
+	</label>
+	<label class="vfx-pack-field">Tab
+		<input id="vfx-tab-name" type="text" placeholder="effect name" aria-label="Active tab name">
+	</label>
+	<span class="vfx-sep" aria-hidden="true"></span>
+	<label class="vfx-pack-field">Export
+		<select id="vfx-export-dest" aria-label="Export destination">
+			<option value="world">to world</option>
+			<option value="folder">to folder</option>
+			<option value="zip">to zip</option>
+		</select>
+	</label>
+	<input id="vfx-export-path" type="text" class="vfx-pack-path" placeholder="world folder / pack root / zip path"
+		aria-label="Export path">
+	<button id="vfx-export" type="button">Export</button>
+	<span class="vfx-sep" aria-hidden="true"></span>
+	<input id="vfx-import-path" type="text" class="vfx-pack-path" placeholder="pack folder or zip to import"
+		aria-label="Import path">
+	<button id="vfx-import" type="button">Import</button>
+</div>
 <main id="vfx-main">
 	<aside id="vfx-palette" aria-label="Schema palette">
 		<h2>Effects</h2>
