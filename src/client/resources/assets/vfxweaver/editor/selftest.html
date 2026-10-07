@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VFXweaver compiler selftest</title>
+<!--
+  Dev-only self-test for ir.js + compiler.js (Task 13). Not linked from the editor UI.
+
+  Serve it from the running game bridge at `/assets/selftest.html?token=...` (the token is
+  required for every request, scripts included, so the bootstrap below appends it). The
+  fixtures assert the exact JSON `compileTab` emits for: a constant param, a time->curve value
+  graph, an empty graph with defaults only, and an unknown effect type (which must still compile).
+  The authoritative validator remains the game's `VFXDefinition.parse`; this page is the fast check.
+-->
+<style>
+	body { background: #1c1c1c; color: #d6d6d6; font: 13px/1.5 monospace; margin: 24px; }
+	pre { white-space: pre-wrap; }
+	.pass { color: #6dd36d; }
+	.fail { color: #ff6b6b; }
+</style>
+</head>
+<body>
+<h1>VFXweaver compiler selftest</h1>
+<pre id="vfx-selftest-out">running…</pre>
+
+<script>
+/* SELFTEST:START */
+/*
+ * Fixtures + assertions. Runs in the browser (the bootstrap below loads ir.js/compiler.js first)
+ * and is extracted and re-run headlessly by the verification harness, so it must not touch the
+ * DOM. Returns an array of `{ name, ok, error? }` results.
+ */
+window.__vfxSelftest = function () {
+	"use strict";
+
+	var VFXIR = window.VFXIR;
+	var compileTab = window.VFXCompiler && window.VFXCompiler.compileTab;
+	if (!VFXIR || typeof compileTab !== "function") {
+		throw new Error("VFXIR/VFXCompiler not loaded");
+	}
+
+	var results = [];
+
+	function fail(message) {
+		throw new Error(message);
+	}
+
+	function ok(condition, message) {
+		if (!condition) {
+			fail(message || "assertion failed");
+		}
+	}
+
+	function eq(actual, expected, message) {
+		if (actual !== expected) {
+			fail((message || "value") + ": expected " + JSON.stringify(expected)
+					+ " got " + JSON.stringify(actual));
+		}
+	}
+
+	function parse(text) {
+		return JSON.parse(text);
+	}
+
+	function test(name, fn) {
+		try {
+			fn();
+			results.push({ name: name, ok: true });
+		} catch (e) {
+			results.push({ name: name, ok: false, error: String((e && e.message) || e) });
+		}
+	}
+
+	test("(a) blur with a constant radius", function () {
+		var tab = new VFXIR.Tab("blur", "blur");
+		tab.params.radius = VFXIR.ParamSpec.constant(4);
+		var json = compileTab(tab);
+		ok(json.indexOf('"type": "blur"') >= 0, "missing '\"type\": \"blur\"'");
+		ok(json.indexOf('"radius": 4') >= 0, "missing '\"radius\": 4'");
+		var def = parse(json);
+		eq(def.type, "blur", "type");
+		eq(def.params.radius, 4, "params.radius");
+		ok(!("graph" in def), "a constant tab must not emit a graph block");
+	});
+
+	test("(b) time -> curve drives radius", function () {
+		var tab = new VFXIR.Tab("blur", "blur");
+		tab.duration = 120;
+		tab.params.radius = VFXIR.ParamSpec.constant(2);
+		tab.valueNodes = [
+			{ id: "phase", kind: "time", inputs: { speed: 0.25 }, pos: [40, 60] },
+			{ id: "pulse", kind: "curve", pos: [200, 60], inputs: { points: [
+				{ time: 0, value: 0 },
+				{ time: 50, value: 8 },
+				{ time: 100, value: 0 }
+			] } }
+		];
+		tab.edges = [
+			{ from: "phase", to: "pulse", input: "time" },
+			{ from: "pulse", to: "radius" }
+		];
+		var def = parse(compileTab(tab));
+		eq(def.graph.version, 1, "graph.version");
+		eq(def.graph.nodes.length, 2, "graph.nodes length");
+		eq(def.graph.edges.length, 1, "graph.edges length");
+		eq(def.graph.edges[0].from, "phase", "graph edge from");
+		eq(def.graph.edges[0].to, "pulse", "graph edge to");
+		eq(def.graph.edges[0].input, "time", "graph edge input");
+		eq(def.graph.meta.phase.pos[0], 40, "graph.meta position");
+		eq(def.inputs.radius.from, "pulse", "inputs.radius.from");
+		ok(!("pulse" in def.inputs), "a node->node edge must not land in inputs");
+	});
+
+	test("(c) empty graph with only defaults", function () {
+		var tab = new VFXIR.Tab("blur", "blur");
+		tab.params.radius = VFXIR.ParamSpec.constant(0);
+		var def = parse(compileTab(tab));
+		eq(def.type, "blur", "type");
+		eq(def.duration, 40, "default duration");
+		eq(def.easing, "linear", "default easing");
+		eq(def.params.radius, 0, "default radius");
+		ok(!("graph" in def), "no value nodes -> no graph block");
+		ok(!("inputs" in def), "no value nodes -> no inputs block");
+	});
+
+	test("(d) unknown effect type still compiles", function () {
+		var tab = new VFXIR.Tab("custom", "my_custom_effect");
+		tab.params.strength = VFXIR.ParamSpec.expr("sin(t * 0.1)");
+		tab.valueNodes = [ { id: "t", kind: "time", inputs: { speed: 1 } } ];
+		tab.edges = [ { from: "t", to: "strength" } ];
+		var def = parse(compileTab(tab)); // must not throw on an unknown type
+		eq(def.type, "my_custom_effect", "type copied verbatim");
+		eq(def.params.strength.expr, "sin(t * 0.1)", "expr param");
+		eq(def.graph.nodes.length, 1, "graph survives an unknown type");
+		eq(def.inputs.strength.from, "t", "inputs.strength.from");
+	});
+
+	test("(e) keyframes control reads Tab.keys", function () {
+		var tab = new VFXIR.Tab("blur", "blur");
+		tab.params.radius = VFXIR.ParamSpec.keyframes();
+		tab.addKey("radius", 0, 0.5);
+		tab.addKey("radius", 30, 1.25, "ease_out_quad");
+		var def = parse(compileTab(tab));
+		eq(def.params.radius.keyframes.length, 2, "keyframe count");
+		eq(def.params.radius.keyframes[0].time, 0, "key[0].time");
+		eq(def.params.radius.keyframes[1].value, 1.25, "key[1].value");
+		eq(def.params.radius.keyframes[1].easing, "ease_out_quad", "key[1].easing");
+	});
+
+	test("(f) CommandStack do/undo/redo", function () {
+		var value = 0;
+		var stack = new VFXIR.CommandStack();
+		stack["do"]({
+			"do": function () { value = 1; },
+			undo: function () { value = 0; }
+		});
+		eq(value, 1, "after do");
+		stack.undo();
+		eq(value, 0, "after undo");
+		stack.redo();
+		eq(value, 1, "after redo");
+		ok(stack.canUndo(), "canUndo after redo");
+	});
+
+	return results;
+};
+/* SELFTEST:END */
+</script>
+
+<script>
+(function () {
+	"use strict";
+
+	var token = "";
+	try {
+		var m = /[?&]token=([^&]+)/.exec(window.location.search);
+		token = m ? decodeURIComponent(m[1]) : "";
+	} catch (e) {
+		token = "";
+	}
+	var query = token ? "?token=" + encodeURIComponent(token) : "";
+
+	function load(source, done) {
+		var script = document.createElement("script");
+		script.src = source + query;
+		script.onload = done;
+		script.onerror = done;
+		document.body.appendChild(script);
+	}
+
+	function render() {
+		var out = document.getElementById("vfx-selftest-out");
+		var results;
+		try {
+			results = window.__vfxSelftest();
+		} catch (e) {
+			out.textContent = "HARNESS ERROR: " + e;
+			return;
+		}
+		var passed = 0;
+		var lines = results.map(function (result) {
+			if (result.ok) {
+				passed++;
+				return "PASS  " + result.name;
+			}
+			return "FAIL  " + result.name + "  — " + result.error;
+		});
+		lines.push("");
+		lines.push(passed + "/" + results.length + " passed");
+		out.textContent = lines.join("\n");
+		out.className = passed === results.length ? "pass" : "fail";
+	}
+
+	load("ir.js", function () {
+		load("compiler.js", render);
+	});
+})();
+</script>
+</body>
+</html>
