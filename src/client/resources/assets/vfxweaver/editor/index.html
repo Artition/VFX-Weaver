@@ -9,10 +9,14 @@
   passed on the page URL (`/?token=...`). Static link/script tags cannot send it,
   so this small bootstrap reads the token and injects the asset tags with the
   token appended. Nothing else lives here.
+
+  Assets are served under `/assets/` (EditorServer serves only `/` and
+  `/assets/*`), so every asset path below is prefixed with `assets/`.
 -->
 <script>
 (function () {
 	"use strict";
+	var ASSET_ROOT = "assets/";
 	var token = "";
 	try {
 		var m = /[?&]token=([^&]+)/.exec(location.search);
@@ -40,11 +44,11 @@
 		document.body.appendChild(script);
 	}
 
-	loadCss("litegraph.css" + q);
-	loadCss("editor.css" + q);
+	loadCss(ASSET_ROOT + "litegraph.css" + q);
+	loadCss(ASSET_ROOT + "editor.css" + q);
 	document.addEventListener("DOMContentLoaded", function () {
-		loadJs("litegraph.js" + q, function () {
-			loadJs("app.js" + q);
+		loadJs(ASSET_ROOT + "litegraph.js" + q, function () {
+			loadJs(ASSET_ROOT + "app.js" + q);
 		});
 	});
 })();
@@ -54,7 +58,7 @@
 <div id="vfx-banner" role="alert" hidden></div>
 <header id="vfx-topbar">
 	<span id="vfx-title">VFXweaver Editor</span>
-	<nav id="vfx-tabs" aria-label="Effect tabs"></nav>
+	<nav id="vfx-tabs" role="tablist" aria-label="Effect tabs"></nav>
 	<button id="vfx-new-tab" type="button" title="New effect tab">+</button>
 	<span id="vfx-status" aria-live="polite"></span>
 </header>

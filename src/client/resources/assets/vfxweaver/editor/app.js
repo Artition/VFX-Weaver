@@ -25,6 +25,14 @@
 		return token ? path + (path.indexOf("?") >= 0 ? "&" : "?") + "token=" + encodeURIComponent(token) : path;
 	}
 
+	/**
+	 * Token-bearing URL for a static asset. {@code EditorServer} serves assets only
+	 * under {@code /assets/}; future assets (e.g. a selftest page) must use this.
+	 */
+	function assetUrl(path) {
+		return url("/assets/" + String(path).replace(/^\//, ""));
+	}
+
 	var dom = {
 		banner: document.getElementById("vfx-banner"),
 		status: document.getElementById("vfx-status"),
@@ -126,9 +134,15 @@
 	/* Tabs                                                                */
 	/* ------------------------------------------------------------------ */
 
-	function newTab(name, type) {
+	/** A started graph, so every tab (and the empty fallback) is set up the same way. */
+	function newGraph() {
 		var graph = new LiteGraph.LGraph();
 		graph.start();
+		return graph;
+	}
+
+	function newTab(name, type) {
+		var graph = newGraph();
 		var tab = { name: name || "untitled", type: null, graph: graph, root: null };
 		project.tabs.push(tab);
 		project.active = project.tabs.length - 1;
@@ -172,17 +186,31 @@
 		if (index < 0 || index >= project.tabs.length) {
 			return;
 		}
+		var wasActive = index === project.active;
 		project.tabs.splice(index, 1);
 		if (project.tabs.length === 0) {
 			project.active = -1;
 			if (scene) {
-				scene.setGraph(new LiteGraph.LGraph());
+				scene.setGraph(newGraph());
 			}
 			renderTabs();
 			status("Choose an effect type to start");
 			return;
 		}
-		selectTab(Math.min(index, project.tabs.length - 1));
+		if (wasActive) {
+			// Select the neighbour now at this index (the next tab, or the new last).
+			selectTab(Math.min(index, project.tabs.length - 1));
+			return;
+		}
+		// Closing another tab must not move the selection.
+		if (index < project.active) {
+			project.active--;
+		}
+		if (project.active >= 0) {
+			selectTab(project.active);
+		} else {
+			renderTabs();
+		}
 	}
 
 	function renderTabs() {
@@ -306,7 +334,8 @@
 		newTab: newTab,
 		schema: schema,
 		token: token,
-		url: url
+		url: url,
+		assetUrl: assetUrl
 	};
 	Object.defineProperty(VFXEditor, "graph", {
 		enumerable: true,
