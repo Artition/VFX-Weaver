@@ -235,6 +235,29 @@ window.__vfxSelftest = function () {
 		eq(VFXIR.parseNumber(""), null, "empty rejected");
 	});
 
+	test("(k) clampTime pins the key time into [0, duration]", function () {
+		// A key at the playhead must never land outside the lane.
+		eq(VFXIR.clampTime(-5, 40), 0, "negative clamps to 0");
+		eq(VFXIR.clampTime(50, 40), 40, "past the end clamps to duration");
+		eq(VFXIR.clampTime(40, 40), 40, "exactly the duration is kept");
+		eq(VFXIR.clampTime(12.6, 40), 12.6, "an in-range time is untouched");
+		eq(VFXIR.clampTime(NaN, 40), 0, "non-finite becomes 0");
+		eq(VFXIR.clampTime(7, 0), 0, "a zero duration collapses the range");
+	});
+
+	test("(l) graphToCanvas mirrors convertOffsetToCanvas for the inline-edit placement", function () {
+		// (pos + offset) * scale, exactly DragAndScale.convertOffsetToCanvas.
+		var at = VFXIR.graphToCanvas([5, 7], [10, 20], 2);
+		eq(at[0], 30, "x = (5 + 10) * 2");
+		eq(at[1], 54, "y = (7 + 20) * 2");
+		var origin = VFXIR.graphToCanvas([0, 0], [0, 0], 1);
+		eq(origin[0], 0, "origin x");
+		eq(origin[1], 0, "origin y");
+		var panned = VFXIR.graphToCanvas([-4, 3], [-6, 2], 0.5);
+		eq(panned[0], -5, "negative pan x = (-4 + -6) * 0.5");
+		eq(panned[1], 2.5, "panned y = (3 + 2) * 0.5");
+	});
+
 	return results;
 };
 /* SELFTEST:END */

@@ -62,15 +62,18 @@ Every change goes to the running game through the local bridge:
   revision has diverged, re-sends the full effect so model and game agree again.
 
 The editor clock is local and display-only (20 ticks/s); scrubbing the playhead sends a real seek.
-Keyframes are clamped to `[0, duration]` when dragged (a key outside that range is invisible to the
-engine), and a key whose value leaves the param's schema `min`/`max` turns red with a tooltip. The
-timeline's **duration bar** end handle drags the effect's duration right on the timeline.
+The playhead is clamped to `[0, duration]`, and keyframes are clamped to `[0, duration]` when dragged
+or added (a key outside that range is invisible to the engine); a key whose value leaves the param's
+schema `min`/`max` turns red with a tooltip. **Click a lane** (not an existing key) to add a key at the
+clicked tick, pinned to the lane's current value and selected — `K` adds one at the playhead instead.
+The timeline's **duration bar** end handle drags the effect's duration right on the timeline.
 
 Value-node numeric slots and inspector parameters follow the same **driven** rule: a slot with a wire
 connected shows a read-only value plus its source badge (with a **go to node** affordance) and cannot
-be edited there — edit the source node instead. Unwired slots are edited inline, select-on-focus; the
-`bind` node carries a binding dropdown and labels its output by the binding's unit (`UV 0..1`,
-`blocks`, `world`, `deg/tick`, …).
+be edited there — edit the source node instead. Unwired numeric slots are edited **in place**: clicking
+the field opens a text input sized and styled as the field itself (select-on-focus, Enter/blur commits,
+Escape cancels), and a horizontal drag scrubs the value. The `bind` node carries a binding dropdown and
+labels its output by the binding's unit (`UV 0..1`, `blocks`, `world`, `deg/tick`, …).
 
 ## Keyboard shortcuts
 

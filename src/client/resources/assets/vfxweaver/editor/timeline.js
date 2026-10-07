@@ -89,6 +89,26 @@
 		return typeof value === "number" && isFinite(value);
 	}
 
+	/**
+	 * Clamp a tick time into `[0, duration(tab)]`. Delegates to the IR helper when it is loaded
+	 * (so the same rule is pinned by the selftest), with an inline fallback for a broken asset chain.
+	 *
+	 * @param {Object} tab the tab (its `duration` bounds the range)
+	 * @param {number} ticks the candidate time in ticks
+	 * @returns {number} the clamped time
+	 */
+	function clampToDuration(tab, ticks) {
+		var total = duration(tab);
+		if (root.VFXIR && typeof root.VFXIR.clampTime === "function") {
+			return root.VFXIR.clampTime(ticks, total);
+		}
+		var t = Number(ticks);
+		if (!isFinite(t)) {
+			t = 0;
+		}
+		return Math.max(0, Math.min(total, t));
+	}
+
 	/** The current bridge revision, mirrored from the last response (0 before the first compile). */
 	function currentRevision() {
 		var project = root.VFXEditor && root.VFXEditor.project;
@@ -298,7 +318,7 @@
 
 	/** Seek: move the local playhead immediately and send a debounced `/transport seek`. */
 	function seek(tab, ticks) {
-		var target = Math.max(0, Number(ticks) || 0);
+		var target = clampToDuration(tab, Number(ticks) || 0);
 		if (!tab) {
 			return;
 		}
@@ -389,12 +409,16 @@
 				? root.performance.now() : Date.now();
 	}
 
-	/** The playhead's elapsed ticks: the live clock while playing, else the parked position. */
+	/**
+	 * The playhead's elapsed ticks: the live clock while playing, else the parked position. Always
+	 * clamped to `[0, duration]` so a frame that runs past the end (or a seek) can never report a
+	 * time outside the lane, which is what makes a `K` key land on the visible playhead.
+	 */
 	function elapsedNow() {
-		if (!clock.playing) {
-			return clock.baseElapsed;
-		}
-		return clock.baseElapsed + (now() - clock.startMs) / MS_PER_TICK;
+		var raw = clock.playing
+				? clock.baseElapsed + (now() - clock.startMs) / MS_PER_TICK
+				: clock.baseElapsed;
+		return clampToDuration(clock.tab, raw);
 	}
 
 	function startClock(tab, fromTicks) {
@@ -450,16 +474,17 @@
 	}
 
 	function setPlayhead(ticks) {
-		clock.baseElapsed = clock.playing ? clock.baseElapsed : Math.max(0, Number(ticks) || 0);
+		var t = clampToDuration(clock.tab, ticks);
+		clock.baseElapsed = clock.playing ? clock.baseElapsed : t;
 		if (!ui) {
 			return;
 		}
-		var x = Math.max(0, Number(ticks) || 0) * ui.pxPerTick;
+		var x = t * ui.pxPerTick;
 		if (ui.head) {
 			ui.head.style.left = x + "px";
 		}
 		if (ui.readout) {
-			ui.readout.textContent = Math.round(Number(ticks) || 0) + " / " + Math.round(duration(ui.tab)) + " t";
+			ui.readout.textContent = Math.round(t) + " / " + Math.round(duration(ui.tab)) + " t";
 		}
 	}
 
@@ -692,6 +717,62 @@
 		};
 	}
 
+	/** The current value to pin for a new key: the lane's last key, else the schema default. */
+	function laneValue(tab, name) {
+		var keys = (tab.keys && tab.keys[name]) || [];
+		var last = keys.length ? keys[keys.length - 1] : null;
+		if (last && isFiniteNumber(Number(last.value))) {
+			return Number(last.value);
+		}
+		var descriptor = paramDescriptor(tab, name);
+		return descriptor && isFiniteNumber(descriptor.defaultValue) ? descriptor.defaultValue : 0;
+	}
+
+	/** Append a key, mark the param keyframed, select it, re-render the panel and recompile. */
+	function addKeyToLane(tab, name, time, value, panel) {
+		var key = tab.addKey(name, time, value);
+		var spec = tab.params[name];
+		if (spec && typeof spec === "object") {
+			spec.control = "keyframes";
+		} else {
+			tab.params[name] = { control: "keyframes" };
+		}
+		selectKey(name, key, null);
+		commit(tab);
+		if (panel && panel.parentNode) {
+			renderInto(panel.parentNode, tab);
+		} else if (root.VFXEditor && typeof root.VFXEditor.renderTimeline === "function") {
+			root.VFXEditor.renderTimeline();
+		}
+		structural(tab);
+		return key;
+	}
+
+	/**
+	 * Click a lane (not an existing key) to add a key at the clicked tick, pinned to the lane's
+	 * current value and selected. A drag is left to the background scrub, so only a click (<3 px of
+	 * movement between down and up) adds a key.
+	 */
+	function beginLaneAdd(tab, name, panel) {
+		return function (event) {
+			if (event.target && event.target.classList
+					&& event.target.classList.contains("vfx-tl-key")) {
+				return;
+			}
+			var startX = event.clientX;
+			var startY = event.clientY;
+			function up(ev) {
+				document.removeEventListener("mouseup", up);
+				if (Math.abs(ev.clientX - startX) > 3 || Math.abs(ev.clientY - startY) > 3) {
+					return;
+				}
+				var time = Math.round(clampToDuration(tab, tickAt(ev.clientX)));
+				addKeyToLane(tab, name, time, laneValue(tab, name), panel);
+			}
+			document.addEventListener("mouseup", up);
+		};
+	}
+
 	/* ------------------------------------------------------------------ */
 	/* Render                                                              */
 	/* ------------------------------------------------------------------ */
@@ -840,6 +921,8 @@
 			stopClock();
 			clock.baseElapsed = 0;
 		}
+		// Keep the clock's tab current so the playhead clamps to *this* tab's duration.
+		clock.tab = tab;
 		var panel = el("div", { class: "vfx-tl" });
 		if (!tab) {
 			panel.appendChild(el("p", { class: "vfx-tl-empty", text: "No active tab" }));
@@ -878,6 +961,7 @@
 		names.forEach(function (name) {
 			var lane = el("div", { class: "vfx-tl-lane" });
 			lane.style.height = LANE_HEIGHT + "px";
+			lane.addEventListener("mousedown", beginLaneAdd(tab, name, panel));
 			lane.appendChild(el("span", { class: "vfx-tl-label", text: name }));
 			(tab.keys[name] || []).forEach(function (key) {
 				var dot = el("button", {
@@ -886,6 +970,9 @@
 					title: name + " t=" + Math.round(Number(key.time) || 0) + " v=" + key.value
 							+ (key.easing ? " (" + key.easing + ")" : "")
 				});
+				if (selected && selected.key === key) {
+					dot.classList.add("active");
+				}
 				dot.addEventListener("mousedown", beginDrag(tab, name, key, dot));
 				lane.appendChild(dot);
 				positionKeyLater(dot, name, key, pxPerTick, ranges);
@@ -969,6 +1056,7 @@
 		},
 		playhead: elapsedNow,
 		duration: duration,
+		clampTime: clampToDuration,
 		bodies: {
 			compile: compileBody,
 			transport: transportBody,

@@ -266,13 +266,53 @@
 		return isFinite(n) ? n : null;
 	}
 
+	/**
+	 * Clamp a tick time into `[0, total]`. A non-finite `ticks` becomes 0 and a non-finite or
+	 * negative `total` collapses the range to 0, so an absent duration can never yield a negative
+	 * time and a key can never land beyond the lane.
+	 *
+	 * @param {number} ticks the candidate time in ticks
+	 * @param {number} total the effect duration in ticks
+	 * @returns {number} the clamped time
+	 */
+	function clampTime(ticks, total) {
+		var t = Number(ticks);
+		if (!isFinite(t)) {
+			t = 0;
+		}
+		var max = Number(total);
+		if (!isFinite(max) || max < 0) {
+			max = 0;
+		}
+		return Math.max(0, Math.min(max, t));
+	}
+
+	/**
+	 * Graph-space point -> canvas-pixel point, mirroring LiteGraph's
+	 * `DragAndScale.convertOffsetToCanvas` (`(pos + offset) * scale`). Extracted so the inline-edit
+	 * placement is pinned by the headless selftest without a live canvas.
+	 *
+	 * @param {Array<number>} pos graph-space `[x, y]`
+	 * @param {Array<number>} offset canvas pan offset `[x, y]`
+	 * @param {number} scale canvas zoom
+	 * @returns {Array<number>} canvas-pixel `[x, y]` relative to the canvas top-left
+	 */
+	function graphToCanvas(pos, offset, scale) {
+		var p = pos || [0, 0];
+		var o = offset || [0, 0];
+		var s = isFiniteNumber(Number(scale)) && Number(scale) > 0 ? Number(scale) : 1;
+		return [(Number(p[0]) + Number(o[0])) * s, (Number(p[1]) + Number(o[1])) * s];
+	}
+
 	var api = {
 		Project: Project,
 		Tab: Tab,
 		ParamSpec: ParamSpec,
 		SnapshotHistory: SnapshotHistory,
 		isFiniteNumber: isFiniteNumber,
-		parseNumber: parseNumber
+		parseNumber: parseNumber,
+		clampTime: clampTime,
+		graphToCanvas: graphToCanvas
 	};
 
 	root.VFXIR = api;

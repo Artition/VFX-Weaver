@@ -697,17 +697,25 @@ body {
 	border-color: var(--vfx-accent);
 }
 
-/* Inline number editor over a LiteGraph widget (design §15.1, fix 5). */
+/*
+ * Inline number editor, laid over the LiteGraph widget it replaces (design §15.1, fix 5). It is an
+ * absolutely-positioned input *inside* #vfx-canvas-wrap (position:relative), positioned by
+ * convertOffsetToCanvas, and styled as the widget itself (LiteGraph's WIDGET_BGCOLOR #222 /
+ * WIDGET_TEXT_COLOR #DDD, no border/shadow) so typing reads as editing the field, not a popup.
+ */
 .vfx-inline-edit {
-	position: fixed;
+	position: absolute;
 	z-index: 20;
-	background: var(--vfx-bg);
-	color: var(--vfx-text);
-	border: 1px solid var(--vfx-accent);
-	border-radius: 3px;
-	padding: 2px 5px;
-	font: inherit;
-	box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+	box-sizing: border-box;
+	margin: 0;
+	padding: 0 6px;
+	background: #222;
+	color: #ddd;
+	border: none;
+	border-radius: 999px;
+	font-family: Arial, sans-serif;
+	text-align: right;
+	outline: none;
 }
 
 /* Shortcut help overlay (?). */

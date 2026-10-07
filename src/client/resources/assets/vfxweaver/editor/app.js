@@ -2234,8 +2234,12 @@
 				param = candidate;
 			}
 		});
+		// The playhead clock can run past the end between frames; clamp so the key lands on the
+		// visible playhead and never outside the lane.
 		var time = typeof window.VFXTimeline.playhead === "function"
 				? Math.round(window.VFXTimeline.playhead()) : 0;
+		time = typeof window.VFXTimeline.clampTime === "function"
+				? window.VFXTimeline.clampTime(tab, time) : Math.max(0, time);
 		var existing = tab.keys[inspectorName];
 		var value = existing && existing.length ? existing[existing.length - 1].value
 				: (param && isFiniteNumber(param.defaultValue) ? param.defaultValue : 0);
@@ -2396,24 +2400,45 @@
 		};
 	}
 
-	/** The DOM input shown over a number widget; commits on Enter/blur, cancels on Escape. */
+	/**
+	 * The DOM input shown *inside* the canvas wrapper, sized and styled to sit exactly over the
+	 * number widget it edits (so typing reads as editing the field, not a popup). Positioned with
+	 * LiteGraph's own `convertOffsetToCanvas`, which yields canvas-pixel coordinates relative to the
+	 * canvas top-left — the same origin as the `position:relative` wrapper the canvas fills. Commits
+	 * on Enter/blur, cancels on Escape.
+	 */
 	function inlineEditNumber(canvas, node, widget, value, callback, event) {
-		var scale = canvas.ds && canvas.ds.scale ? canvas.ds.scale : 1;
-		var rect = canvas.canvas.getBoundingClientRect();
+		var scale = canvas.ds && isFiniteNumber(Number(canvas.ds.scale)) && canvas.ds.scale > 0
+				? Number(canvas.ds.scale) : 1;
+		var offset = canvas.ds && canvas.ds.offset ? canvas.ds.offset : [0, 0];
+		var host = (canvas.canvas && canvas.canvas.parentNode) || document.body;
+		var widgetWidth = widget.width || node.size[0];
+		var lastY = widget.last_y != null ? Number(widget.last_y) : 0;
+		var graphPos = [node.pos[0], node.pos[1] + lastY];
+		var topLeft;
+		if (typeof canvas.convertOffsetToCanvas === "function") {
+			topLeft = canvas.convertOffsetToCanvas(graphPos);
+		} else if (window.VFXIR && typeof window.VFXIR.graphToCanvas === "function") {
+			topLeft = window.VFXIR.graphToCanvas(graphPos, offset, scale);
+		} else {
+			topLeft = [(graphPos[0] + offset[0]) * scale, (graphPos[1] + offset[1]) * scale];
+		}
+		// LiteGraph draws the widget box from x = 15 to width - 15, at height NODE_WIDGET_HEIGHT.
+		var margin = 15;
+		var rowHeight = (window.LiteGraph && LiteGraph.NODE_WIDGET_HEIGHT
+				? LiteGraph.NODE_WIDGET_HEIGHT : 20) * scale;
+
 		var input = document.createElement("input");
 		input.type = "text";
 		input.className = "vfx-inline-edit";
 		input.value = value;
 		input.title = widget.name;
-		input.style.width = Math.max(36, (widget.width || node.size[0]) * scale) + "px";
-		if (widget.last_y != null && canvas.ds) {
-			input.style.left = (rect.left + (node.pos[0] + canvas.ds.offset[0]) * scale) + "px";
-			input.style.top = (rect.top + (node.pos[1] + widget.last_y + canvas.ds.offset[1]) * scale) + "px";
-		} else {
-			input.style.left = event.clientX + "px";
-			input.style.top = event.clientY + "px";
-		}
-		document.body.appendChild(input);
+		input.style.left = (topLeft[0] + margin * scale) + "px";
+		input.style.top = topLeft[1] + "px";
+		input.style.width = Math.max(30, (widgetWidth - margin * 2) * scale) + "px";
+		input.style.height = rowHeight + "px";
+		input.style.fontSize = Math.max(8, 14 * scale) + "px";
+		host.appendChild(input);
 		input.focus();
 		input.select();
 
