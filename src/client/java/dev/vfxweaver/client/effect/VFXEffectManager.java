@@ -312,6 +312,22 @@ public class VFXEffectManager {
 		return clampedTicks > 0 ? clampedTicks : definitionDuration;
 	}
 
+	/**
+	 * A deterministic seed derived from a stable, caller-assigned instance id (splitmix64). A
+	 * re-issued child keeps its {@code random()}/{@code expr random()} phase instead of re-rolling
+	 * on every play; only caller-assigned ids use it (an internally-allocated id keeps the random
+	 * seed, so ordinary play is unchanged).
+	 *
+	 * @param instanceId the stable, non-zero instance id
+	 * @return the derived seed
+	 */
+	static long stableSeed(final long instanceId) {
+		long z = instanceId + 0x9E3779B97F4A7C15L;
+		z = (z ^ (z >>> 30)) * 0xBF58476D1CE4E5B9L;
+		z = (z ^ (z >>> 27)) * 0x94D049BB133111EBL;
+		return z ^ (z >>> 31);
+	}
+
 	private long play(final Identifier effectId, final int durationTicks, final long instanceId, final @Nullable Vec3 position, final List<UUID> entityUuids, final Map<String, Float> params, final EasingFunction easing, final int depth, final int elapsedTicks, final @Nullable VFXDefinition predefined, final List<Identifier> collections) {
 		return this.play(effectId, durationTicks, instanceId, position, entityUuids, params, easing, depth, elapsedTicks, predefined, collections, Float.NaN, true);
 	}
@@ -381,7 +397,11 @@ public class VFXEffectManager {
 		// start->end over the definition duration, then holds the final value forever.
 		int duration = resolveTimelineDuration(loop, clampedTicks, definitionDuration);
 		EasingFunction effectiveEasing = easing != null ? easing : (definition != null ? definition.getDefaultEasing() : EasingFunction.builtIn(EasingType.LINEAR));
-		long instanceSeed = ThreadLocalRandom.current().nextLong();
+		// Seed: a caller-assigned (stable) instance id yields a deterministic seed, so a re-issued
+		// child (an editor live edit or a mute/unmute respawn) does not re-roll random()/expr
+		// random() parameters. An internally-allocated id keeps the random seed, so ordinary
+		// /vfx play is unchanged.
+		long instanceSeed = instanceId != 0L ? stableSeed(id) : ThreadLocalRandom.current().nextLong();
 		VFXTimeline timeline = definition != null
 			? definition.createTimeline(duration, params, effectiveEasing, instanceSeed)
 			: createConstantTimeline(duration, params);

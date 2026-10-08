@@ -3,6 +3,7 @@ package dev.vfxweaver.client.editor;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import dev.vfxweaver.client.effect.VFXEffectManager;
 import dev.vfxweaver.effect.VFXActiveEffect;
 import dev.vfxweaver.resource.VFXDefinitionManager;
@@ -15,6 +16,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import net.minecraft.client.Minecraft;
 import net.minecraft.resources.Identifier;
 import net.minecraft.world.phys.Vec3;
@@ -69,6 +71,10 @@ public final class EditorPreviewController {
 	private long revision;
 	private @Nullable Vec3 contextPos;
 	private List<UUID> contextTargets = List.of();
+	/** The ids rejected by the last sync, mirrored into {@code preview/state} so the web reconciles. */
+	private List<String> lastRejected = List.of();
+	/** Set when the last SSE client disconnects; consumed on the next client tick (game thread). */
+	private final AtomicBoolean shutdownRequested = new AtomicBoolean();
 
 	private EditorPreviewController() {
 	}
@@ -240,6 +246,9 @@ public final class EditorPreviewController {
 	 * while paused, stopped, or when the game is paused.
 	 */
 	public void onClientTick() {
+		if (this.shutdownRequested.getAndSet(false)) {
+			shutdown();
+		}
 		if (!this.playing || Minecraft.getInstance().isPaused()) {
 			return;
 		}
@@ -265,6 +274,16 @@ public final class EditorPreviewController {
 		}
 		reconcile();
 		emitState();
+	}
+
+	/**
+	 * Flags a shutdown for the next client tick. Called when the last SSE client disconnects (the
+	 * editor tab closed), so the preview stops and its private definitions leave the local layer.
+	 * Never runs from a network/reaper thread directly - {@link #onClientTick()} applies it on the
+	 * game thread, keeping this class single-writer.
+	 */
+	public void onSseEmpty() {
+		this.shutdownRequested.set(true);
 	}
 
 	/**
@@ -297,6 +316,8 @@ public final class EditorPreviewController {
 		this.loop = false;
 		this.contextPos = null;
 		this.contextTargets = List.of();
+		this.lastRejected = List.of();
+		this.shutdownRequested.set(false);
 	}
 
 	// --- game-thread mutation --------------------------------------------------------------------
@@ -327,10 +348,22 @@ public final class EditorPreviewController {
 			}
 			this.applied.remove(id);
 		}
+		// Reject collection-typed children (design §16.8): a collection child would make the engine
+		// schedule its own children through playReplay, bypassing this controller. Nested
+		// collections are out of scope, so the child is rejected with a preview/error.
+		final Set<String> collectionChildren = new LinkedHashSet<>();
+		final List<EditorPreviewPlan.Child> acceptedChildren = new ArrayList<>();
+		for (final EditorPreviewPlan.Child child : newChildren) {
+			if (isCollectionJson(definitions.get(child.def()))) {
+				collectionChildren.add(child.def());
+			} else {
+				acceptedChildren.add(child);
+			}
+		}
 		final Map<Identifier, String> toRegister = new LinkedHashMap<>();
 		for (final Map.Entry<String, String> entry : diff.changed().entrySet()) {
 			final @Nullable Identifier rid = Identifier.tryParse(entry.getKey());
-			if (rid == null) {
+			if (rid == null || collectionChildren.contains(entry.getKey())) {
 				rejectedIds.add(entry.getKey());
 				continue;
 			}
@@ -352,14 +385,17 @@ public final class EditorPreviewController {
 			}
 		}
 		final List<EditorPreviewPlan.Child> oldChildren = new ArrayList<>(this.children);
-		this.children = new ArrayList<>(newChildren);
+		this.children = acceptedChildren;
 		if (tabDur >= 0.0F) {
 			this.tabDuration = tabDur;
 		}
 		if (loopValue != null) {
 			this.loop = loopValue;
 		}
-		final boolean rootChanged = newRoot != null && !newRoot.equals(this.root);
+		// Authored mode restarts when the root id changes OR when the root definition itself was
+		// rewritten (a mute/solo/reorder re-compile keeps the id but changes the child set).
+		final boolean rootChanged = newRoot != null
+			&& (!newRoot.equals(this.root) || appliedIds.contains(newRoot));
 		if (newRoot != null) {
 			this.root = newRoot;
 		}
@@ -376,6 +412,12 @@ public final class EditorPreviewController {
 			reissueChanged(oldChildren, appliedIds);
 			reconcile();
 		}
+		for (final String id : collectionChildren) {
+			if (!rejectedIds.contains(id)) {
+				rejectedIds.add(id);
+			}
+		}
+		this.lastRejected = List.copyOf(rejectedIds);
 		if (!rejectedIds.isEmpty()) {
 			broadcastError(rejectedIds.get(0), "rejected " + rejectedIds.size() + " definition(s): " + String.join(", ", rejectedIds));
 		}
@@ -555,6 +597,23 @@ public final class EditorPreviewController {
 	private void stopAllPreviewInstances() {
 		final Set<Long> ids = new LinkedHashSet<>(this.instances.values());
 		VFXEffectManager.get().removeInstances(ids);
+		removeActivePreviewInstances();
+	}
+
+	/**
+	 * Removes every active instance whose effect id is one of the definitions this session
+	 * registered. Covers authored collection children, which the engine spawns itself and which
+	 * {@code stop(rootId)} leaves running (only the exact children are tracked in {@code instances}).
+	 * Bounded by the active-effect cap and the session's applied definitions.
+	 */
+	private void removeActivePreviewInstances() {
+		final Set<Long> ids = new LinkedHashSet<>();
+		for (final VFXActiveEffect effect : VFXEffectManager.get().getActive()) {
+			if (this.applied.containsKey(effect.getId().toString())) {
+				ids.add(effect.getInstanceId());
+			}
+		}
+		VFXEffectManager.get().removeInstances(ids);
 	}
 
 	private void removeChild(final String key) {
@@ -598,6 +657,9 @@ public final class EditorPreviewController {
 		out.addProperty("playing", this.playing);
 		out.addProperty("tick", this.tick);
 		out.addProperty("ended", this.ended);
+		// The last sync's rejects ride every state frame, so the web can reconcile resolved entries
+		// (a defId-less preview/error is cleared by a later successful sync, design §16.9 P2).
+		out.add("rejected", toArray(this.lastRejected));
 		EditorSse.broadcast("preview/state", out.toString());
 	}
 
@@ -717,6 +779,27 @@ public final class EditorPreviewController {
 				floatOr(child, "delay", 0.0F), floatOr(child, "duration", 0.0F), boolOr(child, "isPost", false)));
 		}
 		return out;
+	}
+
+	/**
+	 * True when a raw definition's {@code type} is {@code collection}: a collection child must not be
+	 * played through {@code playReplay} (design §16.8). Never throws - a malformed definition is
+	 * rejected later by {@code registerLocal}.
+	 */
+	private static boolean isCollectionJson(final @Nullable String raw) {
+		if (raw == null) {
+			return false;
+		}
+		try {
+			final JsonElement parsed = JsonParser.parseString(raw);
+			if (parsed.isJsonObject()) {
+				final @Nullable JsonElement type = parsed.getAsJsonObject().get("type");
+				return type != null && type.isJsonPrimitive() && "collection".equals(type.getAsString());
+			}
+		} catch (final RuntimeException ignored) {
+			// a malformed definition is rejected by registerLocal, not here
+		}
+		return false;
 	}
 
 	private static List<String> readStringList(final @Nullable JsonArray array) {

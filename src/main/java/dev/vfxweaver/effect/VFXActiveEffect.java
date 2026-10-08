@@ -18,7 +18,12 @@ public class VFXActiveEffect {
 	private final Identifier id;
 	private final VFXEffectType type;
 	private final long instanceId;
-	/** Per-instance random seed so that generated noise (camera shake, {@code expr} params) differs between calls. */
+	/**
+	 * Per-instance seed so that generated noise (camera shake, {@code expr} params) differs between
+	 * calls. A caller-assigned (stable) instance id yields a deterministic seed
+	 * ({@code VFXEffectManager#stableSeed}) so a re-issued child keeps its random phase; an
+	 * internally-allocated id keeps a random seed, so ordinary play is unchanged.
+	 */
 	private final long instanceSeed;
 	private final float startTime;
 	private final VFXTimeline timeline;

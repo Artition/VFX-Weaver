@@ -3,6 +3,7 @@ package dev.vfxweaver.client;
 import dev.vfxweaver.api.VFXAPI;
 import dev.vfxweaver.client.editor.EditorServer;
 import dev.vfxweaver.client.editor.EditorSession;
+import dev.vfxweaver.client.editor.EditorSse;
 import dev.vfxweaver.client.editor.EditorPreviewController;
 import dev.vfxweaver.client.editor.MinecraftEditorGame;
 import dev.vfxweaver.client.effect.VFXEffectManager;
@@ -80,6 +81,10 @@ public class VFXClient {
 		VFXEntityEffectRenderer.register();
 		VFXAPI.setLocalDispatcher(new VFXClientAPI());
 		VFXClientCommands.register();
+		// When the last browser tab disconnects (the SSE hub empties), stop the preview and drop its
+		// private definitions on the next client tick, so nothing is left playing or pollutes the
+		// local layer (design §16.9 P2; the listener only sets a flag, the tick applies it).
+		EditorSse.setOnEmpty(() -> EditorPreviewController.get().onSseEmpty());
 		VFXShapeRegistry.get().setChangeListener(VFXMaskShaderVariants::invalidate);
 		VFXWorldBindings.setScoreboardReader(VFXClient::readScoreboard);
 		VFXWorldBindings.setEntityReader(new VFXClientEntityReader());

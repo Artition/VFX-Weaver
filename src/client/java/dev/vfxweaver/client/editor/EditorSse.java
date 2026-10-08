@@ -6,6 +6,8 @@ import java.nio.charset.StandardCharsets;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Server-sent-events client hub for the editor bridge.
@@ -26,8 +28,22 @@ public final class EditorSse {
 	private static final CopyOnWriteArrayList<Client> CLIENTS = new CopyOnWriteArrayList<>();
 	private static final AtomicInteger NEXT_HANDLE = new AtomicInteger();
 	private static final AtomicBoolean REAPER_STARTED = new AtomicBoolean();
+	/** Fired (once per transition to empty) when the last SSE client disconnects. */
+	private static final AtomicReference<Runnable> ON_EMPTY = new AtomicReference<>();
 
 	private EditorSse() {
+	}
+
+	/**
+	 * Register a listener that is invoked when the hub's client list becomes empty (the last editor
+	 * tab disconnected). Used to stop the preview session and drop its private definitions. The
+	 * listener runs on whichever thread closed the connection, so it must not touch game state
+	 * directly (schedule the work instead).
+	 *
+	 * @param listener the callback, or {@code null} to clear
+	 */
+	public static void setOnEmpty(final @Nullable Runnable listener) {
+		ON_EMPTY.set(listener);
 	}
 
 	/**
@@ -126,6 +142,16 @@ public final class EditorSse {
 			client.notifyAll();
 		}
 		CLIENTS.remove(client);
+		if (CLIENTS.isEmpty()) {
+			final Runnable listener = ON_EMPTY.get();
+			if (listener != null) {
+				try {
+					listener.run();
+				} catch (final RuntimeException ignored) {
+					// a failing listener must never break the hub's close path
+				}
+			}
+		}
 	}
 
 	private static void startReaper() {

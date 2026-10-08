@@ -953,6 +953,56 @@ window.__vfxSelftest = function () {
 				"the root has no node");
 	});
 
+	test("(P9) authored root honours mute/solo and the chain order", function () {
+		var tab = new VFXIR.Tab("show", null);
+		tab.duration = 60;
+		var e0 = tab.addEffect("blur");
+		var e1 = tab.addEffect("pixelate");
+		var e2 = tab.addEffect("invert");
+		var uuid = window.VFXCompiler.nodeUuid;
+		// Mute the middle child: the authored root omits it and reindexes `order`.
+		e1.mute = true;
+		var set = window.VFXCompiler.compilePreviewSet(tab);
+		var root = parse(set.definitions[set.root]);
+		eq(root.effects.length, 2, "muted child omitted from the authored root");
+		eq(root.effects[0].effect, "vfxweaver:editor_preview/show/a/" + uuid(e0), "first visible child");
+		eq(root.effects[1].effect, "vfxweaver:editor_preview/show/a/" + uuid(e2), "second visible child");
+		eq(root.effects[0].params.order, 0, "visible order reindexed 0");
+		eq(root.effects[1].params.order, 1, "visible order reindexed 1");
+		eq(set.meta.children.length, 3, "meta keeps every node for exact unmute");
+		// Solo overrides mute filtering: only the soloed child remains.
+		e1.mute = false;
+		e1.solo = true;
+		var soloRoot = parse(window.VFXCompiler.compilePreviewSet(tab).definitions[set.root]);
+		eq(soloRoot.effects.length, 1, "solo keeps only the soloed child");
+		eq(soloRoot.effects[0].effect, "vfxweaver:editor_preview/show/a/" + uuid(e1), "soloed child");
+		// Reorder: the root follows the model's chain order (a viewstate reorder re-syncs it).
+		e1.solo = false;
+		var moved = tab.effects.splice(0, 1)[0];
+		tab.effects.push(moved);
+		var ordered = parse(window.VFXCompiler.compilePreviewSet(tab).definitions[set.root]);
+		eq(ordered.effects[0].effect, "vfxweaver:editor_preview/show/a/" + uuid(e1), "reordered first child");
+		eq(ordered.effects[2].effect, "vfxweaver:editor_preview/show/a/" + uuid(e0), "reordered last child");
+	});
+
+	test("(P10) reconcileRejected keeps live rejects, clears resolved + defId-less errors", function () {
+		var store = window.VFXCompiler.createProblemStore();
+		store.add({ key: "error:boom", severity: "error", message: "boom" });
+		store.add({ key: "bridge:oops", severity: "error", message: "oops" });
+		window.VFXCompiler.reconcileRejected(store, ["vfxweaver:editor_preview/show/abc"], "show");
+		eq(store.count(), 3, "error + bridge + reject");
+		eq(store.list().filter(function (e) {
+			return e.key === "reject:vfxweaver:editor_preview/show/abc";
+		}).length, 1, "reject entry added");
+		// A later successful sync with no rejects drops the rejected id and the defId-less families.
+		window.VFXCompiler.reconcileRejected(store, [], "show");
+		eq(store.count(), 0, "resolved entries removed");
+		// A still-rejected id survives repeated syncs (keyed, never duplicated).
+		window.VFXCompiler.reconcileRejected(store, ["vfxweaver:editor_preview/show/abc"], "show");
+		window.VFXCompiler.reconcileRejected(store, ["vfxweaver:editor_preview/show/abc"], "show");
+		eq(store.count(), 1, "a repeated reject stays one entry");
+	});
+
 	return results;
 };
 /* SELFTEST:END */

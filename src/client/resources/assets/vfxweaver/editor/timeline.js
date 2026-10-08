@@ -278,6 +278,9 @@
 		context: { anchor: "player", pos: null, targets: [] }
 	};
 
+	/** Signature of the rejected list last reconciled from a state frame, so repaint only on change. */
+	var lastRejectedSig = null;
+
 	/** Bump and return the next preview revision (sent with every preview action). */
 	function nextRevision() {
 		preview.revision += 1;
@@ -311,36 +314,20 @@
 	}
 
 	/**
-	 * Mirror a sync reply's `rejected` ids into the problems panel (design §16.9 P1): retain only the
-	 * ids this sync still reports (a later successful sync drops the stale ones) and add one entry per
-	 * rejected id, wired to its node so a click selects it. An empty `rejected` array clears the
-	 * `reject:`/`bridge:` entries — the sync succeeded and no longer reports them.
+	 * Mirror a sync reply's `rejected` ids into the problems panel (design §16.9 P1/P2): retain only
+	 * the ids this sync still reports (a later successful sync drops the stale ones) and add one
+	 * entry per rejected id, wired to its node so a click selects it. An empty `rejected` array
+	 * clears the `reject:`/`bridge:`/defId-less `error:` entries. Delegates to the pure
+	 * {@code VFXCompiler.reconcileRejected}.
 	 */
 	function applySyncProblems(result, tab) {
 		var panels = problemsApi();
 		if (!panels || !Array.isArray(result.rejected)) {
 			return;
 		}
-		var keys = result.rejected.map(function (id) {
-			return "reject:" + id;
-		});
-		panels.retain("reject:", keys);
-		if (!result.rejected.length) {
-			panels.clear("bridge:");
+		if (root.VFXCompiler && typeof root.VFXCompiler.reconcileRejected === "function") {
+			root.VFXCompiler.reconcileRejected(panels, result.rejected, tab && tab.name ? tab.name : null);
 		}
-		result.rejected.forEach(function (id) {
-			var ref = root.VFXCompiler && root.VFXCompiler.nodeRefFromDefId
-					? root.VFXCompiler.nodeRefFromDefId(id) : null;
-			var where = ref ? (tab && tab.name ? tab.name : ref.slug) + "/" + ref.uuid : id;
-			panels.add({
-				key: "reject:" + id,
-				severity: "error",
-				message: "rejected definition: " + id,
-				context: "[" + where + "]",
-				slug: ref ? ref.slug : null,
-				uuid: ref ? ref.uuid : null
-			});
-		});
 	}
 
 	/** Route a preview response: stale → re-sync, rejected → error entry, else mark applied. */
@@ -478,6 +465,13 @@
 		if (!target || !root.VFXCompiler || typeof root.VFXCompiler.previewViewstate !== "function") {
 			return Promise.resolve(null);
 		}
+		if (preview.mode === "authored") {
+			// Authored plays the root collection and the engine fixes its child set at play time, so
+			// a mute/solo/reorder cannot be an instance op: re-compile the authored root (muted and
+			// non-soloed children omitted, chain order preserved) and re-sync, which makes the
+			// controller restart the authored play (design §16.9 P3).
+			return previewResync(target);
+		}
 		var vs = root.VFXCompiler.previewViewstate(target);
 		var body = { revision: preview.revision, order: vs.order, muted: vs.muted, solo: vs.solo };
 		return post("/preview/viewstate", body).then(function (result) {
@@ -498,16 +492,14 @@
 
 	/** POST one param override on the child's live instance (fast path). */
 	function sendParam(key, name, value) {
+		// A stale reply (the fast path raced a sync) must NOT recompile the whole set: the reply is
+		// dropped. The caller's debounced full sync carries the settled value anyway; a
+		// transport/viewstate 409 still re-syncs (design §16.9 P3).
 		return post("/preview/param", {
 			revision: preview.revision,
 			key: key,
 			param: name,
 			value: Number(value)
-		}).then(function (result) {
-			if (result && result.ok === false && result.error === "stale_revision") {
-				return previewResync(previewTab());
-			}
-			return result;
 		});
 	}
 
@@ -2170,6 +2162,16 @@
 		}
 		if (typeof data.ended === "boolean") {
 			preview.ended = data.ended;
+		}
+		// Reconcile the problems panel from the state frame's `rejected` list, but only when it
+		// changes: state frames are ~20/s, and a successful sync must clear resolved entries
+		// (design §16.9 P2).
+		if (Array.isArray(data.rejected)) {
+			var sig = data.rejected.join("\u0000");
+			if (sig !== lastRejectedSig) {
+				lastRejectedSig = sig;
+				applySyncProblems({ rejected: data.rejected }, previewTab());
+			}
 		}
 		var tab = previewTab();
 		if (tab) {

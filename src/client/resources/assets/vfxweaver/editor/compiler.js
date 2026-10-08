@@ -782,9 +782,19 @@
 				duration: duration,
 				isPost: isPost
 			});
-
+		});
+		// The authored root honours mute/solo (design §16.9 P3): the engine fixes a collection's
+		// child set when it starts playing, so an authored mute/solo cannot be an instance op — the
+		// web re-compiles the root with muted/non-soloed children omitted and the chain order
+		// preserved. Reordering follows the model's `tab.effects` order. `meta.children` still lists
+		// every node, so exact mode can unmute later via a viewstate instance op.
+		var rootChain = options && options.empty ? [] : activeChain(tab);
+		rootChain.forEach(function (effect, index) {
+			var uuid = nodeUuid(effect);
+			var duration = childDurationTicks(tab, effect);
+			var isPost = isPostType(effect.type);
 			var entry = {
-				effect: authoredId,
+				effect: previewAuthoredDefId(slug, uuid),
 				delay: num(effect.delay, 0),
 				duration: duration
 			};
@@ -1024,6 +1034,44 @@
 		return { text: "rev " + rev + " → in game", cls: "" };
 	}
 
+	/**
+	 * Reconcile the problems store against one sync's `rejected` list (design §16.9 P2): keep only
+	 * the rejected ids this sync still reports, add/replace one entry per id (wired to its node), and
+	 * — on a successful sync with no rejects — drop the defId-less `error:`/`bridge:` families. Pure
+	 * (operates on the `createProblemStore` API or the shell's wrapper), so the selftest pins it.
+	 *
+	 * @param {Object} store a store with `retain(prefix,keys)` and `add(entry)` (the problems API)
+	 * @param {Array<string>} rejected the sync's rejected definition ids
+	 * @param {string} [label] an optional tab label for the entry context
+	 */
+	function reconcileRejected(store, rejected, label) {
+		if (!store || !Array.isArray(rejected) || typeof store.retain !== "function") {
+			return;
+		}
+		var keys = rejected.map(function (id) {
+			return "reject:" + id;
+		});
+		store.retain("reject:", keys);
+		if (!rejected.length) {
+			// A successful sync no longer reports a defId-less preview error (or a bridge error).
+			store.retain("error:", []);
+			store.retain("bridge:", []);
+		}
+		rejected.forEach(function (id) {
+			var ref = nodeRefFromDefId(id);
+			var where = label ? (label + "/" + (ref ? ref.uuid : ""))
+					: (ref ? ref.slug + "/" + ref.uuid : id);
+			store.add({
+				key: "reject:" + id,
+				severity: "error",
+				message: "rejected definition: " + id,
+				context: "[" + where + "]",
+				slug: ref ? ref.slug : null,
+				uuid: ref ? ref.uuid : null
+			});
+		});
+	}
+
 	var api = {
 		compileTab: compileTab,
 		compileTabFiles: compileTabFiles,
@@ -1039,6 +1087,7 @@
 		liveKind: liveKind,
 		nodeRefFromDefId: nodeRefFromDefId,
 		createProblemStore: createProblemStore,
+		reconcileRejected: reconcileRejected,
 		previewStatus: previewStatus,
 		PREVIEW_NS: PREVIEW_NS,
 		/** @returns {Array} the clamped-keyframe warnings recorded by the last compile (I3). */
