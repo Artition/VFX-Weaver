@@ -3177,21 +3177,27 @@
 		return { body: body, close: close, overlay: overlay };
 	}
 
-	/** A labelled text input row inside a dialog; returns the input element. */
-	function dialogInput(parent, label, value, placeholder) {
+	/** A labelled field row inside a dialog; returns the row so a caller can append any control. */
+	function dialogField(parent, label) {
 		var row = document.createElement("label");
 		row.className = "vfx-dialog-field";
 		var span = document.createElement("span");
 		span.textContent = label;
+		row.appendChild(span);
+		parent.appendChild(row);
+		return row;
+	}
+
+	/** A labelled text input row inside a dialog; returns the input element. */
+	function dialogInput(parent, label, value, placeholder) {
+		var row = dialogField(parent, label);
 		var input = document.createElement("input");
 		input.type = "text";
 		input.value = value == null ? "" : value;
 		if (placeholder) {
 			input.placeholder = placeholder;
 		}
-		row.appendChild(span);
 		row.appendChild(input);
-		parent.appendChild(row);
 		return input;
 	}
 
@@ -3418,14 +3424,115 @@
 
 	function openOpenDialog() {
 		openModal("Open datapack", function (body, close) {
-			var pathInput = dialogInput(body, "Pack folder or zip", "", "C:\\...\\vfx_demos");
+			var worldRow = dialogField(body, "World");
+			var worldSelect = document.createElement("select");
+			worldRow.appendChild(worldSelect);
+			var packRow = dialogField(body, "Datapack");
+			var packSelect = document.createElement("select");
+			packRow.appendChild(packSelect);
+			var pathInput = dialogInput(body, "Or a path", "", "C:\\...\\vfx_demos");
 			var msg = dialogMessage(body);
 			var actions = dialogActions(body);
+
+			var root = "";
+			var current = "";
+			var packs = [];
+
+			function option(select, value, label) {
+				var opt = document.createElement("option");
+				opt.value = value;
+				opt.textContent = label;
+				select.appendChild(opt);
+				return opt;
+			}
+
+			// Load one world's datapacks; a world with none, or a failed listing, leaves the select
+			// with a single explanatory entry so Open falls back to the manual path.
+			function loadPacks(world) {
+				packs = [];
+				packSelect.textContent = "";
+				if (!world) {
+					packSelect.disabled = true;
+					option(packSelect, "", "(pick a world)");
+					return;
+				}
+				packSelect.disabled = true;
+				option(packSelect, "", "loading…");
+				window.fetch(window.VFXBridge.url("/worlds/datapacks?world=" + encodeURIComponent(world)))
+						.then(function (response) {
+							return response.json();
+						}).then(function (data) {
+							packs = data && Array.isArray(data.datapacks) ? data.datapacks : [];
+							packSelect.textContent = "";
+							packSelect.disabled = false;
+							if (!packs.length) {
+								option(packSelect, "", "(no datapacks in this world)");
+								return;
+							}
+							packs.forEach(function (pack) {
+								option(packSelect, pack.name,
+										pack.name + (pack.kind === "zip" ? "  (zip)" : ""));
+							});
+						}).catch(function () {
+							packSelect.textContent = "";
+							packSelect.disabled = false;
+							option(packSelect, "", "(could not list datapacks)");
+						});
+			}
+
+			worldSelect.disabled = true;
+			option(worldSelect, "", "loading…");
+			window.fetch(window.VFXBridge.url("/worlds")).then(function (response) {
+				return response.json();
+			}).then(function (data) {
+				worldSelect.textContent = "";
+				worldSelect.disabled = false;
+				root = data && data.root ? String(data.root) : "";
+				current = data && data.current != null ? String(data.current) : "";
+				var worlds = data && Array.isArray(data.worlds) ? data.worlds : [];
+				if (!worlds.length) {
+					option(worldSelect, "", "(no worlds found)");
+					loadPacks("");
+					return;
+				}
+				worlds.forEach(function (name) {
+					var opt = option(worldSelect, name,
+							name === current ? name + "  (current world)" : name);
+					if (name === current) {
+						opt.selected = true;
+					}
+				});
+				if (current) {
+					worldSelect.value = current;
+				}
+				loadPacks(worldSelect.value);
+			}).catch(function () {
+				worldSelect.textContent = "";
+				worldSelect.disabled = false;
+				option(worldSelect, "", "(could not list worlds)");
+				loadPacks("");
+			});
+
+			worldSelect.addEventListener("change", function () {
+				loadPacks(worldSelect.value);
+			});
+
 			dialogButton(actions, "Cancel", false, close);
 			dialogButton(actions, "Open", true, function () {
-				var path = pathInput.value.trim();
+				var manual = pathInput.value.trim();
+				var world = worldSelect.value;
+				var name = packSelect.value;
+				var entry = null;
+				packs.forEach(function (pack) {
+					if (pack && pack.name === name) {
+						entry = pack;
+					}
+				});
+				var path = manual
+						|| (entry && entry.path ? String(entry.path) : "")
+						|| (world && name ? window.VFXIR.datapackPath(root, world, name) : "");
 				if (!path) {
-					msg.show("enter a pack folder or zip path", true);
+					msg.show("pick a world and datapack, or enter a path", true);
 					return;
 				}
 				close();
@@ -3559,6 +3666,9 @@
 				row.appendChild(span);
 				row.appendChild(select);
 				pane.appendChild(row);
+				var note = document.createElement("p");
+				note.className = "vfx-dialog-note";
+				pane.appendChild(note);
 				var rootPath = "";
 				select.disabled = true;
 				var loading = document.createElement("option");
@@ -3571,6 +3681,9 @@
 					select.textContent = "";
 					select.disabled = false;
 					rootPath = data && data.root ? String(data.root) : "";
+					var current = data && data.current != null ? String(data.current) : "";
+					note.textContent = current ? "Currently playing: " + current
+							: "Not in a single-player world — pick any world below.";
 					var worlds = data && Array.isArray(data.worlds) ? data.worlds : [];
 					if (!worlds.length) {
 						var none = document.createElement("option");
@@ -3582,9 +3695,16 @@
 					worlds.forEach(function (name) {
 						var opt = document.createElement("option");
 						opt.value = name;
-						opt.textContent = name;
+						opt.textContent = name === current ? name + "  (current world)" : name;
+						if (name === current) {
+							opt.selected = true;
+							opt.className = "vfx-world-current";
+						}
 						select.appendChild(opt);
 					});
+					if (current) {
+						select.value = current;
+					}
 				}).catch(function () {
 					select.textContent = "";
 					var failed = document.createElement("option");

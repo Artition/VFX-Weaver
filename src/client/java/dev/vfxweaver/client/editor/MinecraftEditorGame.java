@@ -7,10 +7,13 @@ import dev.vfxweaver.effect.EasingType;
 import dev.vfxweaver.effect.VFXEffectType;
 import dev.vfxweaver.resource.VFXDefinitionManager;
 import java.io.File;
+import java.nio.file.Path;
 import java.util.Map;
 import java.util.Set;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.server.IntegratedServer;
 import net.minecraft.resources.Identifier;
+import net.minecraft.world.level.storage.LevelResource;
 import org.jspecify.annotations.Nullable;
 
 /**
@@ -89,6 +92,25 @@ public final class MinecraftEditorGame implements EditorGame {
 		// `gameDirectory` is a public field on Minecraft on every supported node (verified with javap
 		// against 26.2 / 26.1.2 / 1.21.11); the `saves` folder is its conventional child.
 		return new File(Minecraft.getInstance().gameDirectory, "saves").getAbsolutePath();
+	}
+
+	@Override
+	public @Nullable String currentWorldName() {
+		// Single-player only: `getSingleplayerServer` is null on a multiplayer client, and
+		// `getWorldPath(ROOT)` is `<saves>/<world>` whose file name is the save folder the bridge
+		// lists (verified with javap against 26.2 / 26.1.2). Field reads only, so the render thread
+		// is never touched.
+		try {
+			final IntegratedServer server = Minecraft.getInstance().getSingleplayerServer();
+			if (server == null) {
+				return null;
+			}
+			final Path root = server.getWorldPath(LevelResource.ROOT);
+			final Path name = root == null ? null : root.getFileName();
+			return name == null ? null : name.toString();
+		} catch (final RuntimeException e) {
+			return null;
+		}
 	}
 
 	/** {@code true} when {@code json} is an object whose {@code type} resolves to a known effect type. */

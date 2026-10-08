@@ -151,6 +151,15 @@ public final class EditorSession {
 		return this.game.savesDir();
 	}
 
+	/**
+	 * The world folder the player is currently in, for the {@code GET /worlds} route.
+	 *
+	 * @return the current world's save-folder name, or {@code null} on a multiplayer client
+	 */
+	public @Nullable String currentWorldName() {
+		return this.game.currentWorldName();
+	}
+
 	private EditorResult stale(final long revision) {
 		return new EditorResult(false, this.revision.get(), EditorResult.STALE_REVISION,
 				"expected revision " + this.revision.get() + ", got " + revision);

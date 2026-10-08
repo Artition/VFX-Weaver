@@ -293,6 +293,16 @@ window.__vfxSelftest = function () {
 		ok(world.sidecar != null, "sidecar included when present");
 	});
 
+	test("(o2) datapackPath builds <root>/<world>/datapacks/<pack>", function () {
+		eq(VFXIR.datapackPath("C:/saves", "New World", "vfx_demos"),
+				"C:/saves/New World/datapacks/vfx_demos", "path built");
+		eq(VFXIR.datapackPath("C:\\saves\\", "New World", "vfx_demos.zip"),
+				"C:\\saves/New World/datapacks/vfx_demos.zip", "trailing separator trimmed");
+		eq(VFXIR.datapackPath("", "W", "p"), "", "missing root");
+		eq(VFXIR.datapackPath("C:/saves", "", "p"), "", "missing world");
+		eq(VFXIR.datapackPath("C:/saves", "W", ""), "", "missing pack");
+	});
+
 	test("(p) timing is always explicit; preview overrides loop + fade_ticks", function () {
 		var tab = new VFXIR.Tab("blur", "blur");
 		var def = parse(compileTab(tab));

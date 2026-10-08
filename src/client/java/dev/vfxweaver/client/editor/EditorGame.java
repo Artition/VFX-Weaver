@@ -55,4 +55,15 @@ public interface EditorGame {
 	default @Nullable String savesDir() {
 		return null;
 	}
+
+	/**
+	 * The single-player world folder the player is currently in, so the bridge can highlight it in
+	 * the world pickers. A default keeps the interface backward compatible for any test double.
+	 *
+	 * @return the current world's save-folder name, or {@code null} on a multiplayer client (or
+	 *         when no world is loaded)
+	 */
+	default @Nullable String currentWorldName() {
+		return null;
+	}
 }

@@ -788,6 +788,24 @@
 	}
 
 	/**
+	 * Build the absolute path of a datapack inside a world, mirroring the bridge's
+	 * `<root>/<world>/datapacks/<pack>` layout (used by the Open picker when a listing entry
+	 * carries only a name). Separators are normalized to `/`; the bridge accepts either.
+	 *
+	 * @param {string} root the saves directory from `GET /worlds`
+	 * @param {string} world the world save-folder name
+	 * @param {string} pack the datapack folder or zip name under the world's `datapacks/`
+	 * @returns {string} the pack path, or "" when any part is missing
+	 */
+	function datapackPath(root, world, pack) {
+		if (!root || !world || !pack) {
+			return "";
+		}
+		var base = String(root).replace(/[\\/]+$/, "");
+		return base + "/" + world + "/datapacks/" + pack;
+	}
+
+	/**
 	 * Split a schema param list into the rows the inspector renders (design §15.9.6/P4, fix #21):
 	 * descriptors sharing a non-empty `vectorGroup` collapse into one entry keyed by the group,
 	 * with `components` ordered by `vectorIndex`; a descriptor without a group is its own singleton
@@ -997,6 +1015,7 @@
 		validNamespace: validNamespace,
 		exportZipBody: exportZipBody,
 		exportTargetBody: exportTargetBody,
+		datapackPath: datapackPath,
 		paramGroups: paramGroups,
 		applyGroupSpec: applyGroupSpec,
 		uniformGroupSpec: uniformGroupSpec

@@ -57,6 +57,8 @@ public final class EditorServer {
 	private static final int MAX_BODY_BYTES = 16 * 1024 * 1024;
 	/** Upper bound on worlds listed by {@code GET /worlds}. */
 	private static final int MAX_WORLDS = 256;
+	/** Upper bound on datapacks listed by {@code GET /worlds/datapacks}. */
+	private static final int MAX_DATAPACKS = 256;
 
 	private final HttpServer server;
 	private final EditorSession session;
@@ -190,6 +192,10 @@ public final class EditorServer {
 		}
 		if (path.equals("/worlds")) {
 			handleWorlds(exchange);
+			return;
+		}
+		if (path.equals("/worlds/datapacks")) {
+			handleWorldDatapacks(exchange);
 			return;
 		}
 		if (path.equals("/export/download")) {
@@ -559,7 +565,8 @@ public final class EditorServer {
 
 	/**
 	 * {@code GET /worlds}: directory names under the client's {@code saves} folder, plus the saves
-	 * root so the web can build a full world path. Never throws out of the handler.
+	 * root so the web can build a full world path and the world the player is currently in so the
+	 * web can pre-select it. Never throws out of the handler.
 	 *
 	 * @param exchange the {@code /worlds} exchange
 	 * @throws IOException when the response cannot be sent
@@ -584,10 +591,89 @@ public final class EditorServer {
 		} catch (final RuntimeException | IOException e) {
 			// Fall through with whatever was collected; a worlds listing must never 500 the bridge.
 		}
+		final String current = this.session.currentWorldName();
 		final JsonObject out = new JsonObject();
 		out.add("worlds", worlds);
 		out.addProperty("root", root == null ? "" : root);
+		out.add("current", current == null ? JsonNull.INSTANCE : new JsonPrimitive(current));
 		respondJson(exchange, out);
+	}
+
+	/**
+	 * {@code GET /worlds/datapacks?world=<name>}: the datapack folders and zips installed in one
+	 * world, so the web can open one without a filesystem path. The world name is resolved against
+	 * the saves root and must name a direct child (no traversal). Never throws out of the handler.
+	 *
+	 * @param exchange the {@code /worlds/datapacks} exchange
+	 * @throws IOException when the response cannot be sent
+	 */
+	private void handleWorldDatapacks(final HttpExchange exchange) throws IOException {
+		final String world = queryParam(exchange, "world");
+		final JsonArray datapacks = new JsonArray();
+		final Path dir = worldDir(world);
+		if (dir == null) {
+			final JsonObject out = new JsonObject();
+			out.addProperty("ok", false);
+			out.addProperty("error", "unknown world");
+			out.addProperty("world", world == null ? "" : world);
+			out.add("datapacks", datapacks);
+			respondJson(exchange, out);
+			return;
+		}
+		try {
+			final Path packs = dir.resolve("datapacks");
+			if (Files.isDirectory(packs)) {
+				try (Stream<Path> entries = Files.list(packs)) {
+					entries.sorted()
+							.limit(MAX_DATAPACKS)
+							.forEach(entry -> {
+								final String name = entry.getFileName().toString();
+								final boolean zip = Files.isRegularFile(entry) && name.length() > 4
+										&& name.regionMatches(true, name.length() - 4, ".zip", 0, 4);
+								if (Files.isDirectory(entry) || zip) {
+									final JsonObject pack = new JsonObject();
+									pack.addProperty("name", name);
+									pack.addProperty("path", entry.toString());
+									pack.addProperty("kind", zip ? "zip" : "folder");
+									datapacks.add(pack);
+								}
+							});
+				}
+			}
+		} catch (final RuntimeException | IOException e) {
+			// Fall through with whatever was collected; a datapack listing must never 500 the bridge.
+		}
+		final JsonObject out = new JsonObject();
+		out.addProperty("ok", true);
+		out.addProperty("world", world);
+		out.add("datapacks", datapacks);
+		respondJson(exchange, out);
+	}
+
+	/**
+	 * Resolve a world name to its save directory under the client's saves root. The name must be a
+	 * direct child of the saves directory: {@code resolve} + {@code normalize} then a parent check
+	 * rejects {@code ..}, separators and absolute paths, so a caller cannot traverse out.
+	 *
+	 * @param name the world save-folder name from the request
+	 * @return the world directory, or {@code null} when the name is absent, unsafe or not a directory
+	 */
+	@Nullable
+	private Path worldDir(final @Nullable String name) {
+		if (name == null || name.isBlank() || name.length() > 255) {
+			return null;
+		}
+		final String root = this.session.savesDir();
+		if (root == null) {
+			return null;
+		}
+		try {
+			final Path saves = Path.of(root).normalize();
+			final Path candidate = saves.resolve(name).normalize();
+			return saves.equals(candidate.getParent()) && Files.isDirectory(candidate) ? candidate : null;
+		} catch (final RuntimeException e) {
+			return null;
+		}
 	}
 
 	/** The {@code effects} object as effect-name to JSON text (a primitive is taken verbatim). */

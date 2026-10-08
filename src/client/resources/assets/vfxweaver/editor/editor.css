@@ -376,6 +376,17 @@ body {
 	font: inherit;
 }
 
+.vfx-dialog-note {
+	margin: 0 0 10px;
+	color: var(--vfx-text-dim);
+	font-size: 12px;
+}
+
+.vfx-dialog-field select option.vfx-world-current {
+	color: var(--vfx-accent);
+	font-weight: 600;
+}
+
 .vfx-dialog-actions {
 	display: flex;
 	justify-content: flex-end;
