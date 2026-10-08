@@ -67,3 +67,6 @@ site/
 
 # local tooling (recording/trimming helpers)
 tools/
+
+# runtime logs
+logs/
