@@ -891,6 +891,68 @@ window.__vfxSelftest = function () {
 		eq(authored.fade_ticks, 7, "export fade untouched");
 	});
 
+	test("(P5) an empty tab compiles an empty preview set (clears the preview)", function () {
+		var tab = new VFXIR.Tab("show", null);
+		tab.duration = 60;
+		var set = window.VFXCompiler.compilePreviewSet(tab);
+		eq(set.meta.children.length, 0, "no children in meta");
+		eq(Object.keys(set.definitions).length, 1, "only the root collection is defined");
+		eq(set.definitions[set.root] != null, true, "the root is the single definition");
+		var root = parse(set.definitions[set.root]);
+		eq(root.type, "collection", "root is a collection");
+		eq(root.effects.length, 0, "root plays no children");
+	});
+
+	test("(P6) problem store adds, replaces, retains and clears by prefix", function () {
+		var store = window.VFXCompiler.createProblemStore();
+		store.add({ key: "reject:a", severity: "error", message: "a" });
+		store.add({ key: "reject:b", severity: "error", message: "b" });
+		store.add({ key: "warn:x", severity: "warning", message: "x" });
+		eq(store.count(), 3, "three entries");
+		store.add({ key: "reject:a", severity: "error", message: "a2" });
+		eq(store.count(), 3, "a replace does not add");
+		eq(store.list().filter(function (e) { return e.key === "reject:a"; })[0].message, "a2",
+				"replaced in place");
+		store.retain("reject:", ["reject:b"]);
+		eq(store.count(), 2, "retain drops the stale reject and keeps warn");
+		ok(!store.list().some(function (e) { return e.key === "reject:a"; }), "stale reject gone");
+		store.clearPrefix("reject:");
+		eq(store.count(), 1, "clearPrefix drops the whole family");
+		eq(store.list()[0].key, "warn:x", "the warning survives");
+	});
+
+	test("(P7) preview badge text: ended clamps to the duration, states map to classes", function () {
+		var ended = window.VFXCompiler.previewStatus(
+				{ revision: 4, playing: false, ended: true, tick: 63 }, 60);
+		eq(ended.text, "ended @ 60/60 — ▶ replay", "ended clamps the tick to the duration");
+		eq(ended.cls, "ended", "ended class");
+		eq(window.VFXCompiler.previewStatus({ revision: 4, playing: true, tick: 3 }, 60).cls,
+				"live", "playing is live");
+		eq(window.VFXCompiler.previewStatus({ revision: 4, syncing: true }, 60).cls,
+				"syncing", "syncing class");
+		eq(window.VFXCompiler.previewStatus({ revision: 4, offline: true }, 60).cls,
+				"offline", "offline wins");
+		eq(window.VFXCompiler.previewStatus({ revision: 4 }, 60).text, "rev 4 → in game",
+				"idle text");
+	});
+
+	test("(P8) live badge reflects only authored bind/expr slots (never a track)", function () {
+		eq(window.VFXCompiler.liveKind({ bind: "health" }, false, null), "bind", "inline bind");
+		eq(window.VFXCompiler.liveKind({ expr: "t*2" }, false, null), "expr", "inline expr");
+		eq(window.VFXCompiler.liveKind({ value: 3 }, false, null), null, "constant is not live");
+		eq(window.VFXCompiler.liveKind(null, false, "expr"), "expr", "wired expr node");
+		eq(window.VFXCompiler.liveKind(null, false, "constant"), null, "wired constant is not live");
+		eq(window.VFXCompiler.liveKind({ bind: "health" }, true, null), null,
+				"a non-empty track is a timeline constant, never live");
+		var exact = window.VFXCompiler.nodeRefFromDefId("vfxweaver:editor_preview/show/abc");
+		eq(exact.slug, "show", "parses the slug");
+		eq(exact.uuid, "abc", "parses the uuid");
+		var ref = window.VFXCompiler.nodeRefFromDefId("vfxweaver:editor_preview/show/a/xyz");
+		eq(ref.uuid, "xyz", "parses authored uuid");
+		eq(window.VFXCompiler.nodeRefFromDefId("vfxweaver:editor_preview/show/root"), null,
+				"the root has no node");
+	});
+
 	return results;
 };
 /* SELFTEST:END */

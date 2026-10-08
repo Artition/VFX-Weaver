@@ -10,8 +10,11 @@ import java.util.Objects;
  *
  * @param type   the effect type this descriptor describes
  * @param params the editable parameters, in display order
+ * @param post   whether the effect renders as a screen post-processing layer
+ *               ({@link VFXEffectType#isPostProcessing()}); the editor reads it to classify a
+ *               node instead of keeping a static type list
  */
-public record VFXEffectDescriptor(VFXEffectType type, List<VFXParamDescriptor> params) {
+public record VFXEffectDescriptor(VFXEffectType type, List<VFXParamDescriptor> params, boolean post) {
 	public VFXEffectDescriptor {
 		Objects.requireNonNull(type, "type");
 		params = params == null ? List.of() : List.copyOf(params);

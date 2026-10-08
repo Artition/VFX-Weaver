@@ -304,6 +304,45 @@
 	/** Guards the one-shot stale-revision recovery so a bad expected revision cannot loop. */
 	var staleGuard = false;
 
+	/** The shell's problems panel API, or null when the shell is absent. */
+	function problemsApi() {
+		var editor = root.VFXEditor;
+		return editor && editor.problems ? editor.problems : null;
+	}
+
+	/**
+	 * Mirror a sync reply's `rejected` ids into the problems panel (design §16.9 P1): retain only the
+	 * ids this sync still reports (a later successful sync drops the stale ones) and add one entry per
+	 * rejected id, wired to its node so a click selects it. An empty `rejected` array clears the
+	 * `reject:`/`bridge:` entries — the sync succeeded and no longer reports them.
+	 */
+	function applySyncProblems(result, tab) {
+		var panels = problemsApi();
+		if (!panels || !Array.isArray(result.rejected)) {
+			return;
+		}
+		var keys = result.rejected.map(function (id) {
+			return "reject:" + id;
+		});
+		panels.retain("reject:", keys);
+		if (!result.rejected.length) {
+			panels.clear("bridge:");
+		}
+		result.rejected.forEach(function (id) {
+			var ref = root.VFXCompiler && root.VFXCompiler.nodeRefFromDefId
+					? root.VFXCompiler.nodeRefFromDefId(id) : null;
+			var where = ref ? (tab && tab.name ? tab.name : ref.slug) + "/" + ref.uuid : id;
+			panels.add({
+				key: "reject:" + id,
+				severity: "error",
+				message: "rejected definition: " + id,
+				context: "[" + where + "]",
+				slug: ref ? ref.slug : null,
+				uuid: ref ? ref.uuid : null
+			});
+		});
+	}
+
 	/** Route a preview response: stale → re-sync, rejected → error entry, else mark applied. */
 	function handlePreviewResult(result, tab) {
 		if (!result || typeof result !== "object") {
@@ -332,25 +371,55 @@
 			previewError("rejected " + result.rejected.length + " definition(s): "
 					+ result.rejected.join(", "));
 		}
+		applySyncProblems(result, tab);
 		return result;
 	}
 
-	/** POST the whole tab definition set (revision++); the controller diffs and re-projects it. */
-	function previewSyncNow(tab) {
+	/** Mirror the last compile's clamped-key warnings (I3) into the problems panel. */
+	function reportCompileWarnings(tab) {
+		var panels = problemsApi();
+		if (!panels || !root.VFXCompiler || typeof root.VFXCompiler.getWarnings !== "function") {
+			return;
+		}
+		var warnings = root.VFXCompiler.getWarnings() || [];
+		var keys = warnings.map(function (warning, index) {
+			return "warn:" + warning.param + ":" + (warning.index == null ? index : warning.index);
+		});
+		panels.retain("warn:", keys);
+		warnings.forEach(function (warning, index) {
+			panels.add({
+				key: "warn:" + warning.param + ":" + (warning.index == null ? index : warning.index),
+				severity: "warning",
+				message: "param '" + warning.param + "' key #" + warning.index
+						+ " time " + warning.time + " clamped to " + warning.clamped,
+				context: "[" + (tab && tab.name ? tab.name : "tab") + "]"
+			});
+		});
+	}
+
+	/**
+	 * POST the whole tab definition set (revision++); the controller diffs and re-projects it. An
+	 * empty tab still syncs (the empty set tombstone-unregisters every private-ns definition) and then
+	 * stops the transport, so an emptied/closed tab leaves nothing playing (design §16.9 P1).
+	 */
+	function previewSyncNow(tab, forceEmpty) {
 		var target = tab || previewTab();
-		if (!target || !target.effects || !target.effects.length || !root.VFXCompiler
+		if (!target || !root.VFXCompiler
 				|| typeof root.VFXCompiler.compilePreviewSet !== "function") {
 			return Promise.resolve(null);
 		}
 		preview.tab = target;
 		var set;
 		try {
-			set = root.VFXCompiler.compilePreviewSet(target, { context: preview.context });
+			set = root.VFXCompiler.compilePreviewSet(target,
+					{ context: preview.context, empty: forceEmpty === true });
 		} catch (e) {
 			previewError("compile failed: " + (e && e.message ? e.message : e));
 			return Promise.resolve(null);
 		}
+		reportCompileWarnings(target);
 		preview.syncing = true;
+		var empty = forceEmpty === true || !(target.effects && target.effects.length);
 		return post("/preview/sync", {
 			revision: nextRevision(),
 			tab: target.name,
@@ -359,6 +428,13 @@
 			meta: set.meta
 		}).then(function (result) {
 			return handlePreviewResult(result, target);
+		}).then(function (result) {
+			if (empty) {
+				return previewTransport("stop").then(function () {
+					return result;
+				});
+			}
+			return result;
 		});
 	}
 
@@ -477,6 +553,10 @@
 	var previewApi = {
 		sync: previewSync,
 		resync: previewResync,
+		/** Force an empty definition set + stop (design §16.9 P1): a closed/emptied tab clears the preview. */
+		clear: function (tab) {
+			return previewSyncNow(tab || preview.tab || previewTab(), true);
+		},
 		transport: previewTransport,
 		viewstate: previewViewstate,
 		param: previewParam,
@@ -556,6 +636,19 @@
 				startClock(tab, 0);
 			}
 			return result;
+		});
+	}
+
+	/**
+	 * Replay from the start (design §16.9 P1): seek to tick 0 then play, so an ended preview (whose
+	 * controller tick is parked at the tab duration) starts over instead of resuming at the end.
+	 */
+	function replay(tab) {
+		if (!tab || !tab.type) {
+			return Promise.resolve(null);
+		}
+		return previewTransport("seek", { tick: 0 }).then(function () {
+			return play(tab);
 		});
 	}
 
@@ -1566,10 +1659,18 @@
 		}
 	}
 
-	/** A lane's header: the param name plus a button that opens the curve view. */
+	/** A lane's header: the param name, a live-input badge when bound, plus the curve button. */
 	function laneLabel(tab, name, panel) {
 		var label = el("span", { class: "vfx-tl-label" });
 		label.appendChild(el("span", { text: name }));
+		var live = root.VFXEditor && typeof root.VFXEditor.liveKind === "function"
+				? root.VFXEditor.liveKind(tab, name) : null;
+		if (live) {
+			label.appendChild(el("span", {
+				class: "vfx-live-badge", text: "●live",
+				title: "value comes from a live " + live + " source"
+			}));
+		}
 		var open = el("button", { type: "button", class: "vfx-tl-curve-open", text: "curve",
 			title: "Open the curve editor" });
 		open.addEventListener("mousedown", function (event) {
@@ -2070,11 +2171,18 @@
 		if (typeof data.ended === "boolean") {
 			preview.ended = data.ended;
 		}
-		preview.tick = Number(data.tick) || 0;
 		var tab = previewTab();
 		if (tab) {
 			clock.tab = tab;
 		}
+		// Clamp the shown tick into [0, duration]; on `ended` land exactly on the end tick, never past
+		// it (design §16.9 P1).
+		var tick = clampToDuration(tab, Number(data.tick) || 0);
+		if (data.ended && tab) {
+			tick = duration(tab);
+		}
+		preview.tick = tick;
+		preview.duration = tab ? duration(tab) : preview.duration;
 		if (data.playing) {
 			clock.playing = true;
 			clock.baseElapsed = preview.tick;
@@ -2108,6 +2216,7 @@
 		onEdit: onEdit,
 		compile: compile,
 		play: play,
+		replay: replay,
 		pause: pause,
 		stop: stop,
 		seek: seek,

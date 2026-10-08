@@ -102,7 +102,8 @@ public final class VFXEffectSchema {
 	 * params (their string fields {@code id}/{@code texture}/{@code titles} live in the definition).
 	 */
 	private static void registerNonPost() {
-		register(new VFXEffectDescriptor(VFXEffectType.COLLECTION, List.of()));
+		register(new VFXEffectDescriptor(VFXEffectType.COLLECTION, List.of(),
+			VFXEffectType.COLLECTION.isPostProcessing()));
 
 		registerNonPost(VFXEffectType.CAMERA_SHAKE,
 			new String[] {"amplitude_x", "amplitude_y", "amplitude_z", "yaw", "pitch", "roll", "frequency", "hand"},
@@ -227,7 +228,7 @@ public final class VFXEffectSchema {
 				null,
 				0));
 		}
-		register(new VFXEffectDescriptor(type, withVectorGroups(params)));
+		register(new VFXEffectDescriptor(type, withVectorGroups(params), type.isPostProcessing()));
 	}
 
 	/**
@@ -259,7 +260,7 @@ public final class VFXEffectSchema {
 				null,
 				0));
 		}
-		return new VFXEffectDescriptor(type, withVectorGroups(params));
+		return new VFXEffectDescriptor(type, withVectorGroups(params), type.isPostProcessing());
 	}
 
 	/**
@@ -341,7 +342,10 @@ public final class VFXEffectSchema {
 			if (descriptor.type() == VFXEffectType.COLLECTION) {
 				continue;
 			}
-			root.put(descriptor.type().getName(), Map.of("params", descriptor.params()));
+			final Map<String, Object> descriptorJson = new LinkedHashMap<>();
+			descriptorJson.put("params", descriptor.params());
+			descriptorJson.put("post", descriptor.post());
+			root.put(descriptor.type().getName(), descriptorJson);
 		}
 		final JsonElement tree = GSON.toJsonTree(root);
 		nullifyNonFinite(tree);

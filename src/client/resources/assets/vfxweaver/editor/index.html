@@ -112,6 +112,13 @@
 <div id="vfx-split-timeline" class="vfx-split vfx-split-h" role="separator" aria-orientation="horizontal" tabindex="0"
 	title="Drag to resize the timeline — double-click to collapse/expand"></div>
 <footer id="vfx-timeline" aria-label="Timeline"></footer>
-<div id="vfx-toasts" aria-live="polite" aria-label="Problems"></div>
+<section id="vfx-problems" class="vfx-problems collapsed" aria-label="Preview problems">
+	<button id="vfx-problems-toggle" type="button" class="vfx-problems-head" aria-expanded="false"
+		title="Preview problems (rejected definitions, errors, warnings)">
+		<span class="vfx-problems-title">Problems</span>
+		<span id="vfx-problems-count" class="vfx-problems-count">0</span>
+	</button>
+	<div id="vfx-problems-list" class="vfx-problems-list" role="list" aria-live="polite"></div>
+</section>
 </body>
 </html>

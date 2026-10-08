@@ -429,9 +429,11 @@
 	 * @param {function} [onEdit] called `(name, spec, previous)` after every edit
 	 * @param {string|null} [driven] the source value-node id wiring this param, for a read-only view
 	 *        (design §15.1, fix 5); null/absent keeps the normal editable form
+	 * @param {string|null} [live] the authored live source kind ("bind"/"expr"), so a live-input badge
+	 *        is shown next to the control (design §16.9 P1); null keeps it hidden
 	 * @returns {HTMLElement} the inspector element
 	 */
-	function render(tab, param, onEdit, driven) {
+	function render(tab, param, onEdit, driven, live) {
 		if (!param || !param.name) {
 			throw new Error("inspector.render: a param descriptor is required");
 		}
@@ -640,6 +642,12 @@
 		}
 		var stateName = slotState(tab, name, driven);
 		header.appendChild(el("span", { class: "vfx-state-badge " + stateName, text: stateName }));
+		if (live === "bind" || live === "expr") {
+			header.appendChild(el("span", {
+				class: "vfx-live-badge", text: "● live",
+				title: "value comes from a live " + live + " source (reads game state)"
+			}));
+		}
 		if (rawSpec().multiply) {
 			header.appendChild(el("span", { class: "vfx-multiply-badge", text: "×" }));
 		}

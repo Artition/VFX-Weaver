@@ -642,9 +642,10 @@
 
 	/**
 	 * Effect types that are NOT fullscreen post-processing passes, mirroring
-	 * {@code VFXEffectType.isPostProcessing()}. The schema payload carries only `params` (there is no
-	 * `post` flag), so this static classification is the web's only source until the schema grows one;
-	 * it decides the `isPost` meta flag and whether a child contributes to the screen-layer ordering.
+	 * {@code VFXEffectType.isPostProcessing()}. This is only a fallback for when the schema is not
+	 * loaded yet: the schema now carries a `post` flag per effect type (the additive
+	 * {@code VFXEffectDescriptor.post()}), which is the authority. It decides the `isPost` meta flag
+	 * and whether a child contributes to the screen-layer ordering.
 	 */
 	var NON_POST_TYPES = {
 		camera_shake: true, camera_roll: true, block_outline: true, block_tint: true,
@@ -653,9 +654,21 @@
 		fog_modifier: true, window_create: true, window_control: true, collection: true
 	};
 
-	/** Whether an effect type renders a fullscreen post pass (see {@link #NON_POST_TYPES}). */
+	/**
+	 * Whether an effect type renders a fullscreen post pass. Reads the authoritative `post` flag from
+	 * the loaded schema (`VFXEditor.schema[type].post`, additive — unknown/missing reads as false via
+	 * the static fallback), else falls back to {@link #NON_POST_TYPES}.
+	 */
 	function isPostType(type) {
-		return type != null && type !== "" && !NON_POST_TYPES[String(type)];
+		if (type == null || type === "") {
+			return false;
+		}
+		var schema = root.VFXEditor && root.VFXEditor.schema;
+		var descriptor = schema ? schema[String(type)] : null;
+		if (descriptor && typeof descriptor.post === "boolean") {
+			return descriptor.post;
+		}
+		return !NON_POST_TYPES[String(type)];
 	}
 
 	/** A node uuid generator, used only when the IR helper is absent. */
@@ -722,7 +735,8 @@
 	 * loop/persistent/fade (real lifecycle, including fade) and are referenced by the root.
 	 *
 	 * @param {Object} tab a `VFXIR.Tab`
-	 * @param {Object} [options] optional `{ context: {anchor,pos,targets} }`
+	 * @param {Object} [options] optional `{ context: {anchor,pos,targets}, empty: boolean }`; `empty`
+	 *        forces an empty child set (the tombstone sync that clears the preview)
 	 * @returns {{tab:string,slug:string,definitions:Object<string,string>,root:string,meta:Object}}
 	 */
 	function compilePreviewSet(tab, options) {
@@ -730,12 +744,13 @@
 			throw new Error("compilePreviewSet: a tab is required");
 		}
 		var slug = slugOf(tab);
-		var nodes = (tab.effects || []).filter(function (effect) {
+		var nodes = options && options.empty ? [] : (tab.effects || []).filter(function (effect) {
 			return effect && effect.type;
 		});
 		var definitions = {};
 		var children = [];
 		var effects = [];
+		var allWarnings = [];
 		nodes.forEach(function (effect, index) {
 			var uuid = nodeUuid(effect);
 			var exactId = previewDefId(slug, uuid);
@@ -744,6 +759,9 @@
 			var isPost = isPostType(effect.type);
 
 			var exact = JSON.parse(compileSingle(tab, effect, effect.id, effect.source));
+			// `compileSingle` overwrites `lastWarnings` per node; aggregate them so `getWarnings()`
+			// reflects the whole set, not just the last child.
+			allWarnings = allWarnings.concat(lastWarnings);
 			exact.duration = duration;
 			exact.fade_ticks = 0;
 			exact.loop = false;
@@ -793,6 +811,7 @@
 			children: children,
 			context: options && options.context ? options.context : {}
 		};
+		lastWarnings = allWarnings;
 		return { tab: effectName(tab), slug: slug, definitions: definitions, root: rootId, meta: meta };
 	}
 
@@ -833,6 +852,178 @@
 		return effect && effect.type === "surface_pattern" ? 0 : 1;
 	}
 
+	/* ------------------------------------------------------------------ */
+	/* Preview v2 UX helpers (design §16.9 P1) — pure, pinned by the selftest */
+	/* ------------------------------------------------------------------ */
+
+	/**
+	 * The authored live source of a slot, or null when the slot's value is a pure timeline constant
+	 * (design §16.9 P1). Reflects the AUTHORED slot kind only — no runtime probe: a non-empty track
+	 * is a timeline constant (null), an inline `bind`/`expr` spec or a wired `bind`/`expr` value node
+	 * is "bind"/"expr". A constant/curve driver is not live.
+	 *
+	 * @param {Object|number} spec the inline slot spec
+	 * @param {boolean} hasTrack whether `keys[name]` holds a non-empty track
+	 * @param {string|null} driverKind the wired value node's `kind` (or null)
+	 * @returns {string|null} "bind", "expr" or null
+	 */
+	function liveKind(spec, hasTrack, driverKind) {
+		if (hasTrack) {
+			return null;
+		}
+		if (spec && typeof spec === "object") {
+			if (spec.bind != null) {
+				return "bind";
+			}
+			if (spec.expr != null) {
+				return "expr";
+			}
+		}
+		return driverKind === "bind" || driverKind === "expr" ? driverKind : null;
+	}
+
+	/**
+	 * The `{slug, uuid}` a preview definition id addresses, or null for the root/an unrelated id
+	 * (design §16.1). Used to turn a rejected id back into the node it came from.
+	 *
+	 * @param {string} defId an id like `vfxweaver:editor_preview/<slug>/<uuid>` or `.../a/<uuid>`
+	 * @returns {{slug: string, uuid: string}|null} the parsed reference
+	 */
+	function nodeRefFromDefId(defId) {
+		if (defId == null) {
+			return null;
+		}
+		var prefix = PREVIEW_NS + "/";
+		var id = String(defId);
+		if (id.indexOf(prefix) !== 0) {
+			return null;
+		}
+		var rest = id.substring(prefix.length).split("/");
+		if (rest.length === 2 && rest[0] && rest[1] && rest[1] !== "root") {
+			return { slug: rest[0], uuid: rest[1] };
+		}
+		if (rest.length === 3 && rest[1] === "a" && rest[0] && rest[2]) {
+			return { slug: rest[0], uuid: rest[2] };
+		}
+		return null;
+	}
+
+	/**
+	 * A tiny keyed problem store for the Preview problems panel (design §16.9 P1). Pure and DOM-free
+	 * so the headless selftest pins the add/clear semantics. Entries are keyed: a repeated report
+	 * replaces its entry, `retain(prefix, keys)` drops the entries under a prefix that a later
+	 * successful sync no longer reports, and `clearPrefix` drops a whole family.
+	 *
+	 * @returns {Object} the store: `add`, `remove`, `retain`, `clearPrefix`, `list`, `count`
+	 */
+	function createProblemStore() {
+		var entries = [];
+		var byKey = {};
+
+		function reindex() {
+			byKey = {};
+			entries = entries.filter(function (entry) {
+				return entry && entry.key != null;
+			});
+			entries.forEach(function (entry) {
+				byKey[entry.key] = entry;
+			});
+		}
+
+		return {
+			/** Add or replace one entry (keyed; an entry without a key is ignored). */
+			add: function (entry) {
+				if (!entry || entry.key == null) {
+					return;
+				}
+				if (byKey[entry.key]) {
+					var at = entries.indexOf(byKey[entry.key]);
+					if (at >= 0) {
+						entries[at] = entry;
+					}
+					byKey[entry.key] = entry;
+				} else {
+					entries.push(entry);
+					byKey[entry.key] = entry;
+				}
+			},
+			/** Drop the entry with `key` (no-op when absent). */
+			remove: function (key) {
+				if (byKey[key]) {
+					var at = entries.indexOf(byKey[key]);
+					if (at >= 0) {
+						entries.splice(at, 1);
+					}
+					delete byKey[key];
+				}
+			},
+			/**
+			 * Keep only the `keys` (array of full keys) under `prefix`; drop every other prefixed
+			 * entry. This is "clear an entry when a later successful sync no longer reports it".
+			 */
+			retain: function (prefix, keys) {
+				var keep = {};
+				(keys || []).forEach(function (key) {
+					keep[key] = true;
+				});
+				entries = entries.filter(function (entry) {
+					return String(entry.key).indexOf(prefix) !== 0 || keep[entry.key];
+				});
+				reindex();
+			},
+			/** Drop every entry whose key starts with `prefix`. */
+			clearPrefix: function (prefix) {
+				entries = entries.filter(function (entry) {
+					return String(entry.key).indexOf(prefix) !== 0;
+				});
+				reindex();
+			},
+			/** The live entries, in insert order. */
+			list: function () {
+				return entries.slice();
+			},
+			/** The number of live entries. */
+			count: function () {
+				return entries.length;
+			}
+		};
+	}
+
+	/**
+	 * The revision/status badge text+class for a preview state (design §16.9 P1), pure so the
+	 * selftest pins it. `ended` clamps the shown tick to the duration (never past the end); the
+	 * replay affordance is part of the ended text.
+	 *
+	 * @param {Object} state `{revision, playing, ended, tick, syncing, offline, error}`
+	 * @param {number} total the tab duration in ticks
+	 * @returns {{text: string, cls: string}} the badge text and modifier class
+	 */
+	function previewStatus(state, total) {
+		var pv = state || {};
+		var rev = pv.revision != null ? Number(pv.revision) : 0;
+		if (!isFinite(rev)) {
+			rev = 0;
+		}
+		var span = num(total, 0);
+		if (pv.offline) {
+			return { text: "offline", cls: "offline" };
+		}
+		if (pv.error) {
+			return { text: "rev " + rev + " — error", cls: "error" };
+		}
+		if (pv.ended) {
+			var tick = Math.min(Math.max(0, Math.round(num(pv.tick, 0))), Math.round(span));
+			return { text: "ended @ " + tick + "/" + Math.round(span) + " — ▶ replay", cls: "ended" };
+		}
+		if (pv.playing) {
+			return { text: "rev " + rev + " → live ●", cls: "live" };
+		}
+		if (pv.syncing) {
+			return { text: "rev " + rev + " — syncing…", cls: "syncing" };
+		}
+		return { text: "rev " + rev + " → in game", cls: "" };
+	}
+
 	var api = {
 		compileTab: compileTab,
 		compileTabFiles: compileTabFiles,
@@ -845,6 +1036,10 @@
 		nodeUuid: nodeUuid,
 		isPostType: isPostType,
 		screenLayerOf: screenLayerOf,
+		liveKind: liveKind,
+		nodeRefFromDefId: nodeRefFromDefId,
+		createProblemStore: createProblemStore,
+		previewStatus: previewStatus,
 		PREVIEW_NS: PREVIEW_NS,
 		/** @returns {Array} the clamped-keyframe warnings recorded by the last compile (I3). */
 		getWarnings: function () {

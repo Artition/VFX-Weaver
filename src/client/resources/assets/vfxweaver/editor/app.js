@@ -58,7 +58,10 @@
 		replay: document.getElementById("vfx-replay"),
 		mode: document.getElementById("vfx-mode"),
 		revbadge: document.getElementById("vfx-revbadge"),
-		toasts: document.getElementById("vfx-toasts")
+		problems: document.getElementById("vfx-problems"),
+		problemsList: document.getElementById("vfx-problems-list"),
+		problemsToggle: document.getElementById("vfx-problems-toggle"),
+		problemsCount: document.getElementById("vfx-problems-count")
 	};
 
 	function showBanner(message) {
@@ -70,33 +73,142 @@
 		dom.status.textContent = message || "";
 	}
 
+	/* ------------------------------------------------------------------ */
+	/* Preview problems panel (design §16.9 P1)                            */
+	/* ------------------------------------------------------------------ */
+
 	/**
-	 * Show a transient toast in the Problems area (errors persist longer). Never silently drops an
-	 * error: a preview rejection or a transport failure must be visible (design §16.6).
-	 *
-	 * @param {string} message the message
-	 * @param {string} [kind] `"error"` (default) or `"info"`
+	 * The persistent problems store (rejected definitions, preview errors, parse errors, compile
+	 * warnings). Created lazily because app.js executes before compiler.js in the asset chain; by the
+	 * time an entry is added (a sync reply or an SSE frame) the compiler is loaded.
 	 */
-	function toast(message, kind) {
-		if (!dom.toasts) {
+	var problemStore = null;
+	function problems() {
+		if (!problemStore && window.VFXCompiler
+				&& typeof window.VFXCompiler.createProblemStore === "function") {
+			problemStore = window.VFXCompiler.createProblemStore();
+		}
+		return problemStore;
+	}
+
+	/** Add/replace one problem entry and repaint (never silently drops a preview problem). */
+	function reportProblem(entry) {
+		var store = problems();
+		if (!store) {
 			return;
 		}
-		var entry = document.createElement("div");
-		entry.className = "vfx-toast" + (kind === "info" ? " info" : " error");
-		entry.textContent = message;
-		entry.title = "Click to dismiss";
-		entry.addEventListener("click", function () {
-			if (entry.parentNode) {
-				entry.parentNode.removeChild(entry);
+		store.add(entry);
+		if (entry && entry.severity === "error") {
+			setProblemsCollapsed(false);
+		}
+		renderProblems();
+	}
+
+	/** Keep only the entries under `prefix` whose keys are in `keys`; drop the rest. */
+	function retainProblems(prefix, keys) {
+		var store = problems();
+		if (store) {
+			store.retain(prefix, keys);
+			renderProblems();
+		}
+	}
+
+	/** Drop every entry whose key starts with `prefix`. */
+	function clearProblems(prefix) {
+		var store = problems();
+		if (store) {
+			store.clearPrefix(prefix);
+			renderProblems();
+		}
+	}
+
+	/** Toggle the panel's collapsed state and sync the header's aria-expanded. */
+	function setProblemsCollapsed(collapsed) {
+		if (!dom.problems) {
+			return;
+		}
+		dom.problems.className = "vfx-problems" + (collapsed ? " collapsed" : "");
+		if (dom.problemsToggle) {
+			dom.problemsToggle.setAttribute("aria-expanded", collapsed ? "false" : "true");
+		}
+	}
+
+	/** Select the tab/node a problem entry points at (no-op when the entry has no node). */
+	function selectProblemNode(entry) {
+		if (!entry || !entry.slug || !entry.uuid || !window.VFXCompiler) {
+			return;
+		}
+		for (var t = 0; t < project.tabs.length; t++) {
+			var tab = project.tabs[t];
+			if (window.VFXCompiler.slugOf(tab) !== entry.slug) {
+				continue;
 			}
+			for (var e = 0; e < (tab.effects || []).length; e++) {
+				if (window.VFXCompiler.nodeUuid(tab.effects[e]) === entry.uuid) {
+					selectTab(t);
+					selectEffect(tab, tab.effects[e]);
+					var node = nodeForEffect(tab, tab.effects[e].id);
+					if (scene && node) {
+						scene.selectNodes([node]);
+					}
+					return;
+				}
+			}
+		}
+	}
+
+	/** Rebuild the problems list and its count badge from the store. */
+	function renderProblems() {
+		if (!dom.problemsList) {
+			return;
+		}
+		var store = problems();
+		var entries = store ? store.list() : [];
+		if (dom.problemsCount) {
+			dom.problemsCount.textContent = String(entries.length);
+			dom.problemsCount.className = "vfx-problems-count" + (entries.length ? " has" : "");
+		}
+		if (dom.problems) {
+			dom.problems.classList.toggle("empty", entries.length === 0);
+		}
+		dom.problemsList.textContent = "";
+		entries.forEach(function (entry) {
+			var row = document.createElement("div");
+			row.className = "vfx-problem " + (entry.severity === "warning" ? "warning" : "error");
+			row.setAttribute("role", "listitem");
+			var severity = document.createElement("span");
+			severity.className = "vfx-problem-sev";
+			severity.textContent = entry.severity === "warning" ? "warn" : "error";
+			var message = document.createElement("span");
+			message.className = "vfx-problem-msg";
+			message.textContent = entry.message || "";
+			row.appendChild(severity);
+			row.appendChild(message);
+			if (entry.context) {
+				var context = document.createElement("span");
+				context.className = "vfx-problem-ctx";
+				context.textContent = entry.context;
+				row.appendChild(context);
+			}
+			if (entry.slug && entry.uuid) {
+				row.classList.add("clickable");
+				row.title = "Click to select the node";
+				row.addEventListener("click", function () {
+					selectProblemNode(entry);
+				});
+			}
+			dom.problemsList.appendChild(row);
 		});
-		dom.toasts.appendChild(entry);
-		var delay = kind === "info" ? 4000 : 12000;
-		setTimeout(function () {
-			if (entry.parentNode) {
-				entry.parentNode.removeChild(entry);
-			}
-		}, delay);
+	}
+
+	/** Wire the panel's header toggle. */
+	function wireProblems() {
+		if (dom.problemsToggle) {
+			dom.problemsToggle.addEventListener("click", function () {
+				var collapsed = dom.problems && dom.problems.classList.contains("collapsed");
+				setProblemsCollapsed(!collapsed);
+			});
+		}
 	}
 
 	/**
@@ -112,7 +224,9 @@
 		namespace: "vfx_project",
 		defaults: {},
 		tabs: [],
-		active: -1
+		active: -1,
+		/** The persisted preview mode (design §16.9 P1): "exact" (default) or "authored". */
+		mode: "exact"
 	};
 
 	/** The parsed GET /schema payload: `{ "<type>": { params: [...] } }`. */
@@ -503,6 +617,11 @@
 		renderInspector();
 		renderTimeline();
 		showEmptyPlaceholder();
+		// Re-project the preview onto the newly active tab (design §16.9 P1): an empty tab clears it.
+		if (window.VFXTimeline && window.VFXTimeline.preview
+				&& typeof window.VFXTimeline.preview.sync === "function") {
+			window.VFXTimeline.preview.sync(tab);
+		}
 	}
 
 	function closeTab(index) {
@@ -510,6 +629,7 @@
 			return;
 		}
 		var wasActive = index === project.active;
+		var closing = project.tabs[index];
 		project.tabs.splice(index, 1);
 		if (project.tabs.length === 0) {
 			project.active = -1;
@@ -524,6 +644,11 @@
 			renderInspector();
 			renderTimeline();
 			showEmptyPlaceholder();
+			// No tab left: clear the preview so the closed tab's definitions unregister and nothing plays.
+			if (window.VFXTimeline && window.VFXTimeline.preview
+					&& typeof window.VFXTimeline.preview.clear === "function") {
+				window.VFXTimeline.preview.clear(closing);
+			}
 			commitHistory();
 			return;
 		}
@@ -1790,6 +1915,7 @@
 			name: project.name,
 			namespace: project.namespace,
 			defaults: snapshot(project.defaults || {}),
+			mode: project.mode,
 			tabs: project.tabs.map(snapshotTab)
 		};
 	}
@@ -1842,6 +1968,12 @@
 		project.name = snap.name == null ? project.name : String(snap.name);
 		project.namespace = snap.namespace == null ? project.namespace : String(snap.namespace);
 		project.defaults = snapshot(snap.defaults) || {};
+		project.mode = snap.mode === "authored" ? "authored" : "exact";
+		if (window.VFXTimeline && window.VFXTimeline.preview
+				&& window.VFXTimeline.preview.mode() !== project.mode) {
+			window.VFXTimeline.preview.setMode(project.mode);
+		}
+		updateModeButton();
 		setProjectName();
 		// Drop any pending debounced edit/commit so a stale timer cannot re-commit after the restore.
 		clearTimeout(commitTimer);
@@ -2033,6 +2165,37 @@
 			}
 		}
 		return null;
+	}
+
+	/**
+	 * The authored live source of a param (design §16.9 P1): "bind"/"expr" when the active effect's
+	 * slot is an inline bind/expr or is wired to a bind/expr value node, else null (a track or a
+	 * constant/curve is not live). Pure-authority: reads the authored IR only, never the running game.
+	 *
+	 * @param {Object} tab the active tab
+	 * @param {string} name the param name
+	 * @returns {string|null} "bind", "expr" or null
+	 */
+	function liveKindFor(tab, name) {
+		if (!tab || !window.VFXCompiler || typeof window.VFXCompiler.liveKind !== "function") {
+			return null;
+		}
+		var keys = tab.keys && tab.keys[name];
+		var hasTrack = Array.isArray(keys) && keys.length > 0;
+		var active = tab.effects && tab.effects.length > 1 ? tab.effect() : null;
+		var params = (active ? active.params : tab.params) || {};
+		var driverKind = null;
+		var source = drivenParamSource(tab, name);
+		if (source) {
+			var nodes = Array.isArray(tab.valueNodes) ? tab.valueNodes : [];
+			for (var i = 0; i < nodes.length; i++) {
+				if (nodes[i] && nodes[i].id === source) {
+					driverKind = nodes[i].kind;
+					break;
+				}
+			}
+		}
+		return window.VFXCompiler.liveKind(params[name], hasTrack, driverKind);
 	}
 
 	/**
@@ -2420,12 +2583,15 @@
 					? (row.components.some(function (component) { return drivenParamSource(tab, component.name); })
 							? "group" : null)
 					: drivenParamSource(tab, row.components[0].name);
+			var live = row.components.some(function (component) {
+				return liveKindFor(tab, component.name);
+			});
 			var item = document.createElement("button");
 			item.type = "button";
 			item.className = "vfx-param" + (row.name === inspectorName ? " active" : "")
 					+ (source ? " driven" : "");
-			item.textContent = rowLabel(tab, row) + (source ? " ←" : "");
-			item.title = source ? ("driven by " + source) : "";
+			item.textContent = rowLabel(tab, row) + (source ? " ←" : "") + (live ? " ●" : "");
+			item.title = source ? ("driven by " + source) : (live ? "live source" : "");
 			item.addEventListener("click", function () {
 				inspectorName = row.name;
 				renderInspector();
@@ -2438,7 +2604,7 @@
 		} else {
 			var param = current.components[0];
 			dom.inspector.appendChild(window.VFXInspector.render(tab, param, onInspectorEdit,
-					drivenParamSource(tab, param.name)));
+					drivenParamSource(tab, param.name), liveKindFor(tab, param.name)));
 		}
 	}
 
@@ -3996,6 +4162,25 @@
 		commit: commitHistory,
 		focusNode: focusNode,
 		slot: slot,
+		liveKind: liveKindFor,
+		problems: {
+			/** Add/replace one problem entry (see {@link reportProblem}). */
+			add: reportProblem,
+			/** Keep only `keys` under `prefix`, dropping entries a later sync no longer reports. */
+			retain: retainProblems,
+			/** Drop every entry whose key starts with `prefix`. */
+			clear: clearProblems,
+			/** The current entries. */
+			list: function () {
+				var store = problems();
+				return store ? store.list() : [];
+			},
+			/** The current entry count. */
+			count: function () {
+				var store = problems();
+				return store ? store.count() : 0;
+			}
+		},
 		showMenu: showMenu,
 		undo: undoHistory,
 		redo: redoHistory
@@ -4202,6 +4387,7 @@
 	/**
 	 * The revision/status badge in the top bar. When a preview session exists it shows the live
 	 * preview state (`rev N → live ●`, `ended @ X/Y`, syncing), else the legacy `/compile` badge.
+	 * The text/class is computed by the pure {@code VFXCompiler.previewStatus} (design §16.9 P1).
 	 */
 	function updateRevBadge(state) {
 		if (!dom.revbadge) {
@@ -4209,46 +4395,37 @@
 		}
 		var pv = window.VFXTimeline && window.VFXTimeline.preview
 				? window.VFXTimeline.preview.state() : null;
-		var rev = pv ? pv.revision : (Number(project.revision) || 0);
-		if (state === "offline") {
-			dom.revbadge.textContent = "offline";
-			dom.revbadge.className = "vfx-badge offline";
-		} else if (state === "error") {
-			dom.revbadge.textContent = "rev " + rev + " — error";
-			dom.revbadge.className = "vfx-badge error";
-		} else if (pv && pv.ended) {
-			var total = window.VFXTimeline && typeof window.VFXTimeline.duration === "function"
-					? Math.round(window.VFXTimeline.duration(activeTab())) : Math.round(pv.duration);
-			dom.revbadge.textContent = "ended @ " + Math.round(pv.tick) + "/" + total + " — ▶ replay";
-			dom.revbadge.className = "vfx-badge ended";
-		} else if (pv && pv.playing) {
-			dom.revbadge.textContent = "rev " + rev + " → live ●";
-			dom.revbadge.className = "vfx-badge live";
-		} else if (pv && pv.syncing) {
-			dom.revbadge.textContent = "rev " + rev + " — syncing…";
-			dom.revbadge.className = "vfx-badge syncing";
-		} else if (pv) {
-			dom.revbadge.textContent = "rev " + rev + " → in game";
-			dom.revbadge.className = "vfx-badge";
-		} else if (state === "syncing") {
-			dom.revbadge.textContent = "rev " + rev + " — syncing…";
-			dom.revbadge.className = "vfx-badge syncing";
-		} else {
-			dom.revbadge.textContent = "rev " + rev + " → in game";
-			dom.revbadge.className = "vfx-badge";
+		var total = window.VFXTimeline && typeof window.VFXTimeline.duration === "function"
+				? window.VFXTimeline.duration(activeTab()) : (pv ? pv.duration : 0);
+		var status = {
+			revision: pv ? pv.revision : (Number(project.revision) || 0),
+			playing: pv ? pv.playing : false,
+			ended: pv ? pv.ended : false,
+			tick: pv ? pv.tick : 0,
+			syncing: pv ? pv.syncing : state === "syncing",
+			offline: state === "offline",
+			error: state === "error"
+		};
+		if (window.VFXCompiler && typeof window.VFXCompiler.previewStatus === "function") {
+			var shown = window.VFXCompiler.previewStatus(status, total);
+			dom.revbadge.textContent = shown.text;
+			dom.revbadge.className = "vfx-badge" + (shown.cls ? " " + shown.cls : "");
 		}
 	}
 
-	/** Label the transport mode toggle from the preview session (Exact vs Authored). */
+	/** Label + tooltip the transport mode toggle from the preview session (Exact vs Authored). */
 	function updateModeButton() {
 		if (!dom.mode) {
 			return;
 		}
 		var pv = window.VFXTimeline && window.VFXTimeline.preview;
-		var authored = pv ? pv.mode() === "authored" : false;
+		var authored = pv ? pv.mode() === "authored" : project.mode === "authored";
 		dom.mode.textContent = authored ? "Authored · как в игре" : "Exact · по таймлайну";
 		dom.mode.className = "vfx-mode" + (authored ? " authored" : "");
 		dom.mode.setAttribute("aria-pressed", authored ? "true" : "false");
+		dom.mode.title = authored
+				? "Authored — как в игре: реальный жизненный цикл (fade/loop/персист)"
+				: "Exact — по таймлайну: без fade/loop, точное время";
 	}
 
 	/** Start the bridge (SSE + reconnect) and surface its health in the status line + badge. */
@@ -4262,7 +4439,13 @@
 			updateRevBadge("offline");
 		});
 		bridge.on("error", function (data) {
-			status("bridge: " + ((data && (data.detail || data.error)) || "error"));
+			var message = (data && (data.detail || data.error)) || "error";
+			status("bridge: " + message);
+			reportProblem({
+				key: "bridge:" + message,
+				severity: "error",
+				message: "bridge: " + message
+			});
 			updateRevBadge("error");
 		});
 		bridge.on("revision", function () {
@@ -4286,7 +4469,17 @@
 			}
 		});
 		bridge.on("preview/error", function (data) {
-			toast("preview: " + ((data && data.message) || "error"));
+			var defId = data && data.defId ? String(data.defId) : null;
+			var ref = defId && window.VFXCompiler
+					? window.VFXCompiler.nodeRefFromDefId(defId) : null;
+			reportProblem({
+				key: defId ? "reject:" + defId : "error:" + ((data && data.message) || "error"),
+				severity: "error",
+				message: "preview: " + ((data && data.message) || "error"),
+				context: defId ? "[" + (ref ? ref.slug + "/" + ref.uuid : defId) + "]" : null,
+				slug: ref ? ref.slug : null,
+				uuid: ref ? ref.uuid : null
+			});
 			updateRevBadge("error");
 		});
 		bridge.connect(token);
@@ -4343,9 +4536,9 @@
 			renderTimeline();
 			showEmptyPlaceholder();
 			commitHistory();
-			if (tab.effects && tab.effects.length) {
-				requestStructural(tab);
-			}
+			// Always re-sync, including the empty chain: an emptied tab must clear the preview
+			// (design §16.9 P1), not leave the last effect playing.
+			requestStructural(tab);
 		}
 	}
 
@@ -4568,10 +4761,15 @@
 		node.hidden = !node.hidden;
 	}
 
-	/** Space: play the active tab, or stop it when already playing. */
+	/** Space: play the active tab, pause it when playing, or replay when the preview ended. */
 	function transportToggle() {
 		var tab = activeTab();
 		if (!tab || !tab.type || !window.VFXTimeline) {
+			return;
+		}
+		var pv = window.VFXTimeline.preview;
+		if (pv && pv.state().ended && typeof window.VFXTimeline.replay === "function") {
+			window.VFXTimeline.replay(tab);
 			return;
 		}
 		if (typeof window.VFXTimeline.isPlaying === "function" && window.VFXTimeline.isPlaying()) {
@@ -4966,11 +5164,28 @@
 				if (!pv) {
 					return;
 				}
-				pv.setMode(pv.mode() === "authored" ? "exact" : "authored");
+				project.mode = pv.mode() === "authored" ? "exact" : "authored";
+				pv.setMode(project.mode);
+				commitHistory();
 				updateModeButton();
 				updateRevBadge();
 			});
 		}
+		// Ended badge is the replay affordance (design §16.9 P1): click seeks to 0 and plays.
+		if (dom.revbadge) {
+			dom.revbadge.addEventListener("click", function () {
+				var pv = window.VFXTimeline && window.VFXTimeline.preview;
+				if (!pv || !pv.state().ended) {
+					return;
+				}
+				var tab = activeTab();
+				if (tab && tab.type && typeof window.VFXTimeline.replay === "function") {
+					window.VFXTimeline.replay(tab);
+				}
+			});
+		}
+		wireProblems();
+		renderProblems();
 		setProjectName();
 		updateRevBadge();
 		updateModeButton();
