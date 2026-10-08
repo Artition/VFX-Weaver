@@ -396,6 +396,7 @@ public final class EditorPreviewController {
 		for (final EditorPreviewPlan.Child old : oldChildren) {
 			if (!newKeys.contains(old.key())) {
 				removeChild(old.key());
+				this.instances.remove(old.key());
 			}
 		}
 		final Set<String> changedDefs = new LinkedHashSet<>(appliedIds);
@@ -445,16 +446,34 @@ public final class EditorPreviewController {
 				setAge(id, age);
 			}
 			if (child.isPost()) {
-				VFXEffectManager.get().setParam(def, "order", (float) EditorPreviewPlan.orderIndex(this.order, child.key()));
+				applyOrder(id, EditorPreviewPlan.orderIndex(this.order, child.key()));
 			}
+		}
+	}
+
+	/**
+	 * Applies the post-processing rank to an instance. Rank {@code 0} <b>clears</b> the override
+	 * rather than writing a constant {@code 0}: an all-zero override set makes
+	 * {@code VFXTimeline.isZeroedOut()} report the effect as finished, so every rank-0 child —
+	 * including a single-post tab — would be reaped each tick and never render (design §16.2).
+	 */
+	private void applyOrder(final long id, final int index) {
+		final @Nullable VFXActiveEffect effect = find(id);
+		if (effect == null) {
+			return;
+		}
+		if (index == 0) {
+			effect.getTimeline().clearOverride("order");
+		} else {
+			effect.getTimeline().setOverride("order", index);
 		}
 	}
 
 	private void spawn(final EditorPreviewPlan.Child child, final Identifier def, final long id, final float age) {
 		final int duration = child.duration() > 0.0F ? Math.round(child.duration()) : 0;
-		final Map<String, Float> params = child.isPost()
-			? Map.of("order", (float) EditorPreviewPlan.orderIndex(this.order, child.key()))
-			: Map.of();
+		// `order` is applied per-instance in reconcile(): never pass it as a spawn constant, a
+		// zero value would zero out the override set and the instance would be reaped (§16.2).
+		final Map<String, Float> params = Map.of();
 		// Anchor trigger so age == clock - trigger, then pin the exact age: the controller owns the
 		// tick, so a pause/seek never depends on the shared clock's drift.
 		final float trigger = VFXEffectManager.get().getClock() - age;
@@ -463,6 +482,9 @@ public final class EditorPreviewController {
 	}
 
 	private void doPlay() {
+		if (this.ended || this.tick >= this.tabDuration) {
+			this.tick = 0.0F;
+		}
 		this.ended = false;
 		this.playing = true;
 		if (AUTHORED.equals(this.mode)) {

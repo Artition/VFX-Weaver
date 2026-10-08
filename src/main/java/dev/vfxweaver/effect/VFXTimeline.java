@@ -369,6 +369,20 @@ public class VFXTimeline {
 	}
 
 	/**
+	 * Removes a runtime-added constant override (see {@link #setOverride}), returning the parameter
+	 * to its binding or definition value. No-op when the parameter has no override.
+	 *
+	 * <p>Used by the editor preview to drop the {@code order} rank once a post child moves to rank
+	 * {@code 0}: writing a constant {@code 0} instead would leave an all-zero override set, which
+	 * {@link #isZeroedOut()} reports as a finished effect.</p>
+	 *
+	 * @param name parameter name
+	 */
+	public void clearOverride(final String name) {
+		this.overrides.remove(name);
+	}
+
+	/**
 	 * Adds or replaces a keyframe of the parameter on a live copy of its animation (used by
 	 * {@code /vfx set} + the network {@code KEYFRAME} action). When the parameter has no animation
 	 * yet, a step animation starting at the keyframe is created.
