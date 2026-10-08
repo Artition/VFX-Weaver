@@ -258,6 +258,241 @@
 	}
 
 	/* ------------------------------------------------------------------ */
+	/* Preview v2 session (design §16)                                     */
+	/* ------------------------------------------------------------------ */
+
+	/**
+	 * The preview session state. `revision` is WEB-owned: the controller stores whatever `sync`
+	 * sends and gates `viewstate`/`param`/`transport` on it, so the browser is the single writer of
+	 * the revision counter. `mode` is `exact` (default) or `authored`.
+	 */
+	var preview = {
+		revision: 0,
+		tab: null,
+		mode: "exact",
+		playing: false,
+		ended: false,
+		tick: 0,
+		duration: DEFAULT_DURATION,
+		syncing: false,
+		context: { anchor: "player", pos: null, targets: [] }
+	};
+
+	/** Bump and return the next preview revision (sent with every preview action). */
+	function nextRevision() {
+		preview.revision += 1;
+		return preview.revision;
+	}
+
+	/** The tab the preview is driving (the synced one, else the shell's active tab). */
+	function previewTab() {
+		if (preview.tab) {
+			return preview.tab;
+		}
+		var project = root.VFXEditor && root.VFXEditor.project;
+		return project && project.active >= 0 ? project.tabs[project.active] : null;
+	}
+
+	/** Surface a preview failure in the status line and the console (never silently). */
+	function previewError(message) {
+		surface("preview: " + message);
+		if (root.console && root.console.error) {
+			root.console.error("[vfx preview] " + message);
+		}
+	}
+
+	/** Guards the one-shot stale-revision recovery so a bad expected revision cannot loop. */
+	var staleGuard = false;
+
+	/** Route a preview response: stale → re-sync, rejected → error entry, else mark applied. */
+	function handlePreviewResult(result, tab) {
+		if (!result || typeof result !== "object") {
+			return result;
+		}
+		if (result.ok === false) {
+			if (result.error === "stale_revision") {
+				if (staleGuard) {
+					previewError("stale revision after re-sync");
+					return result;
+				}
+				staleGuard = true;
+				// Jump to the revision the game expects (a page reload resets our counter).
+				var match = /expected revision (\d+)/.exec(result.detail || "");
+				if (match) {
+					preview.revision = Number(match[1]);
+				}
+				return previewResync(tab);
+			}
+			previewError(result.error + (result.detail ? " — " + result.detail : ""));
+			return result;
+		}
+		staleGuard = false;
+		preview.syncing = false;
+		if (Array.isArray(result.rejected) && result.rejected.length) {
+			previewError("rejected " + result.rejected.length + " definition(s): "
+					+ result.rejected.join(", "));
+		}
+		return result;
+	}
+
+	/** POST the whole tab definition set (revision++); the controller diffs and re-projects it. */
+	function previewSyncNow(tab) {
+		var target = tab || previewTab();
+		if (!target || !target.effects || !target.effects.length || !root.VFXCompiler
+				|| typeof root.VFXCompiler.compilePreviewSet !== "function") {
+			return Promise.resolve(null);
+		}
+		preview.tab = target;
+		var set;
+		try {
+			set = root.VFXCompiler.compilePreviewSet(target, { context: preview.context });
+		} catch (e) {
+			previewError("compile failed: " + (e && e.message ? e.message : e));
+			return Promise.resolve(null);
+		}
+		preview.syncing = true;
+		return post("/preview/sync", {
+			revision: nextRevision(),
+			tab: target.name,
+			definitions: set.definitions,
+			root: set.root,
+			meta: set.meta
+		}).then(function (result) {
+			return handlePreviewResult(result, target);
+		});
+	}
+
+	/** Debounced (~250 ms) full-set sync, fired after every structural edit. */
+	function previewSync(tab) {
+		if (!tab) {
+			return;
+		}
+		debounceAfter("preview:" + effectId(tab), 250, function () {
+			previewSyncNow(tab);
+		});
+	}
+
+	/** Immediate re-sync (revision++): the 409/stale recovery and the reconnect reassert. */
+	function previewResync(tab) {
+		return previewSyncNow(tab || previewTab());
+	}
+
+	/** One transport action, revision-gated; a stale reply triggers one re-sync + retry. */
+	function previewTransport(action, extra) {
+		var body = { revision: preview.revision, action: action };
+		if (extra) {
+			Object.keys(extra).forEach(function (key) {
+				body[key] = extra[key];
+			});
+		}
+		return post("/preview/transport", body).then(function (result) {
+			if (result && result.ok === false && result.error === "stale_revision") {
+				return previewResync(previewTab()).then(function () {
+					body.revision = preview.revision;
+					return post("/preview/transport", body);
+				});
+			}
+			return handlePreviewResult(result, previewTab());
+		});
+	}
+
+	/** Send the view state (order/mute/solo) — instance ops only, no recompilation. */
+	function previewViewstate(tab) {
+		var target = tab || previewTab();
+		if (!target || !root.VFXCompiler || typeof root.VFXCompiler.previewViewstate !== "function") {
+			return Promise.resolve(null);
+		}
+		var vs = root.VFXCompiler.previewViewstate(target);
+		var body = { revision: preview.revision, order: vs.order, muted: vs.muted, solo: vs.solo };
+		return post("/preview/viewstate", body).then(function (result) {
+			if (result && result.ok === false && result.error === "stale_revision") {
+				return previewResync(target).then(function () {
+					body.revision = preview.revision;
+					return post("/preview/viewstate", body);
+				});
+			}
+			return handlePreviewResult(result, target);
+		});
+	}
+
+	/** Fast-path param send state (leading + trailing throttle at ~30 Hz). */
+	var paramLastMs = 0;
+	var paramTimer = 0;
+	var paramPending = null;
+
+	/** POST one param override on the child's live instance (fast path). */
+	function sendParam(key, name, value) {
+		return post("/preview/param", {
+			revision: preview.revision,
+			key: key,
+			param: name,
+			value: Number(value)
+		}).then(function (result) {
+			if (result && result.ok === false && result.error === "stale_revision") {
+				return previewResync(previewTab());
+			}
+			return result;
+		});
+	}
+
+	/**
+	 * Fast-path param edit (~30 Hz while dragging): sends the override now when the throttle window
+	 * elapsed, else remembers the latest value for a trailing send. The caller re-syncs on release.
+	 *
+	 * @param {Object} tab the tab (unused but keeps the call sites uniform)
+	 * @param {string} key the child key (the node uuid)
+	 * @param {string} name the param name
+	 * @param {number} value the new value
+	 */
+	function previewParam(tab, key, name, value) {
+		if (!key || !name || !isFiniteNumber(Number(value))) {
+			return;
+		}
+		if (now() - paramLastMs >= 33) {
+			paramLastMs = now();
+			sendParam(key, name, value);
+			return;
+		}
+		paramPending = { key: key, name: name, value: value };
+		if (!paramTimer) {
+			paramTimer = setTimeout(function () {
+				paramTimer = 0;
+				var pending = paramPending;
+				paramPending = null;
+				if (pending) {
+					paramLastMs = now();
+					sendParam(pending.key, pending.name, pending.value);
+				}
+			}, 33);
+		}
+	}
+
+	/** Switch the preview mode (exact|authored) and push it to the controller. */
+	function setPreviewMode(mode) {
+		preview.mode = mode === "authored" ? "authored" : "exact";
+		return previewTransport("setMode", { mode: preview.mode });
+	}
+
+	/** The preview session, exposed for the shell (layers, mode toggle, status badge). */
+	var previewApi = {
+		sync: previewSync,
+		resync: previewResync,
+		transport: previewTransport,
+		viewstate: previewViewstate,
+		param: previewParam,
+		setMode: setPreviewMode,
+		mode: function () {
+			return preview.mode;
+		},
+		state: function () {
+			return preview;
+		},
+		setContext: function (context) {
+			preview.context = context || preview.context;
+		}
+	};
+
+	/* ------------------------------------------------------------------ */
 	/* Bridge transport                                                    */
 	/* ------------------------------------------------------------------ */
 
@@ -273,34 +508,6 @@
 	function post(path, body) {
 		var bridge = root.VFXBridge;
 		return bridge && typeof bridge.post === "function" ? bridge.post(path, body) : Promise.resolve(null);
-	}
-
-	/**
-	 * Record the echoed revision and surface a failure. When `recover` is set, a stale revision or a
-	 * refused hot edit triggers a full re-compile so the game catches up with the model.
-	 *
-	 * @param {Object} result the bridge response
-	 * @param {Object} tab the tab the request was for
-	 * @param {boolean} [recover] whether a failure may re-compile (false while already compiling)
-	 * @returns {Object} the response
-	 */
-	function handleResult(result, tab, recover) {
-		if (!result || typeof result !== "object") {
-			return result;
-		}
-		if (typeof result.revision === "number") {
-			setRevision(result.revision);
-		}
-		if (result.ok === false) {
-			surface("bridge: " + (result.error || "error")
-					+ (result.detail ? " — " + result.detail : ""));
-			if (recover !== false
-					&& (result.error === "stale_revision" || result.error === "game_rejected"
-							|| result.error === "unknown_effect")) {
-				compile(tab, "play");
-			}
-		}
-		return result;
 	}
 
 	/* ------------------------------------------------------------------ */
@@ -329,56 +536,49 @@
 	/* Editor actions                                                      */
 	/* ------------------------------------------------------------------ */
 
-	/**
-	 * POST a full `/compile` (and play). Called by the play button and by every structural edit.
-	 *
-	 * @param {Object} tab the tab to compile
-	 * @param {string} [transport] "play" (default) or "stop"
-	 * @returns {Promise<Object|null>} the response
-	 */
-	function compile(tab, transport) {
+	/** Recompile the whole set now (the structural entry point; kept as `compile` for callers). */
+	function compile(tab) {
+		return previewSyncNow(tab);
+	}
+
+	/** Play: sync the set, then transport play; run the local clock as an SSE fallback. */
+	function play(tab) {
 		if (!tab || !tab.type) {
 			surface("choose an effect type before playing");
 			return Promise.resolve(null);
 		}
-		// A chain preview cannot register its child definitions (one `/compile` carries one file), so
-		// say so once per tab instead of silently playing nothing (known v1.1 gap).
-		if (transport !== "stop" && tab.effects && tab.effects.length >= 2) {
-			var key = effectId(tab);
-			if (!chainPreviewHinted[key]) {
-				chainPreviewHinted[key] = true;
-				surface("chain preview is export-only for now — export + /reload to see it");
-			}
-		}
-		return post("/compile", compileBody(tab, transport)).then(function (result) {
-			return handleResult(result, tab, false);
-		});
-	}
-
-	/** Play: compile with `transport:"play"` (registers + plays), then run the local clock. */
-	function play(tab) {
-		return compile(tab, "play").then(function (result) {
-			// Success carries a revision; `ok` is absent on some bridge replies, so test `!== false`.
-			if (result && result.ok !== false) {
+		preview.tab = tab;
+		return previewSyncNow(tab).then(function () {
+			return previewTransport("play");
+		}).then(function (result) {
+			if (!result || result.ok !== false) {
+				clock.tab = tab;
 				startClock(tab, 0);
 			}
 			return result;
 		});
 	}
 
-	/** Stop: halt the local clock, reset the playhead, then `POST /transport { action:"stop" }`. */
+	/** Stop: transport stop, halt the local clock, reset the playhead. */
 	function stop(tab) {
 		stopClock();
 		setPlayhead(0);
 		if (!tab || !tab.type) {
 			return Promise.resolve(null);
 		}
-		return post("/transport", transportBody(tab, "stop")).then(function (result) {
-			return handleResult(result, tab, false);
-		});
+		return previewTransport("stop");
 	}
 
-	/** Seek: move the local playhead immediately and send a debounced `/transport seek`. */
+	/** Pause: transport pause, hold the playhead where it is (design §16.4). */
+	function pause(tab) {
+		stopClock();
+		if (!tab || !tab.type) {
+			return Promise.resolve(null);
+		}
+		return previewTransport("pause");
+	}
+
+	/** Seek: move the local playhead immediately and send a debounced transport seek. */
 	function seek(tab, ticks) {
 		var target = clampToDuration(tab, Number(ticks) || 0);
 		if (!tab) {
@@ -390,15 +590,13 @@
 		}
 		setPlayhead(target);
 		debounce("seek:" + effectId(tab), function () {
-			post("/transport", transportBody(tab, "seek", target)).then(function (result) {
-				return handleResult(result, tab, false);
-			});
+			previewTransport("seek", { tick: target });
 		});
 	}
 
 	/**
-	 * Scrub: move the local playhead only (design §15.5). No game request — the timeline is a local
-	 * curve recompute, and dragging the playhead must not spam the bridge.
+	 * Scrub: move the local playhead only. The pause-while-dragging / restore-after gesture lives in
+	 * {@link beginScrub}; the actual game seek is a debounced transport call.
 	 */
 	function scrub(tab, ticks) {
 		if (!tab) {
@@ -412,63 +610,47 @@
 		setPlayhead(target);
 	}
 
-	/** Hot param edit (a constant slider): debounced `POST /set_param`. */
+	/**
+	 * Hot param edit (a constant slider): fast-path `/preview/param` at ~30 Hz, then a debounced
+	 * full-set sync when the edit settles (design §16.6). The local readout stays instant.
+	 */
 	function setParam(tab, name, value) {
 		if (!tab || !name || !isFiniteNumber(Number(value))) {
 			return;
 		}
-		debounce("param:" + effectId(tab) + ":" + name, function () {
-			post("/set_param", setParamBody(tab, name, value)).then(function (result) {
-				return handleResult(result, tab, true);
-			});
-		});
-		scheduleReplay(tab);
+		var effect = tab.effect ? tab.effect() : (tab.effects && tab.effects[0]);
+		if (effect && root.VFXCompiler && typeof root.VFXCompiler.nodeUuid === "function") {
+			previewParam(tab, root.VFXCompiler.nodeUuid(effect), name, value);
+		}
+		previewSync(tab);
 	}
 
-	/** Hot keyframe edit (a key drag): debounced `POST /set_keyframe`. */
+	/** Key edit: the definition changes, so a full-set sync (no fast path for keys). */
 	function setKeyframe(tab, name, key) {
 		if (!tab || !name || !key) {
 			return;
 		}
-		debounce("key:" + effectId(tab) + ":" + name, function () {
-			// Build the body (and read `revision`) at send time, so a compile landing inside the
-			// debounce window cannot make this keyframe stale.
-			post("/set_keyframe", setKeyframeBody(tab, name, key.time, key.value)).then(function (result) {
-				return handleResult(result, tab, true);
-			});
-		});
-		scheduleReplay(tab);
+		previewSync(tab);
 	}
 
-	/** Structural edit: debounced full `/compile` (revision++ + play). */
+	/** Structural edit: debounced full-set sync. */
 	function structural(tab) {
-		if (!tab) {
-			return;
-		}
-		debounce("compile:" + effectId(tab), function () {
-			compile(tab, "play");
-		});
+		previewSync(tab);
 	}
 
 	/**
-	 * Auto-replay (design §15.5): after an edit settles (~250 ms) re-play the preview from t=0, so a
-	 * changed effect never silently disappears. Debounced, so a drag or a burst of keystrokes is one
-	 * replay. Scrubbing deliberately does NOT come here — it is a local recompute only.
+	 * After an edit settles (~250 ms) re-sync the set. The controller re-projects at the current
+	 * tick, so the playhead is preserved (no auto-replay to 0); a scrub does not come here.
 	 *
 	 * @param {Object} tab the edited tab
 	 */
 	function scheduleReplay(tab) {
-		if (!tab || !tab.type) {
-			return;
-		}
-		debounceAfter("replay:" + effectId(tab), 250, function () {
-			play(tab);
-		});
+		previewSync(tab);
 	}
 
 	/**
-	 * Route an inspector edit to the right bridge call. A constant value on a constant param is a hot
-	 * `set_param`; a form switch, an array value, or any other control is structural (`/compile`).
+	 * Route an inspector edit to the right preview call. A constant value on a constant param is a
+	 * fast `/preview/param`; a form switch, an array value, or any other control is a full sync.
 	 *
 	 * @param {Object} tab the tab
 	 * @param {string} name the param name
@@ -516,8 +698,6 @@
 	var curveKeyHandler = null;
 	/** A single-click key add deferred so a following double-click (open curve) can cancel it. */
 	var pendingLaneAdd = null;
-	/** Tabs already told that a chain preview cannot register its child defs (hint once per tab). */
-	var chainPreviewHinted = {};
 
 	/** The Bézier the curve editor draws a segment with (delegates to the IR's canonical table). */
 	function easingBezier(easing) {
@@ -1045,7 +1225,10 @@
 		return clientX - rect.left + ui.scroller.scrollLeft < LABEL_COLUMN;
 	}
 
-	/** Scrub the playhead by dragging the track background (never a key dot or a lane). Local only. */
+	/**
+	 * Scrub the playhead by dragging the track background (never a key dot or a lane). The preview
+	 * is paused for the drag (so the game holds its frame) and restored on release (design §16.6).
+	 */
 	function beginScrub(tab) {
 		return function (event) {
 			// A mousedown on a lane is the add-key gesture, not a scrub (fix 4).
@@ -1053,12 +1236,22 @@
 				return;
 			}
 			event.preventDefault();
+			var wasPlaying = clock.playing;
+			if (wasPlaying) {
+				previewTransport("pause");
+				stopClock();
+			}
 			function move(ev) {
 				scrub(tab, tickAt(ev.clientX));
 			}
-			function up() {
+			function up(ev) {
 				document.removeEventListener("mousemove", move);
 				document.removeEventListener("mouseup", up);
+				var target = clampToDuration(tab, tickAt(ev.clientX));
+				previewTransport("seek", { tick: target });
+				if (wasPlaying) {
+					play(tab);
+				}
 			}
 			document.addEventListener("mousemove", move);
 			document.addEventListener("mouseup", up);
@@ -1853,11 +2046,69 @@
 		container.appendChild(render(tab));
 	}
 
+	/* ------------------------------------------------------------------ */
+	/* Game-clock follow (SSE)                                             */
+	/* ------------------------------------------------------------------ */
+
+	/**
+	 * Follow the game's preview clock (design §16.6): each `preview/state` frame moves the playhead
+	 * to the game tick while playing, so the browser playhead and the rendered effect stay in step.
+	 * The local rAF clock keeps the motion smooth between frames; the frame re-anchors it.
+	 *
+	 * @param {Object} data the `preview/state` payload
+	 */
+	function onPreviewState(data) {
+		if (!data || typeof data !== "object") {
+			return;
+		}
+		if (typeof data.mode === "string") {
+			preview.mode = data.mode;
+		}
+		if (typeof data.playing === "boolean") {
+			preview.playing = data.playing;
+		}
+		if (typeof data.ended === "boolean") {
+			preview.ended = data.ended;
+		}
+		preview.tick = Number(data.tick) || 0;
+		var tab = previewTab();
+		if (tab) {
+			clock.tab = tab;
+		}
+		if (data.playing) {
+			clock.playing = true;
+			clock.baseElapsed = preview.tick;
+			clock.startMs = now();
+			setPlayhead(preview.tick);
+			schedule();
+		} else {
+			if (clock.playing) {
+				stopClock();
+			}
+			setPlayhead(preview.tick);
+		}
+	}
+
+	/** Surface a preview error frame from the game (never silent). */
+	function onPreviewError(data) {
+		previewError(data && data.message ? data.message : "error");
+	}
+
+	if (root.VFXBridge && typeof root.VFXBridge.on === "function") {
+		root.VFXBridge.on("preview/state", onPreviewState);
+		root.VFXBridge.on("preview/error", onPreviewError);
+		root.VFXBridge.on("open", function () {
+			// A (re)connect reasserts the model so the game's session matches the browser's.
+			previewResync(previewTab());
+		});
+	}
+
 	var api = {
 		render: render,
 		onEdit: onEdit,
 		compile: compile,
 		play: play,
+		pause: pause,
 		stop: stop,
 		seek: seek,
 		scrub: scrub,
@@ -1875,6 +2126,7 @@
 		playhead: elapsedNow,
 		duration: duration,
 		clampTime: clampToDuration,
+		preview: previewApi,
 		bodies: {
 			compile: compileBody,
 			transport: transportBody,

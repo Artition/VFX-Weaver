@@ -86,6 +86,8 @@
 		<button id="vfx-play" type="button" title="Play / pause (Space)">▶</button>
 		<button id="vfx-stop" type="button" title="Stop">■</button>
 		<button id="vfx-replay" type="button" title="Replay from the start (R)">⟳</button>
+		<button id="vfx-mode" type="button" class="vfx-mode" aria-pressed="false"
+			title="Exact (по таймлайну): играет по таймлайну редактора, никогда не затухает и не зацикливается. Authored (как в игре): реальный жизненный цикл эффекта, включая fade.">Exact · по таймлайну</button>
 	</div>
 	<span id="vfx-revbadge" class="vfx-badge" aria-live="polite"></span>
 	<span id="vfx-status" aria-live="polite"></span>
@@ -110,5 +112,6 @@
 <div id="vfx-split-timeline" class="vfx-split vfx-split-h" role="separator" aria-orientation="horizontal" tabindex="0"
 	title="Drag to resize the timeline — double-click to collapse/expand"></div>
 <footer id="vfx-timeline" aria-label="Timeline"></footer>
+<div id="vfx-toasts" aria-live="polite" aria-label="Problems"></div>
 </body>
 </html>

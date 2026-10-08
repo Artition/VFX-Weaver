@@ -56,7 +56,9 @@
 		play: document.getElementById("vfx-play"),
 		stop: document.getElementById("vfx-stop"),
 		replay: document.getElementById("vfx-replay"),
-		revbadge: document.getElementById("vfx-revbadge")
+		mode: document.getElementById("vfx-mode"),
+		revbadge: document.getElementById("vfx-revbadge"),
+		toasts: document.getElementById("vfx-toasts")
 	};
 
 	function showBanner(message) {
@@ -66,6 +68,35 @@
 
 	function status(message) {
 		dom.status.textContent = message || "";
+	}
+
+	/**
+	 * Show a transient toast in the Problems area (errors persist longer). Never silently drops an
+	 * error: a preview rejection or a transport failure must be visible (design §16.6).
+	 *
+	 * @param {string} message the message
+	 * @param {string} [kind] `"error"` (default) or `"info"`
+	 */
+	function toast(message, kind) {
+		if (!dom.toasts) {
+			return;
+		}
+		var entry = document.createElement("div");
+		entry.className = "vfx-toast" + (kind === "info" ? " info" : " error");
+		entry.textContent = message;
+		entry.title = "Click to dismiss";
+		entry.addEventListener("click", function () {
+			if (entry.parentNode) {
+				entry.parentNode.removeChild(entry);
+			}
+		});
+		dom.toasts.appendChild(entry);
+		var delay = kind === "info" ? 4000 : 12000;
+		setTimeout(function () {
+			if (entry.parentNode) {
+				entry.parentNode.removeChild(entry);
+			}
+		}, delay);
 	}
 
 	/**
@@ -1852,6 +1883,9 @@
 					entry.source = snapshot(saved.source);
 					entry.effectId = saved.effectId == null ? null : String(saved.effectId);
 					entry.external = saved.external === true;
+					if (saved.uuid != null) {
+						entry.uuid = String(saved.uuid);
+					}
 					if (Array.isArray(saved.pos)) {
 						entry.pos = [num(saved.pos[0]), num(saved.pos[1])];
 					}
@@ -2070,7 +2104,27 @@
 		return button;
 	}
 
-	/** Reorder the chain, dragging or via ▲/▼; the reorder rewires the canvas flow links (P6). */
+	/** Whether an effect renders a fullscreen post pass (via the compiler's classification). */
+	function effectIsPost(effect) {
+		return window.VFXCompiler && typeof window.VFXCompiler.isPostType === "function"
+				? window.VFXCompiler.isPostType(effect && effect.type) : true;
+	}
+
+	/** The screen layer an effect runs at (0..2). */
+	function effectScreenLayer(effect) {
+		return window.VFXCompiler && typeof window.VFXCompiler.screenLayerOf === "function"
+				? window.VFXCompiler.screenLayerOf(effect) : 1;
+	}
+
+	/** Push the view state (order/mute/solo) to the preview — instance ops only, no recompilation. */
+	function refreshViewstate(tab) {
+		if (window.VFXTimeline && window.VFXTimeline.preview
+				&& typeof window.VFXTimeline.preview.viewstate === "function") {
+			window.VFXTimeline.preview.viewstate(tab);
+		}
+	}
+
+	/** Reorder the chain, dragging or via ▲/▼; the reorder is a viewstate change (§16.2). */
 	function moveLayer(tab, from, to) {
 		if (!tab || !tab.effects || from == null || !isFinite(Number(from))) {
 			return;
@@ -2091,12 +2145,145 @@
 		renderInspector();
 		renderTimeline();
 		commitHistory();
-		requestStructural(tab);
+		refreshViewstate(tab);
+	}
+
+	/** A group header row in the Layers panel (screen layer / world). */
+	function layerGroupHeader(text) {
+		var header = document.createElement("div");
+		header.className = "vfx-layer-group";
+		header.textContent = text;
+		return header;
+	}
+
+	/** A warning row in the Layers panel (mixed layers). */
+	function layerWarning(text) {
+		var warning = document.createElement("div");
+		warning.className = "vfx-layer-warn";
+		warning.textContent = text;
+		return warning;
+	}
+
+	/** Build one draggable layer row for an effect (mute/solo/delay/duration/reorder). */
+	function renderLayerRow(tab, effect, index) {
+		var row = document.createElement("div");
+		row.className = "vfx-layer" + (index === tab.activeEffect ? " active" : "")
+				+ (effect.mute ? " muted" : "") + (effect.solo ? " solo" : "");
+		row.draggable = true;
+		row.dataset.index = String(index);
+		row.dataset.id = effect.id;
+		row.title = "Drag to reorder (application order)";
+
+		var mute = document.createElement("button");
+		mute.type = "button";
+		mute.className = "vfx-layer-btn";
+		mute.textContent = "M";
+		mute.title = "Mute (disable this effect)";
+		mute.addEventListener("click", function (event) {
+			event.stopPropagation();
+			effect.mute = !effect.mute;
+			commitHistory();
+			renderInspector();
+			renderTimeline();
+			refreshViewstate(tab);
+		});
+
+		var solo = document.createElement("button");
+		solo.type = "button";
+		solo.className = "vfx-layer-btn";
+		solo.textContent = "S";
+		solo.title = "Solo (play only the soloed effects)";
+		solo.addEventListener("click", function (event) {
+			event.stopPropagation();
+			effect.solo = !effect.solo;
+			commitHistory();
+			renderInspector();
+			renderTimeline();
+			refreshViewstate(tab);
+		});
+
+		var label = document.createElement("span");
+		label.className = "vfx-layer-name";
+		label.textContent = (index + 1) + ". " + (effect.type || "—");
+		label.title = effect.type || "";
+
+		var delay = document.createElement("input");
+		delay.type = "number";
+		delay.className = "vfx-layer-num";
+		delay.value = String(num(effect.delay, 0));
+		delay.title = "Delay (ticks) before this effect starts";
+		delay.addEventListener("click", function (event) { event.stopPropagation(); });
+		delay.addEventListener("change", function () {
+			effect.delay = num(delay.value, 0);
+			commitHistory();
+			renderTimeline();
+			requestStructural(tab);
+		});
+
+		var duration = document.createElement("input");
+		duration.type = "number";
+		duration.className = "vfx-layer-num";
+		duration.value = String(num(effect.duration, 0));
+		duration.title = "Duration (ticks); 0 inherits the tab duration";
+		duration.addEventListener("click", function (event) { event.stopPropagation(); });
+		duration.addEventListener("change", function () {
+			effect.duration = num(duration.value, 0);
+			commitHistory();
+			renderTimeline();
+			requestStructural(tab);
+		});
+
+		row.appendChild(mute);
+		row.appendChild(solo);
+		row.appendChild(label);
+		row.appendChild(delay);
+		row.appendChild(duration);
+		row.appendChild(layerMoveButton(tab, index, -1, "▲"));
+		row.appendChild(layerMoveButton(tab, index, 1, "▼"));
+
+		row.addEventListener("click", function () {
+			if (tab.activeEffect !== index) {
+				selectEffect(tab, effect);
+				var node = nodeForEffect(tab, effect.id);
+				if (scene && node) {
+					scene.selectNodes([node]);
+				}
+			}
+		});
+		row.addEventListener("dragstart", function (event) {
+			dragLayerIndex = index;
+			if (event.dataTransfer) {
+				event.dataTransfer.effectAllowed = "move";
+				event.dataTransfer.setData("text/plain", String(index));
+			}
+		});
+		row.addEventListener("dragover", function (event) {
+			event.preventDefault();
+			if (event.dataTransfer) {
+				event.dataTransfer.dropEffect = "move";
+			}
+			row.classList.add("dragover");
+		});
+		row.addEventListener("dragleave", function () {
+			row.classList.remove("dragover");
+		});
+		row.addEventListener("drop", function (event) {
+			event.preventDefault();
+			row.classList.remove("dragover");
+			var from = dragLayerIndex;
+			if (from == null && event.dataTransfer) {
+				from = Number(event.dataTransfer.getData("text/plain"));
+			}
+			dragLayerIndex = null;
+			moveLayer(tab, from, index);
+		});
+		return row;
 	}
 
 	/**
-	 * The Layers panel (design §15.2, P6): the tab's effects in application order, drag-to-reorder,
-	 * mute/solo, per-node delay/duration, all synchronized with the canvas chain.
+	 * The Layers panel (design §15.2, §16.2): the tab's effects in application order, grouped by
+	 * `screen_layer` (0/1/2) so the `order` axis is legible, with a warning when a chain mixes
+	 * layers. Drag-to-reorder, mute/solo (instance ops, no recompilation) and per-node delay/duration.
 	 *
 	 * @param {Object} tab the active tab
 	 * @returns {HTMLElement} the panel
@@ -2130,120 +2317,39 @@
 			});
 			list.appendChild(rootRow);
 		}
+		// Group by screen layer (§16.2): `order` sorts only inside a layer, so a chain that mixes
+		// layers is called out rather than silently composited in chain order.
+		var groups = { "0": [], "1": [], "2": [], other: [] };
 		tab.effects.forEach(function (effect, index) {
-			var row = document.createElement("div");
-			row.className = "vfx-layer" + (index === tab.activeEffect ? " active" : "")
-					+ (effect.mute ? " muted" : "") + (effect.solo ? " solo" : "");
-			row.draggable = true;
-			row.dataset.index = String(index);
-			row.dataset.id = effect.id;
-			row.title = "Drag to reorder (application order)";
-
-			var mute = document.createElement("button");
-			mute.type = "button";
-			mute.className = "vfx-layer-btn";
-			mute.textContent = "M";
-			mute.title = "Mute (disable this effect)";
-			mute.addEventListener("click", function (event) {
-				event.stopPropagation();
-				effect.mute = !effect.mute;
-				commitHistory();
-				renderInspector();
-				renderTimeline();
-				requestStructural(tab);
-			});
-
-			var solo = document.createElement("button");
-			solo.type = "button";
-			solo.className = "vfx-layer-btn";
-			solo.textContent = "S";
-			solo.title = "Solo (play only the soloed effects)";
-			solo.addEventListener("click", function (event) {
-				event.stopPropagation();
-				effect.solo = !effect.solo;
-				commitHistory();
-				renderInspector();
-				renderTimeline();
-				requestStructural(tab);
-			});
-
-			var label = document.createElement("span");
-			label.className = "vfx-layer-name";
-			label.textContent = (index + 1) + ". " + (effect.type || "—");
-			label.title = effect.type || "";
-
-			var delay = document.createElement("input");
-			delay.type = "number";
-			delay.className = "vfx-layer-num";
-			delay.value = String(num(effect.delay, 0));
-			delay.title = "Delay (ticks) before this effect starts";
-			delay.addEventListener("click", function (event) { event.stopPropagation(); });
-			delay.addEventListener("change", function () {
-				effect.delay = num(delay.value, 0);
-				commitHistory();
-				renderTimeline();
-				requestStructural(tab);
-			});
-
-			var duration = document.createElement("input");
-			duration.type = "number";
-			duration.className = "vfx-layer-num";
-			duration.value = String(num(effect.duration, 0));
-			duration.title = "Duration (ticks); 0 inherits the tab duration";
-			duration.addEventListener("click", function (event) { event.stopPropagation(); });
-			duration.addEventListener("change", function () {
-				effect.duration = num(duration.value, 0);
-				commitHistory();
-				renderTimeline();
-				requestStructural(tab);
-			});
-
-			row.appendChild(mute);
-			row.appendChild(solo);
-			row.appendChild(label);
-			row.appendChild(delay);
-			row.appendChild(duration);
-			row.appendChild(layerMoveButton(tab, index, -1, "▲"));
-			row.appendChild(layerMoveButton(tab, index, 1, "▼"));
-
-			row.addEventListener("click", function () {
-				if (tab.activeEffect !== index) {
-					selectEffect(tab, effect);
-					var node = nodeForEffect(tab, effect.id);
-					if (scene && node) {
-						scene.selectNodes([node]);
-					}
-				}
-			});
-			row.addEventListener("dragstart", function (event) {
-				dragLayerIndex = index;
-				if (event.dataTransfer) {
-					event.dataTransfer.effectAllowed = "move";
-					event.dataTransfer.setData("text/plain", String(index));
-				}
-			});
-			row.addEventListener("dragover", function (event) {
-				event.preventDefault();
-				if (event.dataTransfer) {
-					event.dataTransfer.dropEffect = "move";
-				}
-				row.classList.add("dragover");
-			});
-			row.addEventListener("dragleave", function () {
-				row.classList.remove("dragover");
-			});
-			row.addEventListener("drop", function (event) {
-				event.preventDefault();
-				row.classList.remove("dragover");
-				var from = dragLayerIndex;
-				if (from == null && event.dataTransfer) {
-					from = Number(event.dataTransfer.getData("text/plain"));
-				}
-				dragLayerIndex = null;
-				moveLayer(tab, from, index);
-			});
-			list.appendChild(row);
+			if (effectIsPost(effect)) {
+				groups[String(effectScreenLayer(effect))].push(index);
+			} else {
+				groups.other.push(index);
+			}
 		});
+		var postLayers = ["0", "1", "2"].filter(function (layer) {
+			return groups[layer].length > 0;
+		});
+		if (postLayers.length > 1) {
+			list.appendChild(layerWarning("Chain mixes screen layers (" + postLayers.join(", ")
+					+ "): `order` applies only inside a layer."));
+		}
+		if (groups.other.length > 0 && postLayers.length > 0) {
+			list.appendChild(layerWarning("Chain mixes post passes and world/camera effects; "
+					+ "they do not share a screen layer."));
+		}
+		postLayers.forEach(function (layer) {
+			list.appendChild(layerGroupHeader("Screen layer " + layer));
+			groups[layer].forEach(function (index) {
+				list.appendChild(renderLayerRow(tab, tab.effects[index], index));
+			});
+		});
+		if (groups.other.length > 0) {
+			list.appendChild(layerGroupHeader("World / camera"));
+			groups.other.forEach(function (index) {
+				list.appendChild(renderLayerRow(tab, tab.effects[index], index));
+			});
+		}
 		list.addEventListener("dragend", function () {
 			dragLayerIndex = null;
 		});
@@ -3002,6 +3108,7 @@
 					var out = {
 						id: effect.id,
 						type: effect.type,
+						uuid: effect.uuid == null ? null : String(effect.uuid),
 						pos: pos,
 						mute: effect.mute === true,
 						solo: effect.solo === true,
@@ -3088,6 +3195,9 @@
 					}
 					effect.mute = saved.mute === true;
 					effect.solo = saved.solo === true;
+					if (saved.uuid != null) {
+						effect.uuid = String(saved.uuid);
+					}
 					if (saved.effectId != null) {
 						effect.effectId = String(saved.effectId);
 					}
@@ -4089,18 +4199,37 @@
 		}
 	}
 
-	/** The revision-status badge in the top bar: "rev N → in game", offline, syncing or error. */
+	/**
+	 * The revision/status badge in the top bar. When a preview session exists it shows the live
+	 * preview state (`rev N → live ●`, `ended @ X/Y`, syncing), else the legacy `/compile` badge.
+	 */
 	function updateRevBadge(state) {
 		if (!dom.revbadge) {
 			return;
 		}
-		var rev = Number(project.revision) || 0;
+		var pv = window.VFXTimeline && window.VFXTimeline.preview
+				? window.VFXTimeline.preview.state() : null;
+		var rev = pv ? pv.revision : (Number(project.revision) || 0);
 		if (state === "offline") {
 			dom.revbadge.textContent = "offline";
 			dom.revbadge.className = "vfx-badge offline";
 		} else if (state === "error") {
 			dom.revbadge.textContent = "rev " + rev + " — error";
 			dom.revbadge.className = "vfx-badge error";
+		} else if (pv && pv.ended) {
+			var total = window.VFXTimeline && typeof window.VFXTimeline.duration === "function"
+					? Math.round(window.VFXTimeline.duration(activeTab())) : Math.round(pv.duration);
+			dom.revbadge.textContent = "ended @ " + Math.round(pv.tick) + "/" + total + " — ▶ replay";
+			dom.revbadge.className = "vfx-badge ended";
+		} else if (pv && pv.playing) {
+			dom.revbadge.textContent = "rev " + rev + " → live ●";
+			dom.revbadge.className = "vfx-badge live";
+		} else if (pv && pv.syncing) {
+			dom.revbadge.textContent = "rev " + rev + " — syncing…";
+			dom.revbadge.className = "vfx-badge syncing";
+		} else if (pv) {
+			dom.revbadge.textContent = "rev " + rev + " → in game";
+			dom.revbadge.className = "vfx-badge";
 		} else if (state === "syncing") {
 			dom.revbadge.textContent = "rev " + rev + " — syncing…";
 			dom.revbadge.className = "vfx-badge syncing";
@@ -4108,6 +4237,18 @@
 			dom.revbadge.textContent = "rev " + rev + " → in game";
 			dom.revbadge.className = "vfx-badge";
 		}
+	}
+
+	/** Label the transport mode toggle from the preview session (Exact vs Authored). */
+	function updateModeButton() {
+		if (!dom.mode) {
+			return;
+		}
+		var pv = window.VFXTimeline && window.VFXTimeline.preview;
+		var authored = pv ? pv.mode() === "authored" : false;
+		dom.mode.textContent = authored ? "Authored · как в игре" : "Exact · по таймлайну";
+		dom.mode.className = "vfx-mode" + (authored ? " authored" : "");
+		dom.mode.setAttribute("aria-pressed", authored ? "true" : "false");
 	}
 
 	/** Start the bridge (SSE + reconnect) and surface its health in the status line + badge. */
@@ -4136,6 +4277,17 @@
 		});
 		bridge.on("disconnect", function () {
 			updateRevBadge("offline");
+		});
+		bridge.on("preview/state", function (data) {
+			updateRevBadge();
+			updateModeButton();
+			if (data && data.ended) {
+				status("preview ended — press ▶ to replay");
+			}
+		});
+		bridge.on("preview/error", function (data) {
+			toast("preview: " + ((data && data.message) || "error"));
+			updateRevBadge("error");
 		});
 		bridge.connect(token);
 	}
@@ -4423,7 +4575,11 @@
 			return;
 		}
 		if (typeof window.VFXTimeline.isPlaying === "function" && window.VFXTimeline.isPlaying()) {
-			window.VFXTimeline.stop(tab);
+			if (typeof window.VFXTimeline.pause === "function") {
+				window.VFXTimeline.pause(tab);
+			} else {
+				window.VFXTimeline.stop(tab);
+			}
 		} else {
 			window.VFXTimeline.play(tab);
 		}
@@ -4804,8 +4960,20 @@
 				}
 			});
 		}
+		if (dom.mode) {
+			dom.mode.addEventListener("click", function () {
+				var pv = window.VFXTimeline && window.VFXTimeline.preview;
+				if (!pv) {
+					return;
+				}
+				pv.setMode(pv.mode() === "authored" ? "exact" : "authored");
+				updateModeButton();
+				updateRevBadge();
+			});
+		}
 		setProjectName();
 		updateRevBadge();
+		updateModeButton();
 
 		status("Loading schema…");
 		window.fetch(url("/schema"))

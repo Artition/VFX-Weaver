@@ -235,6 +235,15 @@
 	 * @returns {Promise<Object|null>} the compile response
 	 */
 	function fullCompile() {
+		// Preview v2: the model is reasserted with a whole-set `/preview/sync` (the session owns the
+		// revision). The legacy single-file `/compile` stays as a fallback for a partial load.
+		var preview = root.VFXTimeline && root.VFXTimeline.preview;
+		if (preview && typeof preview.resync === "function") {
+			return preview.resync().then(function (result) {
+				emit("recompiled", result);
+				return result;
+			});
+		}
 		var tab = activeTab();
 		var bodies = root.VFXTimeline && root.VFXTimeline.bodies;
 		if (!tab || !tab.type || !bodies || typeof bodies.compile !== "function") {
@@ -260,6 +269,12 @@
 	 * effect; if the two differ the recompile path below reasserts the model.
 	 */
 	function reconcile() {
+		// Preview v2 owns its revision browser-side and reasserts the whole set on every (re)connect
+		// (the preview session's `open` handler), so there is no game-side counter to probe.
+		var preview = root.VFXTimeline && root.VFXTimeline.preview;
+		if (preview && typeof preview.resync === "function") {
+			return;
+		}
 		var local = revision();
 		post("/transport", { effectId: PROBE_EFFECT_ID, action: "play" }).then(function (result) {
 			if (!result || typeof result.revision !== "number" || result.revision === local) {

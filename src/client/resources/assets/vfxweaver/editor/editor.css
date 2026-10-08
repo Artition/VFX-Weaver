@@ -1536,3 +1536,60 @@ body {
 	background: #7f8aa3;
 	opacity: 0.5;
 }
+
+/* --- Preview v2: mode toggle, live badge, toasts, layer groups (design 16) ---------- */
+#vfx-transport button.vfx-mode {
+	width: auto;
+	padding: 0 8px;
+	white-space: nowrap;
+}
+#vfx-transport button.vfx-mode.authored {
+	border-color: #ffb454;
+	color: #ffd9a0;
+}
+.vfx-badge.live {
+	border-color: #3f7a3f;
+	color: #b6f0b6;
+}
+.vfx-badge.ended {
+	border-color: #8a6a30;
+	color: #ffe08a;
+}
+#vfx-toasts {
+	position: fixed;
+	right: 12px;
+	bottom: 12px;
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	max-width: 360px;
+	z-index: 9999;
+}
+.vfx-toast {
+	padding: 8px 10px;
+	border: 1px solid var(--vfx-border);
+	border-radius: 5px;
+	background: var(--vfx-panel);
+	font-size: 12px;
+	cursor: pointer;
+}
+.vfx-toast.error {
+	border-color: #8a3030;
+	color: #ffb3b3;
+}
+.vfx-toast.info {
+	border-color: var(--vfx-accent);
+	color: #cfe0ff;
+}
+.vfx-layer-group {
+	margin-top: 5px;
+	font-size: 11px;
+	color: var(--vfx-text-dim);
+	text-transform: uppercase;
+	letter-spacing: 0.04em;
+}
+.vfx-layer-warn {
+	padding: 2px 0;
+	font-size: 11px;
+	color: #ffe08a;
+}

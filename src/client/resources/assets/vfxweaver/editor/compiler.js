@@ -630,10 +630,222 @@
 		return JSON.stringify(def, null, "\t");
 	}
 
+	/* ------------------------------------------------------------------ */
+	/* Preview v2 definition set (design §16.1/§16.3)                      */
+	/* ------------------------------------------------------------------ */
+
+	/**
+	 * The private preview namespace (design §16.1). A datapack definition cannot shadow an id under
+	 * this namespace, so the compiled preview is what the engine resolves for a preview play.
+	 */
+	var PREVIEW_NS = "vfxweaver:editor_preview";
+
+	/**
+	 * Effect types that are NOT fullscreen post-processing passes, mirroring
+	 * {@code VFXEffectType.isPostProcessing()}. The schema payload carries only `params` (there is no
+	 * `post` flag), so this static classification is the web's only source until the schema grows one;
+	 * it decides the `isPost` meta flag and whether a child contributes to the screen-layer ordering.
+	 */
+	var NON_POST_TYPES = {
+		camera_shake: true, camera_roll: true, block_outline: true, block_tint: true,
+		light_beam: true, pulse_ring: true, guide_line: true, particles: true, block_chain: true,
+		entity_tint: true, entity_outline: true, entity_displace: true, fov_modifier: true,
+		fog_modifier: true, window_create: true, window_control: true, collection: true
+	};
+
+	/** Whether an effect type renders a fullscreen post pass (see {@link #NON_POST_TYPES}). */
+	function isPostType(type) {
+		return type != null && type !== "" && !NON_POST_TYPES[String(type)];
+	}
+
+	/** A node uuid generator, used only when the IR helper is absent. */
+	function generateUuid() {
+		return "n" + Date.now().toString(36) + Math.floor(Math.random() * 0x7fffffff).toString(36);
+	}
+
+	/**
+	 * The stable per-node uuid (design §16.1): generated once and remembered on the effect entry (and
+	 * therefore persisted by the sidecar/snapshot), so every preview re-compile addresses the child
+	 * by the same key. Delegates to `VFXIR.nodeUuid` when the IR is loaded.
+	 *
+	 * @param {Object} effect an IR effect entry
+	 * @returns {string} the stable uuid
+	 */
+	function nodeUuid(effect) {
+		if (!effect) {
+			return "node";
+		}
+		if (root.VFXIR && typeof root.VFXIR.nodeUuid === "function") {
+			return root.VFXIR.nodeUuid(effect);
+		}
+		if (!effect.uuid) {
+			effect.uuid = generateUuid();
+		}
+		return effect.uuid;
+	}
+
+	/**
+	 * The validated tab slug (`[a-z0-9_.-]+`) used as the middle id segment; falls back to `tab` so a
+	 * weird tab name can never produce an illegal Identifier.
+	 *
+	 * @param {Object} tab the tab
+	 * @returns {string} the slug
+	 */
+	function slugOf(tab) {
+		var slug = safeName(effectName(tab));
+		return /^[a-z0-9_.-]+$/.test(slug) ? slug : "tab";
+	}
+
+	/** The exact-mode child definition id for a node uuid. */
+	function previewDefId(slug, uuid) {
+		return PREVIEW_NS + "/" + slug + "/" + uuid;
+	}
+
+	/** The authored-mode child definition id for a node uuid. */
+	function previewAuthoredDefId(slug, uuid) {
+		return PREVIEW_NS + "/" + slug + "/a/" + uuid;
+	}
+
+	/** The authored collection root id for a tab slug. */
+	function previewRootId(slug) {
+		return PREVIEW_NS + "/" + slug + "/root";
+	}
+
+	/**
+	 * Compile the whole preview definition SET for a tab (design §16.1/§16.3): one definition per
+	 * effect node, addressed by the private id `vfxweaver:editor_preview/<tabSlug>/<nodeUuid>`, plus
+	 * the authored collection root. Per-node timing is baked into every child.
+	 *
+	 * <p><b>Exact</b> children force {@code fade_ticks:0, loop:false, persistent:true,
+	 * duration=<node duration>} and never carry an {@code order} param (it is pushed as a play-param
+	 * by the controller, invariant I1/I2). <b>Authored</b> children keep their own
+	 * loop/persistent/fade (real lifecycle, including fade) and are referenced by the root.
+	 *
+	 * @param {Object} tab a `VFXIR.Tab`
+	 * @param {Object} [options] optional `{ context: {anchor,pos,targets} }`
+	 * @returns {{tab:string,slug:string,definitions:Object<string,string>,root:string,meta:Object}}
+	 */
+	function compilePreviewSet(tab, options) {
+		if (!tab || typeof tab !== "object") {
+			throw new Error("compilePreviewSet: a tab is required");
+		}
+		var slug = slugOf(tab);
+		var nodes = (tab.effects || []).filter(function (effect) {
+			return effect && effect.type;
+		});
+		var definitions = {};
+		var children = [];
+		var effects = [];
+		nodes.forEach(function (effect, index) {
+			var uuid = nodeUuid(effect);
+			var exactId = previewDefId(slug, uuid);
+			var authoredId = previewAuthoredDefId(slug, uuid);
+			var duration = childDurationTicks(tab, effect);
+			var isPost = isPostType(effect.type);
+
+			var exact = JSON.parse(compileSingle(tab, effect, effect.id, effect.source));
+			exact.duration = duration;
+			exact.fade_ticks = 0;
+			exact.loop = false;
+			exact.persistent = true;
+			if (exact.params && Object.prototype.hasOwnProperty.call(exact.params, "order")) {
+				delete exact.params.order;
+			}
+			definitions[exactId] = JSON.stringify(exact);
+
+			// Authored child: `compileSingle` already carries the node/tab loop/persistent/fade.
+			definitions[authoredId] = JSON.stringify(
+					JSON.parse(compileSingle(tab, effect, effect.id, effect.source)));
+
+			children.push({
+				key: uuid,
+				def: exactId,
+				delay: num(effect.delay, 0),
+				duration: duration,
+				isPost: isPost
+			});
+
+			var entry = {
+				effect: authoredId,
+				delay: num(effect.delay, 0),
+				duration: duration
+			};
+			if (effect.easing != null) {
+				entry.easing = effect.easing;
+			}
+			if (isPost) {
+				entry.params = { order: index };
+			}
+			effects.push(entry);
+		});
+		var rootId = previewRootId(slug);
+		definitions[rootId] = JSON.stringify({
+			type: "collection",
+			duration: num(tab.duration, 40),
+			loop: Boolean(tab.loop),
+			persistent: Boolean(tab.persistent),
+			fade_ticks: num(tab.fade_ticks, 0),
+			easing: tab.easing == null ? "linear" : tab.easing,
+			effects: effects
+		});
+		var meta = {
+			tabDuration: num(tab.duration, 40),
+			children: children,
+			context: options && options.context ? options.context : {}
+		};
+		return { tab: effectName(tab), slug: slug, definitions: definitions, root: rootId, meta: meta };
+	}
+
+	/**
+	 * The view state for a tab (design §16.2): the child keys in chain order (the `order` array),
+	 * plus the muted and soloed keys. Pure, so the headless selftest pins the order-array contract.
+	 *
+	 * @param {Object} tab the tab
+	 * @returns {{order:Array<string>, muted:Array<string>, solo:Array<string>}}
+	 */
+	function previewViewstate(tab) {
+		var order = [];
+		var muted = [];
+		var solo = [];
+		(tab && tab.effects ? tab.effects : []).forEach(function (effect) {
+			if (!effect || !effect.type) {
+				return;
+			}
+			var uuid = nodeUuid(effect);
+			order.push(uuid);
+			if (effect.mute === true) {
+				muted.push(uuid);
+			}
+			if (effect.solo === true) {
+				solo.push(uuid);
+			}
+		});
+		return { order: order, muted: muted, solo: solo };
+	}
+
+	/** The screen layer a post effect runs at (default 1; surface_pattern defaults to 0). */
+	function screenLayerOf(effect) {
+		var raw = effect && effect.params ? effect.params.screen_layer : null;
+		var value = raw && typeof raw === "object" ? num(raw.value, NaN) : num(raw, NaN);
+		if (isFinite(value)) {
+			return Math.max(0, Math.min(2, Math.round(value)));
+		}
+		return effect && effect.type === "surface_pattern" ? 0 : 1;
+	}
+
 	var api = {
 		compileTab: compileTab,
 		compileTabFiles: compileTabFiles,
 		compileForPreview: compileForPreview,
+		compilePreviewSet: compilePreviewSet,
+		previewViewstate: previewViewstate,
+		previewDefId: previewDefId,
+		previewRootId: previewRootId,
+		slugOf: slugOf,
+		nodeUuid: nodeUuid,
+		isPostType: isPostType,
+		screenLayerOf: screenLayerOf,
+		PREVIEW_NS: PREVIEW_NS,
 		/** @returns {Array} the clamped-keyframe warnings recorded by the last compile (I3). */
 		getWarnings: function () {
 			return lastWarnings;

@@ -821,6 +821,76 @@ window.__vfxSelftest = function () {
 		eq(child1.persistent, true, "child 1 persistent from its node");
 	});
 
+	test("(P1) exact preview defs carry explicit fade_ticks 0 and never loop (I1/I2)", function () {
+		var tab = new VFXIR.Tab("show", null);
+		tab.duration = 60;
+		tab.loop = true;
+		tab.fade_ticks = 9;
+		var e0 = tab.addEffect("blur");
+		e0.duration = 20;
+		e0.loop = true;
+		e0.fade_ticks = 5;
+		var e1 = tab.addEffect("pixelate");
+		e1.duration = 30;
+		var set = window.VFXCompiler.compilePreviewSet(tab);
+		var exactCount = 0;
+		Object.keys(set.definitions).forEach(function (id) {
+			if (id.indexOf("/a/") >= 0 || /\/root$/.test(id)) {
+				return; // authored variants are intentionally not overridden
+			}
+			exactCount++;
+			var def = parse(set.definitions[id]);
+			ok(Object.prototype.hasOwnProperty.call(def, "fade_ticks"), id + " has explicit fade_ticks");
+			eq(def.fade_ticks, 0, id + " fade_ticks is 0");
+			ok(def.loop !== true, id + " exact never loops");
+			eq(def.persistent, true, id + " exact is persistent");
+			ok(!(def.params && Object.prototype.hasOwnProperty.call(def.params, "order")),
+					id + " exact def carries no order param");
+		});
+		eq(exactCount, 2, "one exact def per effect node");
+		eq(set.meta.children.length, 2, "two children in meta");
+		eq(set.meta.children[0].duration, 20, "child 0 duration baked");
+		eq(set.meta.children[1].duration, 30, "child 1 duration baked");
+		eq(set.meta.tabDuration, 60, "tab duration in meta");
+	});
+
+	test("(P2) preview node keys/ids are stable across re-compiles", function () {
+		var tab = new VFXIR.Tab("show", null);
+		var e = tab.addEffect("blur");
+		var a = window.VFXCompiler.compilePreviewSet(tab);
+		var b = window.VFXCompiler.compilePreviewSet(tab);
+		eq(a.meta.children[0].key, b.meta.children[0].key, "key stable");
+		eq(a.meta.children[0].def, b.meta.children[0].def, "def id stable");
+		eq(a.definitions[a.meta.children[0].def], b.definitions[b.meta.children[0].def], "def json stable");
+		eq(window.VFXCompiler.nodeUuid(e), a.meta.children[0].key, "uuid persisted on the effect");
+		ok(/^vfxweaver:editor_preview\/show\//.test(a.meta.children[0].def), "private id prefix");
+	});
+
+	test("(P3) viewstate order follows the chain order; mute by key", function () {
+		var tab = new VFXIR.Tab("show", null);
+		var e0 = tab.addEffect("blur");
+		e0.mute = true;
+		var e1 = tab.addEffect("pixelate");
+		var vs = window.VFXCompiler.previewViewstate(tab);
+		eq(vs.order.length, 2, "two keys");
+		eq(vs.order[0], window.VFXCompiler.nodeUuid(e0), "first key is chain first");
+		eq(vs.order[1], window.VFXCompiler.nodeUuid(e1), "second key is chain second");
+		eq(vs.muted.length, 1, "one muted key");
+		eq(vs.muted[0], window.VFXCompiler.nodeUuid(e0), "muted key matches");
+	});
+
+	test("(P4) authored export is unaffected by the preview set", function () {
+		var tab = new VFXIR.Tab("blur", "blur");
+		tab.duration = 25;
+		tab.loop = false;
+		tab.persistent = false;
+		tab.fade_ticks = 7;
+		var authored = parse(compileTab(tab));
+		eq(authored.loop, false, "export loop untouched");
+		eq(authored.persistent, false, "export persistent untouched");
+		eq(authored.fade_ticks, 7, "export fade untouched");
+	});
+
 	return results;
 };
 /* SELFTEST:END */
