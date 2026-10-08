@@ -264,17 +264,20 @@
 	/**
 	 * The preview session state. `revision` is WEB-owned: the controller stores whatever `sync`
 	 * sends and gates `viewstate`/`param`/`transport` on it, so the browser is the single writer of
-	 * the revision counter. `mode` is `exact` (default) or `authored`.
+	 * the revision counter. `dirty` is set by every structural edit and cleared by a successful
+	 * sync, so an SSE reconnect only recompiles when the graph actually changed. `lastSet` caches
+	 * the last built definition set, so a clean reconnect can re-send it without recompiling.
 	 */
 	var preview = {
 		revision: 0,
 		tab: null,
-		mode: "exact",
 		playing: false,
 		ended: false,
 		tick: 0,
 		duration: DEFAULT_DURATION,
 		syncing: false,
+		dirty: true,
+		lastSet: null,
 		context: { anchor: "player", pos: null, targets: [] }
 	};
 
@@ -406,16 +409,20 @@
 		}
 		reportCompileWarnings(target);
 		preview.syncing = true;
+		preview.lastSet = set;
 		var empty = forceEmpty === true || !(target.effects && target.effects.length);
 		return post("/preview/sync", {
 			revision: nextRevision(),
 			tab: target.name,
 			definitions: set.definitions,
-			root: set.root,
 			meta: set.meta
 		}).then(function (result) {
 			return handlePreviewResult(result, target);
 		}).then(function (result) {
+			if (result) {
+				// The set is now in the game; the graph is no longer dirty (design §16.9 P2).
+				preview.dirty = false;
+			}
 			if (empty) {
 				return previewTransport("stop").then(function () {
 					return result;
@@ -430,6 +437,7 @@
 		if (!tab) {
 			return;
 		}
+		preview.dirty = true;
 		debounceAfter("preview:" + effectId(tab), 250, function () {
 			previewSyncNow(tab);
 		});
@@ -438,6 +446,27 @@
 	/** Immediate re-sync (revision++): the 409/stale recovery and the reconnect reassert. */
 	function previewResync(tab) {
 		return previewSyncNow(tab || previewTab());
+	}
+
+	/**
+	 * Re-send the cached definition set on a clean reconnect (revision++), without recompiling the
+	 * graph on the browser main thread. The controller is idempotent per revision, so a fresh
+	 * revision re-applies the same set (and restarts a session the game reaped while SSE was down).
+	 */
+	function previewResend() {
+		var set = preview.lastSet;
+		if (!set) {
+			return Promise.resolve(null);
+		}
+		preview.syncing = true;
+		return post("/preview/sync", {
+			revision: nextRevision(),
+			tab: set.tab,
+			definitions: set.definitions,
+			meta: set.meta
+		}).then(function (result) {
+			return handlePreviewResult(result, previewTab());
+		});
 	}
 
 	/** One transport action, revision-gated; a stale reply triggers one re-sync + retry. */
@@ -464,13 +493,6 @@
 		var target = tab || previewTab();
 		if (!target || !root.VFXCompiler || typeof root.VFXCompiler.previewViewstate !== "function") {
 			return Promise.resolve(null);
-		}
-		if (preview.mode === "authored") {
-			// Authored plays the root collection and the engine fixes its child set at play time, so
-			// a mute/solo/reorder cannot be an instance op: re-compile the authored root (muted and
-			// non-soloed children omitted, chain order preserved) and re-sync, which makes the
-			// controller restart the authored play (design §16.9 P3).
-			return previewResync(target);
 		}
 		var vs = root.VFXCompiler.previewViewstate(target);
 		var body = { revision: preview.revision, order: vs.order, muted: vs.muted, solo: vs.solo };
@@ -535,13 +557,7 @@
 		}
 	}
 
-	/** Switch the preview mode (exact|authored) and push it to the controller. */
-	function setPreviewMode(mode) {
-		preview.mode = mode === "authored" ? "authored" : "exact";
-		return previewTransport("setMode", { mode: preview.mode });
-	}
-
-	/** The preview session, exposed for the shell (layers, mode toggle, status badge). */
+	/** The preview session, exposed for the shell (layers, status badge). */
 	var previewApi = {
 		sync: previewSync,
 		resync: previewResync,
@@ -552,10 +568,6 @@
 		transport: previewTransport,
 		viewstate: previewViewstate,
 		param: previewParam,
-		setMode: setPreviewMode,
-		mode: function () {
-			return preview.mode;
-		},
 		state: function () {
 			return preview;
 		},
@@ -2154,9 +2166,6 @@
 		if (!data || typeof data !== "object") {
 			return;
 		}
-		if (typeof data.mode === "string") {
-			preview.mode = data.mode;
-		}
 		if (typeof data.playing === "boolean") {
 			preview.playing = data.playing;
 		}
@@ -2208,8 +2217,21 @@
 		root.VFXBridge.on("preview/state", onPreviewState);
 		root.VFXBridge.on("preview/error", onPreviewError);
 		root.VFXBridge.on("open", function () {
-			// A (re)connect reasserts the model so the game's session matches the browser's.
-			previewResync(previewTab());
+			// A (re)connect reasserts the model — but only recompiles when the graph changed since
+			// the last successful sync (design §16.9 P2/P3). A clean reconnect re-sends the cached
+			// set without touching the browser main thread; with no set yet there is nothing to do.
+			var plan = root.VFXCompiler
+					&& typeof root.VFXCompiler.previewReconnectPlan === "function"
+					? root.VFXCompiler.previewReconnectPlan({
+						dirty: preview.dirty,
+						hasSet: preview.lastSet != null
+					})
+					: (preview.dirty ? "resync" : "skip");
+			if (plan === "resync") {
+				previewResync(previewTab());
+			} else if (plan === "resend") {
+				previewResend();
+			}
 		});
 	}
 

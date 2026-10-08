@@ -709,35 +709,24 @@
 		return /^[a-z0-9_.-]+$/.test(slug) ? slug : "tab";
 	}
 
-	/** The exact-mode child definition id for a node uuid. */
+	/** The preview child definition id for a node uuid. */
 	function previewDefId(slug, uuid) {
 		return PREVIEW_NS + "/" + slug + "/" + uuid;
 	}
 
-	/** The authored-mode child definition id for a node uuid. */
-	function previewAuthoredDefId(slug, uuid) {
-		return PREVIEW_NS + "/" + slug + "/a/" + uuid;
-	}
-
-	/** The authored collection root id for a tab slug. */
-	function previewRootId(slug) {
-		return PREVIEW_NS + "/" + slug + "/root";
-	}
-
 	/**
-	 * Compile the whole preview definition SET for a tab (design §16.1/§16.3): one definition per
-	 * effect node, addressed by the private id `vfxweaver:editor_preview/<tabSlug>/<nodeUuid>`, plus
-	 * the authored collection root. Per-node timing is baked into every child.
+	 * Compile the whole preview definition SET for a tab (design §16.1/§16.3): one Exact definition
+	 * per effect node, addressed by the private id `vfxweaver:editor_preview/<tabSlug>/<nodeUuid>`.
+	 * Per-node timing is baked into every child.
 	 *
-	 * <p><b>Exact</b> children force {@code fade_ticks:0, loop:false, persistent:true,
-	 * duration=<node duration>} and never carry an {@code order} param (it is pushed as a play-param
-	 * by the controller, invariant I1/I2). <b>Authored</b> children keep their own
-	 * loop/persistent/fade (real lifecycle, including fade) and are referenced by the root.
+	 * <p>Every child forces {@code fade_ticks:0, loop:false, persistent:true,
+	 * duration=<node duration>} and never carries an {@code order} param (it is pushed as a play-param
+	 * by the controller, invariant I1/I2).
 	 *
 	 * @param {Object} tab a `VFXIR.Tab`
 	 * @param {Object} [options] optional `{ context: {anchor,pos,targets}, empty: boolean }`; `empty`
 	 *        forces an empty child set (the tombstone sync that clears the preview)
-	 * @returns {{tab:string,slug:string,definitions:Object<string,string>,root:string,meta:Object}}
+	 * @returns {{tab:string,slug:string,definitions:Object<string,string>,meta:Object}}
 	 */
 	function compilePreviewSet(tab, options) {
 		if (!tab || typeof tab !== "object") {
@@ -749,12 +738,10 @@
 		});
 		var definitions = {};
 		var children = [];
-		var effects = [];
 		var allWarnings = [];
-		nodes.forEach(function (effect, index) {
+		nodes.forEach(function (effect) {
 			var uuid = nodeUuid(effect);
 			var exactId = previewDefId(slug, uuid);
-			var authoredId = previewAuthoredDefId(slug, uuid);
 			var duration = childDurationTicks(tab, effect);
 			var isPost = isPostType(effect.type);
 
@@ -771,10 +758,6 @@
 			}
 			definitions[exactId] = JSON.stringify(exact);
 
-			// Authored child: `compileSingle` already carries the node/tab loop/persistent/fade.
-			definitions[authoredId] = JSON.stringify(
-					JSON.parse(compileSingle(tab, effect, effect.id, effect.source)));
-
 			children.push({
 				key: uuid,
 				def: exactId,
@@ -783,46 +766,13 @@
 				isPost: isPost
 			});
 		});
-		// The authored root honours mute/solo (design §16.9 P3): the engine fixes a collection's
-		// child set when it starts playing, so an authored mute/solo cannot be an instance op — the
-		// web re-compiles the root with muted/non-soloed children omitted and the chain order
-		// preserved. Reordering follows the model's `tab.effects` order. `meta.children` still lists
-		// every node, so exact mode can unmute later via a viewstate instance op.
-		var rootChain = options && options.empty ? [] : activeChain(tab);
-		rootChain.forEach(function (effect, index) {
-			var uuid = nodeUuid(effect);
-			var duration = childDurationTicks(tab, effect);
-			var isPost = isPostType(effect.type);
-			var entry = {
-				effect: previewAuthoredDefId(slug, uuid),
-				delay: num(effect.delay, 0),
-				duration: duration
-			};
-			if (effect.easing != null) {
-				entry.easing = effect.easing;
-			}
-			if (isPost) {
-				entry.params = { order: index };
-			}
-			effects.push(entry);
-		});
-		var rootId = previewRootId(slug);
-		definitions[rootId] = JSON.stringify({
-			type: "collection",
-			duration: num(tab.duration, 40),
-			loop: Boolean(tab.loop),
-			persistent: Boolean(tab.persistent),
-			fade_ticks: num(tab.fade_ticks, 0),
-			easing: tab.easing == null ? "linear" : tab.easing,
-			effects: effects
-		});
 		var meta = {
 			tabDuration: num(tab.duration, 40),
 			children: children,
 			context: options && options.context ? options.context : {}
 		};
 		lastWarnings = allWarnings;
-		return { tab: effectName(tab), slug: slug, definitions: definitions, root: rootId, meta: meta };
+		return { tab: effectName(tab), slug: slug, definitions: definitions, meta: meta };
 	}
 
 	/**
@@ -893,10 +843,10 @@
 	}
 
 	/**
-	 * The `{slug, uuid}` a preview definition id addresses, or null for the root/an unrelated id
+	 * The `{slug, uuid}` a preview definition id addresses, or null for an unrelated id
 	 * (design §16.1). Used to turn a rejected id back into the node it came from.
 	 *
-	 * @param {string} defId an id like `vfxweaver:editor_preview/<slug>/<uuid>` or `.../a/<uuid>`
+	 * @param {string} defId an id like `vfxweaver:editor_preview/<slug>/<uuid>`
 	 * @returns {{slug: string, uuid: string}|null} the parsed reference
 	 */
 	function nodeRefFromDefId(defId) {
@@ -909,13 +859,27 @@
 			return null;
 		}
 		var rest = id.substring(prefix.length).split("/");
-		if (rest.length === 2 && rest[0] && rest[1] && rest[1] !== "root") {
+		if (rest.length === 2 && rest[0] && rest[1]) {
 			return { slug: rest[0], uuid: rest[1] };
 		}
-		if (rest.length === 3 && rest[1] === "a" && rest[0] && rest[2]) {
-			return { slug: rest[0], uuid: rest[2] };
-		}
 		return null;
+	}
+
+	/**
+	 * Decide what an SSE (re)connect should do with the preview set (design §16.9 P2/P3), pure so the
+	 * headless selftest pins it. A reconnect must never recompile the graph on the browser main
+	 * thread when nothing changed since the last successful sync: the last built set is simply
+	 * re-sent (or skipped when there is none). A dirty graph is recompiled.
+	 *
+	 * @param {Object} state `{dirty: boolean, hasSet: boolean}`
+	 * @returns {string} `"resync"` (recompile), `"resend"` (re-send the cached set) or `"skip"`
+	 */
+	function previewReconnectPlan(state) {
+		var dirty = !state || state.dirty !== false;
+		if (dirty) {
+			return "resync";
+		}
+		return state && state.hasSet ? "resend" : "skip";
 	}
 
 	/**
@@ -1002,9 +966,11 @@
 	/**
 	 * The revision/status badge text+class for a preview state (design §16.9 P1), pure so the
 	 * selftest pins it. `ended` clamps the shown tick to the duration (never past the end); the
-	 * replay affordance is part of the ended text.
+	 * replay affordance is part of the ended text. `paused` (the live badge watchdog: the game is
+	 * paused/unfocused so no `preview/state` frames arrive) wins over `playing` but not over an
+	 * explicit `ended`/error/offline.
 	 *
-	 * @param {Object} state `{revision, playing, ended, tick, syncing, offline, error}`
+	 * @param {Object} state `{revision, playing, ended, tick, syncing, offline, error, paused}`
 	 * @param {number} total the tab duration in ticks
 	 * @returns {{text: string, cls: string}} the badge text and modifier class
 	 */
@@ -1024,6 +990,9 @@
 		if (pv.ended) {
 			var tick = Math.min(Math.max(0, Math.round(num(pv.tick, 0))), Math.round(span));
 			return { text: "ended @ " + tick + "/" + Math.round(span) + " — ▶ replay", cls: "ended" };
+		}
+		if (pv.paused && pv.playing) {
+			return { text: "rev " + rev + " — paused (ожидание игры)", cls: "paused" };
 		}
 		if (pv.playing) {
 			return { text: "rev " + rev + " → live ●", cls: "live" };
@@ -1079,7 +1048,6 @@
 		compilePreviewSet: compilePreviewSet,
 		previewViewstate: previewViewstate,
 		previewDefId: previewDefId,
-		previewRootId: previewRootId,
 		slugOf: slugOf,
 		nodeUuid: nodeUuid,
 		isPostType: isPostType,
@@ -1089,6 +1057,7 @@
 		createProblemStore: createProblemStore,
 		reconcileRejected: reconcileRejected,
 		previewStatus: previewStatus,
+		previewReconnectPlan: previewReconnectPlan,
 		PREVIEW_NS: PREVIEW_NS,
 		/** @returns {Array} the clamped-keyframe warnings recorded by the last compile (I3). */
 		getWarnings: function () {

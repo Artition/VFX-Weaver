@@ -1537,16 +1537,7 @@ body {
 	opacity: 0.5;
 }
 
-/* --- Preview v2: mode toggle, live badge, toasts, layer groups (design 16) ---------- */
-#vfx-transport button.vfx-mode {
-	width: auto;
-	padding: 0 8px;
-	white-space: nowrap;
-}
-#vfx-transport button.vfx-mode.authored {
-	border-color: #ffb454;
-	color: #ffd9a0;
-}
+/* --- Preview v2: live badge, toasts, layer groups (design 16) ---------------------- */
 .vfx-badge.live {
 	border-color: #3f7a3f;
 	color: #b6f0b6;
@@ -1554,6 +1545,11 @@ body {
 .vfx-badge.ended {
 	border-color: #8a6a30;
 	color: #ffe08a;
+}
+/* The live preview stalled (game paused/unfocused): frames stopped while the browser was live. */
+.vfx-badge.paused {
+	border-color: #6a6a7a;
+	color: #c8c8d8;
 }
 /* A live-input badge (design 16.9 P1): the slot's authored value is a bind/expr to game state. */
 .vfx-live-badge {

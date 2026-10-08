@@ -835,9 +835,7 @@ window.__vfxSelftest = function () {
 		var set = window.VFXCompiler.compilePreviewSet(tab);
 		var exactCount = 0;
 		Object.keys(set.definitions).forEach(function (id) {
-			if (id.indexOf("/a/") >= 0 || /\/root$/.test(id)) {
-				return; // authored variants are intentionally not overridden
-			}
+			ok(id.indexOf("/a/") < 0 && !/\/root$/.test(id), id + " is not an authored variant");
 			exactCount++;
 			var def = parse(set.definitions[id]);
 			ok(Object.prototype.hasOwnProperty.call(def, "fade_ticks"), id + " has explicit fade_ticks");
@@ -896,11 +894,8 @@ window.__vfxSelftest = function () {
 		tab.duration = 60;
 		var set = window.VFXCompiler.compilePreviewSet(tab);
 		eq(set.meta.children.length, 0, "no children in meta");
-		eq(Object.keys(set.definitions).length, 1, "only the root collection is defined");
-		eq(set.definitions[set.root] != null, true, "the root is the single definition");
-		var root = parse(set.definitions[set.root]);
-		eq(root.type, "collection", "root is a collection");
-		eq(root.effects.length, 0, "root plays no children");
+		eq(Object.keys(set.definitions).length, 0, "an empty tab compiles no definitions");
+		ok(set.root === undefined, "no authored root is built");
 	});
 
 	test("(P6) problem store adds, replaces, retains and clears by prefix", function () {
@@ -932,6 +927,10 @@ window.__vfxSelftest = function () {
 				"syncing", "syncing class");
 		eq(window.VFXCompiler.previewStatus({ revision: 4, offline: true }, 60).cls,
 				"offline", "offline wins");
+		eq(window.VFXCompiler.previewStatus({ revision: 4, playing: true, paused: true }, 60).cls,
+				"paused", "a stalled live preview shows paused");
+		eq(window.VFXCompiler.previewStatus({ revision: 4, paused: true }, 60).cls,
+				"", "paused only applies while the browser believes it is playing");
 		eq(window.VFXCompiler.previewStatus({ revision: 4 }, 60).text, "rev 4 → in game",
 				"idle text");
 	});
@@ -947,42 +946,21 @@ window.__vfxSelftest = function () {
 		var exact = window.VFXCompiler.nodeRefFromDefId("vfxweaver:editor_preview/show/abc");
 		eq(exact.slug, "show", "parses the slug");
 		eq(exact.uuid, "abc", "parses the uuid");
-		var ref = window.VFXCompiler.nodeRefFromDefId("vfxweaver:editor_preview/show/a/xyz");
-		eq(ref.uuid, "xyz", "parses authored uuid");
-		eq(window.VFXCompiler.nodeRefFromDefId("vfxweaver:editor_preview/show/root"), null,
-				"the root has no node");
+		eq(window.VFXCompiler.nodeRefFromDefId("vfxweaver:editor_preview/show/a/xyz"), null,
+				"authored ids are gone");
 	});
 
-	test("(P9) authored root honours mute/solo and the chain order", function () {
-		var tab = new VFXIR.Tab("show", null);
-		tab.duration = 60;
-		var e0 = tab.addEffect("blur");
-		var e1 = tab.addEffect("pixelate");
-		var e2 = tab.addEffect("invert");
-		var uuid = window.VFXCompiler.nodeUuid;
-		// Mute the middle child: the authored root omits it and reindexes `order`.
-		e1.mute = true;
-		var set = window.VFXCompiler.compilePreviewSet(tab);
-		var root = parse(set.definitions[set.root]);
-		eq(root.effects.length, 2, "muted child omitted from the authored root");
-		eq(root.effects[0].effect, "vfxweaver:editor_preview/show/a/" + uuid(e0), "first visible child");
-		eq(root.effects[1].effect, "vfxweaver:editor_preview/show/a/" + uuid(e2), "second visible child");
-		eq(root.effects[0].params.order, 0, "visible order reindexed 0");
-		eq(root.effects[1].params.order, 1, "visible order reindexed 1");
-		eq(set.meta.children.length, 3, "meta keeps every node for exact unmute");
-		// Solo overrides mute filtering: only the soloed child remains.
-		e1.mute = false;
-		e1.solo = true;
-		var soloRoot = parse(window.VFXCompiler.compilePreviewSet(tab).definitions[set.root]);
-		eq(soloRoot.effects.length, 1, "solo keeps only the soloed child");
-		eq(soloRoot.effects[0].effect, "vfxweaver:editor_preview/show/a/" + uuid(e1), "soloed child");
-		// Reorder: the root follows the model's chain order (a viewstate reorder re-syncs it).
-		e1.solo = false;
-		var moved = tab.effects.splice(0, 1)[0];
-		tab.effects.push(moved);
-		var ordered = parse(window.VFXCompiler.compilePreviewSet(tab).definitions[set.root]);
-		eq(ordered.effects[0].effect, "vfxweaver:editor_preview/show/a/" + uuid(e1), "reordered first child");
-		eq(ordered.effects[2].effect, "vfxweaver:editor_preview/show/a/" + uuid(e0), "reordered last child");
+	test("(P9) a clean SSE reconnect does not recompile; a dirty graph does", function () {
+		var plan = window.VFXCompiler.previewReconnectPlan;
+		eq(plan({ dirty: false, hasSet: true }), "resend",
+				"clean reconnect re-sends the cached set without recompiling");
+		eq(plan({ dirty: false, hasSet: false }), "skip",
+				"clean reconnect with no set skips");
+		eq(plan({ dirty: true, hasSet: true }), "resync",
+				"a dirty graph recompiles on reconnect");
+		eq(plan({ dirty: true, hasSet: false }), "resync",
+				"a dirty graph with no set still recompiles");
+		eq(plan({}), "resync", "an unknown state is treated as dirty");
 	});
 
 	test("(P10) reconcileRejected keeps live rejects, clears resolved + defId-less errors", function () {

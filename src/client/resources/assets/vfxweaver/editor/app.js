@@ -56,7 +56,6 @@
 		play: document.getElementById("vfx-play"),
 		stop: document.getElementById("vfx-stop"),
 		replay: document.getElementById("vfx-replay"),
-		mode: document.getElementById("vfx-mode"),
 		revbadge: document.getElementById("vfx-revbadge"),
 		problems: document.getElementById("vfx-problems"),
 		problemsList: document.getElementById("vfx-problems-list"),
@@ -224,9 +223,7 @@
 		namespace: "vfx_project",
 		defaults: {},
 		tabs: [],
-		active: -1,
-		/** The persisted preview mode (design §16.9 P1): "exact" (default) or "authored". */
-		mode: "exact"
+		active: -1
 	};
 
 	/** The parsed GET /schema payload: `{ "<type>": { params: [...] } }`. */
@@ -1915,7 +1912,6 @@
 			name: project.name,
 			namespace: project.namespace,
 			defaults: snapshot(project.defaults || {}),
-			mode: project.mode,
 			tabs: project.tabs.map(snapshotTab)
 		};
 	}
@@ -1968,12 +1964,6 @@
 		project.name = snap.name == null ? project.name : String(snap.name);
 		project.namespace = snap.namespace == null ? project.namespace : String(snap.namespace);
 		project.defaults = snapshot(snap.defaults) || {};
-		project.mode = snap.mode === "authored" ? "authored" : "exact";
-		if (window.VFXTimeline && window.VFXTimeline.preview
-				&& window.VFXTimeline.preview.mode() !== project.mode) {
-			window.VFXTimeline.preview.setMode(project.mode);
-		}
-		updateModeButton();
 		setProjectName();
 		// Drop any pending debounced edit/commit so a stale timer cannot re-commit after the restore.
 		clearTimeout(commitTimer);
@@ -4210,13 +4200,35 @@
 	/* Boot                                                                */
 	/* ------------------------------------------------------------------ */
 
+	/**
+	 * Size the LiteGraph canvas to its wrapper. Prefers `LGraphCanvas.resize()`, which sizes the
+	 * foreground and background canvases and marks them dirty — setting the canvas size alone clears
+	 * the bitmap without scheduling a repaint, which is what left the graph blank after a window
+	 * change. Falls back to a raw size before the canvas exists.
+	 */
 	function resizeCanvas() {
+		if (scene && typeof scene.resize === "function") {
+			scene.resize();
+			return;
+		}
 		var width = dom.wrap.clientWidth;
 		var height = dom.wrap.clientHeight;
 		if (width > 0 && height > 0) {
 			dom.canvas.width = width;
 			dom.canvas.height = height;
 		}
+	}
+
+	/** Debounced {@link resizeCanvas} for the window `resize` event (a live drag fires many events). */
+	var resizeTimer = 0;
+	function scheduleResize() {
+		if (resizeTimer) {
+			window.clearTimeout(resizeTimer);
+		}
+		resizeTimer = window.setTimeout(function () {
+			resizeTimer = 0;
+			resizeCanvas();
+		}, 100);
 	}
 
 	/* ------------------------------------------------------------------ */
@@ -4403,6 +4415,7 @@
 			ended: pv ? pv.ended : false,
 			tick: pv ? pv.tick : 0,
 			syncing: pv ? pv.syncing : state === "syncing",
+			paused: previewPaused,
 			offline: state === "offline",
 			error: state === "error"
 		};
@@ -4413,19 +4426,32 @@
 		}
 	}
 
-	/** Label + tooltip the transport mode toggle from the preview session (Exact vs Authored). */
-	function updateModeButton() {
-		if (!dom.mode) {
-			return;
+	/**
+	 * Preview live-badge watchdog (design §16.9 P1): `preview/state` frames stop while the game is
+	 * paused/unfocused or the client thread is busy. When the browser believes the preview is
+	 * playing but no frame has arrived for a while, the badge says so ("paused / ожидание игры")
+	 * instead of looking frozen; the next frame clears it. No values are fabricated.
+	 */
+	var PREVIEW_STATE_TIMEOUT_MS = 1500;
+	var previewStateAt = 0;
+	var previewPaused = false;
+
+	/** Note a fresh `preview/state` frame: the game is talking again. */
+	function notePreviewState() {
+		previewStateAt = Date.now();
+		previewPaused = false;
+	}
+
+	/** Flag a stalled live preview (frames stopped while the browser thinks it is playing). */
+	function checkPreviewState() {
+		var pv = window.VFXTimeline && window.VFXTimeline.preview
+				? window.VFXTimeline.preview.state() : null;
+		var paused = !!(pv && pv.playing) && previewStateAt > 0
+				&& (Date.now() - previewStateAt) > PREVIEW_STATE_TIMEOUT_MS;
+		if (paused !== previewPaused) {
+			previewPaused = paused;
+			updateRevBadge();
 		}
-		var pv = window.VFXTimeline && window.VFXTimeline.preview;
-		var authored = pv ? pv.mode() === "authored" : project.mode === "authored";
-		dom.mode.textContent = authored ? "Authored · как в игре" : "Exact · по таймлайну";
-		dom.mode.className = "vfx-mode" + (authored ? " authored" : "");
-		dom.mode.setAttribute("aria-pressed", authored ? "true" : "false");
-		dom.mode.title = authored
-				? "Authored — как в игре: реальный жизненный цикл (fade/loop/персист)"
-				: "Exact — по таймлайну: без fade/loop, точное время";
 	}
 
 	/** Start the bridge (SSE + reconnect) and surface its health in the status line + badge. */
@@ -4462,8 +4488,8 @@
 			updateRevBadge("offline");
 		});
 		bridge.on("preview/state", function (data) {
+			notePreviewState();
 			updateRevBadge();
-			updateModeButton();
 			if (data && data.ended) {
 				status("preview ended — press ▶ to replay");
 			}
@@ -5078,7 +5104,7 @@
 				originalContextMenu.call(scene, node, event);
 			}
 		};
-		window.addEventListener("resize", resizeCanvas);
+		window.addEventListener("resize", scheduleResize);
 		wireLayout();
 		wireInlineWidgetEdit();
 		wireHotkeys();
@@ -5158,19 +5184,6 @@
 				}
 			});
 		}
-		if (dom.mode) {
-			dom.mode.addEventListener("click", function () {
-				var pv = window.VFXTimeline && window.VFXTimeline.preview;
-				if (!pv) {
-					return;
-				}
-				project.mode = pv.mode() === "authored" ? "exact" : "authored";
-				pv.setMode(project.mode);
-				commitHistory();
-				updateModeButton();
-				updateRevBadge();
-			});
-		}
 		// Ended badge is the replay affordance (design §16.9 P1): click seeks to 0 and plays.
 		if (dom.revbadge) {
 			dom.revbadge.addEventListener("click", function () {
@@ -5184,11 +5197,12 @@
 				}
 			});
 		}
+		// Watchdog: surface a stalled live preview (game paused/unfocused) in the badge.
+		window.setInterval(checkPreviewState, 500);
 		wireProblems();
 		renderProblems();
 		setProjectName();
 		updateRevBadge();
-		updateModeButton();
 
 		status("Loading schema…");
 		window.fetch(url("/schema"))
