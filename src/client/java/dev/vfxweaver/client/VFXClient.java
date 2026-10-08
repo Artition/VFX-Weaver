@@ -3,6 +3,7 @@ package dev.vfxweaver.client;
 import dev.vfxweaver.api.VFXAPI;
 import dev.vfxweaver.client.editor.EditorServer;
 import dev.vfxweaver.client.editor.EditorSession;
+import dev.vfxweaver.client.editor.EditorPreviewController;
 import dev.vfxweaver.client.editor.MinecraftEditorGame;
 import dev.vfxweaver.client.effect.VFXEffectManager;
 import dev.vfxweaver.client.compat.iris.VfxIrisCompat;
@@ -101,6 +102,7 @@ public class VFXClient {
 		if (editorServer != null) {
 			editorServer.stop();
 			editorServer = null;
+			EditorPreviewController.get().shutdown();
 			message("VFX editor stopped");
 			return 1;
 		}

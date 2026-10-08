@@ -1,6 +1,7 @@
 package dev.vfxweaver.client.platform;
 
 import dev.vfxweaver.client.VFXScoreboardCache;
+import dev.vfxweaver.client.editor.EditorPreviewController;
 import dev.vfxweaver.client.flashback.FlashbackCompat;
 import dev.vfxweaver.client.postprocessing.VFXPostProcessingManager;
 import dev.vfxweaver.client.render.VFXWorldOverlayRenderer;
@@ -88,10 +89,13 @@ public final class VFXClientRenderHooks {
 		//?}
 	}
 
-	/** Runs the once-per-tick client work (Flashback recording-start detection). */
+	/** Runs the once-per-tick client work (Flashback recording-start detection, preview clock). */
 	public static void onClientTick() {
 		FlashbackCompat.detectRecordingStart();
 		FlashbackCompat.tickReplayState();
+		// The preview clock advances here: the same client tick hook the editor/game work already
+		// uses, so the controller's tick and the render frame stay in the same order.
+		EditorPreviewController.get().onClientTick();
 	}
 
 	/** Resets the server-pushed scoreboard cache when the player joins a server. */

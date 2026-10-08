@@ -237,6 +237,10 @@ public final class EditorServer {
 				case "/export" -> handleExport(exchange);
 				case "/export/zip" -> handleExportZip(exchange);
 				case "/pick-folder" -> handlePickFolder(exchange);
+				case "/preview/sync" -> handlePreviewSync(exchange);
+				case "/preview/viewstate" -> handlePreviewViewstate(exchange);
+				case "/preview/param" -> handlePreviewParam(exchange);
+				case "/preview/transport" -> handlePreviewTransport(exchange);
 				default -> respondText(exchange, 404, "not found");
 			}
 		} catch (final RuntimeException e) {
@@ -561,6 +565,75 @@ public final class EditorServer {
 			out.addProperty("error", "cancelled");
 		}
 		respondJson(exchange, out);
+	}
+
+	/**
+	 * {@code POST /preview/sync}: hand the tab's definition set and meta to the preview controller,
+	 * which diffs and registers it (tombstoning removed ids), re-projects the exact view and reports
+	 * the applied/rejected ids. Never throws - a controller failure is a JSON error response.
+	 *
+	 * @param exchange the {@code /preview/sync} exchange
+	 * @throws IOException when the response cannot be sent
+	 */
+	private void handlePreviewSync(final HttpExchange exchange) throws IOException {
+		final JsonObject body = readObject(exchange);
+		if (body == null) {
+			respondActionError(exchange, EditorResult.INVALID_JSON, "request body must be a JSON object");
+			return;
+		}
+		respondPreview(exchange, EditorPreviewController.get().sync(body));
+	}
+
+	/**
+	 * {@code POST /preview/viewstate}: apply order/mute/solo via instance operations only (no
+	 * recompilation). Accepted only at the controller's current revision.
+	 *
+	 * @param exchange the {@code /preview/viewstate} exchange
+	 * @throws IOException when the response cannot be sent
+	 */
+	private void handlePreviewViewstate(final HttpExchange exchange) throws IOException {
+		final JsonObject body = readObject(exchange);
+		if (body == null) {
+			respondActionError(exchange, EditorResult.INVALID_JSON, "request body must be a JSON object");
+			return;
+		}
+		respondPreview(exchange, EditorPreviewController.get().viewstate(body));
+	}
+
+	/**
+	 * {@code POST /preview/param}: the fast-path live parameter edit on one child's instance,
+	 * revision-gated. At ~30Hz it lands as a constant override read per frame.
+	 *
+	 * @param exchange the {@code /preview/param} exchange
+	 * @throws IOException when the response cannot be sent
+	 */
+	private void handlePreviewParam(final HttpExchange exchange) throws IOException {
+		final JsonObject body = readObject(exchange);
+		if (body == null) {
+			respondActionError(exchange, EditorResult.INVALID_JSON, "request body must be a JSON object");
+			return;
+		}
+		respondPreview(exchange, EditorPreviewController.get().param(body));
+	}
+
+	/**
+	 * {@code POST /preview/transport}: play/pause/seek/stop/setMode time control, revision-gated.
+	 *
+	 * @param exchange the {@code /preview/transport} exchange
+	 * @throws IOException when the response cannot be sent
+	 */
+	private void handlePreviewTransport(final HttpExchange exchange) throws IOException {
+		final JsonObject body = readObject(exchange);
+		if (body == null) {
+			respondActionError(exchange, EditorResult.INVALID_JSON, "request body must be a JSON object");
+			return;
+		}
+		respondPreview(exchange, EditorPreviewController.get().transport(body));
+	}
+
+	/** Write a preview controller response at its own HTTP status as JSON. */
+	private void respondPreview(final HttpExchange exchange, final EditorPreviewController.Response response) throws IOException {
+		respond(exchange, response.status(), "application/json", response.body().toString().getBytes(StandardCharsets.UTF_8));
 	}
 
 	/**

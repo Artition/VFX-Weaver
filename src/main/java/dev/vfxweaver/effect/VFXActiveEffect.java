@@ -35,6 +35,13 @@ public class VFXActiveEffect {
 	private final @Nullable String itemId;
 	private float elapsed;
 	private float age;
+	/**
+	 * Additive per-instance age override, in ticks. {@code NaN} (the default) keeps the normal
+	 * clock-driven age {@code now - startTime}; a finite value makes {@link #update(float)} use it
+	 * instead, so a preview/editor session can pause or scrub one instance without freezing the
+	 * shared clock. Never set during ordinary play, so normal playback is unchanged.
+	 */
+	private float ageOverride = Float.NaN;
 	private float fadeOutStart = Float.NEGATIVE_INFINITY;
 	/**
 	 * Runtime-mutable world position the instance was moved to (network MOVE action), read by
@@ -177,7 +184,9 @@ public class VFXActiveEffect {
 	 * @param now current clock time in ticks
 	 */
 	public void update(final float now) {
-		float raw = Math.max(0.0F, now - this.startTime);
+		final float raw = Float.isNaN(this.ageOverride)
+			? Math.max(0.0F, now - this.startTime)
+			: Math.max(0.0F, this.ageOverride);
 		this.age = raw;
 		if (this.loop) {
 			this.elapsed = raw % Math.max(this.timeline.getDuration(), 1.0F);
@@ -186,6 +195,32 @@ public class VFXActiveEffect {
 		}
 		this.timeline.update(this.elapsed);
 		this.timeline.updateGraph(this.elapsed);
+	}
+
+	/**
+	 * Pins this instance's age to {@code ageTicks} for the following {@link #update(float)}
+	 * calls, overriding the shared clock. Used by the editor preview to pause and scrub a single
+	 * instance; {@link #clearAge()} restores clock-driven age. A non-finite value clears the
+	 * override.
+	 *
+	 * @param ageTicks the age to force, in ticks (clamped to {@code >= 0} by {@link #update(float)})
+	 */
+	public void setAge(final float ageTicks) {
+		this.ageOverride = ageTicks;
+	}
+
+	/**
+	 * Clears an override set by {@link #setAge(float)}, returning the instance to clock-driven age.
+	 */
+	public void clearAge() {
+		this.ageOverride = Float.NaN;
+	}
+
+	/**
+	 * True while {@link #setAge(float)} is pinning this instance's age.
+	 */
+	public boolean hasAgeOverride() {
+		return !Float.isNaN(this.ageOverride);
 	}
 
 	/**
