@@ -463,3 +463,61 @@ DaVinci Fusion / Scratch). Редактор:
 4. Таймлайн/кривые: duration-bar, ганты, curve-редактор.
 5. Композиции: N нод/вкладка, потоки, панель слоёв, понижение в `collection` (+аддитивный `layer`/`mode` при необходимости), затем reference-ноды.
 6. Vector-группировка параметров (pos_x/y/z → pos и т.п., один ввод/бинд на все, раскрытие) — из фидбека теста.
+
+## 16. Preview v2 (по консультации + фактам движка)
+
+**Принцип:** превью — первосортный сеанс `PreviewSession = (DefinitionSet, ViewState, TimeControl) @ revision`,
+а не «взлом» авторского плеера. Авторский набор не трогаем.
+
+### 16.1 Регистрация (diff, приватный ns)
+- id → `vfxweaver:editor_preview/<tabSlug>/<nodeUuid>` — датапак-слой не может перекрыть приватный ns.
+- `POST /preview/sync` шлёт ВЕСЬ набор вкладки; контроллер diff по string-equality: changed → `registerLocal` (MERGE),
+  removed → `unregisterLocal` (tombstone).
+- rejected из `registerLocal` → играем last-good + событие `preview/error` (MERGE оставляет старую версию). Без чёрных экранов.
+- Учёт: активна одна вкладка (десятки id), кап 256 не давит.
+
+### 16.2 ViewState = инстанс-операции (без перекомпиляции)
+- mute → `removeInstance`; solo → видимы только solo; reorder → `setParam(instance,"order",i)` (`order` читается per-frame,
+  применится со следующего кадра).
+- `order` передаётся **play-параметром** (работает даже для необъявленного параметра) → Exact-определения `order` НЕ содержат.
+- Панель слоёв группируется по `screen_layer` (0/1/2): `order` сортирует только внутри слоя (смешение слоёв — warning).
+
+### 16.3 Время (Вариант B — аддитивно)
+- Глобальные часы `VFXEffectManager.clock` тикают каждый кадр (`advance`), `VFXReplayController` программной сессии не даёт
+  → для pause/seek нужен аддитивный per-instance override на `VFXActiveEffect` (поле `ageOverride`, honour в `update`).
+- Контроллер владеет `tick`; spawn анкерит `trigger = now − age`; пауза/скраб = `setAge`. Loop — строго контроллерный
+  (`seek(0)` на wrap), НЕ движковый loop (движковый wrap per-instance по duration ребёнка ломает фазовые отношения delay).
+- Exact: на каждом def `fade_ticks:0, loop:false, persistent:true, duration=<node>`; **никогда** `beginFadeOut`.
+  Authored: обычный `play(root)` с авторскими таймингами (реальный жизненный цикл).
+
+### 16.4 Контроллер-планировщик
+- Exact играет детей **поодиночке** через `playReplay(defId, dur, trigger, stableId, contextPos, entities, params:{order:i}, null, false)`;
+  корневую коллекцию играть НЕЛЬЗЯ (`ScheduledPlay` фиксирует детей при старте).
+- `removeInstance` + `playReplay` в одном тике — позиционно бесшовно.
+
+### 16.5 Seed (phase-stable re-issue)
+- `random`/`expr random()` сейчас сеются заново на каждом `play` → на re-issue мигает. Аддитивно: seed от `instanceId`
+  (стабильный hash64(tab,nodeUuid)). `noise` — чистая функция elapsed, не мигает.
+
+### 16.6 Протокол моста
+- `POST /preview/sync` `{revision, tab, definitions{}, root, meta{tabDuration, children[{key,def,delay,duration,isPost}], context{anchor,pos,targets}}}` → `{ok, applied, rejected}`.
+- `POST /preview/viewstate` `{revision, order[], muted[], solo[]}`.
+- `POST /preview/param` `{revision, key, param, value}` — fast-path @30Hz; release → sync.
+- `POST /preview/transport` `{revision, action: play|pause|seek|stop|setMode, tick, mode: exact|authored}`.
+- SSE: `preview/state {revision,mode,playing,tick,ended}`, `preview/error {revision,message,defId?}`.
+- single-writer: применения в одной очереди на игровом потоке; viewstate/transport при `rev==lastApplied`; sync идемпотентен по revision.
+
+### 16.7 Инварианты
+- I1: ни один preview-def без явного `fade_ticks` (Exact=0); I2: Exact не эмитит `loop:true` и не зовёт `beginFadeOut`; I3: rejected≠∅ → last-good + error.
+- Компилятор author-набора всегда пишет `duration/loop/persistent/fade_ticks` явно (движковый дефолт fade=10 не применяется).
+
+### 16.8 Что НЕ делать
+- Не играть root-коллекцию в Exact; не полагаться на движковый loop в Exact; не писать `order` в Exact-def (только play-param);
+  не звать `beginFadeOut` в превью; не регистрировать под авторскими id; не пачкать author-профиль; не трогать `registerLocal`/`/vfx play`/сортировку движка.
+
+### 16.9 Приоритеты
+- **P0:** `/preview/sync` diff-register + PreviewTransport (Вариант B: ageOverride) + spawn/seek/pause/play/stop + контроллерный loop +
+  Exact-проекция + инварианты + `/preview/viewstate` (mute/solo/order).
+- **P1:** `/preview/param` fast-path + SSE state/error + статус/ended + Authored-режим + UX-дельты (группировка слоёв, бейдж живого bind, скраб=пауза).
+- **P2:** disconnect-cleanup, seed=instanceId.
+- **P3:** mute/solo в Authored, вложенные коллекции, reference-ноды.
