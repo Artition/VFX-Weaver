@@ -873,10 +873,19 @@ public final class EditorServer {
 		for (final String pair : query.split("&")) {
 			final int eq = pair.indexOf('=');
 			if (eq > 0 && name.equals(pair.substring(0, eq))) {
-				return URLDecoder.decode(pair.substring(eq + 1), StandardCharsets.UTF_8);
+				return decodeQueryValue(pair.substring(eq + 1));
 			}
 		}
 		return null;
+	}
+
+	/**
+	 * Decode one query value, keeping a literal {@code +}. {@link URLDecoder} implements form
+	 * decoding, where {@code +} means a space, but a raw query keeps {@code +} literal (RFC 3986) —
+	 * a world folder named {@code a+b} must survive. A client that wants a space percent-encodes it.
+	 */
+	private static String decodeQueryValue(final String value) {
+		return URLDecoder.decode(value.replace("+", "%2B"), StandardCharsets.UTF_8);
 	}
 
 	@Nullable
@@ -886,7 +895,7 @@ public final class EditorServer {
 			for (final String pair : query.split("&")) {
 				final int eq = pair.indexOf('=');
 				if (eq > 0 && "token".equals(pair.substring(0, eq))) {
-					return URLDecoder.decode(pair.substring(eq + 1), StandardCharsets.UTF_8);
+					return decodeQueryValue(pair.substring(eq + 1));
 				}
 			}
 		}

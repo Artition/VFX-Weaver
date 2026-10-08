@@ -2378,32 +2378,13 @@
 		if (!tab) {
 			return null;
 		}
-		if (!tab.keys) {
-			tab.keys = {};
-		}
-		if (!tab.params) {
-			tab.params = {};
-		}
-		var t = Math.round(num(time));
-		var list = tab.keys[name];
-		if (!Array.isArray(list)) {
-			list = tab.keys[name] = [];
+		// The upsert + sort + param-seeding lives on the IR (`Tab.setKey`), so the diamond, the lane
+		// click and the selftest all exercise one writer.
+		if (!tab.setKey) {
+			return null;
 		}
 		var v = value != null ? value : paramDefault(tab, name);
-		// A key-only param must still exist in `tab.params`, or `compileParamMap` (which iterates the
-		// param map, not `keys`) drops the whole slot from the export. Seed it once, keeping any spec.
-		if (tab.params[name] == null) {
-			tab.params[name] = { value: v };
-		} else if (typeof tab.params[name] !== "object") {
-			tab.params[name] = { value: tab.params[name] };
-		}
-		for (var i = 0; i < list.length; i++) {
-			if (Math.round(num(list[i].time)) === t) {
-				list[i].value = v;
-				return list[i];
-			}
-		}
-		return tab.addKey(name, t, v);
+		return tab.setKey(name, time, v);
 	}
 
 	/** Rebuild the canvas model, snapshot undo, refresh the panels and recompile. */
@@ -4494,11 +4475,12 @@
 			} else if (mod && lower === "g") {
 				groupSelection();
 			} else if (key === "Delete" || key === "Backspace") {
-				// A selected timeline key wins over the canvas node selection (item 2).
-				if (window.VFXTimeline && typeof window.VFXTimeline.hasSelectedKey === "function"
-						&& window.VFXTimeline.hasSelectedKey()) {
-					window.VFXTimeline.deleteSelectedKey();
-				} else {
+				// A selected timeline key wins while it is still on the active tab; a stale key (or
+				// none) falls through to the canvas node deletion (review G1).
+				var deletedKey = window.VFXTimeline
+						&& typeof window.VFXTimeline.deleteSelectedKey === "function"
+						&& window.VFXTimeline.deleteSelectedKey();
+				if (!deletedKey) {
 					deleteSelection();
 				}
 			} else if (key === "Tab") {

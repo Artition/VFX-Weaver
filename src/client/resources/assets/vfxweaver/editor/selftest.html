@@ -713,20 +713,47 @@ window.__vfxSelftest = function () {
 	});
 
 	test("(AK) the animate diamond appends keys (two keys at different times both survive)", function () {
-		// The diamond writes through Tab.addKey, which must never reset tab.keys[name]: a second
-		// press at a different playhead position keeps the first key. Regression for the
-		// "track replaced instead of appended" bug.
+		// The diamond writes through `Tab.setKey` (app.js `addKeyToSlot` delegates to it), which
+		// must never reset tab.keys[name]: a second press at a different playhead position keeps
+		// the first key. Regression for the "track replaced instead of appended" bug.
 		var tab = new VFXIR.Tab("blur", "blur");
 		tab.duration = 60;
 		tab.params.radius = { value: 0 };
-		tab.addKey("radius", 0, 1);
-		tab.addKey("radius", 30, 4);
+		tab.setKey("radius", 0, 1);
+		tab.setKey("radius", 30, 4);
 		eq(tab.keys.radius.length, 2, "both keys survive");
 		eq(tab.keys.radius[0].value, 1, "first key kept");
 		eq(tab.keys.radius[1].time, 30, "second key appended at its time");
 		var kf = parse(compileTab(tab)).params.radius;
 		ok(Array.isArray(kf.keyframes) && kf.keyframes.length === 2, "compiled track has both keys");
 		eq(kf.keyframes[1].value, 4, "second key value emitted");
+	});
+
+	test("(AL) every key write keeps the track time-sorted (out-of-order append, idempotent upsert)", function () {
+		// The readout (`inspector.valueAtTime`) and the curve walk `tab.keys[name]` in order, so a
+		// key written left of existing ones must land in the right slot (review G2).
+		var tab = new VFXIR.Tab("blur", "blur");
+		tab.duration = 60;
+		tab.setKey("radius", 30, 4);
+		tab.setKey("radius", 0, 1);
+		tab.setKey("radius", 15, 2);
+		eq(tab.keys.radius.length, 3, "three keys");
+		eq(tab.keys.radius[0].time, 0, "first in time order");
+		eq(tab.keys.radius[1].time, 15, "middle in time order");
+		eq(tab.keys.radius[2].time, 30, "last in time order");
+		// Idempotence: a write on an occupied tick updates in place, never duplicates.
+		tab.setKey("radius", 15, 9);
+		eq(tab.keys.radius.length, 3, "same tick does not duplicate");
+		eq(tab.keys.radius[1].value, 9, "same tick updated in place");
+		// A later left-of write appends and re-sorts, it does not replace.
+		tab.setKey("radius", 5, 7);
+		eq(tab.keys.radius.length, 4, "left-of write appended, not replaced");
+		eq(tab.keys.radius[1].time, 5, "left-of write sorts after the earlier key");
+		// The low-level writer is sorted too, so a caller that bypasses setKey cannot desync it.
+		var raw = new VFXIR.Tab("blur", "blur");
+		raw.addKey("radius", 20, 2);
+		raw.addKey("radius", 5, 1);
+		eq(raw.keys.radius[0].time, 5, "addKey keeps the track sorted");
 	});
 
 	return results;

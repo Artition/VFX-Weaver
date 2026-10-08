@@ -260,7 +260,51 @@
 			key.easing = easing;
 		}
 		this.keys[name].push(key);
+		// Keep the track time-sorted at every write: the timeline readout, the curve view and the
+		// engine all assume ascending time, and an append-only key can be inserted left of the rest.
+		this.keys[name].sort(function (a, b) {
+			return (Number(a.time) || 0) - (Number(b.time) || 0);
+		});
 		return key;
+	};
+
+	/**
+	 * The shared key writer behind the timeline/inspector edits (the animate diamond and the lane
+	 * click): upsert a key at a whole tick — replace the value when a key already sits on that tick,
+	 * else append — and keep the track time-sorted. Also seeds the param map so a key-only slot still
+	 * compiles. App-derived defaults (a schema `defaultValue`) are resolved by the caller.
+	 *
+	 * @param {string} name param name
+	 * @param {number} time tick offset from the effect start
+	 * @param {number} value key value
+	 * @returns {Object} the written keyframe
+	 */
+	Tab.prototype.setKey = function (name, time, value) {
+		if (!this.keys) {
+			this.keys = {};
+		}
+		if (!this.params) {
+			this.params = {};
+		}
+		var t = Math.round(Number(time) || 0);
+		var list = this.keys[name];
+		if (!Array.isArray(list)) {
+			list = this.keys[name] = [];
+		}
+		// A key-only param must still exist in `params`, or the compiler (which walks the param map)
+		// drops the whole slot from the export. Seed it once, keeping any existing spec.
+		if (this.params[name] == null) {
+			this.params[name] = { value: value };
+		} else if (typeof this.params[name] !== "object") {
+			this.params[name] = { value: this.params[name] };
+		}
+		for (var i = 0; i < list.length; i++) {
+			if (Math.round(Number(list[i].time) || 0) === t) {
+				list[i].value = value;
+				return list[i];
+			}
+		}
+		return this.addKey(name, t, value);
 	};
 
 	/**

@@ -105,6 +105,19 @@
 	}
 
 	/**
+	 * Whether an event target is a text field (an `input`/`textarea`/`contenteditable`), where the
+	 * browser's own key handling must win. Mirrors `app.js isEditable`; the curve key listener is a
+	 * bubble listener the global capture hotkey does not shield (review G3).
+	 */
+	function isEditable(target) {
+		if (!target || target.nodeType !== 1) {
+			return false;
+		}
+		var tag = target.tagName ? target.tagName.toLowerCase() : "";
+		return tag === "input" || tag === "textarea" || target.isContentEditable === true;
+	}
+
+	/**
 	 * Clamp a tick time into `[0, duration(tab)]`. Delegates to the IR helper when it is loaded
 	 * (so the same rule is pinned by the selftest), with an inline fallback for a broken asset chain.
 	 *
@@ -965,6 +978,9 @@
 				document.removeEventListener("mousemove", move);
 				document.removeEventListener("mouseup", up);
 				if (moved) {
+					// A drag can move a key across its neighbours; re-sort before the hot edit so the
+					// stored track stays the time-ordered one the readout/curve assume (review G2).
+					sortTrack(tab, name);
 					setKeyframe(tab, name, key);
 					commit(tab);
 				}
@@ -1003,6 +1019,15 @@
 		// The label gutter is not part of the time axis, so remove it before dividing.
 		var x = clientX - rect.left + ui.scroller.scrollLeft - LABEL_COLUMN;
 		return Math.max(0, x / ui.pxPerTick);
+	}
+
+	/** Whether a viewport x lands in the fixed label gutter, left of the time axis (minor). */
+	function inLabelGutter(clientX) {
+		if (!ui || !ui.scroller) {
+			return false;
+		}
+		var rect = ui.scroller.getBoundingClientRect();
+		return clientX - rect.left + ui.scroller.scrollLeft < LABEL_COLUMN;
 	}
 
 	/** Scrub the playhead by dragging the track background (never a key dot or a lane). Local only. */
@@ -1051,7 +1076,7 @@
 				return existing[i];
 			}
 		}
-		var key = tab.addKey(name, time, value);
+		var key = tab.setKey ? tab.setKey(name, time, value) : tab.addKey(name, time, value);
 		selectKey(name, key, null);
 		commit(tab);
 		if (panel && panel.parentNode) {
@@ -1073,6 +1098,11 @@
 		return function (event) {
 			if (event.target && event.target.classList
 					&& event.target.classList.contains("vfx-tl-key")) {
+				return;
+			}
+			// The param label sits in the fixed gutter and is `pointer-events:none`, so a click on it
+			// lands on the lane and would otherwise add a key at tick 0 — ignore the gutter (minor).
+			if (inLabelGutter(event.clientX)) {
 				return;
 			}
 			// The second click of a double-click must not schedule its own add.
@@ -1574,6 +1604,11 @@
 
 		// Delete removes the selected key; Escape closes the view (design §15.4).
 		curveKeyHandler = function (event) {
+			// Never steal Delete/Backspace/Escape from a text field: the global hotkey is capture and
+			// skips editable targets, but this bubble listener would otherwise delete a key (review G3).
+			if (isEditable(event.target)) {
+				return;
+			}
 			if (event.key === "Delete" || event.key === "Backspace") {
 				if (selected && selected.key) {
 					event.preventDefault();
@@ -1644,6 +1679,13 @@
 			curveKeyHandler = null;
 		}
 		var panel = el("div", { class: "vfx-tl" });
+		// A selected key belongs to one tab: after a tab switch (or an undo) it is stale, and a stale
+		// selection would make the Delete hotkey consume the press without deleting (review G1).
+		if (selected && selected.key
+				&& !(tab && tab.keys && tab.keys[selected.name]
+						&& tab.keys[selected.name].indexOf(selected.key) >= 0)) {
+			selected = null;
+		}
 		if (!tab) {
 			panel.appendChild(el("p", { class: "vfx-tl-empty", text: "No active tab" }));
 			ui = null;
