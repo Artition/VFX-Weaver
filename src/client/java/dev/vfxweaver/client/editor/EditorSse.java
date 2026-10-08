@@ -15,15 +15,18 @@ import org.jspecify.annotations.Nullable;
  * <p>Each {@code GET /events} connection registers its response stream with {@link #add}; the game
  * side pushes frames with {@link #broadcast}. The hub is thread-safe: the client list is a
  * {@link CopyOnWriteArrayList} and each client's stream is written under its own monitor, so a
- * failing write only drops that one client and never propagates to the caller. A daemon reaper
- * closes streams that have seen no traffic for {@value #IDLE_TIMEOUT_MS} ms. JDK only — no Minecraft
- * or loader types, so it runs on a plain JVM.
+ * failing write only drops that one client and never propagates to the caller. An open but idle
+ * connection (e.g. a paused preview that broadcasts nothing) is kept alive with a comment ping
+ * every {@value #IDLE_TIMEOUT_MS} ms; a dead peer fails that write and is dropped. JDK only — no
+ * Minecraft or loader types, so it runs on a plain JVM.
  */
 public final class EditorSse {
-	/** Close a connection that has received nothing for this long, in milliseconds. */
+	/** Keep an idle connection alive (and detect a dead peer) after this long, in milliseconds. */
 	private static final long IDLE_TIMEOUT_MS = 30_000L;
 	/** How often the reaper scans for idle connections, in milliseconds. */
 	private static final long REAP_INTERVAL_MS = 1_000L;
+	/** SSE comment (ignored by browsers) written to an idle-but-open connection to keep it alive. */
+	private static final byte[] KEEPALIVE = ": keep-alive\n\n".getBytes(StandardCharsets.UTF_8);
 
 	private static final CopyOnWriteArrayList<Client> CLIENTS = new CopyOnWriteArrayList<>();
 	private static final AtomicInteger NEXT_HANDLE = new AtomicInteger();
@@ -174,7 +177,10 @@ public final class EditorSse {
 			final long now = System.currentTimeMillis();
 			for (final Client client : CLIENTS) {
 				if (now - client.lastWriteMs > IDLE_TIMEOUT_MS) {
-					close(client);
+					// An idle-but-open editor is NOT a disconnect: a paused/stopped preview pushes
+					// no events, and closing here would fire ON_EMPTY → session shutdown/reset. Ping
+					// instead; a truly dead peer throws inside write() → close(), which still fires.
+					write(client, KEEPALIVE);
 				}
 			}
 		}
