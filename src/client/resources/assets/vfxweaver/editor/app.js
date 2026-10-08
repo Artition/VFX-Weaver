@@ -43,8 +43,11 @@
 		filter: document.getElementById("vfx-filter"),
 		canvas: document.getElementById("vfx-canvas"),
 		wrap: document.getElementById("vfx-canvas-wrap"),
+		main: document.getElementById("vfx-main"),
 		inspector: document.getElementById("vfx-inspector"),
 		timeline: document.getElementById("vfx-timeline"),
+		splitInspector: document.getElementById("vfx-split-inspector"),
+		splitTimeline: document.getElementById("vfx-split-timeline"),
 		file: document.getElementById("vfx-file"),
 		projectBtn: document.getElementById("vfx-project"),
 		projectName: document.getElementById("vfx-project-name"),
@@ -257,6 +260,10 @@
 	/** A started graph, so every tab (and the empty fallback) is set up the same way. */
 	function newGraph() {
 		var graph = new LiteGraph.LGraph();
+		// Draw connections on the FRONT canvas, after the nodes, so a wire is never hidden behind a
+		// node body (LGraphCanvas.drawFrontCanvas honours `config.links_ontop`). Set per graph, since
+		// the editor swaps the whole graph on every tab switch.
+		graph.config.links_ontop = true;
 		graph.start();
 		return graph;
 	}
@@ -3773,6 +3780,171 @@
 		}
 	}
 
+	/* ------------------------------------------------------------------ */
+	/* Resizable panels (item 4)                                           */
+	/* ------------------------------------------------------------------ */
+
+	/** localStorage key for the persisted panel sizes / collapse flags. */
+	var LAYOUT_KEY = "vfxweaver.editor.layout";
+	/** Sane bounds (px); the max is re-clamped to the viewport at drag time. */
+	var LAYOUT_BOUNDS = {
+		inspector: { min: 160, max: 720 },
+		timeline: { min: 80, max: 620 }
+	};
+
+	/** The panel layout; the widths/heights stay the *expanded* values even while collapsed. */
+	var layout = { inspectorW: 280, timelineH: 176, inspectorCollapsed: false, timelineCollapsed: false };
+
+	/** Clamp a panel size into its bounds. */
+	function clampLayout(value, which) {
+		var bounds = LAYOUT_BOUNDS[which];
+		return Math.max(bounds.min, Math.min(bounds.max, Math.round(value)));
+	}
+
+	/** Push `layout` onto the CSS custom properties + collapse classes, then resize the canvas. */
+	function applyLayout() {
+		var rootStyle = document.documentElement.style;
+		rootStyle.setProperty("--vfx-inspector-w",
+				(layout.inspectorCollapsed ? 0 : layout.inspectorW) + "px");
+		rootStyle.setProperty("--vfx-timeline-h",
+				(layout.timelineCollapsed ? 0 : layout.timelineH) + "px");
+		if (dom.main) {
+			dom.main.classList.toggle("vfx-inspector-collapsed", layout.inspectorCollapsed);
+		}
+		resizeCanvas();
+	}
+
+	/** Persist the current layout (never throws: localStorage may be unavailable). */
+	function saveLayout() {
+		try {
+			window.localStorage.setItem(LAYOUT_KEY, JSON.stringify(layout));
+		} catch (e) {
+			// private mode / disabled storage: the layout is a convenience only
+		}
+	}
+
+	/** Restore the persisted layout, clamped; a corrupt entry falls back to the defaults. */
+	function loadLayout() {
+		try {
+			var saved = JSON.parse(window.localStorage.getItem(LAYOUT_KEY));
+			if (!saved || typeof saved !== "object") {
+				return;
+			}
+			if (isFiniteNumber(Number(saved.inspectorW))) {
+				layout.inspectorW = clampLayout(Number(saved.inspectorW), "inspector");
+			}
+			if (isFiniteNumber(Number(saved.timelineH))) {
+				layout.timelineH = clampLayout(Number(saved.timelineH), "timeline");
+			}
+			layout.inspectorCollapsed = saved.inspectorCollapsed === true;
+			layout.timelineCollapsed = saved.timelineCollapsed === true;
+		} catch (e) {
+			// ignore a corrupt/absent entry
+		}
+	}
+
+	/** A drag on a splitter: pointer capture on the handle, size from the pointer delta. */
+	function beginSplitDrag(event, which) {
+		if (!event || event.button !== 0) {
+			return;
+		}
+		event.preventDefault();
+		var startX = event.clientX;
+		var startY = event.clientY;
+		var startW = layout.inspectorW;
+		var startH = layout.timelineH;
+		var splitter = event.currentTarget;
+		splitter.classList.add("active");
+		if (splitter.setPointerCapture) {
+			splitter.setPointerCapture(event.pointerId);
+		}
+		function maxInspector() {
+			// leave the palette (240) and a usable canvas (160) in the viewport
+			return dom.main ? Math.max(LAYOUT_BOUNDS.inspector.min, dom.main.clientWidth - 400)
+					: LAYOUT_BOUNDS.inspector.max;
+		}
+		function onMove(moveEvent) {
+			if (which === "inspector") {
+				layout.inspectorW = Math.max(LAYOUT_BOUNDS.inspector.min,
+						Math.min(maxInspector(), Math.round(startW - (moveEvent.clientX - startX))));
+				layout.inspectorCollapsed = false;
+			} else {
+				layout.timelineH = Math.max(LAYOUT_BOUNDS.timeline.min,
+						Math.min(LAYOUT_BOUNDS.timeline.max, Math.round(startH - (moveEvent.clientY - startY))));
+				layout.timelineCollapsed = false;
+			}
+			applyLayout();
+		}
+		function onUp() {
+			splitter.classList.remove("active");
+			if (splitter.releasePointerCapture) {
+				try {
+					splitter.releasePointerCapture(event.pointerId);
+				} catch (e) {
+					// the pointer may already be released
+				}
+			}
+			document.removeEventListener("pointermove", onMove);
+			document.removeEventListener("pointerup", onUp);
+			saveLayout();
+		}
+		document.addEventListener("pointermove", onMove);
+		document.addEventListener("pointerup", onUp);
+	}
+
+	/** Collapse/expand a panel (double-click on its splitter); the expanded size is remembered. */
+	function toggleSplit(which) {
+		if (which === "inspector") {
+			layout.inspectorCollapsed = !layout.inspectorCollapsed;
+		} else {
+			layout.timelineCollapsed = !layout.timelineCollapsed;
+		}
+		applyLayout();
+		saveLayout();
+	}
+
+	/** Wire both splitters: drag to resize, double-click to collapse, arrow keys to nudge. */
+	function wireLayout() {
+		loadLayout();
+		applyLayout();
+		if (dom.splitInspector) {
+			dom.splitInspector.addEventListener("pointerdown", function (event) {
+				beginSplitDrag(event, "inspector");
+			});
+			dom.splitInspector.addEventListener("dblclick", function () {
+				toggleSplit("inspector");
+			});
+			dom.splitInspector.addEventListener("keydown", function (event) {
+				if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+					event.preventDefault();
+					layout.inspectorW = clampLayout(layout.inspectorW
+							+ (event.key === "ArrowLeft" ? 16 : -16), "inspector");
+					layout.inspectorCollapsed = false;
+					applyLayout();
+					saveLayout();
+				}
+			});
+		}
+		if (dom.splitTimeline) {
+			dom.splitTimeline.addEventListener("pointerdown", function (event) {
+				beginSplitDrag(event, "timeline");
+			});
+			dom.splitTimeline.addEventListener("dblclick", function () {
+				toggleSplit("timeline");
+			});
+			dom.splitTimeline.addEventListener("keydown", function (event) {
+				if (event.key === "ArrowUp" || event.key === "ArrowDown") {
+					event.preventDefault();
+					layout.timelineH = clampLayout(layout.timelineH
+							+ (event.key === "ArrowUp" ? 16 : -16), "timeline");
+					layout.timelineCollapsed = false;
+					applyLayout();
+					saveLayout();
+				}
+			});
+		}
+	}
+
 	/** The revision-status badge in the top bar: "rev N → in game", offline, syncing or error. */
 	function updateRevBadge(state) {
 		if (!dom.revbadge) {
@@ -4368,6 +4540,29 @@
 
 		resizeCanvas();
 		scene = new LiteGraph.LGraphCanvas(dom.canvas, new LiteGraph.LGraph());
+		scene.graph.config.links_ontop = true;
+		// Hovering a connection highlights it (white + slightly thicker) so a dense chain is readable.
+		// LiteGraph tracks the hovered link in `over_link_center` but only coloured it in the tooltip;
+		// wrap `renderLink` once (guarded) rather than editing the vendored library.
+		var canvasProto = LiteGraph.LGraphCanvas.prototype;
+		if (!canvasProto.__vfxHoverLink) {
+			canvasProto.__vfxHoverLink = true;
+			var originalRenderLink = canvasProto.renderLink;
+			canvasProto.renderLink = function (ctx, a, b, link, skipBorder, flow, color, startDir, endDir, sublines) {
+				var hovered = link != null && link === this.over_link_center;
+				if (hovered) {
+					this.connections_width += 2;
+				}
+				try {
+					return originalRenderLink.call(this, ctx, a, b, link, skipBorder, flow,
+							hovered ? "#FFFFFF" : color, startDir, endDir, sublines);
+				} finally {
+					if (hovered) {
+						this.connections_width -= 2;
+					}
+				}
+			};
+		}
 		// Intercept the node right-click: a value-node field shows the slot menu (replace with
 		// expr/bind, animate, disconnect), anything else keeps LiteGraph's own menu.
 		var originalContextMenu = scene.processContextMenu;
@@ -4385,6 +4580,7 @@
 			}
 		};
 		window.addEventListener("resize", resizeCanvas);
+		wireLayout();
 		wireInlineWidgetEdit();
 		wireHotkeys();
 		wireBridge();

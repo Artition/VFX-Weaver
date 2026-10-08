@@ -310,6 +310,7 @@ window.__vfxSelftest = function () {
 		eq(preview.loop, true, "preview loops");
 		eq(preview.fade_ticks, 0, "preview fade forced to 0");
 		eq(preview.persistent, true, "preview keeps the authored persistent flag");
+		eq(preview.duration, 40, "preview keeps the authored duration (no sentinel)");
 	});
 
 	test("(I1) a slot with >=1 key serializes ONLY as keyframes", function () {
@@ -618,7 +619,7 @@ window.__vfxSelftest = function () {
 				"multiply survives on a keyed slot");
 	});
 
-	test("(AG) preview has a large sentinel duration + fade 0; authored is unchanged", function () {
+	test("(AG) preview loops over the authored duration + fade 0; authored is unchanged", function () {
 		var tab = new VFXIR.Tab("blur", "blur");
 		tab.duration = 25;
 		tab.fade_ticks = 7;
@@ -627,7 +628,7 @@ window.__vfxSelftest = function () {
 		eq(authored.duration, 25, "authored duration");
 		eq(authored.fade_ticks, 7, "authored fade");
 		var preview = parse(window.VFXCompiler.compileForPreview(tab));
-		eq(preview.duration, 6000, "preview sentinel duration");
+		eq(preview.duration, 25, "preview keeps the authored duration (no sentinel override)");
 		eq(preview.loop, true, "preview loops");
 		eq(preview.fade_ticks, 0, "preview fade 0");
 		eq(parse(compileTab(tab)).duration, 25, "authored compile is unchanged after preview");
@@ -635,7 +636,7 @@ window.__vfxSelftest = function () {
 		var long = new VFXIR.Tab("blur", "blur");
 		long.duration = 9000;
 		eq(parse(window.VFXCompiler.compileForPreview(long)).duration, 9000,
-				"a duration longer than the sentinel is kept");
+				"a longer authored duration is kept verbatim");
 	});
 
 	test("(AH) collection import keeps entry params + preserves an external id on export", function () {

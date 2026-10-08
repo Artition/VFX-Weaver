@@ -605,10 +605,13 @@
 
 	/**
 	 * Compile the PREVIEW artifact: the same IR as {@link compileTab}, but with playback overrides so
-	 * editing stays pleasant (`loop:true`, `fade_ticks:0`, and a large sentinel `duration`) — the
-	 * in-game preview never dies and never fades the animation out (design §15.5, fixes #4/#15). A
-	 * type that ignores `loop` still cannot vanish mid-inspection because the sentinel duration is
-	 * large. The authored compile is unchanged, so File→Export still writes the user's real timing.
+	 * editing stays pleasant and the animation is always visible (`loop:true`, `fade_ticks:0`) — the
+	 * in-game preview never dies and never fades out (design §15.5, fixes #4/#15). The authored
+	 * `duration` is kept deliberately: the engine wraps the loop over the *timeline* duration, so a
+	 * large sentinel duration made the authored keyframes play once and then hold their end value
+	 * (usually 0) for the rest of the sentinel — reading as the preview decaying to nothing. Looping
+	 * over the authored duration replays the real animation at the real timing forever. The authored
+	 * compile is unchanged, so File→Export still writes the user's real timing.
 	 *
 	 * @param {Object} tab a `VFXIR.Tab`
 	 * @returns {string} the preview effect JSON text
@@ -617,7 +620,6 @@
 		var def = JSON.parse(compileTab(tab));
 		def.loop = true;
 		def.fade_ticks = 0;
-		def.duration = Math.max(num(def.duration, 0), 6000);
 		return JSON.stringify(def, null, "\t");
 	}
 

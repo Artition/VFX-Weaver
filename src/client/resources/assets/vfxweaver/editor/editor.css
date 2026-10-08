@@ -22,7 +22,8 @@ body {
 
 body {
 	display: grid;
-	grid-template-rows: auto auto 1fr auto;
+	/* banner, top bar, main canvas, timeline splitter, timeline (the splitter is its own 6px row) */
+	grid-template-rows: auto auto 1fr auto auto;
 	height: 100vh;
 	overflow: hidden;
 	background: var(--vfx-bg);
@@ -41,8 +42,9 @@ body {
 }
 
 /*
- * Keep the banner as a zero-height grid row while hidden: the body grid has four tracks
- * (banner, top bar, main, timeline) and a display:none item would shift main onto the wrong one.
+ * Keep the banner as a zero-height grid row while hidden: the body grid has five tracks
+ * (banner, top bar, main, timeline splitter, timeline) and a display:none item would shift
+ * the rest onto the wrong rows.
  */
 #vfx-banner[hidden] {
 	display: block;
@@ -456,8 +458,10 @@ body {
 
 #vfx-main {
 	display: grid;
-	grid-template-columns: 240px 1fr 280px;
+	/* The inspector column width is user-resizable (app.js wireLayout); 0 when collapsed. */
+	grid-template-columns: 240px 1fr var(--vfx-inspector-w, 280px);
 	min-height: 0;
+	position: relative;
 }
 
 #vfx-palette {
@@ -796,10 +800,51 @@ body {
 /* ------------------------------------------------------------------ */
 
 #vfx-timeline {
-	height: 176px;
+	height: var(--vfx-timeline-h, 176px);
 	background: var(--vfx-panel);
 	border-top: 1px solid var(--vfx-border);
 	overflow: hidden;
+}
+
+/*
+ * Panel splitters (item 4). The vertical one is an absolutely-positioned child of #vfx-main
+ * (so it does NOT become a grid item and add a row); the horizontal one is its own 6px body
+ * grid row between #vfx-main and #vfx-timeline. The vertical splitter sits at the inspector's
+ * left edge via `right: var(--vfx-inspector-w)`, so it stays reachable when the panel is
+ * collapsed to 0.
+ */
+.vfx-split {
+	background: transparent;
+	z-index: 6;
+	touch-action: none;
+	transition: background 0.12s ease;
+}
+
+.vfx-split:hover,
+.vfx-split.active,
+.vfx-split:focus-visible {
+	background: var(--vfx-accent);
+	opacity: 0.55;
+	outline: none;
+}
+
+.vfx-split-v {
+	position: absolute;
+	top: 0;
+	bottom: 0;
+	right: var(--vfx-inspector-w, 280px);
+	width: 6px;
+	cursor: col-resize;
+}
+
+.vfx-split-h {
+	height: 6px;
+	cursor: row-resize;
+}
+
+/* When collapsed the panel is 0 px: the splitter (timeline row / inspector edge) still shows. */
+.vfx-inspector-collapsed #vfx-inspector {
+	border-left: 0;
 }
 
 .vfx-tl {
