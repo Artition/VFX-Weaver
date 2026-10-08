@@ -549,11 +549,14 @@ body {
 	border-left: 1px solid var(--vfx-border);
 	overflow-y: auto;
 	min-height: 0;
+	/* Uniform inner padding for every section (fix H3): sections no longer carry their own
+	   horizontal padding, so text and inputs never sit flush against the panel borders. */
+	padding: 10px 12px 12px;
 }
 
 #vfx-inspector h2 {
 	margin: 0;
-	padding: 10px 12px 6px;
+	padding: 4px 0 6px;
 	font-size: 11px;
 	text-transform: uppercase;
 	letter-spacing: 0.08em;
@@ -562,7 +565,7 @@ body {
 
 .vfx-inspect-empty {
 	margin: 0;
-	padding: 8px 12px;
+	padding: 4px 0;
 	color: var(--vfx-text-dim);
 }
 
@@ -570,7 +573,7 @@ body {
 	display: flex;
 	flex-wrap: wrap;
 	gap: 3px;
-	padding: 0 8px 8px;
+	padding: 0 0 8px;
 }
 
 .vfx-param {
@@ -593,7 +596,7 @@ body {
 }
 
 .vfx-inspector {
-	padding: 0 12px 12px;
+	padding: 0;
 }
 
 .vfx-inspect-head {
@@ -685,13 +688,16 @@ body {
 	flex: 0 0 auto;
 }
 
-/* The live numeric readout of an animated value at the playhead (item 3). */
-.vfx-live-value {
-	flex: 0 0 auto;
-	min-width: 44px;
+/* The animated value lives in the field itself (fix H5): the live number is the input's value, so
+   a right-aligned, width-bounded number field replaces the old separate readout span that overflowed. */
+.vfx-live-field .vfx-num {
 	text-align: right;
-	color: var(--vfx-accent);
-	font-variant-numeric: tabular-nums;
+	max-width: 104px;
+}
+
+.vfx-live-field .vfx-scalar {
+	flex: 1 1 auto;
+	min-width: 0;
 }
 
 .vfx-field-block {

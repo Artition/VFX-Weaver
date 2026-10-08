@@ -44,6 +44,12 @@
 		return isFinite(n) ? n : (fallback == null ? 0 : fallback);
 	}
 
+	/** A value rounded to 2 decimals for the live readout (fix H5); pure through `VFXIR.roundTo`. */
+	function round2(value) {
+		return root.VFXIR && typeof root.VFXIR.roundTo === "function"
+				? root.VFXIR.roundTo(value, 2) : Math.round(num(value) * 100) / 100;
+	}
+
 	/** A shallow copy of a plain object, so control mutations never alias the caller's spec. */
 	function clone(spec) {
 		var out = {};
@@ -521,16 +527,14 @@
 
 		function trackBody() {
 			var box = el("div", { class: "vfx-slot vfx-slot-track" });
-			// The live numeric readout of the animated value at the playhead (design §15.1, item 3):
-			// recomputed from the IR keys alone — no game request — and refreshed by the timeline on
-			// every scrub/play frame through {@link refreshLiveValues}.
-			var readout = el("span", { class: "vfx-live-value", text: String(num(currentValue())) });
-			readout.__vfxCompute = currentValue;
-			box.appendChild(el("label", { class: "vfx-field" }, [
-				el("span", { text: "value @ playhead" }),
-				scalarFor(param, currentValue(), editValue),
-				readout
-			]));
+			// The live value lives IN the field itself (fix H5): rounded to 2 decimals, refreshed at
+			// the playhead by `refreshLiveValues`, which skips the field while it is being typed into.
+			// A separate readout element used to sit to the right and overflow the panel.
+			var field = el("label", { class: "vfx-field vfx-live-field" });
+			field.appendChild(el("span", { text: "value @ playhead" }));
+			field.appendChild(scalarFor(param, round2(currentValue()), editValue));
+			field.__vfxCompute = function () { return round2(currentValue()); };
+			box.appendChild(field);
 			var list = keys();
 			var info = el("div", { class: "vfx-track-info" }, [
 				el("span", { class: "vfx-track-count",
@@ -973,21 +977,27 @@
 	}
 
 	/**
-	 * Render the "Node timing" section for one tab (design §15.3): `duration` (ticks or seconds at
-	 * 20 tps), `loop`, `persistent`, `fade_ticks` (default 0) and `delay` (reserved for P6 chains).
-	 * Every value lives on the tab; an edit calls `onEdit(name, value)` so the shell can snapshot-undo
-	 * it and re-play the preview.
+	 * Render the "Node timing" section (design §15.3, fix H4): `duration` (ticks or seconds at
+	 * 20 tps), `loop`, `persistent`, `fade_ticks` (default 0) and `delay`. The values are read from
+	 * and written to {@code target}: the selected chain node when the caller passes one, else the
+	 * root `tab` (a single-effect tab, or the collection root). An edit calls `onEdit(name, value)`
+	 * so the shell can snapshot-undo it and re-play the preview.
 	 *
-	 * @param {Object} tab the active `VFXIR.Tab`
+	 * @param {Object} tab the active `VFXIR.Tab` (for an empty tab, and the render guard)
 	 * @param {function} [onEdit] called `(name, value)` after every edit
+	 * @param {Object} [target] the object whose timing fields are edited (defaults to `tab`)
 	 * @returns {HTMLElement} the section
 	 */
-	function renderTiming(tab, onEdit) {
+	function renderTiming(tab, onEdit, target) {
 		var box = el("div", { class: "vfx-timing" });
 		box.appendChild(el("h2", { text: "Node timing" }));
 		if (!tab) {
 			return box;
 		}
+		// Per-node timing (fix H4): edit the selected effect entry when the caller supplies one,
+		// otherwise the root/tab. This is what makes a chain node's duration a per-node edit instead
+		// of the whole collection's duration.
+		var node = target || tab;
 		function commit(name, value) {
 			if (typeof onEdit === "function") {
 				onEdit(name, value);
@@ -1000,7 +1010,7 @@
 		var durationInput = el("input", {
 			type: "number",
 			class: "vfx-num",
-			value: displayDuration(tab.duration),
+			value: displayDuration(node.duration),
 			title: "Effect length (min 1 tick)"
 		});
 		durationInput.min = "1";
@@ -1008,8 +1018,8 @@
 		durationInput.addEventListener("input", function () {
 			var raw = num(durationInput.value, 1);
 			var ticks = durationUnit === "seconds" ? Math.round(raw * TICKS_PER_SECOND) : Math.round(raw);
-			tab.duration = Math.max(1, ticks);
-			commit("duration", tab.duration);
+			node.duration = Math.max(1, ticks);
+			commit("duration", node.duration);
 		});
 		var unitSelect = el("select", { class: "vfx-select vfx-timing-unit", title: "Duration unit" });
 		unitSelect.appendChild(el("option", { value: "ticks", text: "ticks" }));
@@ -1017,7 +1027,7 @@
 		unitSelect.value = durationUnit;
 		unitSelect.addEventListener("change", function () {
 			durationUnit = unitSelect.value;
-			durationInput.value = displayDuration(tab.duration);
+			durationInput.value = displayDuration(node.duration);
 			durationInput.step = durationUnit === "seconds" ? "0.05" : "1";
 		});
 		wrap.appendChild(durationInput);
@@ -1025,29 +1035,41 @@
 		durationRow.appendChild(wrap);
 		box.appendChild(durationRow);
 
-		box.appendChild(timingCheck("loop", tab, "loop", commit));
-		box.appendChild(timingCheck("persistent", tab, "persistent", commit));
-		box.appendChild(timingNumber("fade_ticks", tab, "fade_ticks", 0,
+		box.appendChild(timingCheck("loop", node, "loop", commit));
+		box.appendChild(timingCheck("persistent", node, "persistent", commit));
+		box.appendChild(timingNumber("fade_ticks", node, "fade_ticks", 0,
 				"Post-life fade in ticks (0 disables it)", commit));
-		box.appendChild(timingNumber("delay", tab, "delay", 0,
-				"Start delay in ticks (reserved for chains)", commit));
+		box.appendChild(timingNumber("delay", node, "delay", 0,
+				"Start delay in ticks (for a chain node)", commit));
 		return box;
 	}
 
 	/**
-	 * Recompute every live readout (`.vfx-live-value`) at the current playhead. Pure IR math, no
-	 * game request; the timeline calls it on every scrub/play frame so the readout tracks the
-	 * playhead (design §15.1, item 3).
+	 * Recompute the live value of every animated field (`.vfx-live-field`) at the current playhead
+	 * and write it into the field's own inputs (fix H5). Pure IR math, no game request; the timeline
+	 * calls it on every scrub/play frame so the number tracks the playhead. An input being typed
+	 * into (or dragged) keeps its own value, so an exact entry is never overwritten mid-edit.
 	 */
 	function refreshLiveValues() {
 		if (typeof document === "undefined" || !document.querySelectorAll) {
 			return;
 		}
-		var nodes = document.querySelectorAll(".vfx-live-value");
+		var nodes = document.querySelectorAll(".vfx-live-field");
 		for (var i = 0; i < nodes.length; i++) {
 			var node = nodes[i];
-			if (typeof node.__vfxCompute === "function") {
-				node.textContent = String(num(node.__vfxCompute()));
+			if (typeof node.__vfxCompute !== "function") {
+				continue;
+			}
+			var shown = String(node.__vfxCompute());
+			var inputs = node.querySelectorAll('input[type="number"], input[type="range"]');
+			for (var j = 0; j < inputs.length; j++) {
+				var input = inputs[j];
+				if (document.activeElement === input) {
+					continue;
+				}
+				if (input.value !== shown) {
+					input.value = shown;
+				}
 			}
 		}
 	}

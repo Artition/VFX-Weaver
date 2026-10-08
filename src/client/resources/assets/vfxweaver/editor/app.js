@@ -1844,6 +1844,9 @@
 					entry.delay = num(saved.delay, 0);
 					entry.duration = num(saved.duration, 0);
 					entry.easing = saved.easing == null ? null : saved.easing;
+					entry.loop = saved.loop === true;
+					entry.persistent = saved.persistent === true;
+					entry.fade_ticks = num(saved.fade_ticks, 0);
 					entry.mute = saved.mute === true;
 					entry.solo = saved.solo === true;
 					entry.source = snapshot(saved.source);
@@ -2110,6 +2113,23 @@
 		}
 		var list = document.createElement("div");
 		list.className = "vfx-layer-list";
+		// A pseudo-row for the collection root (fix H4): selecting it makes the Node timing panel
+		// edit the collection's own timing. Shown only for a chain; for a single effect the node IS
+		// the root, so a separate row would be redundant.
+		if (tab.effects.length >= 2) {
+			var rootRow = document.createElement("div");
+			rootRow.className = "vfx-layer vfx-layer-root" + (tab.activeEffect < 0 ? " active" : "");
+			rootRow.textContent = "▣ " + (tab.name || "collection") + " · collection";
+			rootRow.title = "Select the collection root to edit its overall timing";
+			rootRow.addEventListener("click", function () {
+				tab.activeEffect = -1;
+				inspectorName = null;
+				renderInspector();
+				renderTimeline();
+				renderTabs();
+			});
+			list.appendChild(rootRow);
+		}
 		tab.effects.forEach(function (effect, index) {
 			var row = document.createElement("div");
 			row.className = "vfx-layer" + (index === tab.activeEffect ? " active" : "")
@@ -2244,17 +2264,25 @@
 			return;
 		}
 		var tab = activeTab();
-		var descriptor = tab && tab.type ? schema[tab.type] : null;
 		if (!tab) {
 			dom.inspector.appendChild(inspectorMessage("No active tab"));
 			return;
 		}
 		// Layers panel (design §15.2, P6): the chain order, before the per-node sections.
 		dom.inspector.appendChild(renderLayers(tab));
-		// Node timing section (design §15.3): duration/loop/persistent/fade_ticks/delay on the tab.
+		// Node timing section (design §15.3, fix H4): a chain node's timing is per node; only a
+		// single-effect tab or the selected collection root edits the tab/root timing.
+		var timingTarget = tab.effects && tab.effects.length >= 2 && tab.effect() ? tab.effect() : tab;
 		if (typeof window.VFXInspector.renderTiming === "function") {
-			dom.inspector.appendChild(window.VFXInspector.renderTiming(tab, onTimingEdit));
+			dom.inspector.appendChild(window.VFXInspector.renderTiming(tab, onTimingEdit, timingTarget));
 		}
+		// A selected collection root has no params of its own; the effect nodes hold them.
+		if (tab.effects && tab.effects.length >= 2 && !tab.effect()) {
+			dom.inspector.appendChild(inspectorMessage(
+					"Collection root selected — select an effect node to edit its parameters"));
+			return;
+		}
+		var descriptor = tab.type ? schema[tab.type] : null;
 		if (!descriptor || !descriptor.params || descriptor.params.length === 0) {
 			dom.inspector.appendChild(inspectorMessage(
 					tab.type ? "No editable parameters" : "Choose an effect type"));
@@ -2889,6 +2917,9 @@
 				effect.delay = num(entry.delay, 0);
 				effect.duration = num(entry.duration, 0);
 				effect.easing = entry.easing == null ? null : entry.easing;
+				effect.loop = entry.loop === true;
+				effect.persistent = entry.persistent === true;
+				effect.fade_ticks = num(entry.fade_ticks, 0);
 				effect.source = entry.source ? snapshot(entry.source) : null;
 				// Keep the imported reference id so export can re-emit an external/built-in child as
 				// itself instead of renaming it to a local `__n` def (design §15.2 round-trip).
@@ -2975,7 +3006,10 @@
 						mute: effect.mute === true,
 						solo: effect.solo === true,
 						delay: num(effect.delay, 0),
-						duration: num(effect.duration, 0)
+						duration: num(effect.duration, 0),
+						loop: effect.loop === true,
+						persistent: effect.persistent === true,
+						fade_ticks: num(effect.fade_ticks, 0)
 					};
 					// Persist an imported external reference so a saved project keeps the id on export.
 					if (effect.effectId != null) {
@@ -3042,6 +3076,15 @@
 					}
 					if (saved.duration != null) {
 						effect.duration = num(saved.duration, effect.duration);
+					}
+					if (saved.loop != null) {
+						effect.loop = saved.loop === true;
+					}
+					if (saved.persistent != null) {
+						effect.persistent = saved.persistent === true;
+					}
+					if (saved.fade_ticks != null) {
+						effect.fade_ticks = num(saved.fade_ticks, effect.fade_ticks);
 					}
 					effect.mute = saved.mute === true;
 					effect.solo = saved.solo === true;

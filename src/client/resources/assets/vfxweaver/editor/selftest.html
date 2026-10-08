@@ -756,6 +756,71 @@ window.__vfxSelftest = function () {
 		eq(raw.keys.radius[0].time, 5, "addKey keeps the track sorted");
 	});
 
+	test("(H1) preview forces loop + persistent + fade 0; authored untouched", function () {
+		var tab = new VFXIR.Tab("blur", "blur");
+		tab.duration = 25;
+		tab.loop = false;
+		tab.persistent = false;
+		tab.fade_ticks = 7;
+		var preview = parse(window.VFXCompiler.compileForPreview(tab));
+		eq(preview.loop, true, "preview loops");
+		eq(preview.persistent, true, "preview is persistent (keep-alive even without loop)");
+		eq(preview.fade_ticks, 0, "preview never fades");
+		eq(preview.duration, 25, "preview keeps the authored duration");
+		var authored = parse(compileTab(tab));
+		eq(authored.loop, false, "authored loop untouched");
+		eq(authored.persistent, false, "authored persistent untouched");
+		eq(authored.fade_ticks, 7, "authored fade untouched");
+	});
+
+	test("(H2) a dragged tangent handle stays in the curve viewport", function () {
+		// A wild upward y is clamped to the visible axis top, x to the segment unit box [0,1].
+		var clamped = VFXIR.clampBezierHandle([0.5, 99, 0.5, -99], 0, 0, 1, -0.1, 1.1);
+		eq(clamped[1], 1.1, "y clamped to the axis top");
+		var pulled = VFXIR.clampBezierHandle([2, -5, 0.5, 0.5], 0, 0, 1, -0.1, 1.1);
+		eq(pulled[0], 1, "x clamped to the segment end");
+		eq(pulled[1], -0.1, "y clamped to the axis bottom");
+		// A zero value span has no vertical scale: y is left as-is, only x is clamped.
+		var flat = VFXIR.clampBezierHandle([1.5, 99, 0.5, 0.5], 0, 5, 5, 0, 1);
+		eq(flat[0], 1, "flat segment clamps x");
+		eq(flat[1], 99, "flat segment leaves y");
+	});
+
+	test("(H5) roundTo rounds the live readout to 2 decimals", function () {
+		eq(VFXIR.roundTo(-0.1382379991762769, 2), -0.14, "2-decimal rounding");
+		eq(VFXIR.roundTo(1.239, 2), 1.24, "rounds half up on the 3rd decimal");
+		eq(VFXIR.roundTo("bad", 2), 0, "non-finite input is 0");
+		eq(VFXIR.roundTo(3, 2), 3, "an integer is unchanged");
+	});
+
+	test("(H4) chain timing is per node; the collection root keeps its own", function () {
+		var tab = new VFXIR.Tab("show", null);
+		tab.duration = 80;
+		tab.loop = false;
+		var e0 = tab.addEffect("blur");
+		e0.duration = 15;
+		e0.loop = false;
+		e0.persistent = false;
+		e0.fade_ticks = 3;
+		var e1 = tab.addEffect("pixelate");
+		e1.duration = 30;
+		e1.loop = true;
+		e1.persistent = true;
+		e1.fade_ticks = 0;
+		var def = parse(compileTab(tab, { namespace: "ns", baseName: "show" }));
+		eq(def.type, "collection", "root is the collection");
+		eq(def.duration, 80, "root keeps the collection duration");
+		eq(def.effects[0].duration, 15, "node 0 duration is per node");
+		eq(def.effects[1].duration, 30, "node 1 duration is per node");
+		var files = window.VFXCompiler.compileTabFiles(tab, { namespace: "ns", baseName: "show" });
+		var child0 = parse(files["show__0"]);
+		var child1 = parse(files["show__1"]);
+		eq(child0.loop, false, "child 0 loop from its node");
+		eq(child0.fade_ticks, 3, "child 0 fade from its node");
+		eq(child1.loop, true, "child 1 loop from its node");
+		eq(child1.persistent, true, "child 1 persistent from its node");
+	});
+
 	return results;
 };
 /* SELFTEST:END */

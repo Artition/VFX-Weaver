@@ -114,6 +114,12 @@
 			delay: 0,
 			duration: 0,
 			easing: null,
+			// Per-node timing (design §15.3, fix H4): a chain node owns its own loop/persistent/
+			// fade_ticks, so the Node timing panel edits only the selected effect, not the whole
+			// collection. For a single-effect tab these are ignored (the root tab owns them).
+			loop: false,
+			persistent: false,
+			fade_ticks: 0,
 			mute: false,
 			solo: false,
 			source: null
@@ -600,6 +606,58 @@
 	}
 
 	/**
+	 * Round a number to a fixed number of decimal places (for a compact readout). Pure, so the
+	 * headless selftest pins it; a non-finite input and an absurd precision are clamped.
+	 *
+	 * @param {*} value the value to round
+	 * @param {number} [decimals] decimal places (default 2; clamped to `[0,10]`)
+	 * @returns {number} the rounded value, or 0 for a non-finite input
+	 */
+	function roundTo(value, decimals) {
+		var n = Number(value);
+		if (!isFinite(n)) {
+			return 0;
+		}
+		var places = isFiniteNumber(Number(decimals)) ? Math.max(0, Math.min(10, Math.round(Number(decimals)))) : 2;
+		var factor = Math.pow(10, places);
+		return Math.round(n * factor) / factor;
+	}
+
+	/**
+	 * Clamp a dragged curve tangent handle into the visible curve viewport (design §15.4). The x
+	 * control point lives in the segment's unit box (`[0,1]`); the y control point is free but is
+	 * clamped so the handle's drawn value stays inside the value axis the view shows (the segment
+	 * box plus the axis headroom), which keeps every handle on-screen and grabbable. A zero-length
+	 * segment (or zero value span) has no vertical scale, so only x is clamped. Pure, so the
+	 * headless selftest pins it.
+	 *
+	 * @param {Array<number>} bezier the segment easing `[x1,y1,x2,y2]`
+	 * @param {number} which 0 for the first control point, 1 for the second
+	 * @param {number} value0 the segment's start value
+	 * @param {number} value1 the segment's end value
+	 * @param {number} axisLo the bottom of the visible value axis
+	 * @param {number} axisHi the top of the visible value axis
+	 * @returns {Array<number>} a clamped copy of the bezier
+	 */
+	function clampBezierHandle(bezier, which, value0, value1, axisLo, axisHi) {
+		var b = Array.isArray(bezier) ? bezier.slice() : [0, 0, 1, 1];
+		var xi = (Number(which) === 1 ? 1 : 0) * 2;
+		var x = Number(b[xi]);
+		b[xi] = isFinite(x) ? Math.max(0, Math.min(1, x)) : 0;
+		var span = Number(value1) - Number(value0);
+		var lo = Math.min(Number(axisLo), Number(axisHi));
+		var hi = Math.max(Number(axisLo), Number(axisHi));
+		if (isFinite(span) && span !== 0 && isFinite(lo) && isFinite(hi)) {
+			var value = Number(value0) + span * Number(b[xi + 1]);
+			if (isFinite(value)) {
+				value = Math.max(lo, Math.min(hi, value));
+				b[xi + 1] = (value - Number(value0)) / span;
+			}
+		}
+		return b;
+	}
+
+	/**
 	 * Normalise a datapack easing reference to the IR segment model: a name string stays a string,
 	 * `{ "cubicBezier": [x1,y1,x2,y2] }` becomes the bare four-number array (design §15.4/§15.8).
 	 *
@@ -1018,6 +1076,11 @@
 				duration: entry.duration != null && isFiniteNumber(Number(entry.duration))
 						? Number(entry.duration) : 0,
 				easing: entry.easing == null ? null : entry.easing,
+				// Per-node timing comes from the resolved child definition, not the collection entry
+				// (the engine's child spec carries only effect/delay/duration/params/easing).
+				loop: child ? child.loop === true : false,
+				persistent: child ? child.persistent === true : false,
+				fade_ticks: child && isFiniteNumber(Number(child.fade_ticks)) ? Number(child.fade_ticks) : 0,
 				params: params,
 				source: child || null,
 				effectId: id,
@@ -1048,6 +1111,8 @@
 		SNAP_EPSILON: SNAP_EPSILON,
 		bezierY: bezierY,
 		bezierHandleDeltaY: bezierHandleDeltaY,
+		roundTo: roundTo,
+		clampBezierHandle: clampBezierHandle,
 		normalizeEasing: normalizeEasing,
 		easingToBezier: easingToBezier,
 		snapEasing: snapEasing,

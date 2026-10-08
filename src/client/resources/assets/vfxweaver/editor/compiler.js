@@ -447,9 +447,13 @@
 		var type = effect ? effect.type : tab.type;
 		def.type = type == null ? "" : String(type);
 		def.duration = effect ? childDurationTicks(tab, effect) : num(tab.duration, 40);
-		def.loop = Boolean(tab.loop);
-		def.persistent = Boolean(tab.persistent);
-		def.fade_ticks = num(tab.fade_ticks, 0);
+		// Timing is per node (design §15.3, fix H4): a chain child owns its loop/persistent/fade_ticks;
+		// a single-effect tab (or the root) owns the tab-level values, so single-effect behaviour is
+		// unchanged. The collection root is emitted by `compileCollection` and keeps the tab values.
+		var perNode = multi && effect != null;
+		def.loop = perNode ? Boolean(effect.loop) : Boolean(tab.loop);
+		def.persistent = perNode ? Boolean(effect.persistent) : Boolean(tab.persistent);
+		def.fade_ticks = perNode ? num(effect.fade_ticks, 0) : num(tab.fade_ticks, 0);
 		def.easing = (effect && effect.easing != null ? effect.easing : tab.easing);
 		if (def.easing == null) {
 			def.easing = "linear";
@@ -605,13 +609,15 @@
 
 	/**
 	 * Compile the PREVIEW artifact: the same IR as {@link compileTab}, but with playback overrides so
-	 * editing stays pleasant and the animation is always visible (`loop:true`, `fade_ticks:0`) — the
-	 * in-game preview never dies and never fades out (design §15.5, fixes #4/#15). The authored
-	 * `duration` is kept deliberately: the engine wraps the loop over the *timeline* duration, so a
-	 * large sentinel duration made the authored keyframes play once and then hold their end value
-	 * (usually 0) for the rest of the sentinel — reading as the preview decaying to nothing. Looping
-	 * over the authored duration replays the real animation at the real timing forever. The authored
-	 * compile is unchanged, so File→Export still writes the user's real timing.
+	 * editing stays pleasant and the animation is always visible (`loop:true`, `persistent:true`,
+	 * `fade_ticks:0`) — the in-game preview never dies and never fades out (design §15.5, fixes
+	 * #4/#15, H1). The authored `duration` is kept deliberately: the engine wraps the loop over the
+	 * *timeline* duration, so a large sentinel duration made the authored keyframes play once and
+	 * then hold their end value (usually 0) for the rest of the sentinel — reading as the preview
+	 * decaying to nothing. Looping over the authored duration replays the real animation at the real
+	 * timing forever, and `persistent` makes the keep-alive explicit even if a consumer ignores
+	 * `loop` (see `VFXActiveEffect.isFinished`). The authored compile is unchanged, so File→Export
+	 * still writes the user's real timing.
 	 *
 	 * @param {Object} tab a `VFXIR.Tab`
 	 * @returns {string} the preview effect JSON text
@@ -619,6 +625,7 @@
 	function compileForPreview(tab) {
 		var def = JSON.parse(compileTab(tab));
 		def.loop = true;
+		def.persistent = true;
 		def.fade_ticks = 0;
 		return JSON.stringify(def, null, "\t");
 	}

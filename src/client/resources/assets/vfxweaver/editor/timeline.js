@@ -94,6 +94,21 @@
 		return "vfxweaver:" + sanitize(name);
 	}
 
+	/**
+	 * The reserved effect id the PREVIEW plays under (fix H1). It must NOT be the authored id: a tab
+	 * opened from a datapack keeps the pack id, and the game's definition registry lets the
+	 * datapack/server layer win over a local registration, so a preview registered under the
+	 * authored id plays the *datapack* definition (its own `loop`/`fade_ticks`/timing) instead of
+	 * the compiled preview — which is exactly why an edited effect still faded/died in preview. A
+	 * private id makes the local preview the definition the engine resolves. Export still uses the
+	 * authored namespace/name.
+	 *
+	 * @returns {string} the reserved preview effect id
+	 */
+	function previewId() {
+		return "vfxweaver:editor_preview";
+	}
+
 	/** The tab duration in ticks (the format's 40-tick default when absent/invalid). */
 	function duration(tab) {
 		var d = tab ? Number(tab.duration) : NaN;
@@ -188,7 +203,7 @@
 				? compiler.compileForPreview(tab)
 				: (compiler && typeof compiler.compileTab === "function" ? compiler.compileTab(tab) : "{}");
 		return {
-			effectId: effectId(tab),
+			effectId: previewId(),
 			json: json,
 			transport: transport === "stop" ? "stop" : "play",
 			revision: currentRevision()
@@ -204,7 +219,7 @@
 	 * @returns {Object} the request body
 	 */
 	function transportBody(tab, action, elapsedTicks) {
-		var body = { effectId: effectId(tab), action: action };
+		var body = { effectId: previewId(), action: action };
 		if (action === "seek") {
 			body.elapsedTicks = Math.max(0, Math.round(Number(elapsedTicks) || 0));
 		}
@@ -220,7 +235,7 @@
 	 * @returns {Object} the request body
 	 */
 	function setParamBody(tab, name, value) {
-		return { effectId: effectId(tab), name: name, value: Number(value), revision: currentRevision() };
+		return { effectId: previewId(), name: name, value: Number(value), revision: currentRevision() };
 	}
 
 	/**
@@ -234,7 +249,7 @@
 	 */
 	function setKeyframeBody(tab, name, time, value) {
 		return {
-			effectId: effectId(tab),
+			effectId: previewId(),
 			name: name,
 			time: Math.round(Number(time) || 0),
 			value: Number(value),
@@ -1434,6 +1449,7 @@
 			event.stopPropagation();
 			var startX = event.clientX;
 			var startY = event.clientY;
+			var orig = bez.slice();
 			var b = bez.slice();
 			var list = sortedKeys(tab, name);
 			var next = list[list.indexOf(key) + 1];
@@ -1447,21 +1463,32 @@
 			// value span (guarded against v1 === v0) as well as the axis range — see
 			// `VFXIR.bezierHandleDeltaY` (design §15.4).
 			var valueSpan = (Number(next.value) || 0) - (Number(key.value) || 0);
+			var v0 = Number(key.value) || 0;
+			var v1 = Number(next.value) || 0;
 			var moved = false;
 
 			function move(ev) {
 				moved = true;
 				var xi = which * 2;
+				// Always recompute from the drag's starting bezier with the *cumulative* pointer
+				// delta, never off the already-moved `b`: adding the cumulative delta to a mutated
+				// value double-counts each frame and launches the handle off-screen (fix H2).
+				var candidate = orig.slice();
 				if (segW !== 0) {
-					b[xi] = Math.max(0, Math.min(1, b[xi] + (ev.clientX - startX) / segW));
+					candidate[xi] = orig[xi] + (ev.clientX - startX) / segW;
 				}
 				if (valueSpan !== 0) {
 					var dy = ev.clientY - startY;
 					var delta = root.VFXIR && typeof root.VFXIR.bezierHandleDeltaY === "function"
 							? root.VFXIR.bezierHandleDeltaY(dy, innerH, valueSpan, axis.hi - axis.lo)
 							: dy / (innerH || 1) * ((axis.hi - axis.lo) / valueSpan);
-					b[xi + 1] = b[xi + 1] - delta;
+					candidate[xi + 1] = orig[xi + 1] - delta;
 				}
+				// Keep the handle inside the visible curve viewport (x in the segment box, y within
+				// the value axis) so it stays on-screen and grabbable (fix H2).
+				b = root.VFXIR && typeof root.VFXIR.clampBezierHandle === "function"
+						? root.VFXIR.clampBezierHandle(candidate, which, v0, v1, axis.lo, axis.hi)
+						: candidate;
 				key.easing = [b[0], b[1], b[2], b[3]];
 				refreshCurve(tab);
 			}
