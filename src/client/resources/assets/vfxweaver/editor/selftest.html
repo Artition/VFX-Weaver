@@ -701,6 +701,23 @@ window.__vfxSelftest = function () {
 		eq(q(10, 200, 0, 4), 0, "a zero value span is guarded to zero");
 	});
 
+	test("(AK) the animate diamond appends keys (two keys at different times both survive)", function () {
+		// The diamond writes through Tab.addKey, which must never reset tab.keys[name]: a second
+		// press at a different playhead position keeps the first key. Regression for the
+		// "track replaced instead of appended" bug.
+		var tab = new VFXIR.Tab("blur", "blur");
+		tab.duration = 60;
+		tab.params.radius = { value: 0 };
+		tab.addKey("radius", 0, 1);
+		tab.addKey("radius", 30, 4);
+		eq(tab.keys.radius.length, 2, "both keys survive");
+		eq(tab.keys.radius[0].value, 1, "first key kept");
+		eq(tab.keys.radius[1].time, 30, "second key appended at its time");
+		var kf = parse(compileTab(tab)).params.radius;
+		ok(Array.isArray(kf.keyframes) && kf.keyframes.length === 2, "compiled track has both keys");
+		eq(kf.keyframes[1].value, 4, "second key value emitted");
+	});
+
 	return results;
 };
 /* SELFTEST:END */

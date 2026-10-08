@@ -670,6 +670,15 @@ body {
 	flex: 0 0 auto;
 }
 
+/* The live numeric readout of an animated value at the playhead (item 3). */
+.vfx-live-value {
+	flex: 0 0 auto;
+	min-width: 44px;
+	text-align: right;
+	color: var(--vfx-accent);
+	font-variant-numeric: tabular-nums;
+}
+
 .vfx-field-block {
 	align-items: flex-start;
 	flex-direction: column;
@@ -893,11 +902,17 @@ body {
 	border-bottom: 1px solid var(--vfx-panel-alt);
 }
 
+/* Lane name in the shared left gutter (fix 5): the axis starts after LABEL_COLUMN (timeline.js),
+   so the label never overlaps a tick or a key. */
 .vfx-tl-label {
-	position: sticky;
+	position: absolute;
 	left: 4px;
 	top: 2px;
-	display: inline-block;
+	width: 108px;
+	box-sizing: border-box;
+	display: flex;
+	align-items: center;
+	gap: 2px;
 	padding: 1px 4px;
 	background: var(--vfx-panel);
 	border: 1px solid var(--vfx-border);
@@ -906,6 +921,15 @@ body {
 	font-size: 11px;
 	pointer-events: none;
 	z-index: 2;
+}
+
+/* The param name ellipsizes so the embedded "curve" button always stays visible. */
+.vfx-tl-label > span:first-child {
+	flex: 1 1 auto;
+	min-width: 0;
+	overflow: hidden;
+	white-space: nowrap;
+	text-overflow: ellipsis;
 }
 
 .vfx-tl-key {
@@ -1421,6 +1445,7 @@ body {
 	height: 20px;
 }
 .vfx-tl-gantt-name {
+	/* Matches LABEL_COLUMN in timeline.js: the gantt track starts at the same x as the ruler. */
 	flex: 0 0 120px;
 	padding-left: 8px;
 	color: var(--vfx-text-dim);

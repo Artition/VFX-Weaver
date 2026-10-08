@@ -101,7 +101,7 @@
 		return Array.isArray(keys) && keys.length > 0 ? "track" : "inline";
 	}
 
-	/** Linear interpolation of a key list at `time`, clamped to the first/last key. */
+	/** Eased interpolation of a key list at `time`, clamped to the first/last key. */
 	function valueAtTime(list, time, fallback) {
 		if (!list || !list.length) {
 			return fallback;
@@ -121,10 +121,44 @@
 				if (span <= 0) {
 					return b.value;
 				}
-				return num(a.value) + (num(b.value) - num(a.value)) * ((time - num(a.time)) / span);
+				var u = (time - num(a.time)) / span;
+				// Match the drawn curve: apply the segment's easing (a name or a cubic bezier).
+				var eased = u;
+				if (root.VFXIR && typeof root.VFXIR.easingToBezier === "function"
+						&& typeof root.VFXIR.bezierY === "function") {
+					eased = root.VFXIR.bezierY(root.VFXIR.easingToBezier(a.easing), u);
+				}
+				return num(a.value) + (num(b.value) - num(a.value)) * eased;
 			}
 		}
 		return last.value;
+	}
+
+	/**
+	 * The shared finite `min`/`max`/`step` of a vector group, or null when any component is
+	 * unbounded or the bounds differ. Drives the collapsed group's slider (item 6).
+	 *
+	 * @param {Array<Object>} components the group's component descriptors
+	 * @returns {Object|null} a synthetic descriptor `{ kind, min, max, step }`, or null
+	 */
+	function sharedBounds(components) {
+		var min;
+		var max;
+		var step;
+		for (var i = 0; i < components.length; i++) {
+			var param = components[i];
+			if (!isFiniteNumber(param.min) || !isFiniteNumber(param.max)) {
+				return null;
+			}
+			if (i === 0) {
+				min = param.min;
+				max = param.max;
+				step = param.step;
+			} else if (param.min !== min || param.max !== max) {
+				return null;
+			}
+		}
+		return components.length ? { kind: "FLOAT", min: min, max: max, step: step } : null;
 	}
 
 	/* ------------------------------------------------------------------ */
@@ -169,7 +203,7 @@
 	}
 
 	/** A number input, paired with a range slider when the descriptor is bounded. */
-	function numberFor(param, value, onValue) {
+	function numberFor(param, value, onValue, disabled) {
 		var wrap = el("div", { class: "vfx-scalar" });
 		var step = isFiniteNumber(param.step) && param.step > 0 ? param.step
 				: (param.kind === "INT" ? 1 : 0.001);
@@ -181,6 +215,9 @@
 			input.max = param.max;
 		}
 		input.step = step;
+		if (disabled) {
+			input.disabled = true;
+		}
 		if (isFiniteNumber(param.min) && isFiniteNumber(param.max)) {
 			var range = el("input", {
 				type: "range",
@@ -190,6 +227,9 @@
 				step: step,
 				value: String(num(value))
 			});
+			if (disabled) {
+				range.disabled = true;
+			}
 			range.addEventListener("input", function () {
 				input.value = range.value;
 				onValue(num(range.value, num(value)));
@@ -457,17 +497,16 @@
 			}
 		}
 
-		/** The diamond: inline -> a key at the playhead, track -> clear back to inline. */
+		/**
+		 * The diamond: append a key at the playhead (design §15.1). It never clears the track, so
+		 * every press adds/updates one key and keys accumulate across playhead positions. A track is
+		 * cleared from the slot context menu ("Clear track") or by deleting its last key.
+		 */
 		function animateToggle() {
-			if (!slot) {
+			if (!slot || slotState(tab, name, driven) === "driven") {
 				return;
 			}
-			var state = slotState(tab, name, driven);
-			if (state === "track") {
-				slot.clearTrack(tab, name);
-			} else if (state === "inline") {
-				slot.animate(tab, name, currentValue());
-			}
+			slot.animate(tab, name, currentValue());
 		}
 
 		function inlineBody() {
@@ -482,9 +521,15 @@
 
 		function trackBody() {
 			var box = el("div", { class: "vfx-slot vfx-slot-track" });
+			// The live numeric readout of the animated value at the playhead (design §15.1, item 3):
+			// recomputed from the IR keys alone — no game request — and refreshed by the timeline on
+			// every scrub/play frame through {@link refreshLiveValues}.
+			var readout = el("span", { class: "vfx-live-value", text: String(num(currentValue())) });
+			readout.__vfxCompute = currentValue;
 			box.appendChild(el("label", { class: "vfx-field" }, [
 				el("span", { text: "value @ playhead" }),
-				scalarFor(param, currentValue(), editValue)
+				scalarFor(param, currentValue(), editValue),
+				readout
 			]));
 			var list = keys();
 			var info = el("div", { class: "vfx-track-info" }, [
@@ -600,7 +645,7 @@
 				class: "vfx-diamond" + (stateName === "track" ? " active" : ""),
 				text: stateName === "track" ? "◆" : "◇",
 				title: stateName === "track"
-						? "Clear the track (back to a constant)"
+						? "Add a key at the playhead"
 						: "Animate: add a key at the playhead"
 			});
 			diamond.addEventListener("click", function (event) {
@@ -797,18 +842,28 @@
 		function refresh() {
 			content.textContent = "";
 			var body = el("div", { class: "vfx-body" });
-			var input = el("input", { type: "number", class: "vfx-num vfx-group-value" });
-			input.placeholder = "mixed";
 			var spec = uniformSpec();
-			if (spec && spec.value !== undefined) {
-				input.value = String(num(spec.value));
+			var value = spec && spec.value !== undefined ? spec.value : 0;
+			var bounds = sharedBounds(components);
+			var control;
+			if (bounds) {
+				// All components share one finite range: reuse the scalar slider+field (item 6).
+				control = numberFor(bounds, value, function (v) {
+					broadcast(v);
+				}, groupState() === "driven");
+			} else {
+				control = el("input", { type: "number", class: "vfx-num vfx-group-value" });
+				control.placeholder = "mixed";
+				if (spec && spec.value !== undefined) {
+					control.value = String(num(spec.value));
+				}
+				// A driven group has no shared literal to edit, so the collapsed value input is inert.
+				control.disabled = groupState() === "driven";
+				control.addEventListener("input", function () {
+					broadcast(num(control.value, 0));
+				});
 			}
-			// A driven group has no shared literal to edit, so the collapsed value input is inert.
-			input.disabled = groupState() === "driven";
-			input.addEventListener("input", function () {
-				broadcast(num(input.value, 0));
-			});
-			body.appendChild(el("label", { class: "vfx-field" }, [el("span", { text: "value" }), input]));
+			body.appendChild(el("label", { class: "vfx-field" }, [el("span", { text: "value" }), control]));
 
 			var anyMultiply = names.some(function (name) {
 				return slot && typeof slot.multiply === "function" && slot.multiply(tab, name);
@@ -979,10 +1034,29 @@
 		return box;
 	}
 
+	/**
+	 * Recompute every live readout (`.vfx-live-value`) at the current playhead. Pure IR math, no
+	 * game request; the timeline calls it on every scrub/play frame so the readout tracks the
+	 * playhead (design §15.1, item 3).
+	 */
+	function refreshLiveValues() {
+		if (typeof document === "undefined" || !document.querySelectorAll) {
+			return;
+		}
+		var nodes = document.querySelectorAll(".vfx-live-value");
+		for (var i = 0; i < nodes.length; i++) {
+			var node = nodes[i];
+			if (typeof node.__vfxCompute === "function") {
+				node.textContent = String(num(node.__vfxCompute()));
+			}
+		}
+	}
+
 	var api = {
 		render: render,
 		renderGroup: renderGroup,
 		renderTiming: renderTiming,
+		refreshLiveValues: refreshLiveValues,
 		slotState: slotState,
 		BINDINGS: BINDINGS,
 		NEEDS_POS: NEEDS_POS,

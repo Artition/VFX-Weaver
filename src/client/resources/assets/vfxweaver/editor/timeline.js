@@ -47,6 +47,13 @@
 	var KEY_SIZE = 10;
 	var LANE_PAD = 3;
 	var DEFAULT_DURATION = 40;
+	/**
+	 * The fixed left gutter (px) every time-based row starts after: the ruler, the duration bar, the
+	 * key lanes, the curve plot and the gantt track all share this left offset, so ticks align with
+	 * keys and gantt bars at any effect count (fix 5). Lane/effect names live inside it and never
+	 * consume axis width. Keep in sync with `.vfx-tl-label` / `.vfx-tl-gantt-name` in editor.css.
+	 */
+	var LABEL_COLUMN = 120;
 	/** Curve-view geometry (design §15.4, fix #13): a taller plot with padding for axis labels. */
 	var CURVE_HEIGHT = 240;
 	var CURVE_PAD_TOP = 18;
@@ -600,6 +607,109 @@
 		refreshCurve(tab);
 	}
 
+	/** Whether a timeline key dot is currently selected (the Delete/Backspace target). */
+	function hasSelectedKey() {
+		return Boolean(selected && selected.key);
+	}
+
+	/** Re-render the timeline (and the inspector, whose slot state may have changed). */
+	function refreshAfterKeyEdit() {
+		refreshCurve(tabFromSelection());
+		if (root.VFXEditor && typeof root.VFXEditor.renderInspector === "function") {
+			root.VFXEditor.renderInspector();
+		}
+	}
+
+	/** The tab a selected key belongs to (the clock's tab, else the rendered one). */
+	function tabFromSelection() {
+		return clock.tab || (ui && ui.tab) || (curveOpen && curveOpen.tab) || null;
+	}
+
+	/**
+	 * Delete the selected timeline key. Removing a track's last key returns the slot to an inline
+	 * constant (design §15.1). Routes through snapshot undo + a structural recompile (item 2).
+	 *
+	 * @returns {boolean} true when a key was removed
+	 */
+	function deleteSelectedKey() {
+		if (!selected || !selected.key) {
+			return false;
+		}
+		var tab = tabFromSelection();
+		var name = selected.name;
+		var key = selected.key;
+		if (!tab || !tab.keys || !Array.isArray(tab.keys[name])) {
+			return false;
+		}
+		var list = tab.keys[name];
+		var index = list.indexOf(key);
+		if (index < 0) {
+			return false;
+		}
+		var lastValue = Number(key.value) || 0;
+		list.splice(index, 1);
+		selected = null;
+		if (list.length === 0) {
+			returnToInline(tab, name, lastValue);
+		}
+		commit(tab);
+		structural(tab);
+		refreshAfterKeyEdit();
+		return true;
+	}
+
+	/** Turn a now-empty track back into an inline constant, keeping any `multiply`. */
+	function returnToInline(tab, name, value) {
+		delete tab.keys[name];
+		var raw = tab.params ? tab.params[name] : null;
+		var multiply = raw != null && typeof raw === "object" ? raw.multiply : null;
+		var next = { value: value };
+		if (multiply) {
+			next.multiply = multiply;
+		}
+		tab.params[name] = next;
+		if (curveOpen && curveOpen.name === name) {
+			curveOpen = null;
+		}
+	}
+
+	/** Remove a param's whole track, keeping its last value as the inline constant (item 2). */
+	function removeTrack(tab, name) {
+		if (!tab || !tab.keys || !Array.isArray(tab.keys[name]) || tab.keys[name].length === 0) {
+			return;
+		}
+		var list = tab.keys[name];
+		var lastValue = Number(list[list.length - 1].value) || 0;
+		selected = null;
+		returnToInline(tab, name, lastValue);
+		commit(tab);
+		structural(tab);
+		refreshAfterKeyEdit();
+	}
+
+	/** Right-click a key: a small menu to delete it, edit its easing, or drop the whole track. */
+	function openKeyMenu(tab, name, key, dot, event) {
+		if (!root.VFXEditor || typeof root.VFXEditor.showMenu !== "function") {
+			return;
+		}
+		event.preventDefault();
+		event.stopPropagation();
+		selectKey(name, key, dot);
+		root.VFXEditor.showMenu([
+			{ label: "Delete key", action: function () {
+				selectKey(name, key, dot);
+				deleteSelectedKey();
+			} },
+			{ label: "Edit easing", action: function () {
+				selectKey(name, key, dot);
+				if (ui && ui.easing) {
+					ui.easing.focus();
+				}
+			} },
+			{ label: "Remove whole track", action: function () { removeTrack(tab, name); } }
+		], event);
+	}
+
 	function now() {
 		return root.performance && typeof root.performance.now === "function"
 				? root.performance.now() : Date.now();
@@ -672,10 +782,15 @@
 	function setPlayhead(ticks) {
 		var t = clampToDuration(clock.tab, ticks);
 		clock.baseElapsed = clock.playing ? clock.baseElapsed : t;
+		// Keep the inspector's live numeric readout in step with the playhead (item 3): pure IR math,
+		// no game request.
+		if (root.VFXInspector && typeof root.VFXInspector.refreshLiveValues === "function") {
+			root.VFXInspector.refreshLiveValues();
+		}
 		if (!ui) {
 			return;
 		}
-		var x = t * ui.pxPerTick;
+		var x = LABEL_COLUMN + t * ui.pxPerTick;
 		if (ui.head) {
 			ui.head.style.left = x + "px";
 		}
@@ -790,7 +905,7 @@
 		if (!ui) {
 			return;
 		}
-		dot.style.left = Math.max(0, Number(key.time) || 0) * ui.pxPerTick + "px";
+		dot.style.left = LABEL_COLUMN + Math.max(0, Number(key.time) || 0) * ui.pxPerTick + "px";
 		dot.style.top = valueToY(key.value, ui.ranges[name]) + "px";
 	}
 
@@ -885,13 +1000,18 @@
 			return 0;
 		}
 		var rect = ui.scroller.getBoundingClientRect();
-		var x = clientX - rect.left + ui.scroller.scrollLeft;
+		// The label gutter is not part of the time axis, so remove it before dividing.
+		var x = clientX - rect.left + ui.scroller.scrollLeft - LABEL_COLUMN;
 		return Math.max(0, x / ui.pxPerTick);
 	}
 
-	/** Scrub the playhead by dragging the track background (never a key dot). Local only. */
+	/** Scrub the playhead by dragging the track background (never a key dot or a lane). Local only. */
 	function beginScrub(tab) {
 		return function (event) {
+			// A mousedown on a lane is the add-key gesture, not a scrub (fix 4).
+			if (event.target && event.target.closest && event.target.closest(".vfx-tl-lane")) {
+				return;
+			}
 			event.preventDefault();
 			function move(ev) {
 				scrub(tab, tickAt(ev.clientX));
@@ -959,6 +1079,10 @@
 			if (event.detail > 1) {
 				return;
 			}
+			// A lane mousedown is its own gesture: keep it from also reaching the scroller's scrub
+			// handler, so a lane click adds one key and never scrubs/plays (fix 4).
+			event.preventDefault();
+			event.stopPropagation();
 			var startX = event.clientX;
 			var startY = event.clientY;
 			function up(ev) {
@@ -1078,13 +1202,13 @@
 		if (minor > 0) {
 			for (var t = 0; t <= total; t += minor) {
 				var minorMark = el("span", { class: "vfx-tl-tick-minor" });
-				minorMark.style.left = t * pxPerTick + "px";
+				minorMark.style.left = LABEL_COLUMN + t * pxPerTick + "px";
 				bar.appendChild(minorMark);
 			}
 		}
 		for (var tick = 0; tick <= total; tick += step) {
 			var mark = el("span", { class: "vfx-tl-tick", text: String(tick) });
-			mark.style.left = tick * pxPerTick + "px";
+			mark.style.left = LABEL_COLUMN + tick * pxPerTick + "px";
 			bar.appendChild(mark);
 		}
 		return bar;
@@ -1098,9 +1222,10 @@
 		var bar = el("div", { class: "vfx-tl-duration" });
 		var total = duration(tab);
 		var fill = el("div", { class: "vfx-tl-duration-fill" });
+		fill.style.left = LABEL_COLUMN + "px";
 		fill.style.width = total * pxPerTick + "px";
 		var handle = el("div", { class: "vfx-tl-duration-handle" });
-		handle.style.left = total * pxPerTick + "px";
+		handle.style.left = LABEL_COLUMN + total * pxPerTick + "px";
 		handle.title = "Drag to change the effect duration (currently " + Math.round(total) + " ticks)";
 		handle.addEventListener("mousedown", function (event) {
 			event.preventDefault();
@@ -1108,10 +1233,10 @@
 			function move(ev) {
 				var ticks = Math.max(1, Math.round(tickAt(ev.clientX)));
 				tab.duration = ticks;
-				handle.style.left = ticks * pxPerTick + "px";
+				handle.style.left = LABEL_COLUMN + ticks * pxPerTick + "px";
 				fill.style.width = ticks * pxPerTick + "px";
 				if (ui && ui.content) {
-					ui.content.style.width = Math.max(1, ticks * pxPerTick + 20) + "px";
+					ui.content.style.width = LABEL_COLUMN + Math.max(1, ticks * pxPerTick + 20) + "px";
 				}
 				setPlayhead(elapsedNow());
 			}
@@ -1349,10 +1474,10 @@
 		var keys = sortedKeys(tab, name);
 		var axis = curveAxis(range);
 		var innerH = CURVE_HEIGHT - CURVE_PAD_TOP - CURVE_PAD_BOTTOM;
-		var width = Math.max(1, total * pxPerTick + 20);
+		var width = LABEL_COLUMN + Math.max(1, total * pxPerTick + 20);
 
 		function X(t) {
-			return Math.max(0, Number(t) || 0) * pxPerTick;
+			return LABEL_COLUMN + Math.max(0, Number(t) || 0) * pxPerTick;
 		}
 		function Y(v) {
 			var f = (Number(v) - axis.lo) / ((axis.hi - axis.lo) || 1);
@@ -1429,6 +1554,9 @@
 				dot.classList.add("vfx-tl-out");
 			}
 			dot.addEventListener("mousedown", beginCurveKeyDrag(tab, name, key, dot, range, pxPerTick, panel));
+			dot.addEventListener("contextmenu", function (event) {
+				openKeyMenu(tab, name, key, dot, event);
+			});
 			svg.appendChild(dot);
 		});
 
@@ -1541,7 +1669,7 @@
 
 		var scroller = el("div", { class: "vfx-tl-scroll" });
 		var content = el("div", { class: "vfx-tl-content" });
-		content.style.width = Math.max(1, total * pxPerTick + 20) + "px";
+		content.style.width = LABEL_COLUMN + Math.max(1, total * pxPerTick + 20) + "px";
 		scroller.appendChild(content);
 
 		if (names.length === 0) {
@@ -1586,6 +1714,9 @@
 						dot.classList.add("active");
 					}
 					dot.addEventListener("mousedown", beginDrag(tab, name, key, dot));
+					dot.addEventListener("contextmenu", function (event) {
+						openKeyMenu(tab, name, key, dot, event);
+					});
 					lane.appendChild(dot);
 					positionKeyLater(dot, name, key, pxPerTick, ranges);
 					markOutOfRange(dot, paramDescriptor(tab, name), key.value);
@@ -1599,7 +1730,7 @@
 
 		var head = el("div", { class: "vfx-tl-playhead" });
 		content.appendChild(head);
-		head.style.left = elapsedNow() * pxPerTick + "px";
+		head.style.left = LABEL_COLUMN + elapsedNow() * pxPerTick + "px";
 
 		// Scrub on the background: a mousedown that was not consumed by a key dot.
 		scroller.addEventListener("mousedown", beginScrub(tab));
@@ -1640,7 +1771,7 @@
 
 	/** Position a dot after its lane has been given a pxPerTick (render sets `ui` last). */
 	function positionKeyLater(dot, name, key, pxPerTick, ranges) {
-		dot.style.left = Math.max(0, Number(key.time) || 0) * pxPerTick + "px";
+		dot.style.left = LABEL_COLUMN + Math.max(0, Number(key.time) || 0) * pxPerTick + "px";
 		dot.style.top = valueToY(key.value, ranges[name]) + "px";
 	}
 
@@ -1666,6 +1797,9 @@
 		structural: structural,
 		scheduleReplay: scheduleReplay,
 		effectId: effectId,
+		hasSelectedKey: hasSelectedKey,
+		deleteSelectedKey: deleteSelectedKey,
+		removeTrack: removeTrack,
 		isPlaying: function () {
 			return clock.playing;
 		},
