@@ -291,6 +291,15 @@
 				outSlot.color_on = FLOW_COLOR;
 				outSlot.color_off = FLOW_COLOR;
 			}
+			// A post effect offers a Mask attachment (design §13.1): the schema's structural flag
+			// gates it, so a world/camera effect never shows a mask port.
+			if (descriptor && descriptor.structural && descriptor.structural.supportsMask === true) {
+				var maskSlot = this.addOutput("mask", "*");
+				if (maskSlot) {
+					maskSlot.color_on = groupColor("Mask");
+					maskSlot.color_off = maskSlot.color_on;
+				}
+			}
 			this.properties = { effectType: typeName };
 		}
 
@@ -382,6 +391,50 @@
 				LiteGraph.registerNodeType(registered, makeValueNode(kind));
 			}
 		});
+		registerMaskNodeTypes();
+	}
+
+	/**
+	 * A `Mask` canvas node (design §13.1): the root of an effect's mask tree. It owns the `invert`
+	 * and `space` fields, one `op` combo per composition join, and an attachment port the effect
+	 * node's `mask` output links to. The leaf list lives on the `MaskLeaf` child nodes.
+	 */
+	function makeMaskNode() {
+		function MaskNode() {
+			this.properties = { maskRole: "mask", effectId: null };
+			this.addInput("mask", "*");
+			this.addOutput("leaf", "*");
+			this.size = [200, 90];
+		}
+		MaskNode.title = "Mask";
+		MaskNode.desc = "VFXweaver mask root: op tree over the child MaskLeaf nodes";
+		return MaskNode;
+	}
+
+	/**
+	 * A `MaskLeaf` canvas node (design §13.1): one shape of a mask tree. It exposes the leaf's
+	 * reserved `mask.p&lt;N&gt;.*` numeric fields as input sockets, so an ordinary value node wires
+	 * into one and the compiler writes the matching `{ "from": node }` into the leaf field.
+	 */
+	function makeMaskLeafNode() {
+		function MaskLeafNode() {
+			this.properties = { maskRole: "leaf", effectId: null, leafIndex: 0 };
+			this.addInput("mask", "*");
+			this.size = [190, 80];
+		}
+		MaskLeafNode.title = "MaskLeaf";
+		MaskLeafNode.desc = "VFXweaver mask leaf: a shape and its mask.p<N>.* sockets";
+		return MaskLeafNode;
+	}
+
+	/** Register the `vfx/mask` and `vfx/mask_leaf` structural node types. */
+	function registerMaskNodeTypes() {
+		if (!LiteGraph.registered_node_types["vfx/mask"]) {
+			LiteGraph.registerNodeType("vfx/mask", makeMaskNode());
+		}
+		if (!LiteGraph.registered_node_types["vfx/mask_leaf"]) {
+			LiteGraph.registerNodeType("vfx/mask_leaf", makeMaskLeafNode());
+		}
 	}
 
 	/**
@@ -487,6 +540,12 @@
 				// lift it here for the explicit "empty this tab" path only.
 				node.ignore_remove = false;
 				tab.graph.remove(node);
+			});
+			// The mask node tree hangs off the effect nodes; drop it with them.
+			tab.graph._nodes.slice().forEach(function (node) {
+				if (isMaskNode(node)) {
+					dropMaskNode(node);
+				}
 			});
 		}
 		if (tab.effects) {
@@ -1717,6 +1776,31 @@
 		tab.effects = next;
 	}
 
+	/**
+	 * Drop mask nodes whose owning effect is gone (design §13.1): deleting an effect node must not
+	 * leave its Mask/MaskLeaf nodes on the canvas. Guarded so the removal is not read as a user edit.
+	 *
+	 * @param {Object} tab the tab
+	 */
+	function pruneMaskNodes(tab) {
+		if (!tab || !tab.graph || !window.VFXIR) {
+			return;
+		}
+		var ids = {};
+		(tab.effects || []).forEach(function (effect) { ids[effect.id] = true; });
+		var prev = applyingGraph;
+		applyingGraph = true;
+		try {
+			tab.graph._nodes.slice().forEach(function (node) {
+				if (isMaskNode(node) && !ids[node.properties.effectId]) {
+					dropMaskNode(node);
+				}
+			});
+		} finally {
+			applyingGraph = prev;
+		}
+	}
+
 	/** Rebuild `tab.effects`/`tab.valueNodes`/`tab.edges` from the canvas. */
 	function refreshFromCanvas(tab) {
 		if (!tab || !tab.graph) {
@@ -1728,6 +1812,7 @@
 			reorderEffects(tab, order);
 		}
 		reconcileEffects(tab);
+		pruneMaskNodes(tab);
 		var irByGraphId = {};
 		var nodes = [];
 		tab.graph._nodes.forEach(function (node) {
@@ -1757,6 +1842,18 @@
 						edge.effect = target.properties.effectId;
 					}
 					edges.push(edge);
+				}
+			} else if (isMaskLeafNode(target)) {
+				// A value node wired into a MaskLeaf's `mask.p<N>.*` socket is a param wire for the
+				// owning effect (design §13.1); the compiler consumes it. The cosmetic `mask` attach
+				// port is not a slot, so it is ignored.
+				var maskSocket = target.inputs ? target.inputs[link.target_slot] : null;
+				if (maskSocket && maskSocket.name.indexOf("mask.") === 0) {
+					var maskEdge = { from: from, to: maskSocket.name };
+					if (target.properties.effectId && tab.effects && tab.effects.length > 1) {
+						maskEdge.effect = target.properties.effectId;
+					}
+					edges.push(maskEdge);
 				}
 			} else if (target.properties && target.properties.kind && irByGraphId[target.id]) {
 				var socket = target.inputs ? target.inputs[link.target_slot] : null;
@@ -1848,13 +1945,15 @@
 		applyingGraph = true;
 		try {
 			tab.graph._nodes.slice().forEach(function (node) {
-				if (isEffectNode(node) || (node.properties && node.properties.kind)) {
-					if (isEffectNode(node)) {
+				if (isEffectNode(node) || isMaskNode(node) || (node.properties && node.properties.kind)) {
+					if (isEffectNode(node) || isMaskNode(node)) {
 						node.ignore_remove = false;
 					}
 					tab.graph.remove(node);
 				}
 			});
+			// The whole canvas is rebuilt, so the mask node cache is stale: force a re-materialise.
+			tab.__maskSig = {};
 			var count = 0;
 			(tab.effects || []).forEach(function (effect) {
 				var node = createEffectNode(effect.type);
@@ -1916,6 +2015,14 @@
 				if (edge.input != null) {
 					target = byId[edge.to];
 					slot = target ? inputIndex(target, edge.input) : -1;
+				} else if (typeof edge.to === "string" && edge.to.indexOf("mask.") === 0) {
+					// A mask-slot wire targets the MaskLeaf that owns the slot (design §13.1); the
+					// effect node also carries the socket for back-compat when no leaf node exists.
+					var maskEffect = multi && edge.effect != null ? edge.effect
+							: (tab.effects && tab.effects.length ? tab.effects[0].id : null);
+					target = (maskEffect ? maskSlotNode(tab, maskEffect, edge.to) : null)
+							|| (maskEffect ? effectNodeById[maskEffect] : null);
+					slot = target ? inputIndex(target, edge.to) : -1;
 				} else {
 					target = multi && edge.effect != null
 							? effectNodeById[edge.effect]
@@ -2044,6 +2151,18 @@
 			});
 			dom.valueTypes.appendChild(item);
 		});
+		// Structural Mask node (design §13.1): offered beside the value kinds; a no-op with a status
+		// message on an effect whose schema does not support a mask (non-post types).
+		var maskItem = document.createElement("button");
+		maskItem.type = "button";
+		maskItem.className = "vfx-type";
+		maskItem.textContent = "mask";
+		maskItem.dataset.value = "mask";
+		maskItem.title = "Add a Mask node with MaskLeaf children (post effects only)";
+		maskItem.addEventListener("click", function () {
+			addMaskNode(activeTab());
+		});
+		dom.valueTypes.appendChild(maskItem);
 	}
 
 
@@ -2323,10 +2442,340 @@
 		}
 	}
 
+	/** The display label of a reserved mask slot (its datapack field) for a leaf widget. */
+	function maskSlotLabel(slot) {
+		if (slot.kind === "center") {
+			return "center_" + ["x", "y", "z"][slot.fieldIndex];
+		}
+		if (slot.kind === "param") {
+			return slot.paramName;
+		}
+		if (slot.kind === "soft") {
+			return "softness";
+		}
+		if (slot.kind === "stroke") {
+			return "stroke_width";
+		}
+		return slot.kind;
+	}
+
+	/** The schema descriptor of an effect entry, or null when the schema has not resolved. */
+	function effectDescriptor(effect) {
+		return effect && effect.type && schema ? schema[effect.type] : null;
+	}
+
+	/** Whether a canvas node is a Mask root or MaskLeaf (design §13.1). */
+	function isMaskNode(node) {
+		return !!(node && node.properties && node.properties.maskRole);
+	}
+
+	/** Whether a canvas node is a MaskLeaf. */
+	function isMaskLeafNode(node) {
+		return !!(node && node.properties && node.properties.maskRole === "leaf");
+	}
+
+	/** The mask nodes (root + leaves) of one effect on a tab's canvas. */
+	function maskNodesForEffect(tab, effectId) {
+		var out = [];
+		if (tab && tab.graph && tab.graph._nodes) {
+			tab.graph._nodes.forEach(function (node) {
+				if (isMaskNode(node) && node.properties.effectId === effectId) {
+					out.push(node);
+				}
+			});
+		}
+		return out;
+	}
+
+	/** The MaskLeaf node hosting a reserved slot of an effect, or null. */
+	function maskSlotNode(tab, effectId, slotName) {
+		var found = null;
+		maskNodesForEffect(tab, effectId).forEach(function (node) {
+			if (isMaskLeafNode(node) && inputIndex(node, slotName) >= 0) {
+				found = node;
+			}
+		});
+		return found;
+	}
+
+	/** A structural fingerprint of a mask tree; the canvas nodes rebuild only when it changes. */
+	function maskSignature(mask) {
+		var vfxir = window.VFXIR;
+		if (!mask || typeof mask !== "object" || !vfxir) {
+			return "none";
+		}
+		var chain = vfxir.maskNodeState(mask);
+		return JSON.stringify({
+			invert: chain.invert, space: chain.space, ops: chain.ops,
+			leaves: chain.leaves.map(function (leaf) { return leaf.shape; })
+		});
+	}
+
+	/** Detach and remove a mask node from its graph (lifting `ignore_remove` for the explicit path). */
+	function dropMaskNode(node) {
+		if (node && node.graph) {
+			node.ignore_remove = false;
+			node.graph.remove(node);
+		}
+	}
+
+	/** Build the Mask root node for an effect's node state, beside the effect node. */
+	function buildMaskNode(tab, effect, chain, descriptor) {
+		var node = LiteGraph.createNode("vfx/mask");
+		node.__tab = tab;
+		node.properties.effectId = effect.id;
+		node.ignore_remove = true;
+		node.__chain = chain;
+		var edit = function () {
+			effect.mask = window.VFXIR.maskFromNodeState(chain);
+			// The node already shows the new field; record the fingerprint so the sync below sees no
+			// structural change and does not rebuild (and remove) the node whose widget just fired.
+			if (tab.__maskSig) {
+				tab.__maskSig[effect.id] = maskSignature(effect.mask);
+			}
+			onMaskChange(tab, false);
+		};
+		node.addWidget("toggle", "invert", chain.invert === true, function (v) {
+			chain.invert = v;
+			edit();
+		});
+		node.addWidget("combo", "space", chain.space || "auto", function (v) {
+			chain.space = v === "auto" ? null : v;
+			edit();
+		}, { values: ["auto", "screen", "world", "dome"] });
+		for (var i = 0; i + 1 < chain.leaves.length; i++) {
+			(function (index) {
+				node.addWidget("combo", "op " + index, chain.ops[index] || "union", function (v) {
+					chain.ops[index] = v;
+					edit();
+				}, { values: window.VFXIR.MASK_OPS });
+			})(i);
+		}
+		// Add another MaskLeaf to the composition (design §13.1). The joins stay left-nested, so the
+		// right operand of every composition is a leaf, matching the parser.
+		node.addWidget("button", "+ leaf", null, function () {
+			var table = window.VFXIR.maskShapeTable(descriptor);
+			chain.leaves.push(window.VFXIR.makeMaskLeaf("circle", table));
+			while (chain.ops.length < chain.leaves.length - 1) {
+				chain.ops.push("union");
+			}
+			effect.mask = window.VFXIR.maskFromNodeState(chain);
+			onMaskChange(tab, true);
+		});
+		var effectNode = nodeForEffect(tab, effect.id);
+		node.pos = effectNode ? [effectNode.pos[0] + 240, effectNode.pos[1] - 20] : [140, 220];
+		return node;
+	}
+
+	/**
+	 * Build a MaskLeaf node for one leaf: the shape combo, the reserved `mask.p&lt;N&gt;.*` input
+	 * sockets (one numeric field each) and their edit widgets. The sockets are the wiring point an
+	 * ordinary value node connects into; a wire is recorded as a normal param edge and the compiler
+	 * consumes it without a schema round-trip.
+	 */
+	function buildMaskLeafNode(tab, effect, chain, index, leaf, slots, descriptor, table, basePos) {
+		var vfxir = window.VFXIR;
+		var node = LiteGraph.createNode("vfx/mask_leaf");
+		node.__tab = tab;
+		node.properties.effectId = effect.id;
+		node.properties.leafIndex = index;
+		node.ignore_remove = true;
+		node.__chain = chain;
+		node.__leafIndex = index;
+		node.__kindSpec = { sockets: [] };
+		node.__widgets = {};
+		node.__maskSlots = [];
+		var deferred = vfxir.maskShapeDeferred(leaf.shape, table);
+		node.title = "leaf " + index + " · " + leaf.shape + (deferred ? " (not authored)" : "");
+		node.addWidget("combo", "shape", String(leaf.shape), function (v) {
+			chain.leaves[index] = vfxir.makeMaskLeaf(v, table);
+			effect.mask = vfxir.maskFromNodeState(chain);
+			onMaskChange(tab, true);
+		}, { values: vfxir.maskShapeList(descriptor) });
+		// Remove this leaf; the remaining leaves keep their order and the joins are re-trimmed.
+		node.addWidget("button", "\u00D7 remove leaf", null, function () {
+			chain.leaves.splice(index, 1);
+			if (chain.ops.length > Math.max(0, chain.leaves.length - 1)) {
+				chain.ops.length = Math.max(0, chain.leaves.length - 1);
+			}
+			effect.mask = chain.leaves.length ? vfxir.maskFromNodeState(chain) : null;
+			onMaskChange(tab, true);
+		});
+		slots.forEach(function (slot) {
+			if (slot.deferred) {
+				return;
+			}
+			node.__maskSlots.push(slot.name);
+			node.__kindSpec.sockets.push(slot.name);
+			var input = node.addInput(slot.name, "number");
+			if (input) {
+				input.color_on = groupColor("Mask");
+				input.color_off = input.color_on;
+			}
+			node.properties.inputs[slot.name] = slot.defaultValue;
+			node.__widgets[slot.name] = node.addWidget("number", maskSlotLabel(slot),
+					slot.defaultValue, function (v) {
+				var target = chain.leaves[index];
+				if (target) {
+					vfxir.maskWriteSlot(target, slot, v);
+					node.properties.inputs[slot.name] = v;
+					node.properties.explicit[slot.name] = true;
+					effect.mask = vfxir.maskFromNodeState(chain);
+					onMaskChange(tab, false);
+				}
+			});
+		});
+		node.onDrawForeground = drawSlotAffordances;
+		node.onMouseDown = slotFieldClick;
+		node.pos = [basePos[0] + 230, basePos[1] + 60 + index * 150];
+		return node;
+	}
+
+	/** Whether a link from `from` into a specific input slot of `target` already exists. */
+	function hasLink(from, target, slotIndex) {
+		if (!from || !from.graph || !from.graph.links) {
+			return false;
+		}
+		var links = from.graph.links;
+		return Object.keys(links).some(function (id) {
+			var link = links[id];
+			return link && link.origin_id === from.id && link.target_id === target.id
+					&& link.target_slot === slotIndex;
+		});
+	}
+
+	/**
+	 * Reconnect the `mask.p<N>.*` wires of `tab.edges` to the current MaskLeaf sockets (a rebuild
+	 * replaces the leaf nodes, dropping their links). The value-node `from` is resolved by IR id.
+	 *
+	 * @param {Object} tab the tab
+	 */
+	function connectMaskEdges(tab) {
+		if (!tab || !tab.graph) {
+			return;
+		}
+		var byIr = {};
+		tab.graph._nodes.forEach(function (node) {
+			if (node.properties && node.properties.irId) {
+				byIr[node.properties.irId] = node;
+			}
+		});
+		(tab.edges || []).forEach(function (edge) {
+			if (edge.input != null || typeof edge.to !== "string" || edge.to.indexOf("mask.") !== 0) {
+				return;
+			}
+			var effectId = edge.effect != null ? edge.effect
+					: (tab.effects && tab.effects.length ? tab.effects[0].id : null);
+			if (!effectId) {
+				return;
+			}
+			var target = maskSlotNode(tab, effectId, edge.to);
+			var from = byIr[edge.from];
+			if (!from || !target) {
+				return;
+			}
+			var slot = inputIndex(target, edge.to);
+			if (slot >= 0 && !hasLink(from, target, slot)) {
+				from.connect(0, target, slot);
+			}
+		});
+	}
+
+	/**
+	 * Rebuild the canvas Mask/MaskLeaf nodes for every effect whose mask changed shape (design
+	 * §13.1). The nodes are a view/projection of `effect.mask`: the mask object stays the datapack
+	 * serialisation the compiler emits, while the node widgets write it back through {@link
+	 * VFXIR.maskFromNodeState}. Idempotent by a structural signature, so a value-only edit does not
+	 * rebuild (and lose focus/wires). Removal/creation is guarded so it is not read as a user edit.
+	 */
+	function syncMaskNodes(tab) {
+		if (!tab || !tab.graph || !window.VFXIR || typeof window.VFXIR.maskNodeState !== "function") {
+			return;
+		}
+		var prev = applyingGraph;
+		applyingGraph = true;
+		try {
+			(tab.effects || []).forEach(function (effect) {
+				var descriptor = effectDescriptor(effect);
+				var offered = window.VFXIR.maskAffordance(descriptor);
+				var has = effect.mask != null && typeof effect.mask === "object";
+				var sig = offered && has ? maskSignature(effect.mask) : "none";
+				if (!tab.__maskSig) {
+					tab.__maskSig = {};
+				}
+				if (tab.__maskSig[effect.id] === sig) {
+					return;
+				}
+				maskNodesForEffect(tab, effect.id).forEach(dropMaskNode);
+				tab.__maskSig[effect.id] = sig;
+				if (sig === "none") {
+					return;
+				}
+				var chain = window.VFXIR.maskNodeState(effect.mask);
+				var table = window.VFXIR.maskShapeTable(descriptor);
+				var maskNode = buildMaskNode(tab, effect, chain, descriptor);
+				tab.graph.add(maskNode);
+				var slotsByLeaf = window.VFXIR.maskSlotsByLeaf(effect.mask, table);
+				chain.leaves.forEach(function (leaf, i) {
+					var leafNode = buildMaskLeafNode(tab, effect, chain, i, leaf,
+							slotsByLeaf[i] || [], descriptor, table, maskNode.pos);
+					tab.graph.add(leafNode);
+				});
+				// Attach the tree to the effect node (cosmetic port links; the compiler reads `mask.` edges).
+				var effectNode = nodeForEffect(tab, effect.id);
+				if (effectNode) {
+					var port = outputIndex(effectNode, "mask");
+					var into = inputIndex(maskNode, "mask");
+					if (port >= 0 && into >= 0) {
+						effectNode.connect(port, maskNode, into);
+					}
+				}
+				var leafOut = outputIndex(maskNode, "leaf");
+				if (leafOut >= 0) {
+					maskNodesForEffect(tab, effect.id).forEach(function (n) {
+						if (isMaskLeafNode(n) && inputIndex(n, "mask") >= 0) {
+							maskNode.connect(leafOut, n, inputIndex(n, "mask"));
+						}
+					});
+				}
+			});
+			connectMaskEdges(tab);
+		} finally {
+			applyingGraph = prev;
+		}
+	}
+
+	/**
+	 * Add a Mask node tree to the active effect (design §13.1): a `circle` leaf when none exists,
+	 * gated on the schema's `structural.supportsMask` so a non-post effect offers none.
+	 *
+	 * @param {Object} tab the active tab
+	 * @returns {boolean} whether a mask node was added
+	 */
+	function addMaskNode(tab) {
+		if (!tab || !tab.effect) {
+			return false;
+		}
+		var effect = tab.effect();
+		var descriptor = effectDescriptor(effect);
+		if (!window.VFXIR || !window.VFXIR.maskAffordance(descriptor)) {
+			status("this effect has no mask");
+			return false;
+		}
+		if (effect.mask == null) {
+			effect.mask = window.VFXIR.makeMaskLeaf("circle", window.VFXIR.maskShapeTable(descriptor));
+		}
+		tab.__maskSig = tab.__maskSig || {};
+		tab.__maskSig[effect.id] = null;
+		syncMaskNodes(tab);
+		onMaskChange(tab, true);
+		return true;
+	}
+
 	/**
 	 * Append the reserved `mask.p<N>.*` input sockets an effect's mask exposes, so a value node can
 	 * be wired into one (design §13.1), and drop sockets whose leaf is gone. No-op without the mask
-	 * model or an effect node.
+	 * model or an effect node. Also syncs the Mask/MaskLeaf canvas nodes.
 	 *
 	 * @param {Object} tab the tab
 	 */
@@ -2334,6 +2783,7 @@
 		if (!tab || !tab.graph || !window.VFXIR || typeof window.VFXIR.maskSlots !== "function") {
 			return;
 		}
+		syncMaskNodes(tab);
 		(tab.effects || []).forEach(function (effect) {
 			var node = nodeForEffect(tab, effect.id);
 			if (!node) {

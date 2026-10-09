@@ -1353,6 +1353,47 @@
 		return Object.prototype.hasOwnProperty.call(MASK_SHAPES, String(shape)) ? MASK_SHAPES[String(shape)] : null;
 	}
 
+	/**
+	 * The editor's shape table, preferring the schema's additive `structural.maskShapeFields`
+	 * (design §13.1: the UI does not hardcode the shapes or their fields). Each entry mirrors the
+	 * built-in {@code MASK_SHAPES} shape: {@code {space, worldOnly, deferred, note, params}} with
+	 * {@code params} an ordered {@code [[name, default], ...]}. Unknown ids fall back to the
+	 * built-in table, so a schema that predates this section still works.
+	 *
+	 * @param {Object} [descriptor] the effect's schema descriptor
+	 * @returns {Object<string, Object>} the shape table
+	 */
+	function maskShapeTable(descriptor) {
+		var fields = descriptor && descriptor.structural ? descriptor.structural.maskShapeFields : null;
+		if (!Array.isArray(fields) || !fields.length) {
+			return MASK_SHAPES;
+		}
+		var table = {};
+		Object.keys(MASK_SHAPES).forEach(function (id) {
+			var def = MASK_SHAPES[id];
+			table[id] = { space: def.space, params: def.params, worldOnly: def.worldOnly,
+				deferred: def.deferred, note: def.note };
+		});
+		fields.forEach(function (spec) {
+			if (!spec || spec.id == null) {
+				return;
+			}
+			var id = String(spec.id);
+			var params = Array.isArray(spec.params) ? spec.params.map(function (p) {
+				return [p[0], p[1]];
+			}) : [];
+			table[id] = { space: spec.space, params: params, worldOnly: spec.worldOnly === true,
+				deferred: spec.deferred === true, note: (MASK_SHAPES[id] || {}).note };
+		});
+		return table;
+	}
+
+	/** The shape definition for an id in a table (default: the built-in table), or null. */
+	function maskShapeDefIn(table, shape) {
+		var source = table || MASK_SHAPES;
+		return Object.prototype.hasOwnProperty.call(source, String(shape)) ? source[String(shape)] : null;
+	}
+
 	/** Whether the effect descriptor offers a mask at all (post-effects only). */
 	function maskAffordance(descriptor) {
 		return Boolean(descriptor && descriptor.structural && descriptor.structural.supportsMask === true);
@@ -1413,11 +1454,11 @@
 	}
 
 	/** The space a leaf is classified in, resolved like the parser (leaf > shape > top). */
-	function maskLeafSpace(leaf, topSpace) {
+	function maskLeafSpace(leaf, topSpace, table) {
 		if (leaf && typeof leaf.space === "string") {
 			return leaf.space;
 		}
-		var def = maskShapeDef(leaf && leaf.shape);
+		var def = maskShapeDefIn(table, leaf && leaf.shape);
 		if (def && def.space) {
 			return def.space;
 		}
@@ -1446,8 +1487,8 @@
 	}
 
 	/** Whether the editor authors this shape yet (false: polygon/block/custom). */
-	function maskShapeDeferred(shape) {
-		var def = maskShapeDef(shape);
+	function maskShapeDeferred(shape, table) {
+		var def = maskShapeDefIn(table, shape);
 		if (def) {
 			return def.deferred === true;
 		}
@@ -1464,14 +1505,14 @@
 	 * @param {Object} mask a datapack-shaped mask object
 	 * @returns {Array<Object>} `{name, leafIndex, kind, field, fieldIndex?, paramName?, shape, space, deferred, defaultValue}`
 	 */
-	function maskSlots(mask) {
+	function maskSlots(mask, table) {
 		var topSpace = maskTopSpace(mask);
 		var leaves = maskLeaves(mask);
 		var slots = [];
 		leaves.forEach(function (leaf, i) {
-			var space = maskLeafSpace(leaf, topSpace);
-			var def = maskShapeDef(leaf.shape);
-			var deferred = maskShapeDeferred(leaf.shape);
+			var space = maskLeafSpace(leaf, topSpace, table);
+			var def = maskShapeDefIn(table, leaf.shape);
+			var deferred = maskShapeDeferred(leaf.shape, table);
 			var axes = space === "world" ? ["x", "y", "z"] : ["x", "y"];
 			var centerDefaults = maskCenterDefaults(space);
 			var center = Array.isArray(leaf.center) ? leaf.center : null;
@@ -1535,9 +1576,9 @@
 	}
 
 	/** A fresh leaf for a shape id: default centre plus the per-kind params. */
-	function makeMaskLeaf(shape) {
+	function makeMaskLeaf(shape, table) {
 		var id = String(shape || "circle");
-		var def = maskShapeDef(id);
+		var def = maskShapeDefIn(table, id);
 		var space = def && def.space ? def.space : "screen";
 		var leaf = { shape: id, center: maskCenterDefaults(space).slice(0, maskCenterArity(space)) };
 		if (def) {
@@ -1610,6 +1651,78 @@
 		return bad;
 	}
 
+	/* ---- Mask node model (design §13.1) ------------------------------- */
+
+	/**
+	 * The editable node state of a mask: the left-nested a/b composition tree flattened to an
+	 * ordered leaf list plus one operator per join, beside the top-level `invert`/`space`. This is
+	 * the source of truth the canvas `Mask`/`MaskLeaf` nodes read and write; {@link maskFromNodeState}
+	 * projects it back to the parser's datapack object. Because the joins are left-nested by
+	 * construction, the right operand of every composition is a leaf, matching the parser.
+	 *
+	 * @param {Object} mask a datapack-shaped mask object
+	 * @returns {Object} `{invert, space, leaves, ops}`
+	 */
+	function maskNodeState(mask) {
+		return maskChain(mask);
+	}
+
+	/**
+	 * Project a node state back to the parser's datapack mask object. The inverse of
+	 * {@link maskNodeState}; one leaf emits directly, two or more nest on the left only.
+	 *
+	 * @param {Object} state `{invert, space, leaves, ops}`
+	 * @returns {Object|null} the datapack mask, or null for an empty tree
+	 */
+	function maskFromNodeState(state) {
+		if (!state) {
+			return null;
+		}
+		return maskFromChain(state.leaves, state.ops, state.invert, state.space);
+	}
+
+	/**
+	 * Resolve one numeric leaf slot onto its datapack leaf field (pure). A centre slot writes the
+	 * matching `center[j]` axis, seeding the default centre first; every other slot writes its named
+	 * field. Used by both the canvas MaskLeaf nodes and the inspector so they cannot diverge.
+	 *
+	 * @param {Object} leaf the datapack leaf object (mutated)
+	 * @param {Object} slot a `maskSlots` entry of kind `center`/`param`/`soft`/`stroke`/`rotation`
+	 * @param {number} value the numeric value
+	 */
+	function maskWriteSlot(leaf, slot, value) {
+		if (!leaf || !slot) {
+			return;
+		}
+		if (slot.kind === "center") {
+			if (!Array.isArray(leaf.center)) {
+				leaf.center = maskCenterDefaults(slot.space).slice(0, maskCenterArity(slot.space));
+			}
+			leaf.center[slot.fieldIndex] = value;
+		} else {
+			leaf[slot.field] = value;
+		}
+	}
+
+	/**
+	 * The `maskSlots` of a mask grouped by depth-first leaf index, so a MaskLeaf node can list only
+	 * its own fields.
+	 *
+	 * @param {Object} mask a datapack-shaped mask
+	 * @param {Object} [table] the shape table (schema-driven when given)
+	 * @returns {Array<Array<Object>>} `[ [slot...], [slot...] ]`, one list per leaf
+	 */
+	function maskSlotsByLeaf(mask, table) {
+		var byLeaf = [];
+		maskSlots(mask, table).forEach(function (slot) {
+			if (!byLeaf[slot.leafIndex]) {
+				byLeaf[slot.leafIndex] = [];
+			}
+			byLeaf[slot.leafIndex].push(slot);
+		});
+		return byLeaf;
+	}
+
 	var api = {
 		Project: Project,
 		Tab: Tab,
@@ -1657,6 +1770,8 @@
 		MASK_OPS: MASK_OPS,
 		MASK_SHAPES: MASK_SHAPES,
 		maskShapeDef: maskShapeDef,
+		maskShapeDefIn: maskShapeDefIn,
+		maskShapeTable: maskShapeTable,
 		maskAffordance: maskAffordance,
 		maskShapeList: maskShapeList,
 		isMaskComposition: isMaskComposition,
@@ -1668,12 +1783,16 @@
 		maskSoftnessDefault: maskSoftnessDefault,
 		maskShapeDeferred: maskShapeDeferred,
 		maskSlots: maskSlots,
+		maskSlotsByLeaf: maskSlotsByLeaf,
 		maskParamNames: maskParamNames,
 		maskParamDescriptor: maskParamDescriptor,
 		makeMaskLeaf: makeMaskLeaf,
 		maskFromChain: maskFromChain,
 		maskChain: maskChain,
-		maskRightCompositionInvalid: maskRightCompositionInvalid
+		maskRightCompositionInvalid: maskRightCompositionInvalid,
+		maskNodeState: maskNodeState,
+		maskFromNodeState: maskFromNodeState,
+		maskWriteSlot: maskWriteSlot
 	};
 
 	root.VFXIR = api;

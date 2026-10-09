@@ -1175,6 +1175,72 @@ window.__vfxSelftest = function () {
 		eq(JSON.stringify(def.mask.center), JSON.stringify([1, 2, 3]), "imported centre carried");
 	});
 
+	test("(MASK6) a node-authored 2-leaf union emits the slice-1 fixture JSON", function () {
+		// The canvas Mask/MaskLeaf node tree is the left-nested a/b mask. Its node state projects
+		// to the exact datapack object slice 1's MASK1 fixture authors, and the compiler emits it.
+		var state = { invert: false, space: null,
+			leaves: [{ shape: "circle" }, { shape: "rect" }], ops: ["union"] };
+		var mask = VFXIR.maskFromNodeState(state);
+		eq(JSON.stringify(mask), JSON.stringify({ op: "union", a: { shape: "circle" }, b: { shape: "rect" } }),
+			"node-authored mask is the slice-1 fixture");
+		eq(VFXIR.maskRightCompositionInvalid(mask), false, "left-nested; the right operand is a leaf");
+		var tab = new VFXIR.Tab("blur", "blur");
+		tab.params.radius = VFXIR.ParamSpec.constant(0);
+		tab.effect().mask = mask;
+		var def = parse(compileTab(tab));
+		eq(def.mask.op, "union", "compiled op");
+		var slots = VFXIR.maskSlots(def.mask).map(function (slot) { return slot.name; });
+		["mask.p0.center_x", "mask.p0.p0", "mask.p1.p2", "mask.p1.stroke"].forEach(function (name) {
+			ok(slots.indexOf(name) >= 0, "slot " + name);
+		});
+		ok(slots.indexOf("mask.p0.p2") < 0, "circle has a single p0");
+		ok(!Object.keys(def.params).some(function (name) { return name.indexOf("mask.") === 0; }),
+			"mask. stays out of the normal params");
+		// The state round-trips through the mask unchanged (import -> nodes -> export).
+		eq(JSON.stringify(VFXIR.maskFromNodeState(VFXIR.maskNodeState(def.mask))),
+			JSON.stringify(mask), "node state round-trips");
+	});
+
+	test("(MASK7) node-authored masks never right-nest; a right-nested import is flagged", function () {
+		var state = { invert: false, space: null,
+			leaves: [{ shape: "circle" }, { shape: "rect" }, { shape: "sky" }],
+			ops: ["union", "intersection"] };
+		var mask = VFXIR.maskFromNodeState(state);
+		eq(VFXIR.maskRightCompositionInvalid(mask), false, "a node chain is always left-nested");
+		eq(JSON.stringify(VFXIR.maskOps(mask)), JSON.stringify(["union", "intersection"]), "op order kept");
+		eq(VFXIR.maskLeaves(mask).length, 3, "three leaves in depth-first order");
+		// The parser rejects a right-nested composition; the UI detects it so it can refuse to emit.
+		var bad = { op: "union", a: { shape: "circle" },
+			b: { op: "intersection", a: { shape: "circle" }, b: { shape: "rect" } } };
+		ok(VFXIR.maskRightCompositionInvalid(bad), "right nesting detected");
+		// The node model normalizes it to the left-nested canonical form.
+		eq(VFXIR.maskRightCompositionInvalid(VFXIR.maskFromNodeState(VFXIR.maskNodeState(bad))), false,
+			"node state is left-nested");
+	});
+
+	test("(MASK8) the shape table is schema-driven and the mask is post-only", function () {
+		var descriptor = { structural: { supportsMask: true, maskShapes: ["circle", "rect"],
+			maskShapeFields: [
+				{ id: "circle", space: "screen", worldOnly: false, deferred: false,
+					params: [["radius", 0.5]] },
+				{ id: "rect", space: "screen", worldOnly: false, deferred: false,
+					params: [["half_width", 0.5], ["half_height", 0.5], ["corner_radius", 0.25]] },
+				{ id: "custom", space: "world", worldOnly: true, deferred: true,
+					params: [["p0", 1]] }
+			] } };
+		var table = VFXIR.maskShapeTable(descriptor);
+		eq(table.rect.params.length, 3, "rect fields come from the schema");
+		eq(table.custom.deferred, true, "the schema deferred flag is honoured");
+		var leaf = VFXIR.makeMaskLeaf("rect", table);
+		eq(leaf.corner_radius, 0.25, "the schema default seeds the leaf");
+		ok(!VFXIR.maskAffordance({ structural: { supportsMask: false } }),
+			"a non-post effect offers no Mask node");
+		var slots = VFXIR.maskSlots({ shape: "rect" }, table).map(function (s) { return s.name; });
+		["mask.p0.p0", "mask.p0.p1", "mask.p0.p2"].forEach(function (name) {
+			ok(slots.indexOf(name) >= 0, "schema field slot " + name);
+		});
+	});
+
 	return results;
 };
 /* SELFTEST:END */

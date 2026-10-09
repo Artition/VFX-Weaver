@@ -352,6 +352,9 @@ public final class VFXEffectSchema {
 			final Map<String, Object> structuralJson = new LinkedHashMap<>();
 			structuralJson.put("supportsMask", structural.supportsMask());
 			structuralJson.put("maskShapes", structural.maskShapes());
+			// Additive per-shape field metadata (design §13.1): the MaskLeaf sub-editors are generated
+			// from this, so a new VFXMaskShapeKind appears without an editor change.
+			structuralJson.put("maskShapeFields", VFXStructuralDescriptor.shapeFields());
 			descriptorJson.put("structural", structuralJson);
 			root.put(descriptor.type().getName(), descriptorJson);
 		}

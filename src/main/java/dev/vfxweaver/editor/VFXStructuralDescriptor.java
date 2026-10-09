@@ -2,7 +2,9 @@ package dev.vfxweaver.editor;
 
 import dev.vfxweaver.mask.VFXMaskShapeKind;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 
 /**
@@ -50,5 +52,38 @@ public record VFXStructuralDescriptor(boolean supportsMask, List<String> maskSha
 			ids.add(kind.id());
 		}
 		return List.copyOf(ids);
+	}
+
+	/**
+	 * The per-shape field metadata the editor's MaskLeaf nodes generate their sub-editors from
+	 * (design §13.1: "UI does not hardcode the shapes"). Additive beside {@link #maskShapes()}:
+	 * one entry per {@link VFXMaskShapeKind}, in declaration order.
+	 *
+	 * <p>Each entry is {@code { id, space, worldOnly, deferred, params }} where {@code params} is the
+	 * ordered {@code [[name, default], ...]} list from the shared shape enum. {@code deferred} marks
+	 * a kind the parser understands but the editor does not author yet (only {@code polygon} today),
+	 * so it round-trips read-only instead of emitting half-baked JSON. The block/custom families are
+	 * not enum kinds and are therefore absent, as from {@link #maskShapes()}.
+	 *
+	 * @return the shape field specs, in enum declaration order
+	 */
+	public static List<Map<String, Object>> shapeFields() {
+		final List<Map<String, Object>> out = new ArrayList<>(VFXMaskShapeKind.values().length);
+		for (final VFXMaskShapeKind kind : VFXMaskShapeKind.values()) {
+			final Map<String, Object> spec = new LinkedHashMap<>();
+			spec.put("id", kind.id());
+			spec.put("space", kind.space().id());
+			spec.put("worldOnly", kind.worldOnly());
+			spec.put("deferred", "polygon".equals(kind.id()));
+			final List<String> names = kind.parameterNames();
+			final float[] defaults = kind.parameterDefaults();
+			final List<List<Object>> params = new ArrayList<>(names.size());
+			for (int i = 0; i < names.size(); i++) {
+				params.add(List.of(names.get(i), defaults[i]));
+			}
+			spec.put("params", params);
+			out.add(spec);
+		}
+		return out;
 	}
 }

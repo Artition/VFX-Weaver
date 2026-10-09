@@ -1079,7 +1079,10 @@
 		var chain = vfxir.maskChain(effect.mask);
 		var leaves = chain.leaves;
 		var ops = chain.ops;
-		var slots = vfxir.maskSlots(effect.mask);
+		// The per-shape field metadata comes from the schema's additive structural section (design
+		// §13.1), not a hardcoded list, so a new VFXMaskShapeKind appears without an editor change.
+		var table = typeof vfxir.maskShapeTable === "function" ? vfxir.maskShapeTable(descriptor) : null;
+		var slots = vfxir.maskSlots(effect.mask, table);
 		var slotsByLeaf = {};
 		slots.forEach(function (slot) {
 			if (!slotsByLeaf[slot.leafIndex]) {
@@ -1149,8 +1152,8 @@
 		/** The full editor for one leaf. */
 		function leafRow(leafIndex) {
 			var leaf = leaves[leafIndex];
-			var def = vfxir.maskShapeDef(leaf.shape);
-			var deferred = vfxir.maskShapeDeferred(leaf.shape);
+			var def = vfxir.maskShapeDefIn(table, leaf.shape);
+			var deferred = vfxir.maskShapeDeferred(leaf.shape, table);
 			var row = el("div", { class: "vfx-mask-leaf" + (deferred ? " deferred" : "") });
 			var head = el("div", { class: "vfx-mask-leaf-head" }, [
 				el("span", { class: "vfx-mask-leaf-title", text: "leaf " + leafIndex })
@@ -1159,7 +1162,7 @@
 			head.appendChild(el("div", { class: "vfx-field" }, [
 				el("span", { text: "shape" }),
 				selectFor(shapes, String(leaf.shape), function (value) {
-					leaves[leafIndex] = vfxir.makeMaskLeaf(value);
+					leaves[leafIndex] = vfxir.makeMaskLeaf(value, table);
 					changed(true);
 				})
 			]));
