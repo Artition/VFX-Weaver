@@ -1328,6 +1328,83 @@ window.__vfxSelftest = function () {
 		eq(VFXIR.soundFieldSpec(beam).posArity, 3, "sound pos arity");
 	});
 
+	test("(MP1) a 200-definition pack opens lazily, not one tab per definition", function () {
+		var effects = {};
+		for (var i = 0; i < 200; i++) {
+			effects["effect_" + i] = JSON.stringify({ type: "blur", duration: 20, params: { radius: 1 } });
+		}
+		var started = Date.now();
+		var index = VFXIR.buildPackIndex("demo", effects);
+		eq(index.count, 200, "indexed every definition");
+		ok(VFXIR.packIsLazy(index), "a 200-effect pack is lazy");
+		var created = 0;
+		var commits = 0;
+		var plan = VFXIR.openPackPlan(index, {
+			suspend: function () {},
+			resume: function () {},
+			createTab: function () { created++; return {}; },
+			hydrate: function () {},
+			materialize: function () {},
+			select: function () {},
+			commit: function () { commits++; }
+		}, {});
+		eq(plan.lazy, true, "large pack returns a lazy plan");
+		eq(created, 0, "no tab materialised per definition");
+		eq(commits, 0, "no snapshot taken on a lazy open");
+		// On the old path every one of the 200 tabs took a snapshot: sum(1..200) = 20100 tab clones.
+		// The new open does zero, so this plus the timing guard fails the old O(N^2) fan-out.
+		ok(Date.now() - started < 1000, "lazy open is cheap (was O(N^2))");
+	});
+
+	test("(MP2) an explicit open-all is O(N) with a single commit", function () {
+		var effects = [];
+		for (var i = 0; i < 200; i++) {
+			effects.push({ name: "effect_" + i, type: "blur" });
+		}
+		var index = VFXIR.buildPackIndex("demo", effects);
+		var created = 0;
+		var commits = 0;
+		var plan = VFXIR.openPackPlan(index, {
+			suspend: function () {},
+			resume: function () {},
+			createTab: function () { created++; return {}; },
+			hydrate: function () {},
+			materialize: function () {},
+			select: function () {},
+			commit: function () { commits++; }
+		}, { openAll: true });
+		eq(created, 200, "every definition opened");
+		// Old path committed once per tab (200); the batch must commit exactly once.
+		eq(commits, 1, "one trailing commit, not one snapshot per tab");
+	});
+
+	test("(MP3) a single-definition pack still opens immediately", function () {
+		var index = VFXIR.buildPackIndex("demo", { only: JSON.stringify({ type: "blur" }) });
+		ok(!VFXIR.packIsLazy(index), "a one-effect pack is not lazy");
+		var created = 0;
+		var plan = VFXIR.openPackPlan(index, {
+			createTab: function (label) { created++; return { name: label }; },
+			hydrate: function () {},
+			materialize: function () {},
+			select: function () {},
+			commit: function () {}
+		}, {});
+		eq(plan.lazy, false, "small pack materialises");
+		eq(created, 1, "exactly one tab");
+	});
+
+	test("(MP4) collection children are indexed once, not duplicated as entries", function () {
+		var effects = {
+			root: JSON.stringify({ type: "collection", effects: [{ effect: "demo:child" }] }),
+			child: JSON.stringify({ type: "blur" })
+		};
+		var index = VFXIR.buildPackIndex("demo", effects);
+		eq(index.count, 1, "only the root is an entry");
+		eq(index.entries[0].name, "root", "the child is consumed");
+		ok(index.resolve("demo:child") && index.resolve("demo:child").type === "blur",
+				"a qualified child id resolves");
+	});
+
 	return results;
 };
 /* SELFTEST:END */

@@ -120,6 +120,77 @@ body {
 	color: #ff8a8a;
 }
 
+/* Non-interactive "N more" marker shown when a big tab set is windowed. */
+.vfx-tab-more {
+	display: inline-flex;
+	align-items: center;
+	padding: 0 8px;
+	height: 100%;
+	color: var(--vfx-text-dim);
+	font-size: 11px;
+	white-space: nowrap;
+}
+
+/* Lazy pack list (opening a large pack): a searchable row per definition. */
+.vfx-pack-search {
+	width: 100%;
+	background: var(--vfx-bg);
+	color: var(--vfx-text);
+	border: 1px solid var(--vfx-border);
+	border-radius: 4px;
+	padding: 6px 8px;
+	font: inherit;
+	margin-bottom: 8px;
+}
+
+.vfx-pack-list {
+	max-height: 46vh;
+	overflow-y: auto;
+	border: 1px solid var(--vfx-border);
+	border-radius: 4px;
+	display: flex;
+	flex-direction: column;
+}
+
+.vfx-pack-row {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+	padding: 6px 10px;
+	background: transparent;
+	border: 0;
+	border-bottom: 1px solid var(--vfx-panel-alt);
+	color: var(--vfx-text);
+	cursor: pointer;
+	font: inherit;
+	text-align: left;
+}
+
+.vfx-pack-row:last-child {
+	border-bottom: 0;
+}
+
+.vfx-pack-row:hover {
+	background: var(--vfx-panel-alt);
+}
+
+.vfx-pack-row.open .vfx-pack-name {
+	color: var(--vfx-accent);
+}
+
+.vfx-pack-name {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.vfx-pack-type {
+	color: var(--vfx-text-dim);
+	font-size: 11px;
+	white-space: nowrap;
+}
+
 #vfx-new-tab {
 	width: 26px;
 	height: 26px;

@@ -38,6 +38,7 @@
 		status: document.getElementById("vfx-status"),
 		tabs: document.getElementById("vfx-tabs"),
 		newTab: document.getElementById("vfx-new-tab"),
+		pack: document.getElementById("vfx-pack"),
 		types: document.getElementById("vfx-types"),
 		valueTypes: document.getElementById("vfx-value-types"),
 		filter: document.getElementById("vfx-filter"),
@@ -467,6 +468,22 @@
 
 	function newTab(name, type) {
 		ensureHistoryBaseline();
+		var tab = createTab(name, type);
+		selectTab(project.active);
+		commitHistory();
+		return tab;
+	}
+
+	/**
+	 * Build a tab (model + canvas graph + hooks) and append it, WITHOUT selecting it or recording
+	 * history — the caller decides when to select and commit. {@link newTab} selects+commits per
+	 * tab; the bulk pack import selects+commits once, so opening a pack stays O(N).
+	 *
+	 * @param {string} name the tab name
+	 * @param {string} type an optional schema effect type to attach
+	 * @returns {Object} the created tab
+	 */
+	function createTab(name, type) {
 		var graph = newGraph();
 		// The IR `Tab` (Task 13) carries params/keys/valueNodes/edges; fall back to an
 		// equivalent plain object when ir.js has not loaded (e.g. a broken asset chain).
@@ -491,8 +508,6 @@
 		if (type) {
 			attachEffect(tab, type);
 		}
-		selectTab(project.active);
-		commitHistory();
 		return tab;
 	}
 
@@ -729,35 +744,71 @@
 		commitHistory();
 	}
 
+	/**
+	 * Max tab elements kept in the bar. Above this renderTabs shows a window around the active tab
+	 * (with head/tail "more" markers) instead of every tab, so the DOM stays bounded at N=1000+.
+	 */
+	var TAB_WINDOW = 40;
+
 	function renderTabs() {
 		dom.tabs.textContent = "";
-		project.tabs.forEach(function (tab, index) {
-			// A <div> (not a <button>) so the close <button> is not nested interactive content.
-			var tabEl = document.createElement("div");
-			tabEl.className = "vfx-tab" + (index === project.active ? " active" : "");
-			tabEl.setAttribute("role", "tab");
-			tabEl.tabIndex = 0;
-			tabEl.addEventListener("click", function () {
-				selectTab(index);
-			});
+		var total = project.tabs.length;
+		if (!total) {
+			return;
+		}
+		var start = 0;
+		var end = total;
+		if (total > TAB_WINDOW) {
+			var half = Math.floor(TAB_WINDOW / 2);
+			start = Math.max(0, Math.min(project.active - half, total - TAB_WINDOW));
+			end = Math.min(total, start + TAB_WINDOW);
+		}
+		if (start > 0) {
+			dom.tabs.appendChild(tabMore("\u25C0 " + start + " more"));
+		}
+		for (var index = start; index < end; index++) {
+			dom.tabs.appendChild(tabElement(project.tabs[index], index));
+		}
+		if (end < total) {
+			dom.tabs.appendChild(tabMore((total - end) + " more \u25B6"));
+		}
+	}
 
-			var label = document.createElement("span");
-			label.textContent = tab.name + (tab.type ? "" : " •");
-			tabEl.appendChild(label);
+	/** A non-interactive "N more" marker in the tab bar (the hidden head/tail of a big tab set). */
+	function tabMore(text) {
+		var el = document.createElement("span");
+		el.className = "vfx-tab-more";
+		el.textContent = text;
+		el.title = "Open an effect from the pack list (Effects button) to bring its tab into view";
+		return el;
+	}
 
-			var close = document.createElement("button");
-			close.type = "button";
-			close.className = "vfx-close";
-			close.textContent = "×";
-			close.title = "Close tab";
-			close.addEventListener("click", function (event) {
-				event.stopPropagation();
-				closeTab(index);
-			});
-			tabEl.appendChild(close);
-
-			dom.tabs.appendChild(tabEl);
+	/** One tab element; `index` is the real tab index (closures capture it per render). */
+	function tabElement(tab, index) {
+		// A <div> (not a <button>) so the close <button> is not nested interactive content.
+		var tabEl = document.createElement("div");
+		tabEl.className = "vfx-tab" + (index === project.active ? " active" : "");
+		tabEl.setAttribute("role", "tab");
+		tabEl.tabIndex = 0;
+		tabEl.addEventListener("click", function () {
+			selectTab(index);
 		});
+
+		var label = document.createElement("span");
+		label.textContent = tab.name + (tab.type ? "" : " •");
+		tabEl.appendChild(label);
+
+		var close = document.createElement("button");
+		close.type = "button";
+		close.className = "vfx-close";
+		close.textContent = "×";
+		close.title = "Close tab";
+		close.addEventListener("click", function (event) {
+			event.stopPropagation();
+			closeTab(index);
+		});
+		tabEl.appendChild(close);
+		return tabEl;
 	}
 
 	/* ------------------------------------------------------------------ */
@@ -2242,8 +2293,14 @@
 		}
 	}
 
-	/** Record the current project state as one undo step (skips an unchanged state). */
+	/**
+	 * Record the current project state as one undo step (skips an unchanged state). A bulk import
+	 * raises {@link historySuspend} so the per-tab commits collapse into the one trailing commit.
+	 */
 	function commitHistory() {
+		if (historySuspend > 0) {
+			return;
+		}
 		var h = ensureHistoryBaseline();
 		if (!h) {
 			return;
@@ -2257,6 +2314,9 @@
 
 	/** Debounced {@link commitHistory}, so a slider drag commits as one transaction. */
 	var commitTimer = 0;
+
+	/** >0 while a bulk import is materialising tabs; suppresses intermediate history commits. */
+	var historySuspend = 0;
 	function scheduleCommitHistory() {
 		clearTimeout(commitTimer);
 		commitTimer = setTimeout(function () {
@@ -3787,22 +3847,6 @@
 		return colon > 0 && colon < name.length - 1 ? name.substring(colon + 1) : name;
 	}
 
-	/** Parse an imported effect entry (object or JSON string) into a definition object, or null. */
-	function parseEffect(raw) {
-		if (raw && typeof raw === "object") {
-			return raw;
-		}
-		if (typeof raw === "string") {
-			try {
-				var parsed = JSON.parse(raw);
-				return parsed && typeof parsed === "object" ? parsed : null;
-			} catch (e) {
-				return null;
-			}
-		}
-		return null;
-	}
-
 	/** Coerce to a finite number, falling back to `fallback` (default 0). */
 	function num(value, fallback) {
 		var n = Number(value);
@@ -4189,6 +4233,8 @@
 		project.defaults = project.defaults || {};
 		project.tabs = [];
 		project.active = -1;
+		pack = null;
+		updatePackButton();
 		if (scene) {
 			scene.setGraph(newGraph());
 		}
@@ -4912,7 +4958,10 @@
 		openExportDialog();
 	}
 
-	/** Import a datapack folder or zip: rebuild one tab per effect and restore the sidecar layout. */
+	/**
+	 * Import a datapack folder or zip. A small pack opens as tabs; a large one opens as a lazy,
+	 * searchable index (see {@link openPack}), so opening stays O(N) and independent of size.
+	 */
 	function importPack(path) {
 		var bridge = window.VFXBridge;
 		if (!bridge) {
@@ -4930,78 +4979,220 @@
 				return;
 			}
 			var namespace = result.namespace || "";
-			var before = project.tabs.length;
-			var created = openPack(namespace, result.effects || {});
-			applySidecar(result.sidecar, project.tabs.slice(before));
+			var created = openPack(namespace, result.effects || {}, result.sidecar);
 			pushRecent(path);
-			status("imported " + created + " effect" + (created === 1 ? "" : "s")
-					+ (namespace ? " from " + namespace : ""));
+			if (created) {
+				status("imported " + created + " effect" + (created === 1 ? "" : "s")
+						+ (namespace ? " from " + namespace : ""));
+			} else {
+				status("opened " + (pack ? pack.count : 0) + " effects"
+						+ (namespace ? " from " + namespace : "") + " — choose one to edit");
+			}
 		});
 	}
 
+	/** The current import index (or null) and its sidecar, driving the lazy pack list UI. */
+	var pack = null;
+
+	/** The tab-builder hooks {@link window.VFXIR.openPackPlan} drives; one shared object. */
+	function packHooks() {
+		return {
+			suspend: function () {
+				historySuspend++;
+			},
+			resume: function () {
+				if (historySuspend > 0) {
+					historySuspend--;
+				}
+			},
+			createTab: function (label) {
+				return createTab(label, null);
+			},
+			hydrate: function (tab, def, resolve) {
+				hydrateTab(tab, def, resolve);
+			},
+			materialize: function (tab) {
+				materializeGraph(tab);
+			},
+			select: function (tab) {
+				selectTab(project.tabs.indexOf(tab));
+			},
+			commit: function () {
+				commitHistory();
+			}
+		};
+	}
+
 	/**
-	 * Open a pack: one tab per effect. {@code effects} is the `/import` shape
-	 * (`{ "<name>": "<effect JSON string>" }`); the effect's `type` selects the
-	 * node type, the tab is named `<namespace>:<name>`, and the effect's params,
-	 * keys and value graph are restored onto the tab.
+	 * Open a pack. {@code effects} is the `/import` shape (`{ "<name>": "<effect JSON string>" }`).
+	 * The pack is indexed once (O(N), no tabs); a pack at or below {@link VFXIR.MAX_EAGER_TABS} is
+	 * materialised immediately (one commit), a bigger one stays lazy and shows the searchable list,
+	 * where opening an effect builds exactly one graph. {@code sidecar} layout is applied per tab.
 	 *
 	 * @param {string} namespace the pack namespace
 	 * @param {Object|Array} effects name -> raw effect JSON (object or string)
-	 * @returns {number} the number of tabs created
+	 * @param {*} [sidecar] the saved editor layout, or null
+	 * @returns {number} the number of tabs created (0 for a lazy open)
 	 */
-	function openPack(namespace, effects) {
-		var created = 0;
-		var entries = [];
-		if (Array.isArray(effects)) {
-			effects.forEach(function (value, index) {
-				entries.push([value && value.name ? value.name : String(index), value]);
-			});
-		} else if (effects && typeof effects === "object") {
-			Object.keys(effects).forEach(function (key) {
-				entries.push([key, effects[key]]);
-			});
+	function openPack(namespace, effects, sidecar) {
+		if (!window.VFXIR || typeof window.VFXIR.buildPackIndex !== "function") {
+			status("import failed: the IR module is not loaded");
+			return 0;
 		}
-		// The parsed definitions by file name, so a collection can resolve its child files.
-		var defs = {};
-		entries.forEach(function (entry) {
-			defs[entry[0]] = parseEffect(entry[1]);
-		});
-		var localName = function (id) {
-			var text = String(id);
-			var colon = text.indexOf(":");
-			return colon >= 0 ? text.substring(colon + 1) : text;
-		};
-		var resolve = function (id) {
-			return defs[localName(id)] || null;
-		};
-		// Child definitions consumed by a collection become chain nodes, not their own tabs.
-		var consumed = {};
-		Object.keys(defs).forEach(function (name) {
-			var def = defs[name];
-			if (def && def.type === "collection" && Array.isArray(def.effects)) {
-				def.effects.forEach(function (child) {
-					if (child && child.effect != null && defs[localName(child.effect)]) {
-						consumed[localName(child.effect)] = true;
+		pack = window.VFXIR.buildPackIndex(namespace, effects);
+		pack.sidecar = sidecar;
+		ensureHistoryBaseline();
+		var plan = window.VFXIR.openPackPlan(pack, packHooks(), {});
+		if (plan.created && pack.sidecar) {
+			applySidecar(pack.sidecar, plan.tabs);
+		}
+		updatePackButton();
+		if (plan.lazy) {
+			openPackList();
+		}
+		return plan.created;
+	}
+
+	/** Find the index of an already-open tab by name, or -1. */
+	function findTabByName(name) {
+		for (var i = 0; i < project.tabs.length; i++) {
+			if (project.tabs[i].name === name) {
+				return i;
+			}
+		}
+		return -1;
+	}
+
+	/** Open one pack definition as a tab (or select its existing tab); builds exactly one graph. */
+	function openDefinition(entry) {
+		if (!pack || !entry) {
+			return;
+		}
+		var label = pack.namespace ? pack.namespace + ":" + entry.name : entry.name;
+		var existing = findTabByName(label);
+		if (existing >= 0) {
+			selectTab(existing);
+			return;
+		}
+		ensureHistoryBaseline();
+		var one = { namespace: pack.namespace, resolve: pack.resolve, entries: [entry] };
+		var plan = window.VFXIR.openPackPlan(one, packHooks(), {});
+		if (plan.created && pack.sidecar) {
+			applySidecar(pack.sidecar, plan.tabs);
+		}
+	}
+
+	/** Open every pack definition as a tab — the O(N) batch path (one commit, tab bar windowed). */
+	function openAllDefinitions() {
+		if (!pack) {
+			return 0;
+		}
+		ensureHistoryBaseline();
+		var plan = window.VFXIR.openPackPlan(pack, packHooks(), { openAll: true });
+		if (plan.created && pack.sidecar) {
+			applySidecar(pack.sidecar, plan.tabs);
+		}
+		return plan.created;
+	}
+
+	/** Show/hide and label the top-bar "Effects (N)" pack-list button. */
+	function updatePackButton() {
+		var button = document.getElementById("vfx-pack");
+		if (!button) {
+			return;
+		}
+		if (pack && pack.count) {
+			button.hidden = false;
+			button.textContent = "Effects (" + pack.count + ")";
+			button.title = "Open an effect from " + (pack.namespace || "the pack");
+		} else {
+			button.hidden = true;
+		}
+	}
+
+	/** The searchable pack list: one row per definition, clicking opens it as a single tab. */
+	function openPackList() {
+		if (!pack || !pack.count) {
+			return;
+		}
+		openModal("Effects — " + (pack.namespace || "pack"), function (body, close) {
+			var search = document.createElement("input");
+			search.type = "search";
+			search.className = "vfx-pack-search";
+			search.placeholder = "Search effects…";
+			search.setAttribute("aria-label", "Search effects");
+			body.appendChild(search);
+			var list = document.createElement("div");
+			list.className = "vfx-pack-list";
+			body.appendChild(list);
+			var note = dialogMessage(body);
+			var actions = dialogActions(body);
+			dialogButton(actions, "Open all (" + pack.count + ")", false, function () {
+				var opened = openAllDefinitions();
+				status("opened " + opened + " effects");
+				close();
+			});
+			dialogButton(actions, "Close", false, close);
+
+			function render(filterText) {
+				list.textContent = "";
+				var needle = String(filterText || "").toLowerCase();
+				var shown = 0;
+				var matched = 0;
+				pack.entries.forEach(function (entry) {
+					var label = pack.namespace ? pack.namespace + ":" + entry.name : entry.name;
+					if (needle && label.toLowerCase().indexOf(needle) < 0) {
+						return;
 					}
+					matched++;
+					if (shown >= window.VFXIR.PACK_LIST_MAX) {
+						return;
+					}
+					shown++;
+					var row = document.createElement("button");
+					row.type = "button";
+					row.className = "vfx-pack-row";
+					var nameSpan = document.createElement("span");
+					nameSpan.className = "vfx-pack-name";
+					nameSpan.textContent = entry.name;
+					var typeSpan = document.createElement("span");
+					typeSpan.className = "vfx-pack-type";
+					var open = findTabByName(label) >= 0;
+					typeSpan.textContent = (entry.type || "?") + (open ? " • open" : "");
+					if (open) {
+						row.className += " open";
+					}
+					row.appendChild(nameSpan);
+					row.appendChild(typeSpan);
+					row.addEventListener("click", function () {
+						openDefinition(entry);
+						close();
+					});
+					list.appendChild(row);
 				});
+				if (!matched) {
+					note.show("no effect matches “" + filterText + "”", true);
+				} else if (matched > shown) {
+					note.show("showing " + shown + " of " + matched + " — refine the search");
+				} else {
+					note.show(matched + " effect" + (matched === 1 ? "" : "s"));
+				}
 			}
-		});
-		entries.forEach(function (entry) {
-			if (consumed[entry[0]]) {
-				return;
-			}
-			var def = defs[entry[0]];
-			var tab = newTab(namespace ? namespace + ":" + entry[0] : entry[0], null);
-			hydrateTab(tab, def, resolve);
-			materializeGraph(tab);
-			created++;
-		});
-		return created;
+
+			search.addEventListener("input", function () {
+				render(search.value);
+			});
+			render("");
+			search.focus();
+		}, { className: "vfx-modal-wide" });
 	}
 
 	var VFXEditor = {
 		project: project,
 		openPack: openPack,
+		openDefinition: openDefinition,
+		openPackList: openPackList,
+		openAllDefinitions: openAllDefinitions,
 		newTab: newTab,
 		exportPack: exportPack,
 		importPack: importPack,
@@ -5059,6 +5250,12 @@
 		enumerable: true,
 		get: function () {
 			return history();
+		}
+	});
+	Object.defineProperty(VFXEditor, "pack", {
+		enumerable: true,
+		get: function () {
+			return pack;
 		}
 	});
 	Object.defineProperty(VFXEditor, "bridge", {
@@ -6019,6 +6216,9 @@
 		dom.newTab.addEventListener("click", function () {
 			newTab("untitled", null);
 		});
+		if (dom.pack) {
+			dom.pack.addEventListener("click", openPackList);
+		}
 		dom.filter.addEventListener("input", function () {
 			filterPalette(dom.filter.value);
 		});

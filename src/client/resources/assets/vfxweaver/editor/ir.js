@@ -1788,9 +1788,186 @@
 		return byLeaf;
 	}
 
+	/* ------------------------------------------------------------------ */
+	/* Pack import index (lazy open)                                       */
+	/* ------------------------------------------------------------------ */
+
+	/**
+	 * Definitions auto-materialised as tabs when a pack is imported. A pack above this opens as a
+	 * lazy, searchable index instead, so opening is O(N) and independent of the effect count.
+	 */
+	var MAX_EAGER_TABS = 8;
+
+	/** Cap on the pack-list rows rendered at once (search narrows the rest into view). */
+	var PACK_LIST_MAX = 200;
+
+	/** Parse an imported effect entry (object or JSON string) into a definition object, or null. */
+	function parseEffectEntry(raw) {
+		if (raw && typeof raw === "object") {
+			return raw;
+		}
+		if (typeof raw === "string") {
+			try {
+				var parsed = JSON.parse(raw);
+				return parsed && typeof parsed === "object" ? parsed : null;
+			} catch (e) {
+				return null;
+			}
+		}
+		return null;
+	}
+
+	/** The local (post-colon) effect name from a possibly qualified `namespace:name` id. */
+	function packLocalName(id) {
+		var text = String(id);
+		var colon = text.indexOf(":");
+		return colon >= 0 ? text.substring(colon + 1) : text;
+	}
+
+	/** A cheap byte-ish size hint of a raw entry for the pack list (no graph is built for it). */
+	function packSizeHint(raw) {
+		if (typeof raw === "string") {
+			return raw.length;
+		}
+		try {
+			return JSON.stringify(raw).length;
+		} catch (e) {
+			return 0;
+		}
+	}
+
+	/**
+	 * Build the lightweight import index for a pack: every file parsed once (O(N)), collection
+	 * children marked `consumed` (they become chain nodes, not their own entry), and a sorted list
+	 * of `{ name, def, type, size }`. No tab, graph or snapshot is created here.
+	 *
+	 * @param {string} namespace the pack namespace
+	 * @param {Object|Array} effects name -> raw effect JSON (object or array), or null
+	 * @returns {{namespace: string, defs: Object, resolve: Function, entries: Array, count: number}}
+	 */
+	function buildPackIndex(namespace, effects) {
+		var pairs = [];
+		if (Array.isArray(effects)) {
+			effects.forEach(function (value, index) {
+				pairs.push([value && value.name ? value.name : String(index), value]);
+			});
+		} else if (effects && typeof effects === "object") {
+			Object.keys(effects).forEach(function (key) {
+				pairs.push([key, effects[key]]);
+			});
+		}
+		var defs = {};
+		var raw = {};
+		pairs.forEach(function (pair) {
+			defs[pair[0]] = parseEffectEntry(pair[1]);
+			raw[pair[0]] = pair[1];
+		});
+		var resolve = function (id) {
+			return defs[packLocalName(id)] || null;
+		};
+		var consumed = {};
+		Object.keys(defs).forEach(function (name) {
+			var def = defs[name];
+			if (def && def.type === "collection" && Array.isArray(def.effects)) {
+				def.effects.forEach(function (child) {
+					if (child && child.effect != null && defs[packLocalName(child.effect)]) {
+						consumed[packLocalName(child.effect)] = true;
+					}
+				});
+			}
+		});
+		var entries = [];
+		pairs.forEach(function (pair) {
+			if (consumed[pair[0]]) {
+				return;
+			}
+			var def = defs[pair[0]];
+			entries.push({
+				name: pair[0],
+				def: def,
+				type: def && def.type != null ? String(def.type) : null,
+				size: packSizeHint(raw[pair[0]])
+			});
+		});
+		entries.sort(function (a, b) {
+			return a.name < b.name ? -1 : (a.name > b.name ? 1 : 0);
+		});
+		return { namespace: namespace ? String(namespace) : "", defs: defs, resolve: resolve,
+			entries: entries, count: entries.length };
+	}
+
+	/** True when a pack is large enough that opening it eagerly would be the old O(N^2) fan-out. */
+	function packIsLazy(index) {
+		return Boolean(index) && index.entries.length > MAX_EAGER_TABS;
+	}
+
+	/**
+	 * Materialise an import index: create one tab per entry, hydrating and building each graph,
+	 * inside a single suspended-history window and with one trailing commit. A pack above
+	 * {@link MAX_EAGER_TABS} is NOT opened here unless `options.openAll` is set (the shell shows the
+	 * lazy list instead). O(N) work and a bounded (one) commit — never the per-tab snapshot fan-out.
+	 *
+	 * @param {Object} index a {@link buildPackIndex} result
+	 * @param {Object} hooks `createTab(label, entry)`, `hydrate(tab, def, resolve)`,
+	 *   `materialize(tab)`, `select(tab)`, `commit()`, optional `suspend()`/`resume()`
+	 * @param {Object} [options] `{ openAll: true }` forces materialisation
+	 * @returns {{created: number, indexed: number, lazy: boolean, tabs: Array}}
+	 */
+	function openPackPlan(index, hooks, options) {
+		if (!index) {
+			return { created: 0, indexed: 0, lazy: false, tabs: [] };
+		}
+		var openAll = Boolean(options && options.openAll);
+		if (!openAll && packIsLazy(index)) {
+			return { created: 0, indexed: index.entries.length, lazy: true, tabs: [] };
+		}
+		hooks = hooks || {};
+		var tabs = [];
+		var suspended = false;
+		if (typeof hooks.suspend === "function") {
+			hooks.suspend();
+			suspended = true;
+		}
+		try {
+			index.entries.forEach(function (entry) {
+				if (typeof hooks.createTab !== "function") {
+					return;
+				}
+				var label = index.namespace ? index.namespace + ":" + entry.name : entry.name;
+				var tab = hooks.createTab(label, entry);
+				if (!tab) {
+					return;
+				}
+				if (typeof hooks.hydrate === "function") {
+					hooks.hydrate(tab, entry.def, index.resolve);
+				}
+				if (typeof hooks.materialize === "function") {
+					hooks.materialize(tab);
+				}
+				tabs.push(tab);
+			});
+		} finally {
+			if (suspended && typeof hooks.resume === "function") {
+				hooks.resume();
+			}
+		}
+		if (tabs.length && typeof hooks.select === "function") {
+			hooks.select(tabs[tabs.length - 1]);
+		}
+		if (typeof hooks.commit === "function") {
+			hooks.commit();
+		}
+		return { created: tabs.length, indexed: index.entries.length, lazy: false, tabs: tabs };
+	}
+
 	var api = {
 		Project: Project,
 		Tab: Tab,
+		MAX_EAGER_TABS: MAX_EAGER_TABS,
+		PACK_LIST_MAX: PACK_LIST_MAX,
+		buildPackIndex: buildPackIndex,
+		packIsLazy: packIsLazy,
+		openPackPlan: openPackPlan,
 		ParamSpec: ParamSpec,
 		SnapshotHistory: SnapshotHistory,
 		isFiniteNumber: isFiniteNumber,
