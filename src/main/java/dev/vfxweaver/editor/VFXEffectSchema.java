@@ -7,6 +7,7 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonNull;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonPrimitive;
+import dev.vfxweaver.effect.BoundParam;
 import dev.vfxweaver.effect.VFXEffectType;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -347,9 +348,41 @@ public final class VFXEffectSchema {
 			descriptorJson.put("post", descriptor.post());
 			root.put(descriptor.type().getName(), descriptorJson);
 		}
+		root.put("bind", bindSection());
 		final JsonElement tree = GSON.toJsonTree(root);
 		nullifyNonFinite(tree);
 		return OUTPUT_GSON.toJson(tree);
+	}
+
+	/**
+	 * Builds the {@code bind} section of the schema, derived directly from {@link BoundParam.Kind}
+	 * and {@link BoundParam.SourceKind} so the editor's bind-kind/needsPos/field lists cannot drift
+	 * from the datapack parser.
+	 *
+	 * <p>Shape: {@code { "kinds": [ { "id", "needsPos", "requiresObjective", "fields" }, ... ],
+	 * "sources": [ "camera", ... ] }}. Additive: it sits beside the per-effect keys and changes
+	 * none of them.
+	 *
+	 * @return the {@code bind} map
+	 */
+	private static Map<String, Object> bindSection() {
+		final List<Map<String, Object>> kinds = new ArrayList<>(BoundParam.Kind.values().length);
+		for (final BoundParam.Kind kind : BoundParam.Kind.values()) {
+			final Map<String, Object> entry = new LinkedHashMap<>();
+			entry.put("id", kind.id());
+			entry.put("needsPos", kind.needsPos());
+			entry.put("requiresObjective", kind.requiresObjective());
+			entry.put("fields", kind.optionalFields());
+			kinds.add(entry);
+		}
+		final List<String> sources = new ArrayList<>(BoundParam.SourceKind.values().length);
+		for (final BoundParam.SourceKind source : BoundParam.SourceKind.values()) {
+			sources.add(source.id());
+		}
+		final Map<String, Object> bind = new LinkedHashMap<>();
+		bind.put("kinds", kinds);
+		bind.put("sources", sources);
+		return bind;
 	}
 
 	/**

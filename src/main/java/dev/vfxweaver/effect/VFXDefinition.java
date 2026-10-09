@@ -390,46 +390,15 @@ public class VFXDefinition {
 	}
 
 	/**
-	 * Parses an easing reference: a plain name (built-in or named datapack curve) or an inline
-	 * object with a {@code curve} control-point array.
+	 * Parses an easing reference via the shared {@link EasingFunction#parseJson(JsonElement)}
+	 * (a name string, {@code {"cubicBezier":[...]}} or {@code {"curve":[[t,v],...]}} object), so
+	 * effect/keyframe/child/graph easing all resolve through one parser.
 	 *
 	 * @param element the JSON value of an {@code easing} field (may be null)
 	 * @return the resolved easing function (never null)
 	 */
 	private static EasingFunction parseEasing(final @Nullable JsonElement element) {
-		if (element == null || element.isJsonNull()) {
-			return EasingFunction.builtIn(EasingType.LINEAR);
-		}
-		if (element.isJsonPrimitive() && element.getAsJsonPrimitive().isString()) {
-			return EasingFunction.fromString(element.getAsString());
-		}
-		if (element.isJsonObject() && element.getAsJsonObject().has("cubicBezier")) {
-			JsonArray bezier = GsonHelper.getAsJsonArray(element.getAsJsonObject(), "cubicBezier");
-			if (bezier.size() != 4) {
-				throw new IllegalArgumentException("'cubicBezier' must be [x1,y1,x2,y2]: " + element);
-			}
-			return EasingFunction.cubicBezier("inline", bezier.get(0).getAsFloat(), bezier.get(1).getAsFloat(), bezier.get(2).getAsFloat(), bezier.get(3).getAsFloat());
-		}
-		if (element.isJsonObject() && element.getAsJsonObject().has("curve")) {			JsonArray curve = GsonHelper.getAsJsonArray(element.getAsJsonObject(), "curve");
-			float[] ts = new float[curve.size()];
-			float[] vs = new float[curve.size()];
-			for (int i = 0; i < curve.size(); i++) {
-				JsonArray point = GsonHelper.convertToJsonArray(curve.get(i), "curve point");
-				if (point.size() != 2) {
-					throw new IllegalArgumentException("Curve point must be [t, v]: " + point);
-				}
-				ts[i] = point.get(0).getAsFloat();
-				vs[i] = point.get(1).getAsFloat();
-				if (i > 0 && ts[i] <= ts[i - 1]) {
-					throw new IllegalArgumentException("Curve times must be strictly ascending: " + point);
-				}
-			}
-			if (ts.length < 2 || Math.abs(ts[0]) > 1.0e-4F || Math.abs(ts[ts.length - 1] - 1.0F) > 1.0e-4F) {
-				throw new IllegalArgumentException("Curve times must start at 0 and end at 1");
-			}
-			return EasingFunction.curve("inline", ts, vs);
-		}
-		throw new IllegalArgumentException("'easing' must be a name string or an object with a 'curve' array: " + element);
+		return EasingFunction.parseJson(element);
 	}
 
 	/** Safety cap on parsed positions per effect (external input, see AGENTS.md). */

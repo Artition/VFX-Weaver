@@ -1,5 +1,7 @@
 package dev.vfxweaver.effect;
 
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
 import java.util.Locale;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -134,6 +136,61 @@ public final class EasingFunction {
 			}
 			return resolved.function().apply(t);
 		}, null, null);
+	}
+
+	/**
+	 * Parses an easing reference from JSON: a name string (built-in or named datapack curve), a
+	 * {@code {"cubicBezier":[x1,y1,x2,y2]}} object, or a {@code {"curve":[[t,v],...]}} control-point
+	 * object. A {@code null}/absent element resolves to {@link EasingType#LINEAR}.
+	 *
+	 * <p>This is the single parser for both the datapack {@code easing} fields and the graph
+	 * curve-point ease; MC-free (plain Gson) so {@code dev.vfxweaver.graph} can reuse it.
+	 *
+	 * @param element the JSON value of an {@code easing} field (may be {@code null})
+	 * @return the resolved easing function (never {@code null})
+	 * @throws IllegalArgumentException when the value is malformed
+	 */
+	public static EasingFunction parseJson(final JsonElement element) {
+		if (element == null || element.isJsonNull()) {
+			return builtIn(EasingType.LINEAR);
+		}
+		if (element.isJsonPrimitive() && element.getAsJsonPrimitive().isString()) {
+			return fromString(element.getAsString());
+		}
+		if (element.isJsonObject() && element.getAsJsonObject().has("cubicBezier")) {
+			final JsonElement bezierElement = element.getAsJsonObject().get("cubicBezier");
+			if (bezierElement == null || !bezierElement.isJsonArray() || bezierElement.getAsJsonArray().size() != 4) {
+				throw new IllegalArgumentException("'cubicBezier' must be [x1,y1,x2,y2]: " + element);
+			}
+			final JsonArray bezier = bezierElement.getAsJsonArray();
+			return cubicBezier("inline", bezier.get(0).getAsFloat(), bezier.get(1).getAsFloat(), bezier.get(2).getAsFloat(), bezier.get(3).getAsFloat());
+		}
+		if (element.isJsonObject() && element.getAsJsonObject().has("curve")) {
+			final JsonElement curveElement = element.getAsJsonObject().get("curve");
+			if (curveElement == null || !curveElement.isJsonArray()) {
+				throw new IllegalArgumentException("'curve' must be an array of [t, v] points: " + element);
+			}
+			final JsonArray curve = curveElement.getAsJsonArray();
+			final float[] ts = new float[curve.size()];
+			final float[] vs = new float[curve.size()];
+			for (int i = 0; i < curve.size(); i++) {
+				final JsonElement pointElement = curve.get(i);
+				if (pointElement == null || !pointElement.isJsonArray() || pointElement.getAsJsonArray().size() != 2) {
+					throw new IllegalArgumentException("Curve point must be [t, v]: " + pointElement);
+				}
+				final JsonArray point = pointElement.getAsJsonArray();
+				ts[i] = point.get(0).getAsFloat();
+				vs[i] = point.get(1).getAsFloat();
+				if (i > 0 && ts[i] <= ts[i - 1]) {
+					throw new IllegalArgumentException("Curve times must be strictly ascending: " + point);
+				}
+			}
+			if (ts.length < 2 || Math.abs(ts[0]) > 1.0e-4F || Math.abs(ts[ts.length - 1] - 1.0F) > 1.0e-4F) {
+				throw new IllegalArgumentException("Curve times must start at 0 and end at 1");
+			}
+			return curve("inline", ts, vs);
+		}
+		throw new IllegalArgumentException("'easing' must be a name string or an object with a 'curve' array: " + element);
 	}
 
 	/**

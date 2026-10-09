@@ -24,15 +24,14 @@ import org.jspecify.annotations.Nullable;
 
 /**
  * Owns one visual-editor preview session: the definition set, the view state (order/mute/solo) and
- * the transport (mode/tick/playing/loop/ended). It is the single writer of every preview mutation,
+ * the transport (tick/playing/loop/ended). It is the single writer of every preview mutation,
  * applied on the game/render thread - the same thread the ordinary play path uses - so it never
  * races the effect manager.
  *
- * <p>Two modes (design §16): <b>exact</b> projects the tab onto individual instances (one
- * {@code playReplay} per child, controller-owned tick, never the engine loop, never
- * {@code beginFadeOut}), anchored by the additive {@link VFXActiveEffect#setAge(float)} override;
- * <b>authored</b> plays the authored root collection with its own timings and no per-instance
- * control. Definitions are kept in {@link VFXDefinitionManager}'s local layer and diffed by string
+ * <p>The preview is always <b>exact</b> (design §16): it projects the tab onto individual
+ * instances (one {@code playReplay} per child, controller-owned tick, never the engine loop, never
+ * {@code beginFadeOut}), anchored by the additive {@link VFXActiveEffect#setAge(float)} override.
+ * Definitions are kept in {@link VFXDefinitionManager}'s local layer and diffed by string
  * equality on every {@code sync}, so a rejected definition keeps its last-good version.
  *
  * <p>State is only touched on the game thread; HTTP callers submit a task and wait for its result,
@@ -42,9 +41,7 @@ import org.jspecify.annotations.Nullable;
 public final class EditorPreviewController {
 	private static final EditorPreviewController INSTANCE = new EditorPreviewController();
 
-	private static final String EXACT = "exact";
-	private static final String AUTHORED = "authored";
-	/** Upper bound on authored children accepted from the client (matches the definition cap). */
+	/** Upper bound on preview children accepted from the client (matches the definition cap). */
 	private static final int MAX_CHILDREN = 256;
 	/** Upper bound on entity UUID targets accepted from one context. */
 	private static final int MAX_TARGETS = 64;
@@ -54,15 +51,13 @@ public final class EditorPreviewController {
 	// --- session state: game thread only ---------------------------------------------------------
 	/** Applied definition id (raw) to raw JSON; the diff/tombstone bookkeeping. */
 	private final Map<String, String> applied = new LinkedHashMap<>();
-	/** Authored children, keyed for the viewstate. */
+	/** The tab's children, keyed for the viewstate. */
 	private List<EditorPreviewPlan.Child> children = new ArrayList<>();
 	/** Stable instance id per child key, reused across re-issues. */
 	private final Map<String, Long> instances = new LinkedHashMap<>();
 	private List<String> order = List.of();
 	private Set<String> muted = Set.of();
 	private Set<String> solo = Set.of();
-	private String mode = EXACT;
-	private @Nullable String root;
 	private float tick;
 	private boolean playing;
 	private boolean loop;
@@ -111,11 +106,10 @@ public final class EditorPreviewController {
 			final List<EditorPreviewPlan.Child> newChildren = readChildren(meta);
 			final float tabDur = meta != null ? floatOr(meta, "tabDuration", -1.0F) : -1.0F;
 			final Boolean loopValue = meta != null && meta.has("loop") ? boolOr(meta, "loop", false) : null;
-			final String newRoot = stringOrNull(body, "root");
 			final JsonObject context = meta != null ? meta.getAsJsonObject("context") : null;
 			final @Nullable Vec3 position = readPosition(context);
 			final List<UUID> targets = readTargets(context);
-			return submit(() -> applySync(rev, definitions, newChildren, tabDur, loopValue, newRoot, position, targets));
+			return submit(() -> applySync(rev, definitions, newChildren, tabDur, loopValue, position, targets));
 		} catch (final RuntimeException e) {
 			return error(400, "bad_request", message(e));
 		}
@@ -202,7 +196,6 @@ public final class EditorPreviewController {
 			final long rev = longOr(body, "revision", -1L);
 			final String action = stringOrNull(body, "action");
 			final Float seekTick = floatOrNull(body, "tick");
-			final String newMode = stringOrNull(body, "mode");
 			final Boolean loopValue = body.has("loop") ? boolOr(body, "loop", false) : null;
 			if (action == null) {
 				return error(400, "bad_request", "action is required");
@@ -220,11 +213,9 @@ public final class EditorPreviewController {
 					case "pause" -> this.playing = false;
 					case "seek" -> doSeek(seekTick != null ? seekTick : 0.0F);
 					case "stop" -> doStop();
+					// The old setMode action was removed; a client that still sends it stays Exact
+					// (accepted as a no-op, never a 400).
 					case "setMode" -> {
-						final Response bad = doSetMode(newMode);
-						if (bad != null) {
-							return bad;
-						}
 					}
 					default -> {
 						return error(400, "bad_request", "unknown action " + action);
@@ -250,11 +241,6 @@ public final class EditorPreviewController {
 			shutdown();
 		}
 		if (!this.playing || Minecraft.getInstance().isPaused()) {
-			return;
-		}
-		if (AUTHORED.equals(this.mode)) {
-			this.tick += 1.0F;
-			emitState();
 			return;
 		}
 		final float next = this.tick + 1.0F;
@@ -296,7 +282,6 @@ public final class EditorPreviewController {
 		this.tick = 0.0F;
 		this.ended = false;
 		stopAllPreviewInstances();
-		stopAuthored();
 		for (final String id : new ArrayList<>(this.applied.keySet())) {
 			final Identifier rid = Identifier.tryParse(id);
 			if (rid != null) {
@@ -309,8 +294,6 @@ public final class EditorPreviewController {
 		this.order = List.of();
 		this.muted = Set.of();
 		this.solo = Set.of();
-		this.mode = EXACT;
-		this.root = null;
 		this.revision = 0L;
 		this.tabDuration = 0.0F;
 		this.loop = false;
@@ -328,7 +311,6 @@ public final class EditorPreviewController {
 		final List<EditorPreviewPlan.Child> newChildren,
 		final float tabDur,
 		final @Nullable Boolean loopValue,
-		final @Nullable String newRoot,
 		final @Nullable Vec3 position,
 		final List<UUID> targets
 	) {
@@ -392,26 +374,11 @@ public final class EditorPreviewController {
 		if (loopValue != null) {
 			this.loop = loopValue;
 		}
-		// Authored mode restarts when the root id changes OR when the root definition itself was
-		// rewritten (a mute/solo/reorder re-compile keeps the id but changes the child set).
-		final boolean rootChanged = newRoot != null
-			&& (!newRoot.equals(this.root) || appliedIds.contains(newRoot));
-		if (newRoot != null) {
-			this.root = newRoot;
-		}
 		this.contextPos = position;
 		this.contextTargets = targets;
 		this.revision = rev >= 0 ? rev : this.revision;
-		if (AUTHORED.equals(this.mode)) {
-			if (rootChanged && this.playing) {
-				stopAllPreviewInstances();
-				stopAuthored();
-				startAuthored();
-			}
-		} else {
-			reissueChanged(oldChildren, appliedIds);
-			reconcile();
-		}
+		reissueChanged(oldChildren, appliedIds);
+		reconcile();
 		for (final String id : collectionChildren) {
 			if (!rejectedIds.contains(id)) {
 				rejectedIds.add(id);
@@ -457,9 +424,6 @@ public final class EditorPreviewController {
 	 * order rank. Instance ids are stable per key.
 	 */
 	private void reconcile() {
-		if (AUTHORED.equals(this.mode)) {
-			return;
-		}
 		final Set<String> desired = new LinkedHashSet<>();
 		for (final EditorPreviewPlan.Child child : this.children) {
 			if (EditorPreviewPlan.visible(child, this.muted, this.solo)
@@ -529,21 +493,12 @@ public final class EditorPreviewController {
 		}
 		this.ended = false;
 		this.playing = true;
-		if (AUTHORED.equals(this.mode)) {
-			startAuthored();
-		} else {
-			reconcile();
-		}
+		reconcile();
 	}
 
 	private void doSeek(final float target) {
 		this.tick = Math.max(0.0F, target);
 		this.ended = false;
-		if (AUTHORED.equals(this.mode)) {
-			// Authored mode has no per-instance control (design §16.4); a seek only moves the
-			// displayed tick, the authored lifecycle keeps its own timing.
-			return;
-		}
 		reconcile();
 	}
 
@@ -552,46 +507,6 @@ public final class EditorPreviewController {
 		this.ended = false;
 		this.tick = 0.0F;
 		stopAllPreviewInstances();
-		stopAuthored();
-	}
-
-	/** Returns a {@code 400} response for an unknown mode, or {@code null} on success. */
-	private @Nullable Response doSetMode(final @Nullable String requested) {
-		if (requested == null) {
-			return error(400, "bad_request", "mode is required for setMode");
-		}
-		if (!EXACT.equals(requested) && !AUTHORED.equals(requested)) {
-			return error(400, "bad_request", "mode must be \"exact\" or \"authored\"");
-		}
-		this.playing = false;
-		this.ended = false;
-		stopAllPreviewInstances();
-		stopAuthored();
-		this.mode = requested;
-		if (EXACT.equals(this.mode)) {
-			reconcile();
-		}
-		return null;
-	}
-
-	private void startAuthored() {
-		if (this.root == null) {
-			return;
-		}
-		final @Nullable Identifier rootId = Identifier.tryParse(this.root);
-		if (rootId != null) {
-			VFXEffectManager.get().play(rootId, 0, 0L, this.contextPos, this.contextTargets, Map.of(), null);
-		}
-	}
-
-	private void stopAuthored() {
-		if (this.root == null) {
-			return;
-		}
-		final @Nullable Identifier rootId = Identifier.tryParse(this.root);
-		if (rootId != null) {
-			VFXEffectManager.get().stop(rootId);
-		}
 	}
 
 	private void stopAllPreviewInstances() {
@@ -602,9 +517,8 @@ public final class EditorPreviewController {
 
 	/**
 	 * Removes every active instance whose effect id is one of the definitions this session
-	 * registered. Covers authored collection children, which the engine spawns itself and which
-	 * {@code stop(rootId)} leaves running (only the exact children are tracked in {@code instances}).
-	 * Bounded by the active-effect cap and the session's applied definitions.
+	 * registered, so no preview instance outlives a stop. Bounded by the active-effect cap and the
+	 * session's applied definitions.
 	 */
 	private void removeActivePreviewInstances() {
 		final Set<Long> ids = new LinkedHashSet<>();
@@ -653,7 +567,6 @@ public final class EditorPreviewController {
 	private void emitState() {
 		final JsonObject out = new JsonObject();
 		out.addProperty("revision", this.revision);
-		out.addProperty("mode", this.mode);
 		out.addProperty("playing", this.playing);
 		out.addProperty("tick", this.tick);
 		out.addProperty("ended", this.ended);

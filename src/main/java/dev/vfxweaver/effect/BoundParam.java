@@ -3,6 +3,7 @@ package dev.vfxweaver.effect;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
+import java.util.List;
 import java.util.Locale;
 import org.jspecify.annotations.Nullable;
 
@@ -295,10 +296,43 @@ public record BoundParam(Kind kind, double x, double y, double z, float yaw, flo
 			return this == SCREEN_X || this == SCREEN_Y || this == PROXIMITY || this == DISTANCE || this == LOOK_AT;
 		}
 
+		/**
+		 * True when this kind requires a non-blank {@code objective} field (only
+		 * {@link #SCOREBOARD}).
+		 */
+		public boolean requiresObjective() {
+			return this == SCOREBOARD;
+		}
+
+		/**
+		 * The optional field ids {@link BoundParam#parse} reads for this kind in addition to
+		 * {@code bind} (and {@code pos} when {@link #needsPos()}). Descriptive only — it lets the
+		 * editor schema expose the same per-kind form the datapack parser accepts without
+		 * duplicating the list in the web layer.
+		 */
+		public List<String> optionalFields() {
+			return switch (this) {
+				case SCREEN_X, SCREEN_Y, DISTANCE, LOOK_X, LOOK_Y, LOOK_Z,
+					CAMERA_YAW_DELTA, CAMERA_PITCH_DELTA -> List.of("scale");
+				case PROXIMITY, LOOK_AT -> List.of("range", "invert", "scale");
+				case LOOK -> List.of("yaw", "pitch", "range", "invert", "scale");
+				case PLAYER_X, PLAYER_Y, PLAYER_Z, HEALTH, HUNGER, LIGHT_LEVEL, TIME_OF_DAY ->
+					List.of("invert", "scale");
+				case SPEED -> List.of("range", "invert", "scale");
+				case SCOREBOARD -> List.of("holder", "range", "invert", "scale");
+				case POINT, SCREEN_RECT -> List.of();
+			};
+		}
+
 		private final String id;
 
 		Kind(final String id) {
 			this.id = id;
+		}
+
+		/** The datapack spelling, e.g. {@code "screen_x"}. */
+		public String id() {
+			return this.id;
 		}
 
 		/**

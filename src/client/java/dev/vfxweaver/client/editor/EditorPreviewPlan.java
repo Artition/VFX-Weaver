@@ -17,7 +17,7 @@ final class EditorPreviewPlan {
 	}
 
 	/**
-	 * One authored child: the stable key, its definition id and its tab timing.
+	 * One preview child: the stable key, its definition id and its tab timing.
 	 *
 	 * @param key      stable node key (the viewstate addresses the child by this)
 	 * @param def      definition id under the private preview namespace
@@ -61,7 +61,7 @@ final class EditorPreviewPlan {
 	/**
 	 * True when the child is not muted and either no solo is active or this child is in it.
 	 *
-	 * @param child the authored child
+	 * @param child the preview child
 	 * @param muted the muted node keys
 	 * @param solo  the soloed node keys (empty = no solo)
 	 */
@@ -76,7 +76,7 @@ final class EditorPreviewPlan {
 	 * True when the child's tab window contains the tick: {@code delay <= tick < delay + duration}
 	 * (a non-positive duration means "until the tab ends").
 	 *
-	 * @param child the authored child
+	 * @param child the preview child
 	 * @param tick  the controller tick in the tab's own time base
 	 */
 	static boolean due(final Child child, final float tick) {
@@ -89,7 +89,7 @@ final class EditorPreviewPlan {
 	/**
 	 * The age (ticks into the child timeline) at which the child should be shown at {@code tick}.
 	 *
-	 * @param child the authored child
+	 * @param child the preview child
 	 * @param tick  the controller tick
 	 * @return {@code tick - delay}, clamped to {@code >= 0}
 	 */

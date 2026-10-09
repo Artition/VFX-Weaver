@@ -5,7 +5,6 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import dev.vfxweaver.effect.BoundParam;
 import dev.vfxweaver.effect.EasingFunction;
-import dev.vfxweaver.effect.EasingType;
 import dev.vfxweaver.effect.MathExpression;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -246,9 +245,7 @@ public final class VFXGraph {
 						throw new IllegalArgumentException("node '" + id + "': curve 'time' must be strictly ascending");
 					}
 					final JsonElement easing = point.get("easing");
-					curveEasings[i] = easing != null && !easing.isJsonNull()
-						? EasingFunction.fromString(easing.getAsString())
-						: EasingFunction.builtIn(EasingType.LINEAR);
+					curveEasings[i] = EasingFunction.parseJson(easing);
 				}
 			}
 			case BIND -> {
