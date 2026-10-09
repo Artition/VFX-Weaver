@@ -57,7 +57,9 @@
 					loadJs(ASSET_ROOT + "ir.js" + q, function () {
 						loadJs(ASSET_ROOT + "compiler.js" + q, function () {
 							loadJs(ASSET_ROOT + "inspector.js" + q, function () {
-								loadJs(ASSET_ROOT + "timeline.js" + q);
+								loadJs(ASSET_ROOT + "curveview.js" + q, function () {
+									loadJs(ASSET_ROOT + "timeline.js" + q);
+								});
 							});
 						});
 					});

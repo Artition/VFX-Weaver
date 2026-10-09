@@ -351,6 +351,15 @@ body {
 	min-height: 0;
 }
 
+/* The curve editor modal is wider than a form dialog and scrolls its plot horizontally. */
+.vfx-modal.vfx-modal-wide .vfx-modal-box {
+	width: min(1000px, 96vw);
+}
+
+.vfx-curve-modal {
+	overflow-x: auto;
+}
+
 .vfx-dialog-field {
 	display: flex;
 	align-items: center;

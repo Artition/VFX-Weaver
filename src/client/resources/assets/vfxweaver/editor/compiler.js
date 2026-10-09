@@ -70,6 +70,61 @@
 		return out;
 	}
 
+	/**
+	 * Copy a curve node's `points` into the datapack shape (design §15.4): clamp each time to
+	 * `[0,duration]`, enforce strictly-ascending times (a clamped/duplicate point is dropped), cap
+	 * the list at 64 (the engine's `VFXGraph.MAX_CURVE_POINTS`), and convert each IR easing to the
+	 * JSON form (a name stays a string, `[x1,y1,x2,y2]` becomes `{cubicBezier:[...]}`). Warnings are
+	 * pushed for a clamp/drop when `warnings` is supplied.
+	 *
+	 * @param {Array<Object>} points IR curve points (`{time,value,easing}`)
+	 * @param {number} total the effect duration in ticks
+	 * @param {Array} [warnings] collects a record per clamp/dropped point
+	 * @param {string} [name] the node id for the warning record
+	 * @returns {Array<Object>} the datapack curve points (<=64, strictly ascending)
+	 */
+	function curvePointsJson(points, total, warnings, name) {
+		var out = [];
+		if (!Array.isArray(points)) {
+			return out;
+		}
+		var max = num(total);
+		if (max < 0) {
+			max = 0;
+		}
+		var lastTime = -Infinity;
+		for (var i = 0; i < points.length; i++) {
+			if (out.length >= 64) {
+				if (warnings) {
+					warnings.push({ param: name, index: i, dropped: true, reason: "cap-64" });
+				}
+				break;
+			}
+			var point = points[i] || {};
+			var raw = num(point.time);
+			var time = clampKeyTime(raw, max);
+			if (time !== raw && warnings) {
+				warnings.push({ param: name, index: i, time: raw, clamped: time });
+			}
+			if (out.length && time <= lastTime) {
+				if (warnings) {
+					warnings.push({ param: name, index: i, dropped: true, reason: "not-ascending" });
+				}
+				continue;
+			}
+			var entry = { time: time, value: num(point.value) };
+			if (point.easing != null) {
+				var easing = easingJson(point.easing);
+				if (easing != null) {
+					entry.easing = easing;
+				}
+			}
+			out.push(entry);
+			lastTime = time;
+		}
+		return out;
+	}
+
 	/** A shallow copy of `obj` without the named keys, so a spec's editor-only fields are dropped. */
 	function copyExcept(obj, omit) {
 		var out = {};
@@ -284,9 +339,13 @@
 	 *
 	 * @param {Object} tab the tab
 	 * @param {Object<string, boolean>} [skip] node ids already folded into a param (design §15.8)
+	 * @param {string|null} [effectId] the owning chain node (param wires are tagged with it)
+	 * @param {boolean} [multi] whether the tab is a chain
+	 * @param {number} [total] the effect duration in ticks (curve clamp, `[0,duration]`)
+	 * @param {Array} [warnings] collects curve clamp/drop records
 	 * @returns {{nodes: Array, edges: Array, meta: Object, inputs: Object}}
 	 */
-	function compileGraph(tab, skip, effectId, multi) {
+	function compileGraph(tab, skip, effectId, multi, total, warnings) {
 		skip = skip || {};
 		var nodes = Array.isArray(tab.valueNodes) ? tab.valueNodes : [];
 		var ids = {};
@@ -296,7 +355,18 @@
 			if (skip[node.id]) {
 				return;
 			}
-			var out = { id: node.id, kind: node.kind, inputs: node.inputs || {} };
+			var inputs = node.inputs || {};
+			if (node.kind === "curve" && Array.isArray(inputs.points)) {
+				// A curve node's points compile like a timeline track: clamp `[0,duration]`,
+				// strictly-ascending, <=64 points, easing as a name or `{cubicBezier}` (design §15.4).
+				var built = {};
+				Object.keys(inputs).forEach(function (key) {
+					built[key] = inputs[key];
+				});
+				built.points = curvePointsJson(inputs.points, total, warnings, node.id);
+				inputs = built;
+			}
+			var out = { id: node.id, kind: node.kind, inputs: inputs };
 			if (node.op != null) {
 				out.op = node.op;
 			}
@@ -469,7 +539,7 @@
 			return !folded.skip[node.id];
 		});
 		if (activeNodes.length > 0) {
-			var graphBuilt = compileGraph(tab, folded.skip, effectId, multi);
+			var graphBuilt = compileGraph(tab, folded.skip, effectId, multi, def.duration, warnings);
 			var graph = def.graph && typeof def.graph === "object" && !Array.isArray(def.graph) ? def.graph : {};
 			if (graph.version == null) {
 				graph.version = 1;

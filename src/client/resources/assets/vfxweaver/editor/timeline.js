@@ -54,14 +54,6 @@
 	 * consume axis width. Keep in sync with `.vfx-tl-label` / `.vfx-tl-gantt-name` in editor.css.
 	 */
 	var LABEL_COLUMN = 120;
-	/** Curve-view geometry (design §15.4, fix #13): a taller plot with padding for axis labels. */
-	var CURVE_HEIGHT = 240;
-	var CURVE_PAD_TOP = 18;
-	var CURVE_PAD_BOTTOM = 24;
-	/** Polyline resolution per segment when sampling the eased curve. */
-	var CURVE_SAMPLES = 48;
-	/** SVG namespace for the curve view (created with `createElementNS`, not `el`). */
-	var SVG_NS = "http://www.w3.org/2000/svg";
 	/** Per-key easing names, matching `EasingType` (docs/guide/datapack). */
 	var EASINGS = [
 		"linear", "ease_in_quad", "ease_out_quad", "ease_in_out_quad",
@@ -808,12 +800,6 @@
 				? root.VFXIR.bezierY(bezier, u) : u;
 	}
 
-	/** Recognise a Bézier as a named easing within epsilon, else null (delegates to the IR). */
-	function snapEasingName(bezier) {
-		return root.VFXIR && typeof root.VFXIR.snapEasing === "function"
-				? root.VFXIR.snapEasing(bezier) : null;
-	}
-
 	/** A deep-enough copy of an easing (array clone / string) for broadcast edits. */
 	function cloneEasing(easing) {
 		return Array.isArray(easing) ? easing.slice() : easing;
@@ -825,19 +811,6 @@
 		return list.slice().sort(function (a, b) {
 			return (Number(a.time) || 0) - (Number(b.time) || 0);
 		});
-	}
-
-	/** Create an SVG element with attributes (mirrors {@link el}, but in the SVG namespace). */
-	function svgEl(tag, attrs) {
-		var node = document.createElementNS(SVG_NS, tag);
-		if (attrs) {
-			Object.keys(attrs).forEach(function (key) {
-				if (attrs[key] != null) {
-					node.setAttribute(key, String(attrs[key]));
-				}
-			});
-		}
-		return node;
 	}
 
 	/** Re-render the whole panel in place (used after a curve edit/drag). */
@@ -1610,48 +1583,17 @@
 			return easing;
 		}
 		if (Array.isArray(easing)) {
-			var snapped = snapEasingName(easing);
+			var snapped = root.VFXIR && typeof root.VFXIR.snapEasing === "function"
+					? root.VFXIR.snapEasing(easing) : null;
 			return snapped ? snapped : "cubic-bezier(" + easing.join(", ") + ")";
 		}
 		return "linear";
-	}
-
-	/** A number for an axis label: integers plain, fractions to 3 decimals. */
-	function formatValue(value) {
-		var n = Number(value);
-		if (!isFinite(n)) {
-			return "";
-		}
-		if (Math.abs(n - Math.round(n)) < 1e-6) {
-			return String(Math.round(n));
-		}
-		return String(Math.round(n * 1000) / 1000);
 	}
 
 	/** Whether a value is outside the schema descriptor's finite min/max (design §15.4). */
 	function descriptorOutOfRange(descriptor, value) {
 		return Boolean(descriptor && ((isFiniteNumber(descriptor.min) && value < descriptor.min)
 				|| (isFiniteNumber(descriptor.max) && value > descriptor.max)));
-	}
-
-	/** The axis a curve view maps values into: the auto-fit range plus 8% headroom for overshoot. */
-	function curveAxis(range) {
-		var span = (range.hi - range.lo) || 1;
-		return { lo: range.lo - span * 0.08, hi: range.hi + span * 0.08 };
-	}
-
-	/** An SVG `<title>` tooltip. */
-	function svgTitle(text) {
-		var node = svgEl("title", {});
-		node.textContent = String(text);
-		return node;
-	}
-
-	/** A small header button for the curve view. */
-	function curveButton(label, title, onClick) {
-		var node = el("button", { type: "button", class: "vfx-tl-btn vfx-tl-curve-btn", text: label, title: title });
-		node.addEventListener("click", onClick);
-		return node;
 	}
 
 	/** Keep a track's key list time-sorted (the curve view and the engine both assume it). */
@@ -1689,128 +1631,6 @@
 		return label;
 	}
 
-	/** One tangent handle of a segment's local unit box; drag edits x (clamped [0,1]) and y (free). */
-	function curveHandle(which, key, bez, hx, hy, tab, name, range, pxPerTick, panel) {
-		var h = svgEl("circle", { class: "vfx-tl-handle", cx: hx, cy: hy, r: 4 });
-		h.appendChild(svgTitle(which === 0
-				? "Easing handle 1 (x1,y1) — drag; release near a named easing to snap"
-				: "Easing handle 2 (x2,y2)"));
-		h.addEventListener("mousedown", beginHandleDrag(tab, name, key, bez, which, range, pxPerTick, panel));
-		return h;
-	}
-
-	/** Drag a curve key: x -> tick (clamped), y -> value; one commit per drag (fix #13). */
-	function beginCurveKeyDrag(tab, name, key, dot, range, pxPerTick, panel) {
-		return function (event) {
-			event.preventDefault();
-			event.stopPropagation();
-			selectKey(name, key, dot);
-			var startX = event.clientX;
-			var startY = event.clientY;
-			var t0 = Number(key.time) || 0;
-			var v0 = Number(key.value) || 0;
-			var total = duration(tab);
-			var axis = curveAxis(range);
-			var innerH = CURVE_HEIGHT - CURVE_PAD_TOP - CURVE_PAD_BOTTOM;
-			var moved = false;
-
-			function move(ev) {
-				moved = true;
-				var rawTime = Math.round(t0 + (ev.clientX - startX) / pxPerTick);
-				key.time = Math.max(0, Math.min(total, rawTime));
-				key.value = round3(v0 - (ev.clientY - startY) / (innerH || 1) * (axis.hi - axis.lo));
-				refreshCurve(tab);
-			}
-
-			function up() {
-				document.removeEventListener("mousemove", move);
-				document.removeEventListener("mouseup", up);
-				if (!moved) {
-					return;
-				}
-				sortTrack(tab, name);
-				setKeyframe(tab, name, key);
-				commit(tab);
-				structural(tab);
-				refreshCurve(tab);
-			}
-
-			document.addEventListener("mousemove", move);
-			document.addEventListener("mouseup", up);
-		};
-	}
-
-	/** Drag a segment's tangent handle in its local unit box; snap to a named easing on release. */
-	function beginHandleDrag(tab, name, key, bez, which, range, pxPerTick, panel) {
-		return function (event) {
-			event.preventDefault();
-			event.stopPropagation();
-			var startX = event.clientX;
-			var startY = event.clientY;
-			var orig = bez.slice();
-			var b = bez.slice();
-			var list = sortedKeys(tab, name);
-			var next = list[list.indexOf(key) + 1];
-			if (!next) {
-				return;
-			}
-			var segW = ((Number(next.time) || 0) - (Number(key.time) || 0)) * pxPerTick;
-			var innerH = CURVE_HEIGHT - CURVE_PAD_TOP - CURVE_PAD_BOTTOM;
-			var axis = curveAxis(range);
-			// The handle is drawn at `v0 + (v1 - v0) * bez`, so a vertical drag must be scaled by the
-			// value span (guarded against v1 === v0) as well as the axis range — see
-			// `VFXIR.bezierHandleDeltaY` (design §15.4).
-			var valueSpan = (Number(next.value) || 0) - (Number(key.value) || 0);
-			var v0 = Number(key.value) || 0;
-			var v1 = Number(next.value) || 0;
-			var moved = false;
-
-			function move(ev) {
-				moved = true;
-				var xi = which * 2;
-				// Always recompute from the drag's starting bezier with the *cumulative* pointer
-				// delta, never off the already-moved `b`: adding the cumulative delta to a mutated
-				// value double-counts each frame and launches the handle off-screen (fix H2).
-				var candidate = orig.slice();
-				if (segW !== 0) {
-					candidate[xi] = orig[xi] + (ev.clientX - startX) / segW;
-				}
-				if (valueSpan !== 0) {
-					var dy = ev.clientY - startY;
-					var delta = root.VFXIR && typeof root.VFXIR.bezierHandleDeltaY === "function"
-							? root.VFXIR.bezierHandleDeltaY(dy, innerH, valueSpan, axis.hi - axis.lo)
-							: dy / (innerH || 1) * ((axis.hi - axis.lo) / valueSpan);
-					candidate[xi + 1] = orig[xi + 1] - delta;
-				}
-				// Keep the handle inside the visible curve viewport (x in the segment box, y within
-				// the value axis) so it stays on-screen and grabbable (fix H2).
-				b = root.VFXIR && typeof root.VFXIR.clampBezierHandle === "function"
-						? root.VFXIR.clampBezierHandle(candidate, which, v0, v1, axis.lo, axis.hi)
-						: candidate;
-				key.easing = [b[0], b[1], b[2], b[3]];
-				refreshCurve(tab);
-			}
-
-			function up() {
-				document.removeEventListener("mousemove", move);
-				document.removeEventListener("mouseup", up);
-				if (!moved) {
-					return;
-				}
-				var snapped = snapEasingName(b);
-				key.easing = snapped
-						? snapped : [round3(b[0]), round3(b[1]), round3(b[2]), round3(b[3])];
-				commit(tab);
-				structural(tab);
-				refreshCurve(tab);
-				surface("easing: " + (snapped ? snapped : "custom bezier"));
-			}
-
-			document.addEventListener("mousemove", move);
-			document.addEventListener("mouseup", up);
-		};
-	}
-
 	/**
 	 * Build the full curve view for one track (design §15.4, fix #13): the slot's keys, the eased
 	 * polyline sampled through each segment's cubic-bezier, draggable tangent handles, draggable
@@ -1824,110 +1644,60 @@
 	 * @returns {HTMLElement} the curve view element
 	 */
 	function curveEditor(tab, name, pxPerTick, range, panel) {
-		var wrap = el("div", { class: "vfx-tl-curve" });
-		var total = duration(tab);
-		var keys = sortedKeys(tab, name);
-		var axis = curveAxis(range);
-		var innerH = CURVE_HEIGHT - CURVE_PAD_TOP - CURVE_PAD_BOTTOM;
-		var width = LABEL_COLUMN + Math.max(1, total * pxPerTick + 20);
-
-		function X(t) {
-			return LABEL_COLUMN + Math.max(0, Number(t) || 0) * pxPerTick;
-		}
-		function Y(v) {
-			var f = (Number(v) - axis.lo) / ((axis.hi - axis.lo) || 1);
-			return CURVE_PAD_TOP + (1 - Math.max(0, Math.min(1, f))) * innerH;
-		}
-
-		var head = el("div", { class: "vfx-tl-curve-head" });
-		head.appendChild(el("span", { class: "vfx-tl-curve-title", text: "Curve · " + name }));
-		head.appendChild(curveButton("apply to all", "Copy the selected key's easing to every segment",
-			function () { applyEasingToAll(tab, name); }));
-		head.appendChild(curveButton("del key", "Delete the selected key (Delete)",
-			function () { deleteSelectedCurveKey(tab, name); }));
-		head.appendChild(curveButton("✕", "Close the curve editor", function () {
-			curveOpen = null;
-			curvePanel = null;
-			renderInto(panel.parentNode, tab);
-		}));
-		wrap.appendChild(head);
-
-		var svg = svgEl("svg", { class: "vfx-tl-curve-svg", width: width, height: CURVE_HEIGHT });
-
-		for (var g = 0; g <= 4; g++) {
-			var frac = g / 4;
-			var value = range.lo + frac * (range.hi - range.lo);
-			var gy = Y(value);
-			svg.appendChild(svgEl("line", { class: "vfx-tl-grid", x1: 0, y1: gy, x2: width, y2: gy }));
-			var label = svgEl("text", { class: "vfx-tl-axis-label", x: 4, y: gy - 2 });
-			label.textContent = formatValue(value);
-			svg.appendChild(label);
-		}
-
-		for (var i = 0; i < keys.length - 1; i++) {
-			var a = keys[i];
-			var b = keys[i + 1];
-			var t0 = Number(a.time) || 0;
-			var t1 = Number(b.time) || 0;
-			var v0 = Number(a.value) || 0;
-			var v1 = Number(b.value) || 0;
-			var bez = easingBezier(a.easing);
-			var pts = [];
-			for (var s = 0; s <= CURVE_SAMPLES; s++) {
-				var u = s / CURVE_SAMPLES;
-				pts.push(X(t0 + (t1 - t0) * u) + "," + Y(v0 + (v1 - v0) * sampleBezier(bez, u)));
-			}
-			svg.appendChild(svgEl("polyline", { class: "vfx-tl-curve-line", points: pts.join(" ") }));
-
-			if (t1 > t0) {
-				var h1x = X(t0 + (t1 - t0) * bez[0]);
-				var h1y = Y(v0 + (v1 - v0) * bez[1]);
-				var h2x = X(t0 + (t1 - t0) * bez[2]);
-				var h2y = Y(v0 + (v1 - v0) * bez[3]);
-				svg.appendChild(svgEl("line", { class: "vfx-tl-handle-line",
-					x1: X(t0), y1: Y(v0), x2: h1x, y2: h1y }));
-				svg.appendChild(svgEl("line", { class: "vfx-tl-handle-line",
-					x1: X(t1), y1: Y(v1), x2: h2x, y2: h2y }));
-				svg.appendChild(curveHandle(0, a, bez, h1x, h1y, tab, name, range, pxPerTick, panel));
-				svg.appendChild(curveHandle(1, a, bez, h2x, h2y, tab, name, range, pxPerTick, panel));
-			}
+		var wrap = el("div", { class: "vfx-tl-curve-host" });
+		var component = root.VFXCurveView && typeof root.VFXCurveView.curveView === "function"
+				? root.VFXCurveView.curveView(wrap, tab.keys[name], {
+					total: duration(tab),
+					range: range,
+					pxPerTick: pxPerTick,
+					title: "Curve · " + name,
+					name: name,
+					descriptor: paramDescriptor(tab, name),
+					selectedKey: selected && selected.key,
+					onSelect: function (key) {
+						selected = key ? { name: name, key: key } : null;
+					},
+					onCommit: function (keys, info) {
+						if (info && info.reason === "key") {
+							sortTrack(tab, name);
+							if (info.key) {
+								setKeyframe(tab, name, info.key);
+							}
+						}
+						commit(tab);
+						structural(tab);
+						refreshCurve(tab);
+					},
+					onDeleteSelected: function (key) {
+						selected = { name: name, key: key };
+						deleteSelectedCurveKey(tab, name);
+					},
+					onApplyEasingToAll: function (key) {
+						if (key) {
+							selected = { name: name, key: key };
+						}
+						applyEasingToAll(tab, name);
+					},
+					onKeyMenu: function (key, event, dot) {
+						openKeyMenu(tab, name, key, dot, event);
+					},
+					onAddKey: function (time) {
+						addKeyToLane(tab, name, time, interpolatedValue(tab, name, time), panel);
+					},
+					onClose: function () {
+						curveOpen = null;
+						curvePanel = null;
+						renderInto(panel.parentNode, tab);
+					},
+					onMessage: surface
+				})
+				: null;
+		if (!component) {
+			wrap.appendChild(el("p", { class: "vfx-tl-hint", text: "curve editor unavailable" }));
 		}
 
-		keys.forEach(function (key) {
-			var dot = svgEl("circle", { class: "vfx-tl-curve-key",
-				cx: X(key.time), cy: Y(key.value), r: 5 });
-			if (selected && selected.key === key) {
-				dot.classList.add("active");
-			}
-			var descriptor = paramDescriptor(tab, name);
-			dot.appendChild(svgTitle(descriptorOutOfRange(descriptor, key.value)
-					? "value " + key.value + " is outside the schema range ["
-							+ descriptor.min + ", " + descriptor.max + "]"
-					: name + " t=" + Math.round(Number(key.time) || 0) + " v=" + key.value
-							+ " (" + easingTitle(key.easing) + ")"));
-			if (descriptorOutOfRange(descriptor, key.value)) {
-				dot.classList.add("vfx-tl-out");
-			}
-			dot.addEventListener("mousedown", beginCurveKeyDrag(tab, name, key, dot, range, pxPerTick, panel));
-			dot.addEventListener("contextmenu", function (event) {
-				openKeyMenu(tab, name, key, dot, event);
-			});
-			svg.appendChild(dot);
-		});
-
-		svg.addEventListener("dblclick", function (event) {
-			var target = event.target;
-			if (target && target.classList && (target.classList.contains("vfx-tl-curve-key")
-					|| target.classList.contains("vfx-tl-handle"))) {
-				return;
-			}
-			var t = Math.round(clampToDuration(tab, tickAt(event.clientX)));
-			addKeyToLane(tab, name, t, interpolatedValue(tab, name, t), panel);
-		});
-
-		wrap.appendChild(svg);
-
-		// Delete removes the selected key; Escape closes the view (design §15.4).
+		// Delete removes the selected key; Escape closes the view (design §15.4). The shared component
+		// owns drag/snap/axis, but the timeline's Delete/Escape semantics stay here.
 		curveKeyHandler = function (event) {
 			// Never steal Delete/Backspace/Escape from a text field: the global hotkey is capture and
 			// skips editable targets, but this bubble listener would otherwise delete a key (review G3).

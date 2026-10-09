@@ -1099,6 +1099,222 @@
 		return { value: raw == null ? param.defaultValue : raw };
 	}
 
+	/* ------------------------------------------------------------------ */
+	/* Bind schema (single source of truth: BoundParam.Kind/SourceKind)     */
+	/* ------------------------------------------------------------------ */
+
+	/** A safe default bind kind (needs no `pos`, no `objective`) for a fresh spec. */
+	var DEFAULT_BIND = "health";
+
+	/** The bind spec fields the datapack parser reads besides `bind`/`derive`. */
+	var BIND_FIELD_KEYS = ["pos", "objective", "holder", "range", "invert", "scale",
+		"yaw", "pitch", "selector", "uuid", "point", "offset"];
+
+	/** The scalar fields the bind form renders as optional rows (per kind `fields`). */
+	var BIND_SCALAR_KEYS = ["range", "invert", "scale", "yaw", "pitch", "holder"];
+
+	/** The loaded schema's `bind` section (`{kinds:[...],sources:[...]}`), or null when unavailable. */
+	function bindSection() {
+		var schema = root.VFXEditor && root.VFXEditor.schema;
+		var bind = schema && schema.bind;
+		return bind && Array.isArray(bind.kinds) && bind.kinds.length ? bind : null;
+	}
+
+	/** The engine's bind kind ids (`BoundParam.Kind.values()`), from the schema. */
+	function bindKinds() {
+		var section = bindSection();
+		return section ? section.kinds.map(function (kind) { return String(kind.id); }) : [];
+	}
+
+	/** The schema descriptor for one bind kind (`{id,needsPos,requiresObjective,fields}`), or null. */
+	function bindKind(id) {
+		var section = bindSection();
+		if (!section) {
+			return null;
+		}
+		for (var i = 0; i < section.kinds.length; i++) {
+			if (section.kinds[i].id === id) {
+				return section.kinds[i];
+			}
+		}
+		return null;
+	}
+
+	/** Whether the kind needs a world `pos` anchor (`BoundParam.Kind.needsPos()`). */
+	function bindNeedsPos(id) {
+		var kind = bindKind(id);
+		return Boolean(kind && kind.needsPos);
+	}
+
+	/** Whether the kind needs a non-blank `objective` (`BoundParam.Kind.requiresObjective()`). */
+	function bindRequiresObjective(id) {
+		var kind = bindKind(id);
+		return Boolean(kind && kind.requiresObjective);
+	}
+
+	/** The optional field ids the kind reads (`Kind.optionalFields()`), e.g. `["range","invert","scale"]`. */
+	function bindKindFields(id) {
+		var kind = bindKind(id);
+		return kind && Array.isArray(kind.fields) ? kind.fields.slice() : [];
+	}
+
+	/** The bind source ids (`BoundParam.SourceKind.values()`), e.g. `["camera","player",...]`. */
+	function bindSources() {
+		var section = bindSection();
+		return section && Array.isArray(section.sources) ? section.sources.slice() : [];
+	}
+
+	/** The source id of a bind spec (`""` when it binds a kind directly, not a source). */
+	function bindSpecSource(spec) {
+		spec = spec || {};
+		return bindSources().indexOf(spec.bind) >= 0 ? spec.bind : "";
+	}
+
+	/** The kind id of a bind spec (its `derive` when sourced, else `bind`; the default when unset). */
+	function bindSpecKind(spec) {
+		spec = spec || {};
+		if (bindSpecSource(spec)) {
+			return spec.derive == null ? "point" : String(spec.derive);
+		}
+		return spec.bind == null ? DEFAULT_BIND : String(spec.bind);
+	}
+
+	/**
+	 * Prune a bind spec to the fields its kind reads: drop `range`/`invert`/`scale`/`yaw`/`pitch`/
+	 * `holder` the kind does not use, and `objective` for a non-scoreboard kind.
+	 */
+	function pruneBindFields(spec, kind) {
+		var allowed = bindKindFields(kind);
+		BIND_SCALAR_KEYS.forEach(function (name) {
+			if (allowed.indexOf(name) < 0) {
+				delete spec[name];
+			}
+		});
+		if (!bindRequiresObjective(kind)) {
+			delete spec.objective;
+		}
+		return spec;
+	}
+
+	/**
+	 * Fill the fields a bind spec's kind/source require so the emitted JSON parses: `pos` for a
+	 * needsPos kind with no source (or a point/block source), and a non-blank `objective` for
+	 * scoreboard. `fallbackPos` seeds a missing `pos` (the shell passes the preview context position
+	 * so a fresh `screen_x`/`screen_y` lands on-screen instead of at the world origin).
+	 *
+	 * @param {Object} spec the bind spec (mutated)
+	 * @param {Array<number>} [fallbackPos] the `pos` to seed when one is required and absent
+	 * @returns {Object} the spec
+	 */
+	function applyBindDefaults(spec, fallbackPos) {
+		var kind = bindSpecKind(spec);
+		var source = bindSpecSource(spec);
+		var needsPos = bindNeedsPos(kind) && (!source || source === "point" || source === "block");
+		if (needsPos) {
+			if (!Array.isArray(spec.pos)) {
+				spec.pos = Array.isArray(fallbackPos) && fallbackPos.length === 3
+						? [Number(fallbackPos[0]) || 0, Number(fallbackPos[1]) || 0, Number(fallbackPos[2]) || 0]
+						: [0, 0, 0];
+			}
+		} else {
+			delete spec.pos;
+		}
+		if (bindRequiresObjective(kind)) {
+			if (spec.objective == null || spec.objective === "") {
+				spec.objective = "objective";
+			}
+		}
+		return spec;
+	}
+
+	/**
+	 * Switch a bind spec to a kind, keeping any active source (`bind` stays the source, `derive`
+	 * becomes the kind).
+	 */
+	function setBindKind(spec, kind) {
+		spec = spec || {};
+		var source = bindSpecSource(spec);
+		if (source) {
+			spec.bind = source;
+			spec.derive = kind;
+		} else {
+			spec.bind = kind;
+			delete spec.derive;
+		}
+		pruneBindFields(spec, kind);
+		return applyBindDefaults(spec);
+	}
+
+	/**
+	 * Switch a bind spec's source (`""` = none). A sourced spec emits `{bind:<source>, derive:<kind>}`;
+	 * removing a source drops the source-only fields (`selector`/`uuid`/`point`/`offset`).
+	 */
+	function setBindSource(spec, source) {
+		spec = spec || {};
+		var kind = bindSpecKind(spec);
+		if (source) {
+			spec.bind = source;
+			spec.derive = kind;
+		} else {
+			spec.bind = kind;
+			delete spec.derive;
+			delete spec.selector;
+			delete spec.uuid;
+			delete spec.point;
+			delete spec.offset;
+		}
+		pruneBindFields(spec, kind);
+		return applyBindDefaults(spec);
+	}
+
+	/**
+	 * Build the datapack bind object for a kind/source/fields triple (design §15.1) — the pure emit
+	 * the headless selftest pins. No source: `{bind:<kind>, pos?, objective?, ...scalars}`. A source:
+	 * `{bind:<source>, derive:<kind>, [source fields], ...scalars}`.
+	 *
+	 * @param {string} kind the bind kind id
+	 * @param {string} source the source id, or ""/null for none
+	 * @param {Object} fields the field values
+	 * @returns {Object} the bind spec
+	 */
+	function buildBindSpec(kind, source, fields) {
+		fields = fields || {};
+		var spec = { bind: source || kind };
+		if (source) {
+			spec.derive = kind;
+			if (source === "entity") {
+				if (fields.selector) {
+					spec.selector = fields.selector;
+				} else if (fields.uuid) {
+					spec.uuid = fields.uuid;
+				}
+				if (fields.point && fields.point !== "center") {
+					spec.point = fields.point;
+				}
+				if (Array.isArray(fields.offset)) {
+					spec.offset = fields.offset.slice();
+				}
+			} else if (source === "point" || source === "block") {
+				spec.pos = Array.isArray(fields.pos) ? fields.pos.slice() : [0, 0, 0];
+			}
+		} else if (bindNeedsPos(kind)) {
+			spec.pos = Array.isArray(fields.pos) ? fields.pos.slice() : [0, 0, 0];
+		}
+		if (bindRequiresObjective(kind) && fields.objective != null && fields.objective !== "") {
+			spec.objective = fields.objective;
+		}
+		var allowed = bindKindFields(kind);
+		allowed.forEach(function (name) {
+			if (name === "objective") {
+				return;
+			}
+			if (fields[name] != null && fields[name] !== "") {
+				spec[name] = fields[name];
+			}
+		});
+		return spec;
+	}
+
 	var api = {
 		Project: Project,
 		Tab: Tab,
@@ -1118,6 +1334,21 @@
 		snapEasing: snapEasing,
 		easingToJson: easingToJson,
 		normalizeParam: normalizeParam,
+		DEFAULT_BIND: DEFAULT_BIND,
+		BIND_FIELD_KEYS: BIND_FIELD_KEYS,
+		BIND_SCALAR_KEYS: BIND_SCALAR_KEYS,
+		bindKinds: bindKinds,
+		bindKind: bindKind,
+		bindNeedsPos: bindNeedsPos,
+		bindRequiresObjective: bindRequiresObjective,
+		bindKindFields: bindKindFields,
+		bindSources: bindSources,
+		bindSpecKind: bindSpecKind,
+		bindSpecSource: bindSpecSource,
+		applyBindDefaults: applyBindDefaults,
+		setBindKind: setBindKind,
+		setBindSource: setBindSource,
+		buildBindSpec: buildBindSpec,
 		chainFromDefinition: chainFromDefinition,
 		effectById: effectById,
 		graphToCanvas: graphToCanvas,

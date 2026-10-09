@@ -20,20 +20,15 @@
 	var root = typeof window !== "undefined" ? window
 			: (typeof globalThis !== "undefined" ? globalThis : this);
 
-	/** The world/camera bindings offered by the Bind and Multiply forms (docs/guide/datapack/params.md). */
-	var BINDINGS = [
-		"screen_x", "screen_y", "proximity", "look", "look_at", "distance",
-		"look_x", "look_y", "look_z", "player_x", "player_y", "player_z",
-		"camera_yaw_delta", "camera_pitch_delta", "health", "hunger", "speed",
-		"light_level", "time_of_day", "scoreboard"
-	];
+	/*
+	 * The bind kinds/sources/needsPos are read from the loaded schema (`VFXEditor.schema.bind`,
+	 * derived from `BoundParam.Kind`/`SourceKind`) via `VFXIR` — one source of truth, no local copies.
+	 */
 
-	/** Bindings whose parser (`BoundParam.Kind.needsPos()`) requires a world `pos` anchor. */
-	var NEEDS_POS = ["screen_x", "screen_y", "proximity", "distance", "look_at"];
 	/** A non-positional, non-scoreboard default, so a fresh Bind/Multiply spec is always parseable. */
-	var DEFAULT_BIND = "health";
-	/** The format's fallback duration when a tab has none (matches `VFXIR.Tab`/the compiler default). */
-	var DEFAULT_DURATION = 40;
+	function DEFAULT_BIND() {
+		return root.VFXIR && root.VFXIR.DEFAULT_BIND ? root.VFXIR.DEFAULT_BIND : "health";
+	}
 
 	function isFiniteNumber(value) {
 		return typeof value === "number" && isFinite(value);
@@ -324,96 +319,172 @@
 		return el("label", { class: "vfx-field" }, [el("span", { text: label }), input]);
 	}
 
-	/**
-	 * Fill in the fields a binding kind requires so the emitted spec parses:
-	 * position-based kinds get a `pos`, `scoreboard` a non-blank `objective`.
-	 */
-	function applyBindDefaults(target) {
-		if (NEEDS_POS.indexOf(target.bind) >= 0 && !Array.isArray(target.pos)) {
-			target.pos = [0, 0, 0];
+	/** The bind kind ids the engine accepts, from the schema (single source of truth). */
+	function bindNames() {
+		return (root.VFXIR && typeof root.VFXIR.bindKinds === "function" && root.VFXIR.bindKinds()) || [];
+	}
+
+	/** The bind source ids (`camera`/`player`/`entity`/`point`/`block`), from the schema. */
+	function bindSourceNames() {
+		return (root.VFXIR && typeof root.VFXIR.bindSources === "function" && root.VFXIR.bindSources()) || [];
+	}
+
+	/** The optional field ids a kind reads (`Kind.optionalFields()`), from the schema. */
+	function bindFieldsFor(kind) {
+		return (root.VFXIR && typeof root.VFXIR.bindKindFields === "function" && root.VFXIR.bindKindFields(kind)) || [];
+	}
+
+	/** The kind id of a bind spec (its `derive` when sourced, else `bind`). */
+	function bindKindOf(target) {
+		return root.VFXIR && typeof root.VFXIR.bindSpecKind === "function"
+				? root.VFXIR.bindSpecKind(target) : (target.bind || "health");
+	}
+
+	/** The active source id of a bind spec (`""` when it binds a kind directly). */
+	function bindSourceOf(target) {
+		return root.VFXIR && typeof root.VFXIR.bindSpecSource === "function"
+				? root.VFXIR.bindSpecSource(target) : "";
+	}
+
+	/** A `<select>` of `values`, current `selected` first appended when not in the list. */
+	function selectFor(values, selected, onPick) {
+		var select = el("select", { class: "vfx-select" });
+		var list = values.slice();
+		if (selected && list.indexOf(selected) < 0) {
+			list = [selected].concat(list);
 		}
-		if (target.bind === "scoreboard" && (target.objective == null || target.objective === "")) {
-			target.objective = "objective";
+		list.forEach(function (value) {
+			select.appendChild(el("option", { value: value, text: value === "" ? "(literal pos)" : value }));
+		});
+		select.value = selected;
+		select.addEventListener("change", function () {
+			onPick(select.value);
+		});
+		return select;
+	}
+
+	/** An optional 3-vector row (checkbox + `vectorFor`); unchecked removes the key. */
+	function optionalVector(label, target, key, onCommit) {
+		var wrap = el("div", { class: "vfx-pos" });
+		var toggle = el("input", { type: "checkbox", class: "vfx-check" });
+		toggle.checked = Array.isArray(target[key]);
+		wrap.appendChild(el("label", { class: "vfx-field" }, [el("span", { text: label }), toggle]));
+		if (Array.isArray(target[key])) {
+			wrap.appendChild(vectorFor(target[key], function (v) {
+				target[key] = v;
+				onCommit();
+			}));
 		}
+		toggle.addEventListener("change", function () {
+			if (toggle.checked) {
+				target[key] = [0, 0, 0];
+			} else {
+				delete target[key];
+			}
+			onCommit();
+		});
+		return wrap;
 	}
 
 	/**
 	 * The binding fields shared by the Bind form and the Multiply form. Mutates {@code target}
 	 * (an object carrying `bind` plus optional `pos`/`range`/`scale`/`invert`/`objective`/`holder`)
-	 * and commits. An imported binding name not in {@link BINDINGS} is preserved as its own option.
+	 * and commits. The kind/source options and the visible field set come from the schema
+	 * (`VFXEditor.schema.bind`), matching the engine's `BoundParam` parser — the canvas bind node
+	 * uses the same rules, so the two never drift.
 	 *
 	 * @param {Object} target the bind spec being edited
 	 * @param {function} onCommit persists the change
 	 * @param {function} [refresh] re-renders the form (needed when fields appear/disappear)
 	 */
 	function bindForm(target, onCommit, refresh) {
+		var ir = root.VFXIR || {};
 		var box = el("div", { class: "vfx-bind" });
-		var select = el("select", { class: "vfx-select" });
-		var names = BINDINGS.slice();
-		if (target.bind && names.indexOf(target.bind) < 0) {
-			names.push(target.bind);
-		}
-		names.forEach(function (bind) {
-			select.appendChild(el("option", { value: bind, text: bind }));
-		});
-		if (!target.bind) {
-			target.bind = DEFAULT_BIND;
-		}
-		select.value = target.bind;
-		select.addEventListener("change", function () {
-			target.bind = select.value;
-			applyBindDefaults(target);
+		var kind = bindKindOf(target);
+		var commitRefresh = function () {
 			onCommit();
 			if (refresh) {
 				refresh();
 			}
-		});
-		box.appendChild(el("label", { class: "vfx-field" }, [el("span", { text: "bind" }), select]));
+		};
 
-		var needsPos = NEEDS_POS.indexOf(target.bind) >= 0;
-		if (needsPos && !Array.isArray(target.pos)) {
-			target.pos = [0, 0, 0];
-		}
-		var posBox = el("div", { class: "vfx-pos" });
+		box.appendChild(el("label", { class: "vfx-field" }, [el("span", { text: "bind" }),
+			selectFor(bindNames(), kind, function (value) {
+				if (ir.setBindKind) {
+					ir.setBindKind(target, value);
+				} else {
+					target.bind = value;
+				}
+				commitRefresh();
+			})]));
+
+		box.appendChild(el("label", { class: "vfx-field" }, [el("span", { text: "source" }),
+			selectFor([""].concat(bindSourceNames()), bindSourceOf(target), function (value) {
+				if (ir.setBindSource) {
+					ir.setBindSource(target, value);
+				} else {
+					target.bind = value || kind;
+				}
+				commitRefresh();
+			})]));
+
+		kind = bindKindOf(target);
+		var source = bindSourceOf(target);
+		var needsPos = (ir.bindNeedsPos ? ir.bindNeedsPos(kind) : false)
+				&& (!source || source === "point" || source === "block");
 		if (needsPos) {
-			posBox.appendChild(el("span", { class: "vfx-pos-label", text: "pos (required)" }));
+			if (!Array.isArray(target.pos) && ir.applyBindDefaults) {
+				ir.applyBindDefaults(target);
+			}
+			if (!Array.isArray(target.pos)) {
+				target.pos = [0, 0, 0];
+			}
+			var posBox = el("div", { class: "vfx-pos" });
+			posBox.appendChild(el("span", { class: "vfx-pos-label",
+				text: source ? "pos (source anchor)" : "pos (required)" }));
 			posBox.appendChild(vectorFor(target.pos, function (v) {
 				target.pos = v;
 				onCommit();
 			}));
-		} else {
-			var posToggle = el("input", { type: "checkbox", class: "vfx-check" });
-			posToggle.checked = Array.isArray(target.pos);
-			posBox.appendChild(el("label", { class: "vfx-field" }, [el("span", { text: "pos" }), posToggle]));
-			if (Array.isArray(target.pos)) {
-				posBox.appendChild(vectorFor(target.pos, function (v) {
-					target.pos = v;
-					onCommit();
-				}));
-			}
-			posToggle.addEventListener("change", function () {
-				if (posToggle.checked) {
-					target.pos = [0, 0, 0];
-				} else {
-					delete target.pos;
-				}
-				onCommit();
-				if (refresh) {
-					refresh();
-				}
-			});
+			box.appendChild(posBox);
 		}
-		box.appendChild(posBox);
 
-		if (target.bind === "scoreboard") {
-			applyBindDefaults(target);
+		if (source === "entity") {
+			box.appendChild(textRow("selector", target, "selector", onCommit));
+			box.appendChild(textRow("uuid", target, "uuid", onCommit));
+			var pointSelect = selectFor(["feet", "center", "eyes"],
+				target.point == null ? "center" : String(target.point), function (value) {
+					if (value === "center") {
+						delete target.point;
+					} else {
+						target.point = value;
+					}
+					onCommit();
+				});
+			box.appendChild(el("label", { class: "vfx-field" }, [el("span", { text: "point" }), pointSelect]));
+			box.appendChild(optionalVector("offset", target, "offset", onCommit));
+		}
+
+		var fields = bindFieldsFor(kind);
+		if (ir.bindRequiresObjective && ir.bindRequiresObjective(kind)) {
+			if (ir.applyBindDefaults) {
+				ir.applyBindDefaults(target);
+			}
 			box.appendChild(textRow("objective", target, "objective", onCommit));
+		}
+		["range", "scale", "invert", "yaw", "pitch"].forEach(function (name) {
+			if (fields.indexOf(name) < 0) {
+				return;
+			}
+			if (name === "invert") {
+				box.appendChild(optionalCheck("invert", target, "invert", onCommit));
+			} else {
+				box.appendChild(optionalRow(name, target, name, onCommit));
+			}
+		});
+		if (fields.indexOf("holder") >= 0) {
 			box.appendChild(textRow("holder", target, "holder", onCommit));
 		}
-
-		box.appendChild(optionalRow("range", target, "range", onCommit));
-		box.appendChild(optionalRow("scale", target, "scale", onCommit));
-		box.appendChild(optionalCheck("invert", target, "invert", onCommit));
 		return box;
 	}
 
@@ -594,7 +665,7 @@
 				}
 				var spec = rawSpec();
 				if (check.checked) {
-					spec.multiply = { bind: DEFAULT_BIND };
+					spec.multiply = { bind: DEFAULT_BIND() };
 				} else {
 					delete spec.multiply;
 				}
@@ -1088,8 +1159,6 @@
 		renderTiming: renderTiming,
 		refreshLiveValues: refreshLiveValues,
 		slotState: slotState,
-		BINDINGS: BINDINGS,
-		NEEDS_POS: NEEDS_POS,
 		DEFAULT_BIND: DEFAULT_BIND
 	};
 	root.VFXInspector = api;

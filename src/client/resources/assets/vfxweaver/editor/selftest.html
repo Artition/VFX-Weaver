@@ -981,6 +981,139 @@ window.__vfxSelftest = function () {
 		eq(store.count(), 1, "a repeated reject stays one entry");
 	});
 
+	test("(VFX1) bind field set is derived from the schema (single source of truth)", function () {
+		window.VFXEditor = window.VFXEditor || {};
+		window.VFXEditor.schema = {
+			bind: {
+				kinds: [
+					{ id: "screen_x", needsPos: true, requiresObjective: false, fields: ["scale"] },
+					{ id: "proximity", needsPos: true, requiresObjective: false,
+						fields: ["range", "invert", "scale"] },
+					{ id: "look_at", needsPos: true, requiresObjective: false,
+						fields: ["range", "invert", "scale"] },
+					{ id: "look", needsPos: false, requiresObjective: false,
+						fields: ["yaw", "pitch", "range", "invert", "scale"] },
+					{ id: "scoreboard", needsPos: false, requiresObjective: true,
+						fields: ["holder", "range", "invert", "scale"] },
+					{ id: "health", needsPos: false, requiresObjective: false,
+						fields: ["invert", "scale"] }
+				],
+				sources: ["camera", "player", "entity", "point", "block"]
+			}
+		};
+		ok(VFXIR.bindKinds().indexOf("screen_x") >= 0, "screen_x is a kind");
+		ok(VFXIR.bindKinds().indexOf("scoreboard") >= 0, "scoreboard is a kind");
+		eq(VFXIR.bindNeedsPos("screen_x"), true, "screen_x needs pos");
+		eq(VFXIR.bindNeedsPos("proximity"), true, "proximity needs pos");
+		eq(VFXIR.bindNeedsPos("look"), false, "look needs no pos");
+		eq(VFXIR.bindNeedsPos("health"), false, "health needs no pos");
+		eq(VFXIR.bindRequiresObjective("scoreboard"), true, "scoreboard requires an objective");
+		eq(VFXIR.bindRequiresObjective("look"), false, "look requires no objective");
+		eq(JSON.stringify(VFXIR.bindKindFields("screen_x")), JSON.stringify(["scale"]),
+				"screen_x fields");
+		eq(JSON.stringify(VFXIR.bindKindFields("proximity")),
+				JSON.stringify(["range", "invert", "scale"]), "proximity fields");
+		eq(JSON.stringify(VFXIR.bindKindFields("look")),
+				JSON.stringify(["yaw", "pitch", "range", "invert", "scale"]), "look fields");
+		eq(JSON.stringify(VFXIR.bindKindFields("scoreboard")),
+				JSON.stringify(["holder", "range", "invert", "scale"]), "scoreboard fields");
+		eq(JSON.stringify(VFXIR.bindSources()),
+				JSON.stringify(["camera", "player", "entity", "point", "block"]), "sources");
+	});
+
+	test("(VFX2) source form emits {bind:<source>,derive:<kind>} and prunes fields per kind", function () {
+		window.VFXEditor = window.VFXEditor || {};
+		window.VFXEditor.schema = window.VFXEditor.schema || {};
+		window.VFXEditor.schema.bind = window.VFXEditor.schema.bind || {
+			kinds: [
+				{ id: "screen_x", needsPos: true, requiresObjective: false, fields: ["scale"] },
+				{ id: "scoreboard", needsPos: false, requiresObjective: true,
+					fields: ["holder", "range", "invert", "scale"] },
+				{ id: "look", needsPos: false, requiresObjective: false,
+					fields: ["yaw", "pitch", "range", "invert", "scale"] },
+				{ id: "health", needsPos: false, requiresObjective: false, fields: ["invert", "scale"] }
+			],
+			sources: ["camera", "player", "entity", "point", "block"]
+		};
+		// Literal anchor: a needsPos kind gets its `pos`.
+		eq(JSON.stringify(VFXIR.buildBindSpec("screen_x", "", { pos: [1, 2, 3] })),
+				JSON.stringify({ bind: "screen_x", pos: [1, 2, 3] }), "literal screen_x keeps pos");
+		// player/camera source: no pos, the source provides the anchor.
+		eq(JSON.stringify(VFXIR.buildBindSpec("screen_x", "player", { pos: [9, 9, 9] })),
+				JSON.stringify({ bind: "player", derive: "screen_x" }), "player source drops pos");
+		// point/block source: pos is the source anchor.
+		eq(JSON.stringify(VFXIR.buildBindSpec("screen_x", "point", { pos: [4, 5, 6] })),
+				JSON.stringify({ bind: "point", derive: "screen_x", pos: [4, 5, 6] }), "point source pos");
+		// scoreboard: objective + holder + range.
+		eq(JSON.stringify(VFXIR.buildBindSpec("scoreboard", "", { objective: "obj", holder: "@a", range: 8 })),
+				JSON.stringify({ bind: "scoreboard", objective: "obj", holder: "@a", range: 8 }),
+				"scoreboard fields");
+		// look: yaw/pitch/range/invert/scale only.
+		eq(JSON.stringify(VFXIR.buildBindSpec("look", "",
+				{ yaw: 10, pitch: 20, range: 30, invert: true, scale: 2, holder: "x" })),
+				JSON.stringify({ bind: "look", yaw: 10, pitch: 20, range: 30, invert: true, scale: 2 }),
+				"look prunes holder and keeps yaw/pitch");
+		// entity source: selector + point + offset.
+		eq(JSON.stringify(VFXIR.buildBindSpec("screen_y", "entity",
+				{ selector: "@p", point: "eyes", offset: [0, 1, 0] })),
+				JSON.stringify({ bind: "entity", derive: "screen_y", selector: "@p", point: "eyes",
+					offset: [0, 1, 0] }), "entity source");
+		// setBindSource / setBindKind keep bind = source + derive = kind.
+		var spec = { bind: "screen_x", pos: [1, 2, 3] };
+		VFXIR.setBindSource(spec, "player");
+		eq(spec.bind, "player", "bind becomes the source");
+		eq(spec.derive, "screen_x", "derive keeps the kind");
+		eq(spec.pos, undefined, "player source drops pos");
+		VFXIR.setBindKind(spec, "proximity");
+		eq(spec.bind, "player", "source survives a kind change");
+		eq(spec.derive, "proximity", "derive becomes the new kind");
+		VFXIR.setBindSource(spec, "");
+		eq(spec.bind, "proximity", "removing the source restores the kind");
+		eq(spec.derive, undefined, "no derive without a source");
+		ok(Array.isArray(spec.pos), "a needsPos kind gets a default pos");
+	});
+
+	test("(VFX3) a curve node emits {cubicBezier}/name with ascending/clamp/cap", function () {
+		var tab = new VFXIR.Tab("blur", "blur");
+		tab.duration = 40;
+		tab.params.radius = VFXIR.ParamSpec.constant(0);
+		tab.valueNodes = [
+			{ id: "c", kind: "curve", inputs: { points: [
+				{ time: -5, value: 0, easing: [0.1, 0.2, 0.3, 0.4] },
+				{ time: 0, value: 1 },
+				{ time: 10, value: 4, easing: "ease_in_quad" },
+				{ time: 100, value: 2 },
+				{ time: 45, value: 9 }
+			] } }
+		];
+		tab.edges = [{ from: "c", to: "radius" }];
+		var def = parse(compileTab(tab));
+		var node = def.graph.nodes[0];
+		eq(node.kind, "curve", "curve node survives");
+		var points = node.inputs.points;
+		eq(points.length, 3, "clamped/duplicate points dropped");
+		eq(points[0].time, 0, "negative time clamps to 0");
+		eq(points[1].time, 10, "an in-range point survives");
+		eq(points[2].time, 40, "a past-duration point clamps to the duration");
+		eq(JSON.stringify(points[0].easing), JSON.stringify({ cubicBezier: [0.1, 0.2, 0.3, 0.4] }),
+				"numeric easing becomes {cubicBezier}");
+		eq(points[1].easing, "ease_in_quad", "a named easing stays a string");
+		ok(points[2].time > points[1].time && points[1].time > points[0].time,
+				"times are strictly ascending");
+		// 64-point cap (VFXGraph.MAX_CURVE_POINTS).
+		var big = new VFXIR.Tab("blur", "blur");
+		big.duration = 100;
+		big.params.radius = VFXIR.ParamSpec.constant(0);
+		var many = [];
+		for (var i = 0; i < 70; i++) {
+			many.push({ time: i, value: i });
+		}
+		big.valueNodes = [{ id: "c", kind: "curve", inputs: { points: many } }];
+		big.edges = [{ from: "c", to: "radius" }];
+		var bigDef = parse(compileTab(big));
+		eq(bigDef.graph.nodes[0].inputs.points.length, 64, "the point list is capped at 64");
+	});
+
 	return results;
 };
 /* SELFTEST:END */

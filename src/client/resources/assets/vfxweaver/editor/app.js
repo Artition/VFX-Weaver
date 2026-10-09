@@ -391,7 +391,9 @@
 	 */
 	function paletteTypes() {
 		return Object.keys(schema).filter(function (name) {
-			return name !== "COLLECTION";
+			// COLLECTION is a serialisation artifact; the `bind` section (kinds/sources) is not an
+			// effect either — it has no `params` array. Only real descriptors become palette entries.
+			return name !== "COLLECTION" && schema[name] && Array.isArray(schema[name].params);
 		}).sort();
 	}
 
@@ -842,18 +844,21 @@
 		return Object.keys(VALUE_KINDS).sort();
 	}
 
-	/** The world/camera bindings and pos-needing set the inspector already publishes. */
-	function bindingNames() {
-		return (window.VFXInspector && window.VFXInspector.BINDINGS) || ["health"];
+	/** The coerce helper for the shared `VFXIR` bind model (loaded after this file, used at call time). */
+	function ir() {
+		return window.VFXIR || null;
 	}
 
-	function needsPosBindings() {
-		return (window.VFXInspector && window.VFXInspector.NEEDS_POS) || [];
+	/** The bind kind ids, from the schema via `VFXIR` (single source of truth). */
+	function bindingNames() {
+		var vfxir = ir();
+		var names = vfxir && typeof vfxir.bindKinds === "function" ? vfxir.bindKinds() : [];
+		return names.length ? names : ["health"];
 	}
 
 	/**
 	 * The unit / range a world binding yields (design §15.1, fix 6): used to type and label a `bind`
-	 * value node's output. Order of the checks does not matter; each key is exact.
+	 * value node's output. Cosmetic labels only — the kind list itself comes from the schema.
 	 */
 	var BINDING_UNITS = {
 		screen_x: "UV 0..1", screen_y: "UV 0..1",
@@ -869,11 +874,6 @@
 	/** The unit label for a binding name (falls back to the raw binding name). */
 	function bindingUnit(bind) {
 		return BINDING_UNITS[bind] || String(bind == null ? "" : bind);
-	}
-
-	/** The label a bind node's single output carries for the chosen binding. */
-	function bindOutputLabel(bind) {
-		return String(bind == null ? "await" : bind) + " · " + bindingUnit(bind);
 	}
 
 	function isRef(value) {
@@ -948,8 +948,8 @@
 			}
 			var point = { time: time, value: value };
 			if (parts[2]) {
-				// A `{...}` token is the inline-bezier form; a bare word is a named easing.
-				if (parts[2].charAt(0) === "{") {
+				// A `{...}`/`[...]` token is the inline-bezier form; a bare word is a named easing.
+				if (parts[2].charAt(0) === "{" || parts[2].charAt(0) === "[") {
 					try {
 						point.easing = JSON.parse(parts[2]);
 					} catch (e) {
@@ -964,47 +964,224 @@
 		return out.length ? out : null;
 	}
 
-	/** The bind node's bound-param spec (`bind` plus optional `pos`/`objective`). */
+	/**
+	 * A curve node's points as the IR easing form (design §15.4): each point's easing is normalised
+	 * to a name string or `[x1,y1,x2,y2]` via `VFXIR.normalizeEasing`, so the node↔IR boundary never
+	 * carries `{cubicBezier}` (the compiler converts it at the datapack boundary).
+	 */
+	function curvePointsIR(points) {
+		var vfxir = ir();
+		var normalize = vfxir && typeof vfxir.normalizeEasing === "function" ? vfxir.normalizeEasing : null;
+		return (points || []).map(function (point) {
+			var out = { time: num(point.time), value: num(point.value) };
+			if (point.easing != null) {
+				var easing = normalize ? normalize(point.easing) : point.easing;
+				if (easing != null) {
+					out.easing = snapshot(easing);
+				}
+			}
+			return out;
+		});
+	}
+
+	/** The bind node's bound-param spec (`bind`/`derive` plus the kind's fields). */
 	function bindSpec(node) {
-		if (!node.properties.bind) {
-			node.properties.bind = { bind: bindingNames()[0] };
+		if (!node.properties.bind || typeof node.properties.bind !== "object") {
+			node.properties.bind = { bind: bindingNames()[0] || "health" };
 		}
 		return node.properties.bind;
 	}
 
-	/** Fill the fields a binding kind requires, mirroring the inspector's bind form. */
-	function applyBindDefaults(node) {
-		var spec = bindSpec(node);
-		if (needsPosBindings().indexOf(spec.bind) >= 0) {
-			if (!Array.isArray(spec.pos)) {
-				spec.pos = [0, 0, 0];
-			}
-		} else {
-			delete spec.pos;
+	/**
+	 * The preview context world position (`meta.context.pos`) or null. The shell passes it as the
+	 * default `pos` for a fresh `screen_x`/`screen_y` (world origin sits behind the camera, so a
+	 * literal `[0,0,0]` puts the effect off-screen); null keeps a literal 0 with an on-node hint.
+	 */
+	function bindContextPos() {
+		var timeline = window.VFXTimeline;
+		if (!timeline || !timeline.preview || typeof timeline.preview.state !== "function") {
+			return null;
 		}
-		if (spec.bind === "scoreboard") {
-			if (!spec.objective) {
-				spec.objective = "objective";
-			}
-		} else {
-			delete spec.objective;
-		}
+		var context = timeline.preview.state().context;
+		return context && Array.isArray(context.pos) && context.pos.length === 3 ? context.pos : null;
 	}
 
-	/** Keep the bind node's widgets showing its spec after an import / undo. */
-	function refreshBindWidgets(node) {
-		var spec = bindSpec(node);
-		if (node.__widgets.bind) {
-			node.__widgets.bind.value = spec.bind;
+	/** A 3-array of finite numbers, or null when `value` is not one. */
+	function asVec3(value) {
+		if (!Array.isArray(value) || value.length !== 3) {
+			return null;
 		}
-		["x", "y", "z"].forEach(function (axis, index) {
-			var widget = node.__widgets["pos." + axis];
-			if (widget) {
-				widget.value = Array.isArray(spec.pos) ? num(spec.pos[index]) : 0;
+		return [num(value[0]), num(value[1]), num(value[2])];
+	}
+
+	/** Remove the bind node's dynamic widgets (the `fallback` socket widget is never touched). */
+	function removeBindWidgets(node) {
+		var doomed = node.__bindWidgets || [];
+		node.__bindWidgets = [];
+		doomed.forEach(function (widget) {
+			var index = node.widgets ? node.widgets.indexOf(widget) : -1;
+			if (index >= 0) {
+				node.widgets.splice(index, 1);
 			}
 		});
-		if (node.__widgets.objective) {
-			node.__widgets.objective.value = spec.objective == null ? "" : String(spec.objective);
+		node.setSize(node.computeSize());
+	}
+
+	/** Add one dynamic bind widget, tracking it so a rebuild can remove it. */
+	function addBindWidget(node, widget) {
+		if (!node.__bindWidgets) {
+			node.__bindWidgets = [];
+		}
+		node.__bindWidgets.push(widget);
+		return widget;
+	}
+
+	/**
+	 * Rebuild a bind node's widgets from its spec, mirroring the engine (`BoundParam`) per kind
+	 * (design §15.1, bind-explore): a needsPos kind shows `pos` (required) + `scale` + any
+	 * `range`/`invert`; `scoreboard` shows `objective`/`holder`/`range`/`invert`/`scale` and hides
+	 * `pos`; `look` shows `yaw`/`pitch`/`range`/`invert`/`scale`. A source selector rewrites the
+	 * spec to the source form `{"bind":<source>,"derive":<kind>}`; `player`/`camera` need no `pos`,
+	 * `point`/`block` need a source `pos`, `entity` a selector/uuid (+ point/offset).
+	 */
+	function rebuildBindWidgets(node) {
+		var vfxir = ir();
+		var spec = bindSpec(node);
+		removeBindWidgets(node);
+
+		var kindConf = vfxir && typeof vfxir.bindSpecKind === "function" ? vfxir : null;
+		var kind = kindConf ? kindConf.bindSpecKind(spec) : spec.bind;
+
+		addBindWidget(node, node.addWidget("combo", "bind", kind, function (value) {
+			if (kindConf) {
+				kindConf.setBindKind(spec, value);
+			} else {
+				spec.bind = value;
+			}
+			rebuildBindWidgets(node);
+			scheduleGraphEdit(node.__tab);
+		}, { values: bindingNames() }));
+
+		var sources = vfxir && typeof vfxir.bindSources === "function" ? vfxir.bindSources() : [];
+		if (sources.length) {
+			var current = vfxir.bindSpecSource(spec);
+			addBindWidget(node, node.addWidget("combo", "source", current || "none",
+				function (value) {
+					vfxir.setBindSource(spec, value === "none" ? "" : value);
+					rebuildBindWidgets(node);
+					scheduleGraphEdit(node.__tab);
+				}, { values: ["none"].concat(sources) }));
+		}
+
+		kind = vfxir && vfxir.bindSpecKind ? vfxir.bindSpecKind(spec) : spec.bind;
+		var source = vfxir && vfxir.bindSpecSource ? vfxir.bindSpecSource(spec) : "";
+		var needsPos = Boolean(vfxir && vfxir.bindNeedsPos && vfxir.bindNeedsPos(kind))
+				&& (!source || source === "point" || source === "block");
+		if (needsPos) {
+			if (!asVec3(spec.pos) && vfxir && vfxir.applyBindDefaults) {
+				vfxir.applyBindDefaults(spec, bindContextPos());
+			}
+			if (!asVec3(spec.pos)) {
+				spec.pos = [0, 0, 0];
+			}
+			["x", "y", "z"].forEach(function (axis, index) {
+				addBindWidget(node, node.addWidget("number", "pos." + axis, num(spec.pos[index]),
+					function (value) {
+						var pos = asVec3(spec.pos) || [0, 0, 0];
+						pos[index] = value;
+						spec.pos = pos;
+						scheduleGraphEdit(node.__tab);
+					}));
+			});
+		}
+
+		if (source === "entity") {
+			addBindWidget(node, node.addWidget("text", "selector",
+				spec.selector == null ? "" : String(spec.selector), function (value) {
+					if (value === "") {
+						delete spec.selector;
+					} else {
+						spec.selector = value;
+					}
+					scheduleGraphEdit(node.__tab);
+				}));
+			addBindWidget(node, node.addWidget("text", "uuid",
+				spec.uuid == null ? "" : String(spec.uuid), function (value) {
+					if (value === "") {
+						delete spec.uuid;
+					} else {
+						spec.uuid = value;
+					}
+					scheduleGraphEdit(node.__tab);
+				}));
+			addBindWidget(node, node.addWidget("combo", "point",
+				spec.point == null ? "center" : String(spec.point), function (value) {
+					if (value === "center") {
+						delete spec.point;
+					} else {
+						spec.point = value;
+					}
+					scheduleGraphEdit(node.__tab);
+				}, { values: ["feet", "center", "eyes"] }));
+			["x", "y", "z"].forEach(function (axis, index) {
+				var offset = asVec3(spec.offset) || [0, 0, 0];
+				addBindWidget(node, node.addWidget("number", "offset." + axis, num(offset[index]),
+					function (value) {
+						var next = asVec3(spec.offset) || [0, 0, 0];
+						next[index] = value;
+						spec.offset = next;
+						scheduleGraphEdit(node.__tab);
+					}));
+			});
+		}
+
+		if (vfxir && vfxir.bindRequiresObjective && vfxir.bindRequiresObjective(kind)) {
+			if (vfxir.applyBindDefaults) {
+				vfxir.applyBindDefaults(spec, bindContextPos());
+			}
+			addBindWidget(node, node.addWidget("text", "objective",
+				spec.objective == null ? "" : String(spec.objective), function (value) {
+					spec.objective = value;
+					scheduleGraphEdit(node.__tab);
+				}));
+		}
+
+		var fields = vfxir && vfxir.bindKindFields ? vfxir.bindKindFields(kind) : [];
+		fields.forEach(function (name) {
+			if (name === "invert") {
+				addBindWidget(node, node.addWidget("toggle", "invert", spec.invert === true ? 1 : 0,
+					function (value) {
+						if (value) {
+							spec.invert = true;
+						} else {
+							delete spec.invert;
+						}
+						scheduleGraphEdit(node.__tab);
+					}));
+			} else if (name === "holder") {
+				addBindWidget(node, node.addWidget("text", "holder",
+					spec.holder == null ? "" : String(spec.holder), function (value) {
+						if (value === "") {
+							delete spec.holder;
+						} else {
+							spec.holder = value;
+						}
+						scheduleGraphEdit(node.__tab);
+					}));
+			} else {
+				addBindWidget(node, node.addWidget("number", name,
+					spec[name] == null ? 0 : num(spec[name]), function (value) {
+						spec[name] = value;
+						scheduleGraphEdit(node.__tab);
+					}));
+			}
+		});
+
+		// A literal needsPos anchor at the world origin with no context sits behind the camera: hint.
+		if (needsPos && !source && !bindContextPos()
+				&& (!asVec3(spec.pos) || (num(spec.pos[0]) === 0 && num(spec.pos[1]) === 0 && num(spec.pos[2]) === 0))) {
+			addBindWidget(node, node.addWidget("button", "⚠ pos=origin (add a source)", null,
+				function () {}, {}));
 		}
 		refreshBindOutput(node);
 	}
@@ -1014,12 +1191,17 @@
 		if (!node || !node.__kindSpec || node.__kindSpec.bind !== true) {
 			return;
 		}
-		var bind = bindSpec(node).bind;
+		var vfxir = ir();
+		var spec = bindSpec(node);
+		var kind = vfxir && vfxir.bindSpecKind ? vfxir.bindSpecKind(spec) : spec.bind;
+		var source = vfxir && vfxir.bindSpecSource ? vfxir.bindSpecSource(spec) : "";
+		var label = String(kind == null ? "await" : kind)
+				+ (source ? " ← " + source : "") + " · " + bindingUnit(kind);
 		if (node.outputs && node.outputs[0]) {
-			node.outputs[0].label = bindOutputLabel(bind);
-			node.outputs[0].name = bindOutputLabel(bind);
+			node.outputs[0].label = label;
+			node.outputs[0].name = label;
 		}
-		node.title = "bind · " + bind;
+		node.title = "bind · " + kind + (source ? " ← " + source : "");
 	}
 
 	function initCurve(node) {
@@ -1032,16 +1214,27 @@
 			}
 		}, { multiline: true });
 		node.__widgets.points = widget;
+		node.__syncPoints = function () {
+			if (node.__widgets.points) {
+				node.__widgets.points.value = pointsText(node.properties.points);
+			}
+		};
 		node.__addPoint = function () {
 			var points = (node.properties.points || []).slice();
 			var last = points[points.length - 1] || { time: 0, value: 0 };
 			points.push({ time: num(last.time) + 10, value: num(last.value) });
 			node.properties.points = points;
-			widget.value = pointsText(points);
+			node.__syncPoints();
 			scheduleGraphEdit(node.__tab);
 		};
 		node.addWidget("button", "+ point", null, function () {
 			node.__addPoint();
+		});
+		// A visual Bézier editor hosted in a modal (litegraph has no DOM widget): edits
+		// `node.properties.points` through the shared curve component; the text widget stays a
+		// secondary/fallback editor (design §15.4).
+		node.addWidget("button", "Edit curve…", null, function () {
+			openNodeCurveEditor(node);
 		});
 	}
 
@@ -1055,30 +1248,20 @@
 	}
 
 	function initBind(node) {
+		var vfxir = ir();
 		var names = bindingNames();
-		node.properties.bind = { bind: names[0] };
-		var combo = node.addWidget("combo", "bind", names[0], function (v) {
-			bindSpec(node).bind = v;
-			applyBindDefaults(node);
-			refreshBindWidgets(node);
-			scheduleGraphEdit(node.__tab);
-		}, { values: names });
-		node.__widgets.bind = combo;
-		["x", "y", "z"].forEach(function (axis, index) {
-			node.__widgets["pos." + axis] = node.addWidget("number", "pos." + axis, 0, function (v) {
-				var value = bindSpec(node);
-				var pos = Array.isArray(value.pos) ? value.pos.slice() : [0, 0, 0];
-				pos[index] = v;
-				value.pos = pos;
-				scheduleGraphEdit(node.__tab);
-			});
-		});
-		node.__widgets.objective = node.addWidget("text", "objective", "", function (v) {
-			bindSpec(node).objective = v;
-			scheduleGraphEdit(node.__tab);
-		});
-		applyBindDefaults(node);
-		refreshBindWidgets(node);
+		// Prefer the scalar default (`health`: needs no `pos`) over the schema's first kind
+		// (`screen_x`), so a fresh bind node is immediately parseable without a world anchor.
+		var defaultKind = vfxir && vfxir.DEFAULT_BIND && names.indexOf(vfxir.DEFAULT_BIND) >= 0
+				? vfxir.DEFAULT_BIND : (names[0] || "health");
+		node.properties.bind = {};
+		if (vfxir && vfxir.setBindKind) {
+			vfxir.setBindKind(node.properties.bind, defaultKind);
+		} else {
+			node.properties.bind.bind = defaultKind;
+		}
+		node.__bindWidgets = [];
+		rebuildBindWidgets(node);
 	}
 
 	/** Add one `case_N` socket+widget (used for the switch kind). */
@@ -1416,14 +1599,21 @@
 		var wired = wiredInputs(node);
 		var inputs = {};
 		if (spec.curve && Array.isArray(node.properties.points)) {
-			inputs.points = snapshot(node.properties.points);
+			inputs.points = curvePointsIR(node.properties.points);
 		}
 		if (spec.expr) {
 			inputs.expr = String(node.properties.expr == null || node.properties.expr === "" ? "0" : node.properties.expr);
 		}
 		if (spec.bind && node.properties.bind) {
-			Object.keys(node.properties.bind).forEach(function (key) {
-				inputs[key] = snapshot(node.properties.bind[key]);
+			// Emit the clean datapack bind object (source form / required fields / pruned scalars) via
+			// the shared IR builder, so the canvas node and the inspector produce identical JSON.
+			var vfxir = ir();
+			var built = vfxir && vfxir.buildBindSpec
+					? vfxir.buildBindSpec(vfxir.bindSpecKind(node.properties.bind),
+							vfxir.bindSpecSource(node.properties.bind), node.properties.bind)
+					: node.properties.bind;
+			Object.keys(built).forEach(function (key) {
+				inputs[key] = snapshot(built[key]);
 			});
 		}
 		(spec.sockets || []).forEach(function (name) {
@@ -1597,18 +1787,16 @@
 			}
 		}
 		if (spec.bind) {
-			node.properties.bind = {};
-			if (values.bind != null) {
-				node.properties.bind.bind = String(values.bind);
-			}
-			if (Array.isArray(values.pos)) {
-				node.properties.bind.pos = values.pos.slice();
-			}
-			if (values.objective != null) {
-				node.properties.bind.objective = String(values.objective);
-			}
-			applyBindDefaults(node);
-			refreshBindWidgets(node);
+			// The whole spec (kind/source/derive + fields) is copied verbatim; `fallback` is a socket
+			// and is applied below with the rest of the numeric inputs.
+			var bind = {};
+			Object.keys(values).forEach(function (name) {
+				if (name !== "fallback") {
+					bind[name] = snapshot(values[name]);
+				}
+			});
+			node.properties.bind = bind;
+			rebuildBindWidgets(node);
 		}
 		(spec.sockets || []).forEach(function (name) {
 			var value = values[name];
@@ -3419,10 +3607,13 @@
 	/* Small dialog/menu widgets                                           */
 	/* ------------------------------------------------------------------ */
 
-	/** Open a modal; `build(body, close)` fills the body. Returns the handle. */
-	function openModal(title, build) {
+	/**
+	 * Open a modal; `build(body, close)` fills the body. An optional `{ className, onClose }` widens/
+	 * stylises the overlay and runs a cleanup when it closes.
+	 */
+	function openModal(title, build, options) {
 		var overlay = document.createElement("div");
-		overlay.className = "vfx-modal";
+		overlay.className = "vfx-modal" + (options && options.className ? " " + options.className : "");
 		var box = document.createElement("div");
 		box.className = "vfx-modal-box";
 		var head = document.createElement("div");
@@ -3445,6 +3636,9 @@
 			document.removeEventListener("keydown", onKey, true);
 			if (overlay.parentNode) {
 				overlay.parentNode.removeChild(overlay);
+			}
+			if (options && typeof options.onClose === "function") {
+				options.onClose();
 			}
 		}
 		function onKey(event) {
@@ -3476,6 +3670,84 @@
 		row.appendChild(span);
 		parent.appendChild(row);
 		return row;
+	}
+
+	/** The value-axis `{lo,hi}` that fits a curve node's points (with a little headroom). */
+	function curveRangeFor(points) {
+		var lo = 0;
+		var hi = 1;
+		var seen = false;
+		(points || []).forEach(function (point) {
+			var value = num(point.value);
+			if (!seen) {
+				lo = value;
+				hi = value;
+				seen = true;
+			} else {
+				lo = Math.min(lo, value);
+				hi = Math.max(hi, value);
+			}
+		});
+		if (!seen) {
+			return { lo: 0, hi: 1 };
+		}
+		if (hi - lo < 1e-9) {
+			return { lo: lo - 1, hi: hi + 1 };
+		}
+		var pad = (hi - lo) * 0.1;
+		return { lo: lo - pad, hi: hi + pad };
+	}
+
+	/**
+	 * Open the visual Bézier editor for a curve value node (design §15.4) in a modal, hosted by the
+	 * shared `VFXCurveView` component. Edits `node.properties.points` in place; the node's text
+	 * widget mirrors it, and a committed drag records undo history + a debounced graph edit.
+	 *
+	 * @param {Object} node the curve value node
+	 */
+	function openNodeCurveEditor(node) {
+		if (!node || !window.VFXCurveView || typeof window.VFXCurveView.curveView !== "function") {
+			status("curve editor unavailable");
+			return;
+		}
+		var tab = node.__tab;
+		var total = num(tab && tab.duration, 40) || 40;
+		var removeKeys = null;
+		openModal("Curve — " + (node.properties.irId || "curve"), function (body) {
+			var host = document.createElement("div");
+			host.className = "vfx-curve-modal";
+			body.appendChild(host);
+			var component = window.VFXCurveView.curveView(host, node.properties.points, {
+				total: total,
+				range: curveRangeFor(node.properties.points),
+				width: 860,
+				title: "Curve",
+				onChange: function () {
+					if (node.__syncPoints) {
+						node.__syncPoints();
+					}
+					scheduleGraphEdit(tab);
+				},
+				onCommit: function () {
+					if (node.__syncPoints) {
+						node.__syncPoints();
+					}
+					commitHistory();
+					scheduleGraphEdit(tab);
+				}
+			});
+			if (typeof window.VFXCurveView.installKeyHandler === "function") {
+				removeKeys = window.VFXCurveView.installKeyHandler(component);
+			}
+		}, {
+			className: "vfx-modal-wide",
+			onClose: function () {
+				if (removeKeys) {
+					removeKeys();
+					removeKeys = null;
+				}
+			}
+		});
 	}
 
 	/** A labelled text input row inside a dialog; returns the input element. */
@@ -5217,7 +5489,7 @@
 					VFXEditor.schema = schema;
 					registerNodeTypes();
 					buildPalette();
-					status("Loaded " + Object.keys(schema).length + " effect types");
+					status("Loaded " + paletteTypes().length + " effect types");
 					renderInspector();
 					renderTimeline();
 					showEmptyPlaceholder();
