@@ -1014,6 +1014,243 @@
 	}
 
 	/* ------------------------------------------------------------------ */
+	/* Non-post structural sub-editors (design §13.4)                      */
+	/* ------------------------------------------------------------------ */
+
+	/**
+	 * Render the schema-driven non-post structural sub-editors (design §13.4): `positions`
+	 * (ordered entries, each `[x,y,z]` or an entity-anchored object), `region` (six ints),
+	 * `entity_selector` and `sound` (+ optional `sound_pos` and the `volume`/`pitch` params). Each
+	 * section appears only when the descriptor's `structural` section advertises the matching flag,
+	 * so this function holds no per-effect-type branch (forward-compat). The emitted JSON matches
+	 * the datapack parser exactly (the parser is the oracle).
+	 *
+	 * @param {Object} tab the active `VFXIR.Tab` (its active effect entry is edited)
+	 * @param {Object} descriptor the effect's schema descriptor
+	 * @param {function(boolean)} onChange called on any edit; `true` when the panel must rebuild
+	 *        (add/remove/toggle), `false` for an in-place value edit
+	 * @returns {HTMLElement|null} the section, or null when the effect offers no structural option
+	 */
+	function renderStructural(tab, descriptor, onChange) {
+		var vfxir = root.VFXIR;
+		if (!vfxir) {
+			return null;
+		}
+		var effect = tab && typeof tab.effect === "function" ? tab.effect() : null;
+		if (!effect) {
+			return null;
+		}
+		var showPositions = vfxir.positionsAffordance(descriptor);
+		var showRegion = vfxir.regionAffordance(descriptor);
+		var showEntity = vfxir.entitySelectorAffordance(descriptor);
+		var showSound = vfxir.soundAffordance(descriptor);
+		if (!showPositions && !showRegion && !showEntity && !showSound) {
+			return null;
+		}
+
+		function commit(structural) {
+			if (typeof onChange === "function") {
+				onChange(Boolean(structural));
+			}
+		}
+
+		function section(title) {
+			var box = el("div", { class: "vfx-struct-section" });
+			box.appendChild(el("h2", { text: title }));
+			return box;
+		}
+
+		/** A text row writing a string IR field verbatim. */
+		function textRow(label, target, key, placeholder) {
+			var input = el("input", { type: "text", class: "vfx-text",
+				value: target[key] == null ? "" : String(target[key]) });
+			if (placeholder) {
+				input.placeholder = placeholder;
+			}
+			input.addEventListener("input", function () {
+				target[key] = input.value;
+				commit(false);
+			});
+			return el("label", { class: "vfx-field" }, [el("span", { text: label }), input]);
+		}
+
+		/** A select row writing one of `values` into an object key (with a fallback shown first). */
+		function selectRow(label, target, key, values, fallback) {
+			return el("label", { class: "vfx-field" }, [el("span", { text: label }),
+				selectFor(values, target[key] == null ? fallback : String(target[key]), function (value) {
+					target[key] = value;
+					commit(false);
+				})]);
+		}
+
+		/** The positions sub-editor (design §13.4): an ordered list of `[x,y,z]`/entity entries. */
+		function positionsSection(descriptor2) {
+			var spec = vfxir.positionsFieldSpec(descriptor2);
+			var box = section("Positions");
+			var rows = el("div", { class: "vfx-struct-rows" });
+
+			function list() {
+				if (!Array.isArray(effect.positions)) {
+					effect.positions = [];
+				}
+				return effect.positions;
+			}
+
+			function entryRow(index) {
+				var entries = list();
+				var entry = entries[index];
+				var isObject = entry != null && typeof entry === "object" && !Array.isArray(entry);
+				var row = el("div", { class: "vfx-struct-entry" });
+				row.appendChild(el("label", { class: "vfx-field" }, [el("span", { text: "kind" }),
+					selectFor(["point", "entity"], isObject ? "entity" : "point", function (value) {
+						if (value === "entity") {
+							list()[index] = { entity: "@e" };
+						} else {
+							list()[index] = [0, 0, 0];
+						}
+						commit(true);
+					})]));
+				if (!isObject) {
+					if (!Array.isArray(entry)) {
+						entry = [0, 0, 0];
+						entries[index] = entry;
+					}
+					row.appendChild(el("label", { class: "vfx-field" }, [el("span", { text: "pos" }),
+						vectorFor(entry, function (value) {
+							list()[index] = value;
+							commit(false);
+						})]));
+				} else {
+					row.appendChild(textRow("entity", entry, "entity", "@e"));
+					row.appendChild(selectRow("point", entry, "point",
+							spec.pointValues || ["feet", "center", "eyes"], "feet"));
+					row.appendChild(selectRow("dir", entry, "dir",
+							spec.dirValues || ["none", "look"], "none"));
+					row.appendChild(optionalVector("offset", entry, "offset", function () { commit(false); }));
+					row.appendChild(optionalRow("distance", entry, "distance", function () { commit(false); }));
+				}
+				var remove = el("button", { type: "button", class: "vfx-layer-btn", text: "\u00D7",
+					title: "Remove position" });
+				remove.addEventListener("click", function () {
+					list().splice(index, 1);
+					commit(true);
+				});
+				row.appendChild(remove);
+				return row;
+			}
+
+			function rebuild() {
+				rows.textContent = "";
+				list().forEach(function (_entry, index) {
+					rows.appendChild(entryRow(index));
+				});
+			}
+
+			var add = el("button", { type: "button", class: "vfx-type", text: "+ Position" });
+			add.addEventListener("click", function () {
+				list().push([0, 0, 0]);
+				commit(true);
+			});
+			box.appendChild(rows);
+			box.appendChild(add);
+			rebuild();
+			return box;
+		}
+
+		/** The region sub-editor (design §13.4): six ints expanding into block positions. */
+		function regionSection(descriptor2) {
+			var arity = (vfxir.regionFieldSpec(descriptor2).arity) || 6;
+			var box = section("Region");
+			var enabled = Array.isArray(effect.region) && effect.region.length === arity;
+			var check = el("input", { type: "checkbox", class: "vfx-check" });
+			check.checked = enabled;
+			var fields = el("div", { class: "vfx-vec vfx-struct-region" });
+			check.addEventListener("change", function () {
+				// Disable writes an empty list (not `undefined`), so the compiler drops an imported
+				// region instead of letting the pass-through clone re-emit it.
+				effect.region = check.checked ? new Array(arity).fill(0) : [];
+				commit(true);
+			});
+			box.appendChild(el("label", { class: "vfx-field" }, [el("span", { text: "enabled" }), check]));
+			if (enabled) {
+				effect.region.forEach(function (value, index) {
+					var input = el("input", { type: "number", class: "vfx-num", value: String(num(value)) });
+					input.addEventListener("input", function () {
+						effect.region[index] = num(input.value);
+						commit(false);
+					});
+					fields.appendChild(input);
+				});
+			}
+			box.appendChild(fields);
+			return box;
+		}
+
+		/** The entity-selector sub-editor (design §13.4). */
+		function entitySection() {
+			var box = section("Entity selector");
+			box.appendChild(textRow("entity_selector", effect, "entitySelector",
+					"@e[type=minecraft:zombie,distance=..10]"));
+			return box;
+		}
+
+		/** The sound sub-editor (design §13.4): id, optional `sound_pos`, `volume`/`pitch` params. */
+		function soundSection() {
+			var box = section("Sound");
+			box.appendChild(textRow("sound", effect, "sound", "minecraft:entity.generic.explode"));
+			box.appendChild(optionalVector("sound_pos", effect, "soundPos", function () { commit(false); }));
+			["volume", "pitch"].forEach(function (name) {
+				var current = soundParam(name, 1);
+				var input = el("input", { type: "number", class: "vfx-num", step: "0.01",
+					value: String(current) });
+				input.addEventListener("input", function () {
+					setSoundParam(name, num(input.value, 1));
+					commit(false);
+				});
+				box.appendChild(el("label", { class: "vfx-field" }, [el("span", { text: name }), input]));
+			});
+			return box;
+		}
+
+		/** The current `volume`/`pitch` value (a `{value}` spec, a bare number, or the fallback). */
+		function soundParam(name, fallback) {
+			var raw = effect.params ? effect.params[name] : undefined;
+			if (raw != null && typeof raw === "object") {
+				return isFiniteNumber(raw.value) ? raw.value : fallback;
+			}
+			return isFiniteNumber(raw) ? raw : fallback;
+		}
+
+		/** Write a `volume`/`pitch` constant into the effect's params (keeping any multiply). */
+		function setSoundParam(name, value) {
+			if (!effect.params) {
+				effect.params = {};
+			}
+			var raw = effect.params[name];
+			var next = { value: value };
+			if (raw && typeof raw === "object" && raw.multiply) {
+				next.multiply = raw.multiply;
+			}
+			effect.params[name] = next;
+		}
+
+		var wrap = el("div", { class: "vfx-struct" });
+		if (showPositions) {
+			wrap.appendChild(positionsSection(descriptor));
+		}
+		if (showRegion) {
+			wrap.appendChild(regionSection(descriptor));
+		}
+		if (showEntity) {
+			wrap.appendChild(entitySection());
+		}
+		if (showSound) {
+			wrap.appendChild(soundSection());
+		}
+		return wrap;
+	}
+
+	/* ------------------------------------------------------------------ */
 	/* Mask sub-editor (design §13.1)                                      */
 	/* ------------------------------------------------------------------ */
 
@@ -1425,6 +1662,7 @@
 		render: render,
 		renderGroup: renderGroup,
 		renderMask: renderMask,
+		renderStructural: renderStructural,
 		renderTiming: renderTiming,
 		refreshLiveValues: refreshLiveValues,
 		slotState: slotState,

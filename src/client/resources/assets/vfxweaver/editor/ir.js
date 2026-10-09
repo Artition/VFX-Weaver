@@ -1405,6 +1405,71 @@
 		return Array.isArray(list) && list.length ? list.slice() : Object.keys(MASK_SHAPES);
 	}
 
+	/* ---- Non-post structural options (design §13.4) ------------------- */
+
+	/**
+	 * The schema's structural section, or null (a descriptor without one offers no structural
+	 * options). Every affordance below is a plain flag on this section, so the UI adds a sub-editor
+	 * for a new structural option without a per-effect-type branch (design §13.4 forward-compat).
+	 *
+	 * @param {Object} [descriptor] the effect's schema descriptor
+	 * @returns {Object|null} the `structural` object
+	 */
+	function structuralSection(descriptor) {
+		return descriptor && descriptor.structural ? descriptor.structural : null;
+	}
+
+	/** Whether the effect reads a top-level `positions` list (design §13.4). */
+	function positionsAffordance(descriptor) {
+		return Boolean(structuralSection(descriptor) && structuralSection(descriptor).supportsPositions === true);
+	}
+
+	/** Whether the effect reads a top-level `region` that expands into positions (design §13.4). */
+	function regionAffordance(descriptor) {
+		return Boolean(structuralSection(descriptor) && structuralSection(descriptor).supportsRegion === true);
+	}
+
+	/** Whether the effect reads a top-level `entity_selector` (design §13.4). */
+	function entitySelectorAffordance(descriptor) {
+		return Boolean(structuralSection(descriptor) && structuralSection(descriptor).supportsEntitySelector === true);
+	}
+
+	/** Whether the effect reads a top-level `sound` (+ `sound_pos`, `volume`/`pitch`; design §13.4). */
+	function soundAffordance(descriptor) {
+		return Boolean(structuralSection(descriptor) && structuralSection(descriptor).supportsSound === true);
+	}
+
+	/** The parser's positions entry shape (mirrors VFXStructuralDescriptor.positionFields). */
+	var POSITIONS_FIELD_FALLBACK = { arrayArity: 3, objectFields: ["entity", "point", "dir", "offset", "distance"],
+		pointValues: ["feet", "center", "eyes"], dirValues: ["none", "look"], offsetArity: 3 };
+	var REGION_FIELD_FALLBACK = { arity: 6 };
+	var ENTITY_SELECTOR_FIELD_FALLBACK = { field: "entity_selector" };
+	var SOUND_FIELD_FALLBACK = { fields: ["sound", "sound_pos", "volume", "pitch"], posArity: 3 };
+
+	/** The schema's positions field spec, or the parser-mirroring fallback when absent. */
+	function positionsFieldSpec(descriptor) {
+		var s = structuralSection(descriptor);
+		return s && s.positionsFields ? s.positionsFields : POSITIONS_FIELD_FALLBACK;
+	}
+
+	/** The schema's region field spec, or the fallback. */
+	function regionFieldSpec(descriptor) {
+		var s = structuralSection(descriptor);
+		return s && s.regionFields ? s.regionFields : REGION_FIELD_FALLBACK;
+	}
+
+	/** The schema's entity-selector field spec, or the fallback. */
+	function entitySelectorFieldSpec(descriptor) {
+		var s = structuralSection(descriptor);
+		return s && s.entitySelectorFields ? s.entitySelectorFields : ENTITY_SELECTOR_FIELD_FALLBACK;
+	}
+
+	/** The schema's sound field spec, or the fallback. */
+	function soundFieldSpec(descriptor) {
+		var s = structuralSection(descriptor);
+		return s && s.soundFields ? s.soundFields : SOUND_FIELD_FALLBACK;
+	}
+
 	/** Whether a node is a composition (has an `op`). */
 	function isMaskComposition(node) {
 		return Boolean(node && typeof node === "object" && node.op != null);
@@ -1774,6 +1839,15 @@
 		maskShapeTable: maskShapeTable,
 		maskAffordance: maskAffordance,
 		maskShapeList: maskShapeList,
+		structuralSection: structuralSection,
+		positionsAffordance: positionsAffordance,
+		regionAffordance: regionAffordance,
+		entitySelectorAffordance: entitySelectorAffordance,
+		soundAffordance: soundAffordance,
+		positionsFieldSpec: positionsFieldSpec,
+		regionFieldSpec: regionFieldSpec,
+		entitySelectorFieldSpec: entitySelectorFieldSpec,
+		soundFieldSpec: soundFieldSpec,
 		isMaskComposition: isMaskComposition,
 		maskLeaves: maskLeaves,
 		maskOps: maskOps,

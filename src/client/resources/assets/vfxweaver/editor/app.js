@@ -2839,6 +2839,29 @@
 		}
 	}
 
+	/**
+	 * The structural sub-editor edit hook (design §13.4): the panel already mutated the active
+	 * effect's `positions`/`region`/`entitySelector`/`sound`/`soundPos` (or the `volume`/`pitch`
+	 * params); snapshot for undo and recompile. A structural edit (add/remove/toggle) rebuilds the
+	 * panel; a value edit leaves it in place so the focused field keeps its caret.
+	 *
+	 * @param {Object} tab the active tab
+	 * @param {boolean} structural whether the panel must rebuild
+	 */
+	function onStructuralChange(tab, structural) {
+		if (!tab) {
+			return;
+		}
+		scheduleCommitHistory();
+		if (tab.type) {
+			requestStructural(tab);
+		}
+		if (structural) {
+			renderInspector();
+			renderTimeline();
+		}
+	}
+
 	/** Mount the timeline panel (Task 15) for the active tab. */
 	function renderTimeline() {
 		if (!dom.timeline) {
@@ -3253,8 +3276,14 @@
 		var descriptor = tab.type ? schema[tab.type] : null;
 		var supportsMask = Boolean(descriptor && descriptor.structural
 				&& descriptor.structural.supportsMask === true);
+		// A schema-advertised structural option (design §13.4) is editable even for an effect with no
+		// params — the palette gate must not hide the sub-editor.
+		var structural = descriptor && descriptor.structural ? descriptor.structural : null;
+		var supportsStructural = Boolean(structural && (structural.supportsPositions === true
+				|| structural.supportsRegion === true || structural.supportsEntitySelector === true
+				|| structural.supportsSound === true));
 		var params = descriptor && Array.isArray(descriptor.params) ? descriptor.params : [];
-		if (!params.length && !supportsMask) {
+		if (!params.length && !supportsMask && !supportsStructural) {
 			dom.inspector.appendChild(inspectorMessage(
 					tab.type ? "No editable parameters" : "Choose an effect type"));
 			return;
@@ -3316,6 +3345,16 @@
 			});
 			if (maskSection) {
 				dom.inspector.appendChild(maskSection);
+			}
+		}
+		// Non-post structural sub-editors (design §13.4): positions/region, entity selector, sound —
+		// each shown only when the schema advertises it (no per-type branch).
+		if (typeof window.VFXInspector.renderStructural === "function") {
+			var structSection = window.VFXInspector.renderStructural(tab, descriptor, function (structural) {
+				onStructuralChange(tab, structural);
+			});
+			if (structSection) {
+				dom.inspector.appendChild(structSection);
 			}
 		}
 	}
@@ -3859,6 +3898,26 @@
 	}
 
 	/**
+	 * Carry the top-level structural fields a definition may carry (design §13.4) into an effect IR
+	 * entry, so the positions/region/entity-selector/sound sub-editors show them and the compiler
+	 * re-emits them identically. A field the source does not carry stays `undefined` (not an empty
+	 * list), which keeps the compiler's pass-through clone in charge for imported definitions.
+	 *
+	 * @param {Object} effect the effect entry (mutated)
+	 * @param {Object|null} src the imported definition (or a resolved chain child)
+	 */
+	function hydrateStructural(effect, src) {
+		if (!effect) {
+			return;
+		}
+		effect.positions = src && src.positions !== undefined ? snapshot(src.positions) : undefined;
+		effect.region = src && src.region !== undefined ? snapshot(src.region) : undefined;
+		effect.entitySelector = src && src.entity_selector != null ? String(src.entity_selector) : undefined;
+		effect.sound = src && src.sound != null ? String(src.sound) : undefined;
+		effect.soundPos = src && src.sound_pos !== undefined ? snapshot(src.sound_pos) : undefined;
+	}
+
+	/**
 	 * Restore a tab's model from a datapack definition on import: timing, one or more effect nodes
 	 * (a `collection` root becomes a chain, design §15.2/P6), params, keyframes and the value graph.
 	 * Layout is not here — it comes from the sidecar (see {@link applySidecar}).
@@ -3908,6 +3967,9 @@
 				// Carry an imported mask into the editable IR (design §13.1), so it can be viewed and
 				// edited; `compileMask` re-emits it identically when untouched.
 				effect.mask = entry.source && entry.source.mask ? snapshot(entry.source.mask) : undefined;
+				// Carry the imported structural fields (design §13.4) into the IR the same way, so the
+				// positions/entity-selector/sound sub-editors show them and export round-trips.
+				hydrateStructural(effect, entry.source);
 				// Keep the imported reference id so export can re-emit an external/built-in child as
 				// itself instead of renaming it to a local `__n` def (design §15.2 round-trip).
 				effect.effectId = entry.effectId == null ? null : String(entry.effectId);
@@ -3924,6 +3986,7 @@
 			var effect = tab.effects && tab.effects.length ? tab.effects[0] : tab.addEffect(def.type);
 			effect.type = def.type == null ? effect.type : String(def.type);
 			effect.mask = def.mask ? snapshot(def.mask) : undefined;
+			hydrateStructural(effect, def);
 			hydrateEffectParams(tab, effect, def.params, num(def.duration, tab.duration), drivers);
 			hydrateEffectGraph(tab, effect, def, used);
 		}

@@ -355,6 +355,17 @@ public final class VFXEffectSchema {
 			// Additive per-shape field metadata (design §13.1): the MaskLeaf sub-editors are generated
 			// from this, so a new VFXMaskShapeKind appears without an editor change.
 			structuralJson.put("maskShapeFields", VFXStructuralDescriptor.shapeFields());
+			// Additive structural options (design §13.4): the non-post sub-editors (positions/region,
+			// entity selector, sound) are generated from these flags plus their field metadata, so a
+			// new effect type advertises them without any per-type branch in the UI.
+			structuralJson.put("supportsPositions", structural.supportsPositions());
+			structuralJson.put("supportsRegion", structural.supportsRegion());
+			structuralJson.put("supportsEntitySelector", structural.supportsEntitySelector());
+			structuralJson.put("supportsSound", structural.supportsSound());
+			structuralJson.put("positionsFields", VFXStructuralDescriptor.positionFields());
+			structuralJson.put("regionFields", VFXStructuralDescriptor.regionFields());
+			structuralJson.put("entitySelectorFields", VFXStructuralDescriptor.entitySelectorFields());
+			structuralJson.put("soundFields", VFXStructuralDescriptor.soundFields());
 			descriptorJson.put("structural", structuralJson);
 			root.put(descriptor.type().getName(), descriptorJson);
 		}

@@ -415,6 +415,63 @@
 		def.mask = built;
 	}
 
+	/** A non-blank string (an optional top-level id/selector). */
+	function isNonEmptyString(value) {
+		return typeof value === "string" && value.trim() !== "";
+	}
+
+	/**
+	 * Serialise the effect's authored structural fields (design §13.4): `positions`, `region`,
+	 * `entity_selector`, `sound` and `sound_pos`. Each is emitted only when the IR carries it
+	 * (`!== undefined`), so an imported definition's fields survive untouched through the source
+	 * clone when the editor did not touch them; an explicit empty/null value removes the field. The
+	 * shapes match {@code VFXDefinition.parse} exactly (the parser is the oracle): `positions` a
+	 * non-empty list, `region` six ints, `entity_selector`/`sound` a string, `sound_pos` three.
+	 *
+	 * @param {Object|null} effect the effect entry (carries the structural fields), or null
+	 * @param {Object} def the definition being built (mutated)
+	 */
+	function compileStructural(effect, def) {
+		if (!effect) {
+			return;
+		}
+		if (effect.positions !== undefined) {
+			if (Array.isArray(effect.positions) && effect.positions.length) {
+				def.positions = effect.positions;
+			} else {
+				delete def.positions;
+			}
+		}
+		if (effect.region !== undefined) {
+			if (Array.isArray(effect.region) && effect.region.length === 6) {
+				def.region = effect.region;
+			} else {
+				delete def.region;
+			}
+		}
+		if (effect.entitySelector !== undefined) {
+			if (isNonEmptyString(effect.entitySelector)) {
+				def.entity_selector = effect.entitySelector;
+			} else {
+				delete def.entity_selector;
+			}
+		}
+		if (effect.sound !== undefined) {
+			if (isNonEmptyString(effect.sound)) {
+				def.sound = effect.sound;
+			} else {
+				delete def.sound;
+			}
+		}
+		if (effect.soundPos !== undefined) {
+			if (Array.isArray(effect.soundPos) && effect.soundPos.length === 3) {
+				def.sound_pos = effect.soundPos;
+			} else {
+				delete def.sound_pos;
+			}
+		}
+	}
+
 	/**
 	 * Split `Tab.valueNodes`/`Tab.edges` into the datapack `graph` and the top-level `inputs`
 	 * wiring. An edge whose `to` is a value-node id is a graph edge; any other target is an
@@ -654,6 +711,8 @@
 		}
 		// Optional mask (design §13.1): authored on the IR, or carried by the cloned imported source.
 		compileMask(tab, effect, effectId, multi, def);
+		// Optional structural fields (design §13.4): positions/region, entity_selector, sound/sound_pos.
+		compileStructural(effect, def);
 		return JSON.stringify(def, null, "\t");
 	}
 

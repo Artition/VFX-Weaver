@@ -1241,6 +1241,93 @@ window.__vfxSelftest = function () {
 		});
 	});
 
+	test("(POS1) positions + region emit parser-valid JSON on a world overlay", function () {
+		var tab = new VFXIR.Tab("beam", "light_beam");
+		tab.duration = 40;
+		tab.effect().positions = [
+			[10, 64, -3],
+			{ entity: "@e[type=villager,limit=1]", point: "eyes", dir: "look",
+				offset: [0, 1, 0], distance: 24 }
+		];
+		tab.effect().region = [0, 60, 0, 2, 62, 2];
+		var def = parse(compileTab(tab));
+		eq(def.type, "light_beam", "type");
+		eq(def.positions.length, 2, "two positions");
+		eq(JSON.stringify(def.positions[0]), JSON.stringify([10, 64, -3]), "array entry kept");
+		eq(def.positions[1].entity, "@e[type=villager,limit=1]", "entity selector");
+		eq(def.positions[1].point, "eyes", "point");
+		eq(def.positions[1].dir, "look", "dir");
+		eq(JSON.stringify(def.positions[1].offset), JSON.stringify([0, 1, 0]), "offset");
+		eq(def.positions[1].distance, 24, "distance");
+		eq(JSON.stringify(def.region), JSON.stringify([0, 60, 0, 2, 62, 2]), "region six ints");
+	});
+
+	test("(POS2) an entity effect emits entity_selector", function () {
+		var tab = new VFXIR.Tab("tint", "entity_tint");
+		tab.effect().entitySelector = "@a[distance=..10]";
+		var def = parse(compileTab(tab));
+		eq(def.entity_selector, "@a[distance=..10]", "selector emitted");
+	});
+
+	test("(POS3) a sound block emits on any type (+ sound_pos, volume/pitch)", function () {
+		var tab = new VFXIR.Tab("blur", "blur");
+		tab.effect().sound = "vfxweaver:ding";
+		tab.effect().soundPos = [1, 2, 3];
+		tab.params.volume = { value: 0.5 };
+		tab.params.pitch = { value: 1.2 };
+		var def = parse(compileTab(tab));
+		eq(def.sound, "vfxweaver:ding", "sound id");
+		eq(JSON.stringify(def.sound_pos), JSON.stringify([1, 2, 3]), "sound_pos");
+		eq(def.params.volume, 0.5, "volume param");
+		eq(def.params.pitch, 1.2, "pitch param");
+	});
+
+	test("(POS4) an imported definition's structural fields round-trip via the source clone", function () {
+		var tab = new VFXIR.Tab("beam", "light_beam");
+		tab.source = { type: "light_beam", duration: 40, positions: [[1, 2, 3]],
+			region: [0, 0, 0, 1, 1, 1], entity_selector: "@p",
+			sound: "vfxweaver:ding", sound_pos: [4, 5, 6] };
+		var def = parse(compileTab(tab));
+		eq(JSON.stringify(def.positions), JSON.stringify([[1, 2, 3]]), "positions kept");
+		eq(JSON.stringify(def.region), JSON.stringify([0, 0, 0, 1, 1, 1]), "region kept");
+		eq(def.entity_selector, "@p", "selector kept");
+		eq(def.sound, "vfxweaver:ding", "sound kept");
+		eq(JSON.stringify(def.sound_pos), JSON.stringify([4, 5, 6]), "sound_pos kept");
+	});
+
+	test("(POS5) clearing authored structural fields removes them (not left to the clone)", function () {
+		var tab = new VFXIR.Tab("beam", "light_beam");
+		tab.source = { type: "light_beam", positions: [[1, 2, 3]], region: [0, 0, 0, 1, 1, 1],
+			sound: "x", entity_selector: "@p" };
+		var effect = tab.effect();
+		effect.positions = [];
+		effect.region = [];
+		effect.sound = "";
+		effect.entitySelector = "";
+		var def = parse(compileTab(tab));
+		ok(!("positions" in def), "positions removed");
+		ok(!("region" in def), "region removed");
+		ok(!("sound" in def), "sound removed");
+		ok(!("entity_selector" in def), "selector removed");
+	});
+
+	test("(AFF1) structural affordances + field specs are schema-driven flags", function () {
+		var post = { structural: { supportsMask: true, supportsPositions: false, supportsRegion: false,
+			supportsEntitySelector: false, supportsSound: true } };
+		ok(VFXIR.soundAffordance(post), "sound offered");
+		ok(!VFXIR.positionsAffordance(post), "no positions on a post effect");
+		var beam = { structural: { supportsPositions: true, supportsRegion: true, supportsSound: true } };
+		ok(VFXIR.positionsAffordance(beam), "positions offered");
+		ok(VFXIR.regionAffordance(beam), "region offered");
+		ok(!VFXIR.entitySelectorAffordance(beam), "no selector on a world overlay");
+		var entity = { structural: { supportsEntitySelector: true, supportsSound: true } };
+		ok(VFXIR.entitySelectorAffordance(entity), "selector offered");
+		ok(!VFXIR.positionsAffordance({}), "a descriptor without structural offers nothing");
+		eq(VFXIR.positionsFieldSpec(beam).arrayArity, 3, "positions field spec default");
+		eq(VFXIR.regionFieldSpec(beam).arity, 6, "region arity");
+		eq(VFXIR.soundFieldSpec(beam).posArity, 3, "sound pos arity");
+	});
+
 	return results;
 };
 /* SELFTEST:END */

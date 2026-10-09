@@ -1723,3 +1723,25 @@ body {
 	gap: 6px;
 	margin-top: 6px;
 }
+.vfx-struct-section {
+	margin-top: 10px;
+}
+.vfx-struct-rows {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+}
+.vfx-struct-entry {
+	margin: 2px 0;
+	padding: 6px;
+	border: 1px solid var(--vfx-line, #333);
+	border-radius: 4px;
+	display: flex;
+	flex-wrap: wrap;
+	align-items: flex-end;
+	gap: 6px;
+}
+.vfx-struct-region {
+	flex-wrap: wrap;
+	margin-top: 4px;
+}
