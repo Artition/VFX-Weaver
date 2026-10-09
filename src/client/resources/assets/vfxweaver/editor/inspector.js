@@ -1013,6 +1013,271 @@
 		return rootEl;
 	}
 
+	/* ------------------------------------------------------------------ */
+	/* Mask sub-editor (design §13.1)                                      */
+	/* ------------------------------------------------------------------ */
+
+	/** The display label of a mask slot (its field name), or the slot name for a centre axis. */
+	function maskSlotLabel(slot) {
+		if (slot.kind === "center") {
+			return "center_" + ["x", "y", "z"][slot.fieldIndex];
+		}
+		if (slot.kind === "param") {
+			return slot.paramName;
+		}
+		if (slot.kind === "soft") {
+			return "softness";
+		}
+		if (slot.kind === "stroke") {
+			return "stroke_width";
+		}
+		return slot.kind;
+	}
+
+	/**
+	 * Render the Mask sub-editor for a post effect (design §13.1). Non-post effects get nothing —
+	 * {@link root.VFXIR.maskAffordance} gates it on the schema's `structural.supportsMask`. The
+	 * editor authors the common shapes only: `polygon`/`block` and a custom id render as a read-only
+	 * "not yet" row so an imported mask still round-trips; the parser rejects a composition as the
+	 * right operand, and the chain builder only ever nests on the left.
+	 *
+	 * <p>The numeric leaf fields are the reserved `mask.p&lt;N&gt;.*` parameters, listed with their
+	 * reserved names and bindable by wiring a value node into the matching effect-node socket.
+	 *
+	 * @param {Object} tab the active tab
+	 * @param {Object} descriptor the effect's schema descriptor
+	 * @param {function(boolean)} onMaskChange called on any edit; `true` when the tree changed shape
+	 *        (add/remove/retype) and the panel must rebuild, `false` for an in-place value edit
+	 * @returns {HTMLElement|null} the section, or null when the effect offers no mask
+	 */
+	function renderMask(tab, descriptor, onMaskChange) {
+		var vfxir = root.VFXIR;
+		if (!vfxir || typeof vfxir.maskAffordance !== "function" || !vfxir.maskAffordance(descriptor)) {
+			return null;
+		}
+		var effect = tab && typeof tab.effect === "function" ? tab.effect() : null;
+		if (!effect) {
+			return null;
+		}
+		var wrap = el("div", { class: "vfx-mask" });
+		wrap.appendChild(el("h2", { text: "Mask" }));
+
+		if (effect.mask == null) {
+			wrap.appendChild(el("p", { class: "vfx-mask-note",
+				text: "No mask — the post effect applies to the whole screen." }));
+			var add = el("button", { type: "button", class: "vfx-type", text: "+ Add mask" });
+			add.addEventListener("click", function () {
+				effect.mask = vfxir.makeMaskLeaf("circle");
+				if (typeof onMaskChange === "function") {
+					onMaskChange(true);
+				}
+			});
+			wrap.appendChild(add);
+			return wrap;
+		}
+
+		var chain = vfxir.maskChain(effect.mask);
+		var leaves = chain.leaves;
+		var ops = chain.ops;
+		var slots = vfxir.maskSlots(effect.mask);
+		var slotsByLeaf = {};
+		slots.forEach(function (slot) {
+			if (!slotsByLeaf[slot.leafIndex]) {
+				slotsByLeaf[slot.leafIndex] = [];
+			}
+			slotsByLeaf[slot.leafIndex].push(slot);
+		});
+
+		function rebuild() {
+			var next = vfxir.maskFromChain(leaves, ops, chain.invert, chain.space);
+			effect.mask = next;
+			return next;
+		}
+
+		function changed(structural) {
+			rebuild();
+			if (typeof onMaskChange === "function") {
+				onMaskChange(Boolean(structural));
+			}
+		}
+
+		/** Find the slot of a kind (and optional param name) on a leaf. */
+		function slotOf(leafIndex, kind, paramName) {
+			var list = slotsByLeaf[leafIndex] || [];
+			for (var i = 0; i < list.length; i++) {
+				if (list[i].kind === kind && (paramName == null || list[i].paramName === paramName)) {
+					return list[i];
+				}
+			}
+			return null;
+		}
+
+		/** Write a value into the leaf field a slot maps to and commit (no panel rebuild). */
+		function writeSlot(leafIndex, slot, value) {
+			if (slot.kind === "center") {
+				if (!Array.isArray(leaves[leafIndex].center)) {
+					leaves[leafIndex].center = vfxir.maskCenterDefaults(slot.space).slice();
+				}
+				leaves[leafIndex].center[slot.fieldIndex] = num(value);
+			} else {
+				leaves[leafIndex][slot.field] = num(value);
+			}
+			changed(false);
+		}
+
+		/** One numeric row for a reserved mask slot, read-only and badged when a wire drives it. */
+		function slotRow(leafIndex, slot) {
+			if (!slot) {
+				return null;
+			}
+			var driven = drivenSource(tab, slot.name);
+			var leaf = leaves[leafIndex];
+			var value = slot.defaultValue;
+			if (slot.kind === "center" && Array.isArray(leaf.center) && isFiniteNumber(Number(leaf.center[slot.fieldIndex]))) {
+				value = Number(leaf.center[slot.fieldIndex]);
+			} else if (slot.kind !== "center" && leaf[slot.field] != null && isFiniteNumber(Number(leaf[slot.field]))) {
+				value = Number(leaf[slot.field]);
+			}
+			var control = numberFor({ kind: "FLOAT", min: -Infinity, max: Infinity, step: 0 },
+					value, function (v) { writeSlot(leafIndex, slot, v); }, Boolean(driven));
+			var row = el("label", { class: "vfx-field vfx-mask-slot" + (driven ? " driven" : ""),
+				title: slot.name + (driven ? " — driven by " + driven : "") },
+					[el("span", { text: maskSlotLabel(slot) }), control]);
+			return row;
+		}
+
+		/** The full editor for one leaf. */
+		function leafRow(leafIndex) {
+			var leaf = leaves[leafIndex];
+			var def = vfxir.maskShapeDef(leaf.shape);
+			var deferred = vfxir.maskShapeDeferred(leaf.shape);
+			var row = el("div", { class: "vfx-mask-leaf" + (deferred ? " deferred" : "") });
+			var head = el("div", { class: "vfx-mask-leaf-head" }, [
+				el("span", { class: "vfx-mask-leaf-title", text: "leaf " + leafIndex })
+			]);
+			var shapes = vfxir.maskShapeList(descriptor);
+			head.appendChild(el("div", { class: "vfx-field" }, [
+				el("span", { text: "shape" }),
+				selectFor(shapes, String(leaf.shape), function (value) {
+					leaves[leafIndex] = vfxir.makeMaskLeaf(value);
+					changed(true);
+				})
+			]));
+			var remove = el("button", { type: "button", class: "vfx-layer-btn", text: "\u00D7", title: "Remove leaf" });
+			remove.addEventListener("click", function () {
+				leaves.splice(leafIndex, 1);
+				if (ops.length > Math.max(0, leaves.length - 1)) {
+					ops.length = Math.max(0, leaves.length - 1);
+				}
+				if (!leaves.length) {
+					effect.mask = null;
+				}
+				changed(true);
+			});
+			head.appendChild(remove);
+			row.appendChild(head);
+
+			if (deferred) {
+				row.appendChild(el("p", { class: "vfx-mask-note",
+					text: "‘" + leaf.shape + "’ is not authored in the editor yet; it is kept verbatim." }));
+				return row;
+			}
+
+			// space + fill
+			var spaceValues = ["screen", "world", "dome"];
+			var space = vfxir.maskLeafSpace(leaf, chain.space);
+			var spaceRow = el("div", { class: "vfx-field" }, [
+				el("span", { text: "space" }),
+				selectFor(spaceValues, space, function (value) {
+					leaf.space = value;
+					changed(true);
+				})
+			]);
+			row.appendChild(spaceRow);
+			var fillRow = el("div", { class: "vfx-field" }, [
+				el("span", { text: "fill" }),
+				selectFor(["solid", "stroke"], leaf.fill === "stroke" ? "stroke" : "solid", function (value) {
+					if (value === "stroke") {
+						leaf.fill = "stroke";
+					} else {
+						delete leaf.fill;
+					}
+					changed(true);
+				})
+			]);
+			row.appendChild(fillRow);
+
+			// centre, rotation, per-kind params, softness, stroke width
+			var fields = el("div", { class: "vfx-mask-fields" });
+			(slotsByLeaf[leafIndex] || []).forEach(function (slot) {
+				if (slot.deferred) {
+					return;
+				}
+				if (slot.kind === "stroke" && leaf.fill !== "stroke") {
+					return;
+				}
+				var child = slotRow(leafIndex, slot);
+				if (child) {
+					fields.appendChild(child);
+				}
+			});
+			row.appendChild(fields);
+			return row;
+		}
+
+		// Tree: leaf 0, then one op + leaf per join (the chain is always left-nested).
+		leaves.forEach(function (_leaf, index) {
+			wrap.appendChild(leafRow(index));
+			if (index < leaves.length - 1) {
+				var aligned = ops[index] || "union";
+				var opRow = el("div", { class: "vfx-mask-op" }, [
+					el("span", { text: "op" }),
+					selectFor(vfxir.MASK_OPS, aligned, function (value) {
+						ops[index] = value;
+						changed(true);
+					})
+				]);
+				wrap.appendChild(opRow);
+			}
+		});
+
+		var invertRow = el("div", { class: "vfx-field" }, [
+			el("span", { text: "invert" }),
+			(function () {
+				var check = el("input", { type: "checkbox", class: "vfx-check" });
+				check.checked = chain.invert === true;
+				check.addEventListener("change", function () {
+					chain.invert = check.checked;
+					changed(true);
+				});
+				return check;
+			})()
+		]);
+		wrap.appendChild(invertRow);
+
+		var actions = el("div", { class: "vfx-mask-actions" });
+		var addLeaf = el("button", { type: "button", class: "vfx-type", text: "+ Leaf" });
+		addLeaf.addEventListener("click", function () {
+			leaves.push(vfxir.makeMaskLeaf("circle"));
+			while (ops.length < leaves.length - 1) {
+				ops.push("union");
+			}
+			changed(true);
+		});
+		actions.appendChild(addLeaf);
+		var clear = el("button", { type: "button", class: "vfx-type", text: "Remove mask" });
+		clear.addEventListener("click", function () {
+			effect.mask = null;
+			changed(true);
+		});
+		actions.appendChild(clear);
+		wrap.appendChild(actions);
+
+		wrap.appendChild(el("p", { class: "vfx-mask-note",
+			text: "Mask numbers are reserved params (mask.p<N>.*); wire a value node into an effect-node Mask socket to animate one." }));
+		return wrap;
+	}
+
 	/** Game ticks per second, for the duration field's ticks<->seconds toggle (20 tps, §15.3). */
 	var TICKS_PER_SECOND = 20;
 	/** Preferred duration unit across renders/tabs: "ticks" or "seconds". */
@@ -1156,6 +1421,7 @@
 	var api = {
 		render: render,
 		renderGroup: renderGroup,
+		renderMask: renderMask,
 		renderTiming: renderTiming,
 		refreshLiveValues: refreshLiveValues,
 		slotState: slotState,

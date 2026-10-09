@@ -175,6 +175,11 @@
 		return value != null && typeof value === "object" && value.from != null;
 	}
 
+	/** Whether a name is a reserved mask slot (`mask.p<N>.*`), which never lands in `params`/`inputs`. */
+	function isMaskParam(name) {
+		return typeof name === "string" && name.indexOf("mask.") === 0;
+	}
+
 	/**
 	 * Whether an edge belongs to the effect being compiled (design §15.2, P6). A param wire in a
 	 * chain carries `effect` = the owning node id; a single-effect tab (or a legacy file) leaves it
@@ -305,6 +310,11 @@
 				return;
 			}
 			var param = outs[0].to;
+			if (isMaskParam(param)) {
+				// A node driving a mask slot is not folded into a param: the mask compiler writes the
+				// `{ "from": node }` reference into the mask leaf instead (design §13.1).
+				return;
+			}
 			var drivers = edges.filter(function (candidate) {
 				return candidate.to === param && candidate.input == null;
 			});
@@ -330,6 +340,79 @@
 			skip[node.id] = true;
 		});
 		return { specs: specs, skip: skip };
+	}
+
+	/**
+	 * The source value-node id wired into a mask slot of the effect being compiled, or null. Mask
+	 * wires are param wires (`input == null`, `to` = a `mask.p<N>.*` name) and are scoped like any
+	 * other param wire.
+	 *
+	 * @param {Object} tab the tab
+	 * @param {string} name the reserved slot name
+	 * @param {string|null} effectId the owning effect id
+	 * @param {boolean} multi whether the tab is a chain
+	 * @returns {string|null} the source node id, or null when the slot is an inline constant
+	 */
+	function maskEdgeSource(tab, name, effectId, multi) {
+		var edges = tab && Array.isArray(tab.edges) ? tab.edges : [];
+		for (var i = 0; i < edges.length; i++) {
+			var edge = edges[i];
+			if (edge && edge.input == null && edge.to === name && edge.from != null
+					&& edgeInScope(edge, effectId, multi)) {
+				return edge.from;
+			}
+		}
+		return null;
+	}
+
+	/**
+	 * Serialise the effect's authored mask (design §13.1). The IR holds a datapack-shaped mask; a
+	 * wired slot (`mask.p<N>.*`) is written into the matching leaf field as `{ "from": node }`, and
+	 * `mask.` edges never land in `params`/`inputs`. An effect with no mask authored keeps whatever
+	 * the cloned source definition carried, so an imported mask round-trips; an explicit `null`
+	 * removes it.
+	 *
+	 * @param {Object} tab the owning tab
+	 * @param {Object|null} effect the effect entry (carries `mask`)
+	 * @param {string|null} effectId the effect id param wires are tagged with
+	 * @param {boolean} multi whether the tab is a chain
+	 * @param {Object} def the definition being built (mutated)
+	 */
+	function compileMask(tab, effect, effectId, multi, def) {
+		var mask = effect ? effect.mask : undefined;
+		if (mask === undefined) {
+			return;
+		}
+		if (mask === null) {
+			delete def.mask;
+			return;
+		}
+		var built = clone(mask);
+		var vfxir = root.VFXIR;
+		if (vfxir && typeof vfxir.maskSlots === "function") {
+			var leaves = typeof vfxir.maskLeaves === "function" ? vfxir.maskLeaves(built) : [];
+			var centerDefaults = typeof vfxir.maskCenterDefaults === "function"
+					? vfxir.maskCenterDefaults : function () { return [0, 0, 0]; };
+			vfxir.maskSlots(built).forEach(function (slot) {
+				var from = maskEdgeSource(tab, slot.name, effectId, multi);
+				if (from == null) {
+					return;
+				}
+				var leaf = leaves[slot.leafIndex];
+				if (!leaf) {
+					return;
+				}
+				if (slot.kind === "center") {
+					if (!Array.isArray(leaf.center)) {
+						leaf.center = centerDefaults(slot.space).slice();
+					}
+					leaf.center[slot.fieldIndex] = { from: from };
+				} else {
+					leaf[slot.field] = { from: from };
+				}
+			});
+		}
+		def.mask = built;
 	}
 
 	/**
@@ -395,7 +478,7 @@
 					out.input = edge.input;
 				}
 				graphEdges.push(out);
-			} else {
+			} else if (!isMaskParam(edge.to)) {
 				inputs[edge.to] = { from: edge.from };
 			}
 		});
@@ -483,6 +566,11 @@
 		keys = keys || {};
 		var params = {};
 		Object.keys(source).forEach(function (name) {
+			// The `mask.` prefix is reserved (design §13.1): a user param with it is shadowed, never
+			// emitted as a normal effect param.
+			if (isMaskParam(name)) {
+				return;
+			}
 			var raw = source[name];
 			var spec = folded.specs[name] != null ? folded.specs[name] : raw;
 			// §15.8: `multiply` layers on top of ANY form, including a driven slot whose form was
@@ -495,6 +583,9 @@
 			params[name] = compileParam(name, spec, keys, duration, warnings);
 		});
 		Object.keys(folded.specs).forEach(function (name) {
+			if (isMaskParam(name)) {
+				return;
+			}
 			if (!Object.prototype.hasOwnProperty.call(params, name)) {
 				params[name] = compileParam(name, folded.specs[name], keys, duration, warnings);
 			}
@@ -561,6 +652,8 @@
 			delete def.graph;
 			delete def.inputs;
 		}
+		// Optional mask (design §13.1): authored on the IR, or carried by the cloned imported source.
+		compileMask(tab, effect, effectId, multi, def);
 		return JSON.stringify(def, null, "\t");
 	}
 

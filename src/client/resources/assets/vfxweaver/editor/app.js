@@ -1884,6 +1884,8 @@
 					chain[c].connect(outSlot, chain[c + 1], intoSlot);
 				}
 			}
+			// Reserved mask sockets must exist before the edge pass so a mask wire can resolve.
+			syncMaskSockets(tab);
 			var byId = {};
 			(tab.valueNodes || []).forEach(function (ir) {
 				var registered = "vfx/value/" + ir.kind;
@@ -2191,6 +2193,9 @@
 					entry.mute = saved.mute === true;
 					entry.solo = saved.solo === true;
 					entry.source = snapshot(saved.source);
+					if (saved.mask !== undefined) {
+						entry.mask = snapshot(saved.mask);
+					}
 					entry.effectId = saved.effectId == null ? null : String(saved.effectId);
 					entry.external = saved.external === true;
 					if (saved.uuid != null) {
@@ -2315,6 +2320,72 @@
 		renderTimeline();
 		if (tab.type && window.VFXTimeline && typeof window.VFXTimeline.scheduleReplay === "function") {
 			window.VFXTimeline.scheduleReplay(tab);
+		}
+	}
+
+	/**
+	 * Append the reserved `mask.p<N>.*` input sockets an effect's mask exposes, so a value node can
+	 * be wired into one (design §13.1), and drop sockets whose leaf is gone. No-op without the mask
+	 * model or an effect node.
+	 *
+	 * @param {Object} tab the tab
+	 */
+	function syncMaskSockets(tab) {
+		if (!tab || !tab.graph || !window.VFXIR || typeof window.VFXIR.maskSlots !== "function") {
+			return;
+		}
+		(tab.effects || []).forEach(function (effect) {
+			var node = nodeForEffect(tab, effect.id);
+			if (!node) {
+				return;
+			}
+			var wanted = {};
+			if (effect.mask && typeof effect.mask === "object") {
+				window.VFXIR.maskSlots(effect.mask).forEach(function (slot) {
+					if (slot.deferred) {
+						return;
+					}
+					wanted[slot.name] = true;
+					if (inputIndex(node, slot.name) < 0 && typeof node.addInput === "function") {
+						var added = node.addInput(slot.name, "number");
+						if (added) {
+							added.color_on = groupColor("Mask");
+							added.color_off = added.color_on;
+						}
+					}
+				});
+			}
+			if (node.inputs && typeof node.removeInput === "function") {
+				for (var i = node.inputs.length - 1; i >= 0; i--) {
+					var name = node.inputs[i].name;
+					if (typeof name === "string" && name.indexOf("mask.") === 0 && !wanted[name]) {
+						node.removeInput(i);
+					}
+				}
+			}
+		});
+	}
+
+	/**
+	 * The mask sub-editor edit hook (design §13.1): the panel already mutated the effect's mask;
+	 * snapshot for undo, refresh the reserved sockets and recompile. A structural edit (shape/op/
+	 * leaf add/remove) rebuilds the panel; a value edit leaves it in place so the field keeps focus.
+	 *
+	 * @param {Object} tab the active tab
+	 * @param {boolean} structural whether the mask tree changed shape
+	 */
+	function onMaskChange(tab, structural) {
+		if (!tab) {
+			return;
+		}
+		scheduleCommitHistory();
+		syncMaskSockets(tab);
+		if (tab.type) {
+			requestStructural(tab);
+		}
+		if (structural) {
+			renderInspector();
+			renderTimeline();
 		}
 	}
 
@@ -2730,12 +2801,15 @@
 			return;
 		}
 		var descriptor = tab.type ? schema[tab.type] : null;
-		if (!descriptor || !descriptor.params || descriptor.params.length === 0) {
+		var supportsMask = Boolean(descriptor && descriptor.structural
+				&& descriptor.structural.supportsMask === true);
+		var params = descriptor && Array.isArray(descriptor.params) ? descriptor.params : [];
+		if (!params.length && !supportsMask) {
 			dom.inspector.appendChild(inspectorMessage(
 					tab.type ? "No editable parameters" : "Choose an effect type"));
 			return;
 		}
-		var params = descriptor.params;
+		if (params.length) {
 		// Collapse vector groups into one row (design §15.9.6/P4, fix #21): color_r/_g/_b -> `color`.
 		var rows = groupedParamRows(params);
 		var current = null;
@@ -2783,6 +2857,16 @@
 			var param = current.components[0];
 			dom.inspector.appendChild(window.VFXInspector.render(tab, param, onInspectorEdit,
 					drivenParamSource(tab, param.name), liveKindFor(tab, param.name)));
+		}
+		}
+		// Mask sub-editor (design §13.1): post effects only, gated by the schema's structural flag.
+		if (supportsMask && typeof window.VFXInspector.renderMask === "function") {
+			var maskSection = window.VFXInspector.renderMask(tab, descriptor, function (structural) {
+				onMaskChange(tab, structural);
+			});
+			if (maskSection) {
+				dom.inspector.appendChild(maskSection);
+			}
 		}
 	}
 
@@ -3371,6 +3455,9 @@
 				effect.persistent = entry.persistent === true;
 				effect.fade_ticks = num(entry.fade_ticks, 0);
 				effect.source = entry.source ? snapshot(entry.source) : null;
+				// Carry an imported mask into the editable IR (design §13.1), so it can be viewed and
+				// edited; `compileMask` re-emits it identically when untouched.
+				effect.mask = entry.source && entry.source.mask ? snapshot(entry.source.mask) : undefined;
 				// Keep the imported reference id so export can re-emit an external/built-in child as
 				// itself instead of renaming it to a local `__n` def (design §15.2 round-trip).
 				effect.effectId = entry.effectId == null ? null : String(entry.effectId);
@@ -3386,6 +3473,7 @@
 		} else {
 			var effect = tab.effects && tab.effects.length ? tab.effects[0] : tab.addEffect(def.type);
 			effect.type = def.type == null ? effect.type : String(def.type);
+			effect.mask = def.mask ? snapshot(def.mask) : undefined;
 			hydrateEffectParams(tab, effect, def.params, num(def.duration, tab.duration), drivers);
 			hydrateEffectGraph(tab, effect, def, used);
 		}

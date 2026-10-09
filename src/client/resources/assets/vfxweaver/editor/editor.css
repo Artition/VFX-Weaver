@@ -1680,3 +1680,46 @@ body {
 	font-size: 11px;
 	color: #ffe08a;
 }
+.vfx-mask-note {
+	margin: 4px 0;
+	font-size: 11px;
+	color: var(--vfx-text-dim);
+}
+.vfx-mask-leaf {
+	margin: 6px 0;
+	padding: 6px;
+	border: 1px solid var(--vfx-line, #333);
+	border-radius: 4px;
+}
+.vfx-mask-leaf.deferred {
+	opacity: 0.7;
+}
+.vfx-mask-leaf-head {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+}
+.vfx-mask-leaf-title {
+	flex: 1 1 auto;
+	font-size: 11px;
+	text-transform: uppercase;
+	letter-spacing: 0.04em;
+	color: var(--vfx-text-dim);
+}
+.vfx-mask-fields {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	margin-top: 4px;
+}
+.vfx-mask-op {
+	margin: 2px 0 2px 12px;
+}
+.vfx-mask-slot.driven > span {
+	color: var(--vfx-text-dim);
+}
+.vfx-mask-actions {
+	display: flex;
+	gap: 6px;
+	margin-top: 6px;
+}

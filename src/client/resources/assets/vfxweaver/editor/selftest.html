@@ -1114,6 +1114,67 @@ window.__vfxSelftest = function () {
 		eq(bigDef.graph.nodes[0].inputs.points.length, 64, "the point list is capped at 64");
 	});
 
+	test("(MASK1) a 2-leaf union mask emits the parser shape with p0/p1 slots", function () {
+		var tab = new VFXIR.Tab("blur", "blur");
+		tab.params.radius = VFXIR.ParamSpec.constant(0);
+		tab.effect().mask = { op: "union", a: { shape: "circle" }, b: { shape: "rect" } };
+		var def = parse(compileTab(tab));
+		eq(def.mask.op, "union", "mask op");
+		eq(def.mask.a.shape, "circle", "a shape");
+		eq(def.mask.b.shape, "rect", "b shape");
+		var slots = VFXIR.maskSlots(def.mask).map(function (slot) { return slot.name; });
+		["mask.p0.center_x", "mask.p0.center_y", "mask.p0.p0", "mask.p0.soft", "mask.p0.stroke",
+			"mask.p1.center_x", "mask.p1.center_y", "mask.p1.p0", "mask.p1.p1", "mask.p1.p2",
+			"mask.p1.soft", "mask.p1.stroke"].forEach(function (name) {
+			ok(slots.indexOf(name) >= 0, "slot " + name);
+		});
+		ok(slots.indexOf("mask.p0.center_z") < 0, "a screen leaf has no center_z");
+		ok(!Object.keys(def.params).some(function (name) { return name.indexOf("mask.") === 0; }),
+				"mask. is excluded from the normal params");
+	});
+
+	test("(MASK2) a wired mask slot emits {from} and stays out of params/inputs", function () {
+		var tab = new VFXIR.Tab("blur", "blur");
+		tab.params.radius = VFXIR.ParamSpec.constant(0);
+		tab.effect().mask = { shape: "circle" };
+		tab.valueNodes = [{ id: "v", kind: "constant", inputs: { value: 2 } }];
+		tab.edges = [{ from: "v", to: "mask.p0.p0" }];
+		var def = parse(compileTab(tab));
+		eq(def.mask.radius.from, "v", "radius is driven by the wired node");
+		eq(def.graph.nodes[0].id, "v", "the driver node is emitted into the graph");
+		ok(!Object.prototype.hasOwnProperty.call(def.params, "mask.p0.p0"), "mask param not in params");
+		ok(!def.inputs || !Object.prototype.hasOwnProperty.call(def.inputs, "mask.p0.p0"),
+				"mask param not in inputs");
+	});
+
+	test("(MASK3) the right composition operand is rejected; left nesting is allowed", function () {
+		ok(VFXIR.maskRightCompositionInvalid({ op: "union", a: { shape: "circle" },
+			b: { op: "intersection", a: { shape: "circle" }, b: { shape: "rect" } } }),
+				"a right-nested operand is flagged");
+		ok(!VFXIR.maskRightCompositionInvalid({ op: "union",
+			a: { op: "intersection", a: { shape: "circle" }, b: { shape: "rect" } }, b: { shape: "sky" } }),
+				"left nesting is allowed");
+	});
+
+	test("(MASK4) the mask affordance is post-effect only", function () {
+		ok(VFXIR.maskAffordance({ structural: { supportsMask: true, maskShapes: ["circle"] } }),
+				"a post effect offers the mask");
+		ok(!VFXIR.maskAffordance({ structural: { supportsMask: false, maskShapes: ["circle"] } }),
+				"a non-post effect offers no mask");
+		ok(!VFXIR.maskAffordance({}), "a descriptor without a structural section offers no mask");
+	});
+
+	test("(MASK5) an imported mask round-trips untouched", function () {
+		var tab = new VFXIR.Tab("blur", "blur");
+		tab.params.radius = VFXIR.ParamSpec.constant(0);
+		tab.source = { type: "blur", duration: 40,
+			mask: { shape: "sphere", space: "world", center: [1, 2, 3], radius: 5 } };
+		var def = parse(compileTab(tab));
+		eq(def.mask.shape, "sphere", "imported shape carried");
+		eq(def.mask.radius, 5, "imported literal carried");
+		eq(JSON.stringify(def.mask.center), JSON.stringify([1, 2, 3]), "imported centre carried");
+	});
+
 	return results;
 };
 /* SELFTEST:END */

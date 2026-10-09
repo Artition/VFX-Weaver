@@ -346,6 +346,13 @@ public final class VFXEffectSchema {
 			final Map<String, Object> descriptorJson = new LinkedHashMap<>();
 			descriptorJson.put("params", descriptor.params());
 			descriptorJson.put("post", descriptor.post());
+			// Additive structural section (design §13.1): the mask affordance and the shape ids the
+			// editor's shape combo is populated from. Existing keys are unchanged.
+			final VFXStructuralDescriptor structural = descriptor.structural();
+			final Map<String, Object> structuralJson = new LinkedHashMap<>();
+			structuralJson.put("supportsMask", structural.supportsMask());
+			structuralJson.put("maskShapes", structural.maskShapes());
+			descriptorJson.put("structural", structuralJson);
 			root.put(descriptor.type().getName(), descriptorJson);
 		}
 		root.put("bind", bindSection());
