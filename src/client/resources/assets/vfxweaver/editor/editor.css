@@ -629,6 +629,11 @@ body {
 	border-left: 1px solid var(--vfx-border);
 	overflow-y: auto;
 	min-height: 0;
+	/* Grid items default to min-width:auto, so wide rows (layer buttons, long ids) forced the
+	   whole column past the viewport at 100% zoom (cut off on the right; 75% fit by luck).
+	   Keep the column width and shrink/clip inside instead. */
+	min-width: 0;
+	overflow-x: hidden;
 	/* Uniform inner padding for every section (fix H3): sections no longer carry their own
 	   horizontal padding, so text and inputs never sit flush against the panel borders. */
 	padding: 10px 12px 12px;
@@ -829,6 +834,9 @@ body {
 	border-radius: 4px;
 	padding: 3px 6px;
 	font: inherit;
+	/* Never force the inspector column wider than it is (see #vfx-inspector note). */
+	max-width: 100%;
+	box-sizing: border-box;
 	min-width: 0;
 }
 
