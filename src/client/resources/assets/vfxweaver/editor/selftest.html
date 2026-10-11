@@ -1711,6 +1711,22 @@ window.__vfxSelftest = function () {
 		eq(def.graph.nodes[0].inputs.speed, 2, "instance binding kept");
 	});
 
+	test("(SG5) instance resolves a macro carried on a child source (collection import)", function () {
+		var macro = { id: "m1", inputs: { amount: 0 },
+			nodes: [{ id: "a", kind: "constant", inputs: { value: 1 } }],
+			edges: [], outputs: { out: "a", amount: "a" } };
+		var tab = new VFXIR.Tab("pulse", "pulse");
+		var effect = tab.addEffect("pulse");
+		effect.source = { type: "pulse", subgraphs: [macro] };
+		tab.subgraphs = [];
+		var found = VFXIR.subgraphById(tab, "m1");
+		ok(found && found.id === "m1", "child-carried macro resolves for the canvas");
+		eq(VFXIR.subgraphById(tab, "nope"), null, "an unknown macro still misses");
+		tab.subgraphs = [{ id: "m1", inputs: {}, nodes: [], edges: [], outputs: {} }];
+		ok(VFXIR.subgraphById(tab, "m1") === tab.subgraphs[0],
+				"the authored tab.subgraphs layer wins over a carried child macro");
+	});
+
 	return results;
 };
 /* SELFTEST:END */

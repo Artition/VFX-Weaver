@@ -293,9 +293,10 @@
 				outSlot.color_off = FLOW_COLOR;
 			}
 			// A post effect offers a Mask attachment (design §13.1): the schema's structural flag
-			// gates it, so a world/camera effect never shows a mask port.
+			// gates it, so a world/camera effect never shows a mask port. The port is an input
+			// the Mask root feeds (purely visual: the tree resolves via effectId).
 			if (descriptor && descriptor.structural && descriptor.structural.supportsMask === true) {
-				var maskSlot = this.addOutput("mask", "*");
+				var maskSlot = this.addInput("mask", "*");
 				if (maskSlot) {
 					maskSlot.color_on = groupColor("Mask");
 					maskSlot.color_off = maskSlot.color_on;
@@ -401,13 +402,13 @@
 
 	/**
 	 * A `Mask` canvas node (design §13.1): the root of an effect's mask tree. It owns the `invert`
-	 * and `space` fields, one `op` combo per composition join, and an attachment port the effect
-	 * node's `mask` output links to. The leaf list lives on the `MaskLeaf` child nodes.
+	 * and `space` fields, one `op` combo per composition join, and an attachment output the owning
+	 * effect node's `mask` input links from. The leaf list lives on the `MaskLeaf` child nodes.
 	 */
 	function makeMaskNode() {
 		function MaskNode() {
 			this.properties = { maskRole: "mask", effectId: null };
-			this.addInput("mask", "*");
+			this.addOutput("mask", "*");
 			this.addOutput("leaf", "*");
 			this.size = [200, 90];
 		}
@@ -507,7 +508,11 @@
 				rebuildFieldLeaf(self);
 				scheduleGraphEdit(self.__tab);
 			}, { values: fieldFnIds() });
-			this.addOutput("field", FIELD_LINK);
+			// A wildcard output: the root links into a fieldCapable effect socket (typed by the
+			// param, e.g. `number`), and LiteGraph refuses a `field`->`number` wire — the field
+			// tree itself is still read from the link's origin (see syncFieldTrees), so the type
+			// carries no semantics.
+			this.addOutput("field", "*");
 		}
 		FieldLeafNode.title = "Field";
 		FieldLeafNode.desc = "VFXweaver per-pixel field leaf (links to a field-capable socket)";
@@ -528,7 +533,9 @@
 				syncFieldOpInputs(self);
 				scheduleGraphEdit(self.__tab);
 			}, { values: fieldOpList().map(function (spec) { return String(spec.id); }) });
-			this.addOutput("field", FIELD_LINK);
+			// Wildcard output, like the leaf: the op root links into a fieldCapable effect
+			// socket, whose type is the param's (see the leaf constructor).
+			this.addOutput("field", "*");
 		}
 		FieldOpNode.title = "FieldOp";
 		FieldOpNode.desc = "VFXweaver field composition (links to a field-capable socket)";
@@ -2426,7 +2433,9 @@
 			var output = originOutput(origin, link.origin_slot);
 			if (isEffectNode(target)) {
 				var param = target.inputs ? target.inputs[link.target_slot] : null;
-				if (param && param.name !== "in") {
+				// The `mask` attachment port is a cosmetic Mask-root wire (it resolves via
+				// effectId), never a param edge — same skip as the field-tree reader below.
+				if (param && param.name !== "in" && param.name !== "mask") {
 					var edge = { from: from, to: param.name };
 					if (output != null) {
 						edge.output = output;
@@ -3035,6 +3044,9 @@
 
 	/** The param shown in the inspector, by name; reset when it is not on the active tab. */
 	var inspectorName = null;
+
+	/** Collapsed inspector chip-group sections, keyed by `type + "/" + group`; survives re-renders. */
+	var paramGroupCollapsed = {};
 
 	/** The snapshot undo/redo stack (ir.js `SnapshotHistory`); created lazily once ir.js has loaded. */
 	var stack = null;
@@ -3680,10 +3692,10 @@
 				// Attach the tree to the effect node (cosmetic port links; the compiler reads `mask.` edges).
 				var effectNode = nodeForEffect(tab, effect.id);
 				if (effectNode) {
-					var port = outputIndex(effectNode, "mask");
-					var into = inputIndex(maskNode, "mask");
+					var port = outputIndex(maskNode, "mask");
+					var into = inputIndex(effectNode, "mask");
 					if (port >= 0 && into >= 0) {
-						effectNode.connect(port, maskNode, into);
+						maskNode.connect(port, effectNode, into);
 					}
 				}
 				// Daisy-chain the composition leaf(a) -> op -> leaf(b): the Mask root (which owns
@@ -4262,26 +4274,38 @@
 		}
 		if (params.length) {
 		// Collapse vector groups into one row (design §15.9.6/P4, fix #21): color_r/_g/_b -> `color`.
-		var rows = groupedParamRows(params);
+		// The rows are then partitioned into the schema's parameter groups (ParamGroups): one
+		// collapsible chip section per group, through the inspector's grouping API — no per-type
+		// branch, groups come from the schema. An effect without group metadata renders one flat
+		// section, exactly as before.
+		var sections = typeof window.VFXInspector.paramSections === "function"
+				? window.VFXInspector.paramSections(params)
+				: [{ group: "", label: "", params: params }];
+		var sectionRows = sections.map(function (section) {
+			return { group: section.group, label: section.label, rows: groupedParamRows(section.params) };
+		});
+		var allRows = [];
+		sectionRows.forEach(function (entry) {
+			allRows = allRows.concat(entry.rows);
+		});
 		var current = null;
-		for (var i = 0; i < rows.length; i++) {
-			if (rows[i].name === inspectorName
-					|| rows[i].components.some(function (component) { return component.name === inspectorName; })) {
-				current = rows[i];
+		for (var i = 0; i < allRows.length; i++) {
+			if (allRows[i].name === inspectorName
+					|| allRows[i].components.some(function (component) { return component.name === inspectorName; })) {
+				current = allRows[i];
 				break;
 			}
 		}
 		if (!current) {
-			current = rows[0];
+			current = allRows[0];
 			inspectorName = current.name;
 		}
 		var heading = document.createElement("h2");
 		heading.textContent = "Inspector";
 		dom.inspector.appendChild(heading);
 
-		var chooser = document.createElement("div");
-		chooser.className = "vfx-params";
-		rows.forEach(function (row) {
+		/** One param chip: the active/driven/live badges, selecting re-renders the detail. */
+		var makeChip = function (row) {
 			var source = row.group
 					? (row.components.some(function (component) { return drivenParamSource(tab, component.name); })
 							? "group" : null)
@@ -4299,9 +4323,68 @@
 				inspectorName = row.name;
 				renderInspector();
 			});
-			chooser.appendChild(item);
-		});
-		dom.inspector.appendChild(chooser);
+			return item;
+		};
+		if (sections.length === 1 && !sections[0].group) {
+			var chooser = document.createElement("div");
+			chooser.className = "vfx-params";
+			allRows.forEach(function (row) {
+				chooser.appendChild(makeChip(row));
+			});
+			dom.inspector.appendChild(chooser);
+		} else {
+			var typeKey = tab && tab.type ? tab.type : "";
+			sectionRows.forEach(function (entry) {
+				var key = typeKey + "/" + entry.group;
+				var collapsed = Boolean(paramGroupCollapsed[key]);
+				var block = document.createElement("div");
+				block.className = "vfx-param-group";
+				var head = document.createElement("div");
+				head.className = "vfx-param-group-head";
+				var toggle = document.createElement("button");
+				toggle.type = "button";
+				toggle.className = "vfx-param-group-toggle";
+				toggle.textContent = collapsed ? "▸" : "▾";
+				toggle.title = "Show the params in this group";
+				var name = document.createElement("span");
+				name.className = "vfx-inspect-name";
+				name.textContent = entry.label;
+				var paramCount = 0;
+				entry.rows.forEach(function (row) {
+					paramCount += row.components.length;
+				});
+				var count = document.createElement("span");
+				count.className = "vfx-param-group-count";
+				count.textContent = paramCount + (paramCount === 1 ? " param" : " params");
+				head.appendChild(toggle);
+				head.appendChild(name);
+				head.appendChild(count);
+				var body = document.createElement("div");
+				body.className = "vfx-param-group-content";
+				var refreshSection = function () {
+					body.textContent = "";
+					if (!collapsed) {
+						var groupChooser = document.createElement("div");
+						groupChooser.className = "vfx-params";
+						entry.rows.forEach(function (row) {
+							groupChooser.appendChild(makeChip(row));
+						});
+						body.appendChild(groupChooser);
+					}
+				};
+				toggle.addEventListener("click", function (event) {
+					event.preventDefault();
+					collapsed = !collapsed;
+					paramGroupCollapsed[key] = collapsed;
+					toggle.textContent = collapsed ? "▸" : "▾";
+					refreshSection();
+				});
+				refreshSection();
+				block.appendChild(head);
+				block.appendChild(body);
+				dom.inspector.appendChild(block);
+			});
+		}
 		if (current.group && typeof window.VFXInspector.renderGroup === "function") {
 			dom.inspector.appendChild(window.VFXInspector.renderGroup(tab, current, onInspectorEdit));
 		} else {

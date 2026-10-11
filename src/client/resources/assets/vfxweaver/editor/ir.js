@@ -2151,6 +2151,20 @@
 				return list[i];
 			}
 		}
+		// A collection import carries each child's macros on its own carried source (the root
+		// has none), so an instance still resolves for the canvas when only a child file
+		// defines it. Read-only fallback: the authored `tab.subgraphs` layer above always wins,
+		// and nothing here mutates the tab, so the compiler's emit is untouched.
+		var effects = tab && Array.isArray(tab.effects) ? tab.effects : [];
+		for (var e = 0; e < effects.length; e++) {
+			var source = effects[e] && effects[e].source;
+			var carried = source && Array.isArray(source.subgraphs) ? source.subgraphs : [];
+			for (var c = 0; c < carried.length; c++) {
+				if (carried[c] && carried[c].id === id) {
+					return carried[c];
+				}
+			}
+		}
 		return null;
 	}
 
@@ -2623,7 +2637,8 @@
 			}
 		});
 		(tab && Array.isArray(tab.valueNodes) ? tab.valueNodes : []).forEach(function (node) {
-			if (node && node.kind === "subgraph" && node.subgraph != null && !known[node.subgraph]) {
+			if (node && node.kind === "subgraph" && node.subgraph != null && !known[node.subgraph]
+					&& subgraphById(tab, node.subgraph) == null) {
 				out.push({ reason: "unknown-subgraph", node: node.id, macro: node.subgraph });
 			}
 		});

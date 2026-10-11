@@ -675,6 +675,39 @@ body {
 	border-color: var(--vfx-accent);
 }
 
+.vfx-param-group {
+	padding-bottom: 6px;
+}
+
+.vfx-param-group-head {
+	display: flex;
+	align-items: baseline;
+	gap: 6px;
+	padding: 2px 0;
+}
+
+.vfx-param-group-toggle {
+	padding: 0 5px;
+	background: transparent;
+	color: var(--vfx-text-dim);
+	border: none;
+	cursor: pointer;
+	font: inherit;
+}
+
+.vfx-param-group-toggle:hover {
+	color: var(--vfx-text);
+}
+
+.vfx-param-group-count {
+	font-size: 11px;
+	color: var(--vfx-text-dim);
+}
+
+.vfx-param-group-content .vfx-params {
+	padding-bottom: 4px;
+}
+
 .vfx-inspector {
 	padding: 0;
 }
