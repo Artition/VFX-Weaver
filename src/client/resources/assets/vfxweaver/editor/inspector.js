@@ -1914,7 +1914,7 @@
 	 * multi-line string for pasting from devtools. Pure: `info` is plain data, no DOM read here.
 	 *
 	 * @param {Object} info `{name, type, effects, edges:[{from,to,input,output,effect}],
-	 * canvasNodes, canvasLinks, valueNodes, fieldKeys, instanceIds, hidden, sections, schemaGroups,
+	 * canvasNodes, canvasLinks, valueNodes, fieldKeys, instanceIds, hidden, ports, sections, schemaGroups,
 	 * anomalies:[string]}`
 	 * @returns {string} the multi-line report
 	 */
@@ -1943,6 +1943,11 @@
 				+ "; instances: [" + (Array.isArray(data.instanceIds) ? data.instanceIds : []).join(", ") + "]");
 		var fields = Array.isArray(data.fieldKeys) ? data.fieldKeys : [];
 		lines.push("fields: " + (fields.length ? fields.join(", ") : "(none)"));
+		var ports = data.ports && typeof data.ports === "object" ? data.ports : {};
+		lines.push("ports: " + ["flow", "number", "mask", "field",
+				"macro", "bind", "expr", "time"].map(function (port) {
+			return port + "=" + (ports[port] || 0);
+		}).join(" "));
 		var hidden = Array.isArray(data.hidden) ? data.hidden : [];
 		if (hidden.length) {
 			lines.push("hidden sockets: " + hidden.map(function (entry) {

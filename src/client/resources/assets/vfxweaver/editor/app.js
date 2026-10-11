@@ -253,17 +253,108 @@
 	/* Schema -> node types                                                */
 	/* ------------------------------------------------------------------ */
 
-	/** The socket type/colour hint for a param descriptor. */
-	function socketType(param) {
-		return param && param.kind ? String(param.kind).toLowerCase() : "number";
+	/**
+	 * DaVinci-style typed ports, fixed in ONE table (§13.6.1): every canvas socket
+	 * carries a visual port (its dot color + shape, so the type reads before any
+	 * label) derived from existing metadata only — param kind, socket role, node
+	 * kind — never per-effect branches or hardcoded effect lists. Colors reuse the
+	 * group palette + FLOW_COLOR, so no new hues; shapes mark the structural
+	 * families (chain/tree/mask) while every numeric driver keeps the default
+	 * circle and its color carries the exact type.
+	 */
+	var FLOW_COLOR = "#8fb3ff";
+	var PORT_TYPES = {
+		flow: { color: FLOW_COLOR, shape: "BOX_SHAPE" },
+		number: { color: "#4f9dff", shape: "" },
+		mask: { color: "#b48cff", shape: "GRID_SHAPE" },
+		field: { color: "#6dd36d", shape: "ARROW_SHAPE" },
+		macro: { color: "#ffb454", shape: "" },
+		bind: { color: "#4fd6d6", shape: "" },
+		expr: { color: "#ff6b9d", shape: "" },
+		time: { color: "#ff8a5c", shape: "" }
+	};
+
+	/** The LiteGraph wire type of the flow chain ports (effect `in`/`out`). */
+	var FLOW_LINK = "flow";
+
+	/** The LiteGraph wire type of the mask attachment (effect `mask` + Mask root). */
+	var MASK_LINK = "mask";
+
+	/**
+	 * The LiteGraph wire type of an effect param socket, from its schema metadata
+	 * (param kind and flags, never the effect): every numeric kind (FLOAT/INT/BOOL/
+	 * ENUM/COLOR_RGB/POSITION) shares "number", and a fieldCapable param additionally
+	 * accepts "field" — the gate syncFieldTrees enforces, so a materialised field
+	 * tree (root.connect into exactly these sockets) always lands. Driver outputs
+	 * stay the "*" wildcard (0d02e11), so every legal driver still connects.
+	 *
+	 * @param {Object} param the schema param descriptor
+	 * @returns {string} the wire type
+	 */
+	function socketWireType(param) {
+		if (param && param.fieldCapable === true) {
+			return "number,field";
+		}
+		return "number";
 	}
 
 	/**
-	 * Build a LiteGraph node constructor for one effect type: one input socket per
-	 * declared param, its colour keyed to the param's `group` (a lightweight visual
-	 * grouping). Value widgets and the inspector are Tasks 13-16.
+	 * The visual port of a value-graph kind output, from its static VALUE_KINDS spec
+	 * (bind/expr drivers, time/curve drivers, macro boundary, plain number).
+	 *
+	 * @param {string} kind the value-node kind
+	 * @param {Object} [spec] the VALUE_KINDS entry
+	 * @returns {string} the PORT_TYPES key
 	 */
-	var FLOW_COLOR = "#8fb3ff";
+	function valuePortForKind(kind, spec) {
+		if (spec && spec.bind) {
+			return "bind";
+		}
+		if (spec && spec.expr) {
+			return "expr";
+		}
+		if (spec && spec.subgraph) {
+			return "macro";
+		}
+		if (kind === "time" || (spec && spec.curve)) {
+			return "time";
+		}
+		return "number";
+	}
+
+	/** The LiteGraph slot-shape constant of a port, or 0 (the default circle). Headless-safe. */
+	function portShape(port) {
+		var entry = PORT_TYPES[port];
+		var key = entry ? entry.shape : "";
+		if (key && typeof LiteGraph !== "undefined" && LiteGraph && LiteGraph[key]) {
+			return LiteGraph[key];
+		}
+		return 0;
+	}
+
+	/**
+	 * Paint a socket with its port's color + shape. The only writer of color_on/off
+	 * on real ports (group headers keep groupColor, the eye keeps EYE_COLOR); stamps
+	 * `__port` so diag can count sockets per type without re-deriving it.
+	 *
+	 * @param {Object} slot the LiteGraph slot
+	 * @param {string} port the PORT_TYPES key
+	 */
+	function paintPort(slot, port) {
+		if (!slot) {
+			return;
+		}
+		var key = Object.prototype.hasOwnProperty.call(PORT_TYPES, port) ? port : "number";
+		slot.color_on = PORT_TYPES[key].color;
+		slot.color_off = PORT_TYPES[key].color;
+		var shape = portShape(key);
+		if (shape) {
+			slot.shape = shape;
+		} else if (slot.shape !== undefined) {
+			delete slot.shape;
+		}
+		slot.__port = key;
+	}
 
 	/**
 	 * Build a LiteGraph node constructor for one effect type: a flow `in`/`out` pair (design §15.2,
@@ -274,33 +365,21 @@
 		var params = (descriptor && descriptor.params) || [];
 
 		function EffectNode() {
-			var inSlot = this.addInput("in", "flow");
-			if (inSlot) {
-				inSlot.color_on = FLOW_COLOR;
-				inSlot.color_off = FLOW_COLOR;
-			}
+			var inSlot = this.addInput("in", FLOW_LINK);
+			paintPort(inSlot, "flow");
 			for (var i = 0; i < params.length; i++) {
 				var param = params[i];
-				var slot = this.addInput(param.name, socketType(param));
-				if (slot) {
-					slot.color_on = groupColor(param.group);
-					slot.color_off = slot.color_on;
-				}
+				var slot = this.addInput(param.name, socketWireType(param));
+				paintPort(slot, "number");
 			}
-			var outSlot = this.addOutput("out", "flow");
-			if (outSlot) {
-				outSlot.color_on = FLOW_COLOR;
-				outSlot.color_off = FLOW_COLOR;
-			}
+			var outSlot = this.addOutput("out", FLOW_LINK);
+			paintPort(outSlot, "flow");
 			// A post effect offers a Mask attachment (design §13.1): the schema's structural flag
 			// gates it, so a world/camera effect never shows a mask port. The port is an input
 			// the Mask root feeds (purely visual: the tree resolves via effectId).
 			if (descriptor && descriptor.structural && descriptor.structural.supportsMask === true) {
-				var maskSlot = this.addInput("mask", "*");
-				if (maskSlot) {
-					maskSlot.color_on = groupColor("Mask");
-					maskSlot.color_off = maskSlot.color_on;
-				}
+				var maskSlot = this.addInput("mask", MASK_LINK);
+				paintPort(maskSlot, "mask");
 			}
 			this.properties = { effectType: typeName, fieldCapable: params.filter(function (param) {
 				return param && param.fieldCapable === true;
@@ -632,9 +711,8 @@
 					slot.color_off = slot.color_on;
 				} else if (paramsByName[name]) {
 					var param = paramsByName[name];
-					slot = { name: name, type: socketType(param), link: null };
-					slot.color_on = groupColor(param.group);
-					slot.color_off = slot.color_on;
+					slot = { name: name, type: socketWireType(param), link: null };
+					paintPort(slot, "number");
 				} else {
 					return;
 				}
@@ -879,9 +957,11 @@
 	 * Reveal every hidden socket while a link drags (Blender highlights its drop targets):
 	 * the vendored litegraph.js offers no link-drag event (only the `connecting_*` canvas
 	 * state set in `processMouseDown` and cleared in `processMouseUp`), so the boot wrap
-	 * shows all on drag-start and restores on drop/cancel. Compatibility filtering is
-	 * skipped — effect sockets are all numeric wildcards, so every hidden socket is a valid
-	 * target. ESC-cancel without a mouseup keeps the reveal until the next click.
+	 * shows all on drag-start and restores on drop/cancel. Compatibility filtering needs
+	 * no custom hook: the bundle already dims incompatible slots while dragging (alpha
+	 * 0.4 via `isValidConnection`) and refuses the drop, so typed ports (flow/mask/field)
+	 * highlight their legal targets for free and "*" wildcard outputs keep matching all.
+	 * ESC-cancel without a mouseup keeps the reveal until the next click.
 	 */
 	function beginLinkReveal() {
 		if (linkDragReveal) {
@@ -1095,7 +1175,7 @@
 	function makeMaskNode() {
 		function MaskNode() {
 			this.properties = { maskRole: "mask", effectId: null };
-			this.addOutput("mask", "*");
+			paintPort(this.addOutput("mask", MASK_LINK), "mask");
 			this.size = [200, 90];
 			this.onDblClick = onNodeTitleDblClick;
 		}
@@ -1194,11 +1274,12 @@
 				rebuildFieldLeaf(self);
 				scheduleGraphEdit(self.__tab);
 			}, { values: fieldFnIds() });
-			// A wildcard output: the root links into a fieldCapable effect socket (typed by the
-			// param, e.g. `number`), and LiteGraph refuses a `field`->`number` wire — the field
-			// tree itself is still read from the link's origin (see syncFieldTrees), so the type
-			// carries no semantics.
-			this.addOutput("field", "*");
+			// A field-typed output: the root links into a fieldCapable effect socket
+			// (wired "number,field", see socketWireType); anything else dims while
+			// dragging and is refused on drop. The tree itself is still read from the
+			// link's origin (see syncFieldTrees).
+			this.addOutput("field", FIELD_LINK);
+			paintPort(this.outputs[this.outputs.length - 1], "field");
 			this.onDblClick = onNodeTitleDblClick;
 		}
 		FieldLeafNode.title = "Field";
@@ -1212,7 +1293,9 @@
 			this.properties = { fieldRole: "op", op: "multiply", effectId: null };
 			this.size = [170, 90];
 			this.addInput("a", FIELD_LINK);
+			paintPort(this.inputs[this.inputs.length - 1], "field");
 			this.addInput("b", FIELD_LINK);
+			paintPort(this.inputs[this.inputs.length - 1], "field");
 			var self = this;
 			this.__widgets = {};
 			this.__widgets.op = this.addWidget("combo", "op", "multiply", function (v) {
@@ -1220,9 +1303,10 @@
 				syncFieldOpInputs(self);
 				scheduleGraphEdit(self.__tab);
 			}, { values: fieldOpList().map(function (spec) { return String(spec.id); }) });
-			// Wildcard output, like the leaf: the op root links into a fieldCapable effect
-			// socket, whose type is the param's (see the leaf constructor).
-			this.addOutput("field", "*");
+			// Field-typed output, like the leaf: the op root links into a fieldCapable effect
+			// socket or a parent field_op input (see the leaf constructor).
+			this.addOutput("field", FIELD_LINK);
+			paintPort(this.outputs[this.outputs.length - 1], "field");
 			this.onDblClick = onNodeTitleDblClick;
 		}
 		FieldOpNode.title = "FieldOp";
@@ -1247,7 +1331,7 @@
 				? vfxir.fieldOpArity(node.properties.op) : 2;
 		var at = inputIndex(node, "factor");
 		if (arity === 3 && at < 0) {
-			node.addInput("factor", FIELD_LINK);
+			paintPort(node.addInput("factor", FIELD_LINK), "field");
 		} else if (arity !== 3 && at >= 0 && typeof node.removeInput === "function") {
 			node.removeInput(at);
 		}
@@ -2208,7 +2292,7 @@
 
 	/** A per-node numeric input: a socket that also carries a literal widget value. */
 	function addNumericInput(node, name, value) {
-		node.addInput(name, "number");
+		paintPort(node.addInput(name, "number"), "number");
 		node.properties.inputs[name] = value;
 		var widget = node.addWidget("number", name, value, function (v) {
 			node.properties.inputs[name] = v;
@@ -2626,6 +2710,9 @@
 				initSwitch(this);
 			}
 			this.addOutput("out", "*");
+			// The wire stays the universal wildcard (every legal target still lands);
+			// the dot paints the driver family (bind/expr/time/macro/number).
+			paintPort(this.outputs[this.outputs.length - 1], valuePortForKind(kind, spec));
 			if (spec.bind) {
 				refreshBindOutput(this);
 			}
@@ -3458,7 +3545,7 @@
 		var values = ir.inputs || {};
 		var self = node;
 		params.forEach(function (name) {
-			self.addInput(name, "number");
+			paintPort(self.addInput(name, "number"), "macro");
 			var value = values[name];
 			if (isRef(value)) {
 				var ref = { from: value.from, input: name };
@@ -3487,11 +3574,11 @@
 			self.__widgets[name] = widget;
 		});
 		outputs.forEach(function (name) {
-			// Wildcard like every other value/field output: effect sockets are typed by
-			// param kind ("float", ...) and LiteGraph refuses a "number"->"float" wire,
-			// which left macro->effect edges undrawable (the compiler reads IR, so the
-			// type carries no semantics on canvas).
-			self.addOutput(name, "*");
+			// Wildcard output with a macro-painted dot: effect sockets are wired
+			// "number" while structural ports take "flow"/"mask"/"field", so every
+			// legal driver still lands and mismatched drops dim while dragging
+			// (dot family, see valuePortForKind).
+			paintPort(self.addOutput(name, "*"), "macro");
 		});
 		node.setSize(node.computeSize());
 	}
@@ -4367,8 +4454,7 @@
 		}
 		var added = node.addInput(name, "number");
 		if (added) {
-			added.color_on = groupColor("Mask");
-			added.color_off = added.color_on;
+			paintPort(added, "mask");
 		}
 		return inputIndex(node, name);
 	}
@@ -4513,11 +4599,7 @@
 			}
 			node.__maskSlots.push(slot.name);
 			node.__kindSpec.sockets.push(slot.name);
-			var input = node.addInput(slot.name, "number");
-			if (input) {
-				input.color_on = groupColor("Mask");
-				input.color_off = input.color_on;
-			}
+			paintPort(node.addInput(slot.name, "number"), "mask");
 			node.properties.inputs[slot.name] = slot.defaultValue;
 			node.__widgets[slot.name] = node.addWidget("number", maskSlotLabel(slot),
 					slot.defaultValue, function (v) {
@@ -4724,8 +4806,7 @@
 					if (inputIndex(node, slot.name) < 0 && typeof node.addInput === "function") {
 						var added = node.addInput(slot.name, "number");
 						if (added) {
-							added.color_on = groupColor("Mask");
-							added.color_off = added.color_on;
+							paintPort(added, "mask");
 						}
 					}
 				});
@@ -7391,6 +7472,14 @@
 		}, { className: "vfx-modal-wide" });
 	}
 
+	// Render the per-port socket counts for diag (`flow=2 number=14 ...`, table order).
+	function formatPorts(ports) {
+		var counts = ports && typeof ports === "object" ? ports : {};
+		return Object.keys(PORT_TYPES).map(function (port) {
+			return port + "=" + (counts[port] || 0);
+		}).join(" ");
+	}
+
 	/**
 	 * A read-only diagnostic of the active tab for pasting from devtools (no DOM/state mutation):
 	 * tab name/type, IR edge list, canvas/value-node counts, field keys, instance ids, inspector
@@ -7518,6 +7607,19 @@
 						animated: info.animated });
 			}
 		});
+		var ports = {};
+		nodes.forEach(function (node) {
+			(node.inputs || []).forEach(function (slot) {
+				if (slot && slot.__port) {
+					ports[slot.__port] = (ports[slot.__port] || 0) + 1;
+				}
+			});
+			(node.outputs || []).forEach(function (slot) {
+				if (slot && slot.__port) {
+					ports[slot.__port] = (ports[slot.__port] || 0) + 1;
+				}
+			});
+		});
 		var info = {
 			name: tab.name,
 			type: tab.type,
@@ -7528,6 +7630,7 @@
 			valueNodes: (tab.valueNodes || []).length,
 			fieldKeys: fieldKeys,
 			instanceIds: instanceIds,
+			ports: ports,
 			hidden: hidden,
 			sections: rendered,
 			schemaGroups: schemaGroups,
@@ -7536,7 +7639,8 @@
 		if (window.VFXInspector && typeof window.VFXInspector.formatDiag === "function") {
 			return window.VFXInspector.formatDiag(info);
 		}
-		return "tab: " + info.name + " (type: " + info.type + ")\n" + anomalies.join("\n");
+		return "tab: " + info.name + " (type: " + info.type + ")\n" + anomalies.join("\n")
+				+ "\nports: " + formatPorts(info.ports);
 	}
 
 	var VFXEditor = {
@@ -7613,6 +7717,20 @@
 			eyeAt: effectEyeAt,
 			isEye: isEyeSlot,
 			hiddenInfo: effectHiddenInfo
+		},
+		// Headless test seam for typed ports (same runner): the fixed type table, the
+		// metadata mappers behind every socket, the painter and the wire constants.
+		ports: {
+			types: PORT_TYPES,
+			wireForParam: socketWireType,
+			visualForKind: valuePortForKind,
+			shape: portShape,
+			paint: paintPort,
+			format: formatPorts,
+			flow: FLOW_LINK,
+			mask: MASK_LINK,
+			field: FIELD_LINK,
+			wildcard: "*"
 		}
 	};
 	Object.defineProperty(VFXEditor, "graph", {
@@ -8584,6 +8702,11 @@
 		resizeCanvas();
 		scene = new LiteGraph.LGraphCanvas(dom.canvas, new LiteGraph.LGraph());
 		scene.graph.config.links_ontop = true;
+		// Tint wires by port type (DaVinci-style: the link reads typed even before its
+		// endpoints do). Keyed by origin wire type; "*" wildcard links keep the default.
+		LiteGraph.LGraphCanvas.link_type_colors[FLOW_LINK] = PORT_TYPES.flow.color;
+		LiteGraph.LGraphCanvas.link_type_colors[FIELD_LINK] = PORT_TYPES.field.color;
+		LiteGraph.LGraphCanvas.link_type_colors[MASK_LINK] = PORT_TYPES.mask.color;
 		// Hovering a connection highlights it (white + slightly thicker) so a dense chain is readable.
 		// LiteGraph tracks the hovered link in `over_link_center` but only coloured it in the tooltip;
 		// wrap `renderLink` once (guarded) rather than editing the vendored library.

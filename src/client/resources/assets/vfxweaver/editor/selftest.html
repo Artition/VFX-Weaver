@@ -1864,6 +1864,15 @@ window.__vfxSelftest = function () {
 		ok(text.indexOf("OK:") < 0, "no clean verdict alongside anomalies");
 	});
 
+	test("(D3) formatDiag renders the per-port socket counts", function () {
+		var text = window.VFXInspector.formatDiag({ name: "t", type: "dent", effects: 1, edges: [],
+			canvasNodes: 1, canvasLinks: 0, valueNodes: 0, fieldKeys: [], instanceIds: [],
+			ports: { flow: 2, number: 5, mask: 1, field: 3 },
+			sections: 1, schemaGroups: 1, anomalies: [] });
+		ok(text.indexOf("ports: flow=2 number=5 mask=1 field=3 macro=0 bind=0 expr=0 time=0") >= 0,
+				"ports line in table order with zeros");
+	});
+
 	return results;
 };
 /* SELFTEST:END */

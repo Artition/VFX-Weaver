@@ -369,6 +369,187 @@ function makeBigNode(id) {
 	check(hide.eyeAt(node, [120, -4]) === false, "title bar misses the eye");
 })();
 
+/* Typed ports (the VFXEditor.ports seam): one table, metadata-derived paint. */
+
+(function () {
+	var ports = global.VFXEditor.ports;
+	check(!!ports, "ports seam exposed");
+	check(JSON.stringify(Object.keys(ports.types).sort()) === JSON.stringify(["bind", "expr",
+			"field", "flow", "macro", "mask", "number", "time"]), "eight fixed port types");
+	Object.keys(ports.types).forEach(function (key) {
+		var entry = ports.types[key];
+		check(typeof entry.color === "string" && /^#[0-9a-f]{6}$/.test(entry.color),
+				"port " + key + " has a hex color");
+		check(typeof entry.shape === "string", "port " + key + " names a shape");
+	});
+	check(ports.types.flow.shape === "BOX_SHAPE"
+			&& ports.types.field.shape === "ARROW_SHAPE"
+			&& ports.types.mask.shape === "GRID_SHAPE", "structural ports carry shapes");
+	check(ports.types.number.shape === "" && ports.types.macro.shape === ""
+			&& ports.types.bind.shape === "" && ports.types.expr.shape === ""
+			&& ports.types.time.shape === "", "numeric drivers stay circles");
+	check(ports.flow === "flow" && ports.mask === "mask" && ports.field === "field"
+			&& ports.wildcard === "*", "wire constants exposed");
+})();
+
+(function () {
+	var ports = global.VFXEditor.ports;
+	["FLOAT", "INT", "BOOL", "ENUM", "COLOR_RGB", "POSITION", "float", undefined, null]
+			.forEach(function (kind) {
+		check(ports.wireForParam({ kind: kind }) === "number",
+				"kind " + String(kind) + " wires number");
+	});
+	check(ports.wireForParam({ kind: "FLOAT", fieldCapable: true }) === "number,field",
+			"a fieldCapable param also accepts field");
+	check(ports.wireForParam({ kind: "FLOAT", fieldCapable: false }) === "number",
+			"a gated-off param stays number");
+})();
+
+(function () {
+	var ports = global.VFXEditor.ports;
+	var kinds = global.VFXEditor.valueKinds;
+	var seen = {};
+	Object.keys(kinds).forEach(function (kind) {
+		var port = ports.visualForKind(kind, kinds[kind]);
+		check(typeof port === "string" && ports.types[port], "kind " + kind + " maps to one port");
+		seen[port] = true;
+	});
+	check(seen.bind && seen.expr && seen.time && seen.macro && seen.number,
+			"every driver family is painted");
+	check(ports.visualForKind("bind", kinds.bind) === "bind", "bind paints bind");
+	check(ports.visualForKind("expr", kinds.expr) === "expr", "expr paints expr");
+	check(ports.visualForKind("time", kinds.time) === "time", "time paints time");
+	check(ports.visualForKind("curve", kinds.curve) === "time", "curve paints time");
+	check(ports.visualForKind("subgraph", kinds.subgraph) === "macro", "instance paints macro");
+	check(ports.visualForKind("constant", kinds.constant) === "number", "constant paints number");
+	check(ports.visualForKind("math", kinds.math) === "number", "math paints number");
+})();
+
+(function () {
+	var ports = global.VFXEditor.ports;
+	var slot = { name: "x", type: "number", link: null };
+	ports.paint(slot, "field");
+	check(slot.color_on === ports.types.field.color
+			&& slot.color_off === ports.types.field.color && slot.__port === "field",
+			"paint stamps color + port");
+	ports.paint(slot, "bogus");
+	check(slot.__port === "number" && slot.color_on === ports.types.number.color,
+			"paint falls back to number");
+	check(ports.shape("flow") === 0, "no LiteGraph shapes headlessly (guarded)");
+	check(ports.format({ flow: 2, number: 3 })
+			=== "flow=2 number=3 mask=0 field=0 macro=0 bind=0 expr=0 time=0",
+			"formatPorts renders table order with zeros");
+})();
+
+(function () {
+	var ports = global.VFXEditor.ports;
+	var node = makeNode();
+	var byName = {};
+	node.inputs.forEach(function (slot) {
+		byName[slot.name] = slot;
+	});
+	check(byName["in"].type === ports.flow && byName["in"].__port === "flow",
+			"chain in is a flow port");
+	check(byName.anchor_yaw.type === "number" && byName.anchor_yaw.__port === "number",
+			"params wire number");
+	check(byName.mask.type === ports.mask && byName.mask.__port === "mask",
+			"mask attachment is a mask port");
+	check(node.outputs[0].type === ports.flow && node.outputs[0].__port === "flow",
+			"chain out is a flow port");
+	check(byName.__eye.__port === undefined
+			&& byName["__group:Anchor"].__port === undefined,
+			"eye + headers are not ports");
+})();
+
+(function () {
+	var desc = { params: [{ name: "intensity", kind: "FLOAT", group: "" },
+			{ name: "radius", kind: "FLOAT", group: "", fieldCapable: true }] };
+	global.VFXEditor.schema.gated_fx = desc;
+	var Ctor = groups.make("gated_fx", desc);
+	var node = Object.create(FakeNode.prototype);
+	FakeNode.call(node);
+	Ctor.call(node);
+	node.id = 77;
+	node.graph = fakeGraph();
+	function slot(name) {
+		for (var i = 0; i < node.inputs.length; i++) {
+			if (node.inputs[i].name === name) {
+				return node.inputs[i];
+			}
+		}
+		return null;
+	}
+	check(slot("intensity").type === "number", "plain param wires number");
+	check(slot("radius").type === "number,field", "gated param wires number,field");
+	check(slot("radius").__port === "number", "gated param still paints number");
+})();
+
+/* The vendored drag/drop gate, executed for real (extracted from litegraph.js). */
+(function () {
+	var source = fs.readFileSync(path.join(editorDir, "litegraph.js"), "utf8");
+	var anchor = "isValidConnection: function(type_a, type_b) {";
+	var begin = source.indexOf(anchor);
+	check(begin >= 0, "isValidConnection found in the bundle");
+	var cleaned = source.substring(begin).replace(/"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|\/\/[^\n]*/g,
+			function (match) {
+		return new Array(match.length + 1).join(" ");
+	});
+	var depth = 0;
+	var end = -1;
+	for (var i = 0; i < cleaned.length; i++) {
+		if (cleaned[i] === "{") {
+			depth++;
+		} else if (cleaned[i] === "}") {
+			depth--;
+			if (depth === 0) {
+				end = i + 1;
+				break;
+			}
+		}
+	}
+	check(end > 0, "isValidConnection body extracted");
+	var factory = new Function("return (function(type_a, type_b) "
+			+ source.substring(begin + anchor.length - 1, begin + end) + ");");
+	var gate = { isValidConnection: factory() };
+	function valid(a, b) {
+		return gate.isValidConnection(a, b) === true;
+	}
+	check(valid("*", "flow"), "wildcard lands on flow");
+	check(valid("*", "number"), "wildcard lands on number");
+	check(valid("*", "number,field"), "wildcard lands on a gated param");
+	check(valid("*", "field"), "wildcard lands on field");
+	check(valid("*", "mask"), "wildcard lands on mask");
+	check(valid("flow", "flow"), "chain flow connects");
+	check(valid("mask", "mask"), "mask attach connects");
+	check(valid("field", "field"), "field tree links");
+	check(valid("field", "number,field"), "field root lands on a gated param");
+	check(!valid("flow", "number"), "flow never lands on a param");
+	check(!valid("flow", "mask"), "flow never lands on mask");
+	check(!valid("field", "number"), "field never lands on an ungated param");
+	check(!valid("mask", "number"), "mask never lands on a param");
+	check(!valid("mask", "flow"), "mask never lands on the chain");
+})();
+
+(function () {
+	function build(withView) {
+		var tab = new VFXIR.Tab("pulse", "sky_pattern");
+		tab.effect().anchor = "moon";
+		tab.subgraphs = [{ id: "pulse", inputs: { speed: 1 }, nodes: [{ id: "n",
+				kind: "constant", inputs: { value: 1 } }], edges: [], outputs: { radius: "m" } }];
+		tab.valueNodes = [{ id: "i", kind: "subgraph", subgraph: "pulse", inputs: { speed: 2 } }];
+		tab.edges = [{ from: "i", to: "anchor_yaw", output: "radius" }];
+		tab.effect().fields = { tile_scale: { field: "constant", value: 0.5 } };
+		if (withView) {
+			tab.effect().collapsedGroups = { Anchor: true };
+			tab.effect().hideUnused = true;
+			tab.effect().shownSockets = { anchor_yaw: true };
+		}
+		return tab;
+	}
+	var plain = compileTab(build(false));
+	check(compileTab(build(true)) === plain, "macro + field view state never reaches the emit");
+})();
+
 console.log("");
 console.log(failures === 0 ? "all group tests passed" : failures + " FAILURES");
 process.exit(failures ? 1 : 0);
