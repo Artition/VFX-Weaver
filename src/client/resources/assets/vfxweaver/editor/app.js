@@ -418,8 +418,9 @@
 
 	/**
 	 * A `MaskLeaf` canvas node (design §13.1): one shape of a mask tree. It exposes the leaf's
-	 * reserved `mask.p&lt;N&gt;.*` numeric fields as input sockets, so an ordinary value node wires
-	 * into one and the compiler writes the matching `{ "from": node }` into the leaf field.
+	 * reserved `mask.p&lt;N&gt;.*` numeric fields as widgets, turning one field at a time into a
+	 * driven input socket while a wire feeds it (design §15.1: socket XOR widget). The `leaf`
+	 * output daisy-chains the tree, so the composition reads leaf(a) -&gt; op -&gt; leaf(b).
 	 */
 	function makeMaskLeafNode() {
 		function MaskLeafNode() {
@@ -428,10 +429,11 @@
 			// "Cannot set properties of undefined (setting 'mask.p<N>.*')".
 			this.properties = { maskRole: "leaf", effectId: null, leafIndex: 0, inputs: {}, explicit: {} };
 			this.addInput("mask", "*");
+			this.addOutput("leaf", "*");
 			this.size = [190, 80];
 		}
 		MaskLeafNode.title = "MaskLeaf";
-		MaskLeafNode.desc = "VFXweaver mask leaf: a shape and its mask.p<N>.* sockets";
+		MaskLeafNode.desc = "VFXweaver mask leaf: a shape and its mask.p<N>.* fields";
 		return MaskLeafNode;
 	}
 
@@ -2036,13 +2038,15 @@
 		});
 	}
 
-	/** Re-apply the driven rule across every value node on a tab. */
+	/** Re-apply the driven rule across every value node (and MaskLeaf) on a tab. */
 	function syncAllSlots(tab) {
 		if (!tab || !tab.graph || applyingGraph) {
 			return;
 		}
 		tab.graph._nodes.forEach(function (node) {
-			if (node !== tab.root) {
+			if (isMaskLeafNode(node)) {
+				syncMaskLeafSockets(node);
+			} else if (node !== tab.root) {
 				applySlotState(node);
 			}
 		});
@@ -2161,6 +2165,32 @@
 		var target = null;
 		tab.graph._nodes.forEach(function (node) {
 			if (node.properties && node.properties.irId === irId) {
+				target = node;
+			}
+		});
+		if (!target) {
+			return false;
+		}
+		scene.selectNodes([target]);
+		scene.centerOnNode(target);
+		return true;
+	}
+
+	/**
+	 * Centre the canvas on a MaskLeaf node (the inspector MASK section's "go to leaf").
+	 *
+	 * @param {string} effectId the owning effect id
+	 * @param {number} leafIndex the depth-first leaf index
+	 * @returns {boolean} whether a leaf node was focused
+	 */
+	function focusMaskLeaf(effectId, leafIndex) {
+		var tab = activeTab();
+		if (!tab || !tab.graph || !scene) {
+			return false;
+		}
+		var target = null;
+		maskNodesForEffect(tab, effectId).forEach(function (node) {
+			if (isMaskLeafNode(node) && node.properties.leafIndex === Number(leafIndex)) {
 				target = node;
 			}
 		});
@@ -2698,6 +2728,11 @@
 					target = (maskEffect ? maskSlotNode(tab, maskEffect, edge.to) : null)
 							|| (maskEffect ? effectNodeById[maskEffect] : null);
 					slot = target ? inputIndex(target, edge.to) : -1;
+					if (slot < 0 && target && isMaskLeafNode(target)) {
+						// A leaf whose field is unwired shows no socket (§15.1); re-add it for
+						// the imported wire (the end-of-materialise slot sync keeps it: wired).
+						slot = ensureMaskLeafInput(target, edge.to);
+					}
 				} else {
 					target = multi && edge.effect != null
 							? effectNodeById[edge.effect]
@@ -3216,15 +3251,72 @@
 		return out;
 	}
 
-	/** The MaskLeaf node hosting a reserved slot of an effect, or null. */
+	/** The MaskLeaf node owning a reserved slot of an effect, or null. */
 	function maskSlotNode(tab, effectId, slotName) {
 		var found = null;
 		maskNodesForEffect(tab, effectId).forEach(function (node) {
-			if (isMaskLeafNode(node) && inputIndex(node, slotName) >= 0) {
+			if (!isMaskLeafNode(node)) {
+				return;
+			}
+			// An unwired field shows no socket (§15.1) but is still owned: match the field
+			// list too, so an imported wire re-adds the socket instead of falling back.
+			if (inputIndex(node, slotName) >= 0
+					|| (node.__maskSlots && node.__maskSlots.indexOf(slotName) >= 0)) {
 				found = node;
 			}
 		});
 		return found;
+	}
+
+	/**
+	 * Add the reserved input socket `name` to a MaskLeaf node when a wire is about to land on
+	 * it (design §15.1: the socket exists only while driven). No-op when the socket is there
+	 * or the node owns no such field.
+	 *
+	 * @param {Object} node a canvas MaskLeaf node
+	 * @param {string} name the reserved `mask.p<N>.*` slot
+	 * @returns {number} the input slot index, or -1
+	 */
+	function ensureMaskLeafInput(node, name) {
+		var at = inputIndex(node, name);
+		if (at >= 0) {
+			return at;
+		}
+		if (!isMaskLeafNode(node) || !node.__maskSlots
+				|| node.__maskSlots.indexOf(name) < 0
+				|| typeof node.addInput !== "function") {
+			return -1;
+		}
+		var added = node.addInput(name, "number");
+		if (added) {
+			added.color_on = groupColor("Mask");
+			added.color_off = added.color_on;
+		}
+		return inputIndex(node, name);
+	}
+
+	/**
+	 * Apply the driven→read-only rule to a MaskLeaf node (design §15.1): a wired field shows
+	 * its input socket and a read-only value badge, an unwired one shows only the number
+	 * widget. The widget swap reuses {@link applySlotState}; the sockets are added/removed so
+	 * the leaf never shows both at once.
+	 *
+	 * @param {Object} node a canvas MaskLeaf node
+	 */
+	function syncMaskLeafSockets(node) {
+		if (!isMaskLeafNode(node) || !node.__maskSlots) {
+			return;
+		}
+		applySlotState(node);
+		var wired = wiredInputs(node);
+		node.__maskSlots.slice().forEach(function (name) {
+			var at = inputIndex(node, name);
+			if (wired[name]) {
+				ensureMaskLeafInput(node, name);
+			} else if (at >= 0 && typeof node.removeInput === "function") {
+				node.removeInput(at);
+			}
+		});
 	}
 
 	/** A structural fingerprint of a mask tree; the canvas nodes rebuild only when it changes. */
@@ -3363,7 +3455,9 @@
 		});
 		node.onDrawForeground = drawSlotAffordances;
 		node.onMouseDown = slotFieldClick;
-		node.pos = [basePos[0] + 230, basePos[1] + 60 + index * 150];
+		// A horizontal chain: the leaves read a -> b in join order to the right of the Mask
+		// root that owns the op combos, instead of a vertical stack under it.
+		node.pos = [basePos[0] + 250 + index * 260, basePos[1] + 30];
 		return node;
 	}
 
@@ -3410,7 +3504,8 @@
 			if (!from || !target) {
 				return;
 			}
-			var slot = inputIndex(target, edge.to);
+			// A leaf whose field is unwired shows no socket (§15.1); re-add it for the wire.
+			var slot = ensureMaskLeafInput(target, edge.to);
 			if (slot >= 0 && !hasLink(from, target, slot)) {
 				from.connect(0, target, slot);
 			}
@@ -3442,6 +3537,14 @@
 				if (tab.__maskSig[effect.id] === sig) {
 					return;
 				}
+				// Remember the leaf positions, so a structural rebuild keeps a leaf the user
+				// dragged where it was; a new leaf still lands deterministically in the chain.
+				var keptPos = {};
+				maskNodesForEffect(tab, effect.id).forEach(function (node) {
+					if (isMaskLeafNode(node) && Array.isArray(node.pos)) {
+						keptPos[node.properties.leafIndex] = [num(node.pos[0]), num(node.pos[1])];
+					}
+				});
 				maskNodesForEffect(tab, effect.id).forEach(dropMaskNode);
 				tab.__maskSig[effect.id] = sig;
 				if (sig === "none") {
@@ -3452,10 +3555,15 @@
 				var maskNode = buildMaskNode(tab, effect, chain, descriptor);
 				tab.graph.add(maskNode);
 				var slotsByLeaf = window.VFXIR.maskSlotsByLeaf(effect.mask, table);
+				var leafNodes = [];
 				chain.leaves.forEach(function (leaf, i) {
 					var leafNode = buildMaskLeafNode(tab, effect, chain, i, leaf,
 							slotsByLeaf[i] || [], descriptor, table, maskNode.pos);
+					if (keptPos[i]) {
+						leafNode.pos = keptPos[i];
+					}
 					tab.graph.add(leafNode);
+					leafNodes.push(leafNode);
 				});
 				// Attach the tree to the effect node (cosmetic port links; the compiler reads `mask.` edges).
 				var effectNode = nodeForEffect(tab, effect.id);
@@ -3466,16 +3574,28 @@
 						effectNode.connect(port, maskNode, into);
 					}
 				}
-				var leafOut = outputIndex(maskNode, "leaf");
-				if (leafOut >= 0) {
-					maskNodesForEffect(tab, effect.id).forEach(function (n) {
-						if (isMaskLeafNode(n) && inputIndex(n, "mask") >= 0) {
-							maskNode.connect(leafOut, n, inputIndex(n, "mask"));
-						}
-					});
-				}
+				// Daisy-chain the composition leaf(a) -> op -> leaf(b): the Mask root (which owns
+				// the op combos) feeds the first leaf, each leaf feeds the next, instead of a star
+				// of long wires out of the root's `leaf` output.
+				var prev = maskNode;
+				leafNodes.forEach(function (leafNode) {
+					var prevOut = outputIndex(prev, "leaf");
+					var leafInto = inputIndex(leafNode, "mask");
+					if (prevOut >= 0 && leafInto >= 0) {
+						prev.connect(prevOut, leafNode, leafInto);
+					}
+					prev = leafNode;
+				});
 			});
 			connectMaskEdges(tab);
+			// A fresh leaf shows widgets only (§15.1); sockets appear as wires land (above).
+			(tab.effects || []).forEach(function (effect) {
+				maskNodesForEffect(tab, effect.id).forEach(function (node) {
+					if (isMaskLeafNode(node)) {
+						syncMaskLeafSockets(node);
+					}
+				});
+			});
 		} finally {
 			applyingGraph = prev;
 		}
@@ -3509,9 +3629,10 @@
 	}
 
 	/**
-	 * Append the reserved `mask.p<N>.*` input sockets an effect's mask exposes, so a value node can
-	 * be wired into one (design §13.1), and drop sockets whose leaf is gone. No-op without the mask
-	 * model or an effect node. Also syncs the Mask/MaskLeaf canvas nodes.
+	 * Keep the effect node's reserved `mask.p<N>.*` input sockets for the leafless case only
+	 * (design §13.1): when MaskLeaf nodes exist they own the fields, so the effect node shows
+	 * just its single `mask` attachment port; an effect whose mask has no leaf nodes keeps the
+	 * sockets as the import fallback. Also syncs the Mask/MaskLeaf canvas nodes.
 	 *
 	 * @param {Object} tab the tab
 	 */
@@ -3525,8 +3646,11 @@
 			if (!node) {
 				return;
 			}
+			var hasLeaves = maskNodesForEffect(tab, effect.id).some(function (n) {
+				return isMaskLeafNode(n);
+			});
 			var wanted = {};
-			if (effect.mask && typeof effect.mask === "object") {
+			if (!hasLeaves && effect.mask && typeof effect.mask === "object") {
 				window.VFXIR.maskSlots(effect.mask).forEach(function (slot) {
 					if (slot.deferred) {
 						return;
@@ -4346,7 +4470,8 @@
 		if (!tab || !tab.root) {
 			return;
 		}
-		var slotIndex = inputIndex(node, inputName);
+		// A MaskLeaf field shows no socket until driven (§15.1); add it for the new wire.
+		var slotIndex = ensureMaskLeafInput(node, inputName);
 		if (slotIndex < 0) {
 			return;
 		}
@@ -4373,7 +4498,8 @@
 		if (!tab || !tab.root) {
 			return;
 		}
-		var slotIndex = inputIndex(node, inputName);
+		// A MaskLeaf field shows no socket until driven (§15.1); add it for the new wire.
+		var slotIndex = ensureMaskLeafInput(node, inputName);
 		if (slotIndex < 0) {
 			return;
 		}
@@ -6118,6 +6244,7 @@
 		materializeGraph: materializeGraph,
 		commit: commitHistory,
 		focusNode: focusNode,
+		focusMaskLeaf: focusMaskLeaf,
 		slot: slot,
 		liveKind: liveKindFor,
 		problems: {
