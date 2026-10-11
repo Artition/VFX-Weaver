@@ -1390,8 +1390,8 @@
 	 * One entry per datapack value-graph kind (docs/guide/datapack/graph.md), fixed by the format
 	 * like the compiler and therefore schema-independent. `sockets` are the numeric inputs that get
 	 * both a socket and a literal widget; `defaults` seed those widgets; `required` are the inputs
-	 * the game parser needs present even when untouched. `subgraph` is deliberately absent: the
-	 * compiler does not copy its structural `subgraph`/`output` fields, so the UI defers it.
+	 * the game parser needs present even when untouched. `subgraph` is a macro *instance*: its
+	 * sockets come from the macro's params/outputs (design §13.5), so it carries no static sockets.
 	 */
 	var VALUE_KINDS = {
 		constant: { sockets: ["value"], defaults: { value: 0 }, required: ["value"] },
@@ -1413,7 +1413,8 @@
 		boolean: { sockets: ["a", "b"], defaults: { a: 0, b: 0 }, required: ["a"],
 			op: ["and", "or", "xor", "not"], defaultOp: "and" },
 		"if": { sockets: ["condition", "then", "else"], defaults: { condition: 0, "then": 0, "else": 0 }, required: ["condition"] },
-		"switch": { sockets: ["index", "default"], defaults: { index: 0, "default": 0 }, required: ["index"], switch: true }
+		"switch": { sockets: ["index", "default"], defaults: { index: 0, "default": 0 }, required: ["index"], switch: true },
+		subgraph: { sockets: [], defaults: {}, required: [], subgraph: true }
 	};
 
 	/** True while the canvas is being rebuilt from the IR, so the change hooks stay quiet. */
@@ -1916,6 +1917,7 @@
 		return {
 			valueNodes: snapshot(tab && tab.valueNodes ? tab.valueNodes : []),
 			edges: snapshot(tab && tab.edges ? tab.edges : []),
+			subgraphs: snapshot(tab && tab.subgraphs ? tab.subgraphs : []),
 			effects: snapshot(tab && tab.effects ? tab.effects : [])
 		};
 	}
@@ -2214,6 +2216,18 @@
 		if (node.properties.op) {
 			ir.op = node.properties.op;
 		}
+		if (spec.subgraph) {
+			// A macro instance carries its macro id; the sockets came from the macro, so the
+			// generic socket loop above already emitted the edited literals.
+			if (node.properties.subgraph != null) {
+				ir.subgraph = node.properties.subgraph;
+			}
+			Object.keys(node.__verbatim || {}).forEach(function (name) {
+				if (!node.properties.explicit[name]) {
+					ir.inputs[name] = snapshot(node.__verbatim[name]);
+				}
+			});
+		}
 		if (Array.isArray(node.pos) && node.pos.length === 2) {
 			ir.pos = [Math.round(node.pos[0]), Math.round(node.pos[1])];
 		}
@@ -2343,6 +2357,19 @@
 			irByGraphId[node.id] = node.properties.irId;
 			nodes.push(nodeToIR(node));
 		});
+		var irById = {};
+		nodes.forEach(function (entry) {
+			irById[entry.id] = entry;
+		});
+		/** The macro output name an origin slot addresses, or null for the default (first) output. */
+		function originOutput(origin, slot) {
+			if (!origin || !origin.properties || origin.properties.kind !== "subgraph") {
+				return null;
+			}
+			var names = origin.__outputs || [];
+			slot = Number(slot) || 0;
+			return slot > 0 && slot < names.length ? names[slot] : null;
+		}
 		var multi = Boolean(tab.effects && tab.effects.length > 1);
 		var edges = [];
 		Object.keys(tab.graph.links).forEach(function (linkId) {
@@ -2355,10 +2382,15 @@
 			if (!target) {
 				return;
 			}
+			var origin = tab.graph.getNodeById(link.origin_id);
+			var output = originOutput(origin, link.origin_slot);
 			if (isEffectNode(target)) {
 				var param = target.inputs ? target.inputs[link.target_slot] : null;
 				if (param && param.name !== "in") {
 					var edge = { from: from, to: param.name };
+					if (output != null) {
+						edge.output = output;
+					}
 					if (multi) {
 						edge.effect = target.properties.effectId;
 					}
@@ -2379,7 +2411,17 @@
 			} else if (target.properties && target.properties.kind && irByGraphId[target.id]) {
 				var socket = target.inputs ? target.inputs[link.target_slot] : null;
 				if (socket) {
-					edges.push({ from: from, to: irByGraphId[target.id], input: socket.name });
+					if (target.properties.kind === "subgraph") {
+						// The engine forbids edges into an instance: a wire into a macro
+						// input socket becomes an instance `{from}` binding instead of an edge.
+						irById[irByGraphId[target.id]].inputs[socket.name] = { from: from };
+					} else {
+						var wire = { from: from, to: irByGraphId[target.id], input: socket.name };
+						if (output != null) {
+							wire.output = output;
+						}
+						edges.push(wire);
+					}
 				}
 			}
 		});
@@ -2389,8 +2431,107 @@
 	}
 
 	/** Apply one IR node's values onto a freshly created canvas node. */
+	/**
+	 * The output slot index of a macro output name on a canvas instance node, or -1. Sockets are
+	 * built in macro order (first = default = slot 0), so the index is the compile/expand address.
+	 */
+	function outputSlotIndex(node, name) {
+		var names = node && node.__outputs ? node.__outputs : null;
+		if (!names || !names.length) {
+			return name == null ? 0 : -1;
+		}
+		if (name == null) {
+			return 0;
+		}
+		for (var i = 0; i < names.length; i++) {
+			if (names[i] === name) {
+				return i;
+			}
+		}
+		return -1;
+	}
+
+	/**
+	 * Apply an instance IR onto a subgraph canvas node (design §13.5, flat first slice): input
+	 * sockets are the macro's params (each a socket + a literal widget), outputs are the macro's
+	 * outputs in order. A `{from}` binding becomes a pending ref (wired at materialise); a
+	 * non-number literal is kept verbatim (widgets only edit numbers). An unknown macro falls back
+	 * to the instance's own inputs with one output, so an imported definition still materialises.
+	 * Nested-macro editing UI does not exist: the instance is opaque, its body lives in `subgraphs`.
+	 */
+	function applySubgraphIR(node, ir) {
+		var tab = node.__tab;
+		var macro = null;
+		if (tab && ir && ir.subgraph != null && window.VFXIR
+				&& typeof window.VFXIR.subgraphById === "function") {
+			macro = window.VFXIR.subgraphById(tab, ir.subgraph);
+		}
+		var params = macro && macro.inputs ? Object.keys(macro.inputs) : Object.keys(ir.inputs || {});
+		var outputs = macro && macro.outputs ? Object.keys(macro.outputs) : ["out"];
+		if (!outputs.length) {
+			outputs = ["out"];
+		}
+		node.properties.subgraph = ir.subgraph == null ? null : String(ir.subgraph);
+		node.properties.inputs = {};
+		node.properties.explicit = {};
+		node.__kindSpec = { subgraph: true, sockets: params.slice() };
+		node.__outputs = outputs.slice();
+		node.__widgets = {};
+		node.__verbatim = {};
+		node.__pendingRefs = [];
+		node.__driven = {};
+		node.inputs = [];
+		node.outputs = [];
+		(node.widgets || []).slice().forEach(function (widget) {
+			var at = node.widgets.indexOf(widget);
+			if (at >= 0) {
+				node.widgets.splice(at, 1);
+			}
+		});
+		node.title = "macro" + (node.properties.subgraph ? " · " + node.properties.subgraph : "");
+		var values = ir.inputs || {};
+		var self = node;
+		params.forEach(function (name) {
+			self.addInput(name, "number");
+			var value = values[name];
+			if (isRef(value)) {
+				var ref = { from: value.from, input: name };
+				if (value.output != null) {
+					ref.output = value.output;
+				}
+				self.__pendingRefs.push(ref);
+				self.properties.inputs[name] = 0;
+				return;
+			}
+			if (typeof value === "number") {
+				self.properties.inputs[name] = value;
+				self.properties.explicit[name] = true;
+			} else if (value !== undefined) {
+				self.__verbatim[name] = snapshot(value);
+				self.properties.inputs[name] = 0;
+			} else {
+				self.properties.inputs[name] = 0;
+			}
+			var widget = self.addWidget("number", name, num(self.properties.inputs[name]), function (v) {
+				self.properties.inputs[name] = v;
+				self.properties.explicit[name] = true;
+				delete self.__verbatim[name];
+				scheduleGraphEdit(self.__tab);
+			});
+			self.__widgets[name] = widget;
+		});
+		outputs.forEach(function (name) {
+			self.addOutput(name, "number");
+		});
+		node.setSize(node.computeSize());
+	}
+
 	function applyIR(node, ir) {
 		var spec = node.__kindSpec || {};
+		if (spec.subgraph) {
+			applySubgraphIR(node, ir);
+			return;
+		}
 		var values = ir.inputs || {};
 		node.__pendingRefs = [];
 		if (spec.curve && Array.isArray(values.points)) {
@@ -2533,6 +2674,14 @@
 				if (!from) {
 					return;
 				}
+				// A wire off a named macro output connects from that output's slot (design §13.5).
+				var fromSlot = 0;
+				if (edge.output != null) {
+					fromSlot = outputSlotIndex(from, edge.output);
+					if (fromSlot < 0) {
+						return;
+					}
+				}
 				var target;
 				var slot = -1;
 				if (edge.input != null) {
@@ -2553,7 +2702,7 @@
 					slot = target ? inputIndex(target, edge.to) : -1;
 				}
 				if (target && slot >= 0) {
-					from.connect(0, target, slot);
+					from.connect(fromSlot, target, slot);
 				}
 			});
 			// Imported datapacks may wire node->node as `inputs: { name: { from } }`; materialize those.
@@ -2562,8 +2711,15 @@
 				(node.__pendingRefs || []).forEach(function (ref) {
 					var source = byId[ref.from];
 					var slot = inputIndex(node, ref.input);
+					var outSlot = 0;
+					if (ref.output != null) {
+						outSlot = outputSlotIndex(source, ref.output);
+						if (outSlot < 0) {
+							return;
+						}
+					}
 					if (source && slot >= 0) {
-						source.connect(0, node, slot);
+						source.connect(outSlot, node, slot);
 					}
 				});
 			});
@@ -2624,6 +2780,11 @@
 			status("choose an effect type before adding value nodes");
 			return null;
 		}
+		if (kind === "subgraph") {
+			// Instances are born from Group (they need a macro); see groupSelectionIntoMacro.
+			status("select value nodes, then group them into a macro");
+			return null;
+		}
 		var registered = "vfx/value/" + kind;
 		if (!LiteGraph.registered_node_types[registered]) {
 			return null;
@@ -2665,6 +2826,10 @@
 		}
 		dom.valueTypes.textContent = "";
 		valueNodeTypes().forEach(function (kind) {
+			if (kind === "subgraph") {
+				// Instances are born from Group (they need a macro), never from the palette.
+				return;
+			}
 			var item = document.createElement("button");
 			item.type = "button";
 			item.className = "vfx-type";
@@ -2687,6 +2852,29 @@
 			addMaskNode(activeTab());
 		});
 		dom.valueTypes.appendChild(maskItem);
+		// Subgraph macros (design §13.5, flat first slice): group the selected value nodes into a
+		// `subgraphs` entry + one instance node, or expand selected instances back. There is no
+		// nested-macro editing UI: an instance is opaque, its body lives in `tab.subgraphs`.
+		var groupItem = document.createElement("button");
+		groupItem.type = "button";
+		groupItem.className = "vfx-type";
+		groupItem.textContent = "group → macro";
+		groupItem.dataset.value = "group-macro";
+		groupItem.title = "Group the selected value nodes into a subgraph macro";
+		groupItem.addEventListener("click", function () {
+			groupSelectionIntoMacro();
+		});
+		dom.valueTypes.appendChild(groupItem);
+		var ungroupItem = document.createElement("button");
+		ungroupItem.type = "button";
+		ungroupItem.className = "vfx-type";
+		ungroupItem.textContent = "ungroup macro";
+		ungroupItem.dataset.value = "ungroup-macro";
+		ungroupItem.title = "Expand the selected macro instances back into plain nodes";
+		ungroupItem.addEventListener("click", function () {
+			ungroupSelectedMacros();
+		});
+		dom.valueTypes.appendChild(ungroupItem);
 	}
 
 
@@ -2730,6 +2918,7 @@
 			keys: snapshot(tab.keys || {}),
 			valueNodes: snapshot(tab.valueNodes || []),
 			edges: snapshot(tab.edges || []),
+			subgraphs: snapshot(tab.subgraphs || []),
 			source: snapshot(tab.source),
 			timeline: snapshot(tab.timeline),
 			root: tab.root && Array.isArray(tab.root.pos)
@@ -2826,6 +3015,7 @@
 			tab.delay = num(state.delay, 0);
 			tab.valueNodes = snapshot(state.valueNodes) || [];
 			tab.edges = snapshot(state.edges) || [];
+			tab.subgraphs = snapshot(state.subgraphs) || [];
 			tab.source = snapshot(state.source);
 			tab.timeline = snapshot(state.timeline) || {};
 			tab.__valueSeq = state.valueSeq || 0;
@@ -4525,6 +4715,10 @@
 				if (node.op != null) {
 					out.op = node.op;
 				}
+				if (node.kind === "subgraph" && node.subgraph != null) {
+					// A macro instance (design §13.5): the macro id rides beside the bindings.
+					out.subgraph = String(node.subgraph);
+				}
 				var meta = graph.meta && graph.meta[node.id];
 				if (meta && Array.isArray(meta.pos) && meta.pos.length === 2) {
 					out.pos = [num(meta.pos[0]), num(meta.pos[1])];
@@ -4535,13 +4729,23 @@
 		if (graph && Array.isArray(graph.edges)) {
 			graph.edges.forEach(function (edge) {
 				var from = rename[String(edge.from)];
-				var to = rename[String(edge.to)];
-				if (from == null || to == null) {
+				if (from == null) {
 					return;
 				}
-				var out = { from: from, to: to };
-				if (edge.input != null) {
-					out.input = edge.input;
+				var to = rename[String(edge.to)];
+				var out;
+				if (to == null) {
+					// An effect-param wire (e.g. off a macro output): kept as a param wire,
+					// tagged like the `inputs`-block wires below so a chain routes it.
+					out = { from: from, to: String(edge.to), effect: effect.id };
+				} else {
+					out = { from: from, to: to };
+					if (edge.input != null) {
+						out.input = edge.input;
+					}
+				}
+				if (edge.output != null) {
+					out.output = edge.output;
 				}
 				tab.edges.push(out);
 			});
@@ -4615,6 +4819,9 @@
 		// the IR does not model (loop, persistent, fade_ticks, sound, positions, mask, field, subgraphs,
 		// ...) round-trip unchanged instead of being silently dropped on re-export.
 		tab.source = snapshot(def);
+		// Imported macros (design §13.5) live on the tab beside the value graph; the compiler
+		// re-emits them verbatim when untouched.
+		tab.subgraphs = Array.isArray(def.subgraphs) ? snapshot(def.subgraphs) : [];
 		if (def.duration != null) {
 			tab.duration = num(def.duration, tab.duration);
 		}
@@ -6437,6 +6644,77 @@
 		scene.setDirty(true, true);
 	}
 
+	/** Whether a canvas node is a groupable value node (not an effect/mask/field node). */
+	function isGroupableNode(node) {
+		return !!(node && node.properties && node.properties.kind && node.properties.irId
+				&& !isEffectNode(node) && !isMaskNode(node) && !isFieldNode(node));
+	}
+
+	/**
+	 * Group the selected value nodes into a subgraph macro (design §13.5): one `subgraphs`
+	 * entry plus one instance node with named inputs/outputs (`$name`, first output = default).
+	 */
+	function groupSelectionIntoMacro() {
+		var tab = activeTab();
+		if (!tab) {
+			return;
+		}
+		refreshFromCanvas(tab);
+		var ids = selectedNodes().filter(isGroupableNode).map(function (node) {
+			return node.properties.irId;
+		});
+		if (!ids.length) {
+			status("select value nodes to group into a macro");
+			return;
+		}
+		if (!window.VFXIR || typeof window.VFXIR.groupSelection !== "function") {
+			return;
+		}
+		var res = window.VFXIR.groupSelection(tab, ids, null);
+		if (!res || res.error) {
+			status("cannot group into a macro: " + (res && res.error ? res.error : "error"));
+			return;
+		}
+		materializeGraph(tab);
+		afterSlotChange(tab);
+		status("macro " + res.macroId + " (" + ids.length + " nodes)");
+	}
+
+	/** Expand the selected macro instances back into plain nodes (design §13.5 ungroup). */
+	function ungroupSelectedMacros() {
+		var tab = activeTab();
+		if (!tab) {
+			return;
+		}
+		refreshFromCanvas(tab);
+		var ids = selectedNodes().filter(function (node) {
+			return isGroupableNode(node) && node.properties.kind === "subgraph";
+		}).map(function (node) {
+			return node.properties.irId;
+		});
+		if (!ids.length) {
+			status("select a macro instance to expand it back");
+			return;
+		}
+		if (!window.VFXIR || typeof window.VFXIR.ungroupMacro !== "function") {
+			return;
+		}
+		var expanded = 0;
+		ids.forEach(function (id) {
+			var res = window.VFXIR.ungroupMacro(tab, id);
+			if (res && !res.error) {
+				expanded++;
+			}
+		});
+		if (!expanded) {
+			status("cannot expand the selected macro");
+			return;
+		}
+		materializeGraph(tab);
+		afterSlotChange(tab);
+		status("expanded " + expanded + " macro" + (expanded === 1 ? "" : "s"));
+	}
+
 	/** Open LiteGraph's node search box at the canvas centre (Tab). */
 	function openNodeSearch() {
 		if (!scene || typeof scene.showSearchBox !== "function") {
@@ -6469,6 +6747,7 @@
 				["Ctrl+S", "save (compile + preview)"],
 				["Tab / double-click", "node search-add"],
 				["Ctrl+G", "group selection (canvas only)"],
+				["macro buttons", "group selection into a subgraph macro / expand it back (§13.5)"],
 				["[ / ]", "previous / next tab"],
 				["MMB / Space+drag", "pan the canvas"],
 				["Ctrl+wheel", "zoom"],

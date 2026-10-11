@@ -418,6 +418,34 @@
 		def.mask = built;
 	}
 
+	/**
+	 * Serialise the tab's authored subgraph macros (design §13.5) as the top-level `subgraphs`
+	 * block. A tab without macros emits no block, so existing graphs compile byte-identical. Caps
+	 * come from the IR (`subgraphWarnings`: 64 macros, depth 8) and are collected into `warnings`,
+	 * never refused; past 64 only the first 64 are emitted. A tab whose `subgraphs` is not an
+	 * array (a pre-macro snapshot) leaves the cloned source untouched, so an AUTHOR/export
+	 * round-trip never drops an imported block.
+	 *
+	 * @param {Object} tab the owning tab
+	 * @param {Object} def the definition being built (mutated)
+	 * @param {Array} warnings collects cap records
+	 */
+	function compileSubgraphs(tab, def, warnings) {
+		if (!Array.isArray(tab.subgraphs)) {
+			return;
+		}
+		if (root.VFXIR && typeof root.VFXIR.subgraphWarnings === "function") {
+			root.VFXIR.subgraphWarnings(tab).forEach(function (record) {
+				warnings.push(record);
+			});
+		}
+		if (!tab.subgraphs.length) {
+			delete def.subgraphs;
+			return;
+		}
+		def.subgraphs = clone(tab.subgraphs.slice(0, 64));
+	}
+
 	/** A non-blank string (an optional top-level id/selector). */
 	function isNonEmptyString(value) {
 		return typeof value === "string" && value.trim() !== "";
@@ -566,6 +594,11 @@
 			if (node.op != null) {
 				out.op = node.op;
 			}
+			if (node.kind === "subgraph" && node.subgraph != null) {
+				// A macro instance carries its macro id beside the bindings; the engine
+				// (`VFXSubgraphExpander`) reads `subgraph` + `inputs`, never `op`.
+				out.subgraph = String(node.subgraph);
+			}
 			graphNodes.push(out);
 			ids[node.id] = true;
 			if (Array.isArray(node.pos) && node.pos.length === 2) {
@@ -595,9 +628,21 @@
 				if (edge.input != null) {
 					out.input = edge.input;
 				}
+				if (edge.output != null) {
+					// A wire off a non-default macro output names it (design §13.5); the
+					// expander rewrites `from` to the output's node, `VFXGraph` ignores the key.
+					out.output = edge.output;
+				}
 				graphEdges.push(out);
 			} else if (!isMaskParam(edge.to)) {
-				inputs[edge.to] = { from: edge.from };
+				if (edge.output != null && kinds[edge.from] === "subgraph") {
+					// A param wire off a non-default macro output cannot ride the `inputs`
+					// block (the engine aliases it to the first output only), so it stays a
+					// graph edge: `VFXGraph` reads it as an effect-input ref by its `to`.
+					graphEdges.push({ from: edge.from, to: edge.to, output: edge.output });
+				} else {
+					inputs[edge.to] = { from: edge.from };
+				}
 			}
 		});
 		return { nodes: graphNodes, edges: graphEdges, meta: meta, inputs: inputs };
@@ -839,6 +884,8 @@
 		}
 		// Optional mask (design §13.1): authored on the IR, or carried by the cloned imported source.
 		compileMask(tab, effect, effectId, multi, def);
+		// Optional subgraph macros (design §13.5): authored on the IR, or carried by the clone.
+		compileSubgraphs(tab, def, warnings);
 		// Optional structural fields (design §13.4): positions/region, entity_selector, sound/sound_pos.
 		compileStructural(effect, def);
 		// Optional per-pixel fields (design §13.2): authored on the IR, or carried by the clone.

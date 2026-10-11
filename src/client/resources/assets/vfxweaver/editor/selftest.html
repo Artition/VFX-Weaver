@@ -1583,6 +1583,102 @@ window.__vfxSelftest = function () {
 		ok(!cleared.inputs || !cleared.inputs.intensity, "explicit null removes the block");
 	});
 
+	test("(SG1) groupSelection creates a macro + instance; compile emits subgraphs", function () {
+		var tab = new VFXIR.Tab("blur", "blur");
+		tab.params.radius = VFXIR.ParamSpec.constant(0);
+		tab.valueNodes = [
+			{ id: "t", kind: "time", inputs: { speed: 1 } },
+			{ id: "m", kind: "math", op: "add", inputs: { a: 1 } }
+		];
+		tab.edges = [
+			{ from: "t", to: "m", input: "b" },
+			{ from: "m", to: "radius" }
+		];
+		var res = VFXIR.groupSelection(tab, ["t", "m"], "pulse");
+		eq(res.macroId, "pulse", "macro id kept");
+		ok(Array.isArray(tab.subgraphs) && tab.subgraphs.length === 1, "one macro entry");
+		eq(tab.subgraphs[0].nodes.length, 2, "two macro nodes");
+		eq(tab.subgraphs[0].edges.length, 1, "one internal edge");
+		eq(tab.subgraphs[0].outputs.radius, "m", "output named after the param target");
+		var def = parse(compileTab(tab));
+		ok(Array.isArray(def.subgraphs) && def.subgraphs.length === 1, "subgraphs emitted");
+		eq(def.subgraphs[0].id, "pulse", "macro id emitted");
+		eq(def.graph.nodes.length, 1, "instance is the only graph node");
+		eq(def.graph.nodes[0].kind, "subgraph", "instance kind");
+		eq(def.graph.nodes[0].subgraph, "pulse", "instance macro ref");
+		eq(def.inputs.radius.from, res.nodeId, "param wire from the instance (default output)");
+		ok(!("output" in def.inputs.radius), "default output needs no output key");
+	});
+
+	test("(SG2) inbound wires become $params with {from} bindings; ungroup restores them", function () {
+		var tab = new VFXIR.Tab("blur", "blur");
+		tab.params.radius = VFXIR.ParamSpec.constant(0);
+		tab.valueNodes = [
+			{ id: "t", kind: "time", inputs: { speed: 1 } },
+			{ id: "m", kind: "math", op: "add", inputs: { a: 1 } }
+		];
+		tab.edges = [
+			{ from: "t", to: "m", input: "b" },
+			{ from: "m", to: "radius" }
+		];
+		var res = VFXIR.groupSelection(tab, ["m"], "adder");
+		var macro = VFXIR.subgraphById(tab, "adder");
+		eq(macro.nodes[0].inputs.b, "$b", "inbound input becomes a $param");
+		eq(tab.valueNodes[1].inputs.b.from, "t", "instance binds the outer node");
+		var back = VFXIR.ungroupMacro(tab, res.nodeId);
+		ok(!back.error, "ungroup ok: " + (back.error || ""));
+		eq(tab.valueNodes.length, 2, "two plain nodes back");
+		eq(tab.edges.length, 2, "both wires back");
+		ok(!tab.subgraphs.length, "unreferenced macro dropped");
+		var def = parse(compileTab(tab));
+		ok(!("subgraphs" in def), "no macros -> no subgraphs block");
+	});
+
+	test("(SG3) non-default outputs ride graph edges; caps warn", function () {
+		var tab = new VFXIR.Tab("blur", "blur");
+		tab.params.radius = VFXIR.ParamSpec.constant(0);
+		tab.params.strength = VFXIR.ParamSpec.constant(0);
+		tab.valueNodes = [
+			{ id: "a", kind: "constant", inputs: { value: 1 } },
+			{ id: "b", kind: "constant", inputs: { value: 2 } }
+		];
+		tab.edges = [
+			{ from: "a", to: "radius" },
+			{ from: "b", to: "strength" }
+		];
+		var res = VFXIR.groupSelection(tab, ["a", "b"], "pair");
+		ok(res.nodeId, "grouped");
+		var def = parse(compileTab(tab));
+		eq(def.inputs.radius.from, res.nodeId, "first output rides the inputs block");
+		var edge = def.graph.edges.filter(function (e) { return e.to === "strength"; })[0];
+		ok(edge && edge.from === res.nodeId, "second output stays a graph edge");
+		eq(edge.output, "strength", "non-default output named");
+		// Caps: 65 macros warn (cap-64) and emit 64.
+		tab.subgraphs = [];
+		for (var i = 0; i < 65; i++) {
+			tab.subgraphs.push({ id: "m" + i, inputs: {}, nodes: [{ id: "n", kind: "constant",
+				inputs: { value: 0 } }], edges: [], outputs: { out: "n" } });
+		}
+		var capped = parse(compileTab(tab));
+		eq(capped.subgraphs.length, 64, "only the first 64 emitted");
+		ok(window.VFXCompiler.getWarnings().some(function (w) { return w.reason === "cap-64"; }),
+				"cap-64 warned");
+	});
+
+	test("(SG4) imported subgraphs survive a recompile (clone pass-through)", function () {
+		var tab = new VFXIR.Tab("blur", "blur");
+		tab.subgraphs = [{ id: "pulse", inputs: { speed: 1 },
+			nodes: [{ id: "t", kind: "time", inputs: { speed: "$speed" } }],
+			edges: [], outputs: { out: "t" } }];
+		tab.valueNodes = [{ id: "i", kind: "subgraph", subgraph: "pulse", inputs: { speed: 2 } }];
+		tab.edges = [{ from: "i", to: "radius" }];
+		tab.params.radius = VFXIR.ParamSpec.constant(0);
+		var def = parse(compileTab(tab));
+		eq(def.subgraphs[0].nodes[0].inputs.speed, "$speed", "$param placeholder kept");
+		eq(def.graph.nodes[0].subgraph, "pulse", "instance ref kept");
+		eq(def.graph.nodes[0].inputs.speed, 2, "instance binding kept");
+	});
+
 	return results;
 };
 /* SELFTEST:END */

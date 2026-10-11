@@ -78,6 +78,11 @@
 		this.valueNodes = [];
 		/** @type {Array<Object>} wires: node->node `{ from, to, input }` or node->param `{ from, to, effect? }` */
 		this.edges = [];
+		/**
+		 * @type {Array<Object>} subgraph macros (design §13.5): datapack-shaped
+		 * `{ id, inputs, nodes, edges, outputs }`, emitted as the top-level `subgraphs` block.
+		 */
+		this.subgraphs = [];
 		if (type != null) {
 			this.addEffect(type);
 		}
@@ -2118,6 +2123,514 @@
 	}
 
 	/* ------------------------------------------------------------------ */
+	/* Subgraph macros (design §13.5, first slice: flat)                  */
+	/* ------------------------------------------------------------------ */
+
+	/**
+	 * Caps mirroring the engine oracle (`VFXSubgraphExpander`): at most 64 macro definitions
+	 * per file, nesting at most 8 deep. The compiler warns (never refuses) past them.
+	 */
+	var MAX_SUBGRAPHS = 64;
+	var MAX_MACRO_DEPTH = 8;
+
+	/** Whether `value` is a `$name` parameter placeholder (the engine's `PARAMETER` pattern). */
+	function isParamRef(value) {
+		return typeof value === "string" && /^\$[A-Za-z_][A-Za-z0-9_]*$/.test(value);
+	}
+
+	/** A deep copy of plain JSON data. */
+	function cloneJson(value) {
+		return value == null ? value : JSON.parse(JSON.stringify(value));
+	}
+
+	/** The macro with `id` on the tab, or null. */
+	function subgraphById(tab, id) {
+		var list = tab && Array.isArray(tab.subgraphs) ? tab.subgraphs : [];
+		for (var i = 0; i < list.length; i++) {
+			if (list[i] && list[i].id === id) {
+				return list[i];
+			}
+		}
+		return null;
+	}
+
+	/**
+	 * A fresh id for a macro (`macro_<n>`) or a value node, avoiding both namespaces (an
+	 * instance id colliding with a macro id is legal but confusing, so both are reserved).
+	 */
+	function freshMacroId(tab, base) {
+		var used = {};
+		(tab && Array.isArray(tab.subgraphs) ? tab.subgraphs : []).forEach(function (macro) {
+			if (macro && macro.id != null) {
+				used[macro.id] = true;
+			}
+		});
+		(tab && Array.isArray(tab.valueNodes) ? tab.valueNodes : []).forEach(function (node) {
+			if (node && node.id != null) {
+				used[node.id] = true;
+			}
+		});
+		var stem = base && String(base).trim() ? String(base).trim().replace(/\s+/g, "_") : "macro";
+		if (!used[stem]) {
+			return stem;
+		}
+		var n = 1;
+		while (used[stem + "_" + n]) {
+			n++;
+		}
+		return stem + "_" + n;
+	}
+
+	/** Whether a value-node kind belongs to the field tree (never grouped into a macro). */
+	function isUnpackableKind(kind) {
+		if (typeof isFieldKind === "function" && isFieldKind(kind)) {
+			return true;
+		}
+		return kind === "field" || kind === "field_op";
+	}
+
+	/**
+	 * Group value nodes into a macro (design §13.5): creates a `subgraphs` entry on the tab plus
+	 * one `kind: "subgraph"` instance node. External wires into the selection become named macro
+	 * inputs (`$name`, bound on the instance as `{from}`); wires out become named `outputs` in
+	 * encounter order (first = default, referenced without an `output` field). Internal edges move
+	 * into the macro verbatim; macro node ids stay local (the engine prefixes them at expansion).
+	 * Flat first slice: nested-macro *editing* UI does not exist, but grouping an instance node
+	 * (nesting) is carried verbatim and guarded by the depth cap.
+	 *
+	 * @param {Object} tab the tab (mutated)
+	 * @param {Array<string>} ids the selected value-node ids
+	 * @param {string} [macroId] the wanted macro id (a fresh one when omitted/taken)
+	 * @returns {{macroId: string, nodeId: string}|{error: string}} the created ids, or the refusal
+	 */
+	function groupSelection(tab, ids, macroId) {
+		if (!tab) {
+			return { error: "no-tab" };
+		}
+		var nodes = Array.isArray(tab.valueNodes) ? tab.valueNodes : [];
+		var byId = {};
+		nodes.forEach(function (node) {
+			if (node && node.id != null) {
+				byId[node.id] = node;
+			}
+		});
+		var picked = [];
+		var seen = {};
+		(Array.isArray(ids) ? ids : []).forEach(function (id) {
+			if (seen[id] || !byId[id]) {
+				return;
+			}
+			seen[id] = true;
+			picked.push(byId[id]);
+		});
+		if (!picked.length) {
+			return { error: "empty-selection" };
+		}
+		for (var i = 0; i < picked.length; i++) {
+			if (isUnpackableKind(picked[i].kind)) {
+				return { error: "field-node" };
+			}
+		}
+		var inSet = {};
+		picked.forEach(function (node) {
+			inSet[node.id] = true;
+		});
+		var edges = Array.isArray(tab.edges) ? tab.edges : [];
+		for (var e = 0; e < edges.length; e++) {
+			var edge = edges[e];
+			if (!edge || edge.from == null || edge.to == null) {
+				continue;
+			}
+			if (!inSet[edge.from] && !inSet[edge.to]) {
+				continue;
+			}
+			if (typeof edge.to === "string" && edge.to.indexOf("mask.") === 0) {
+				return { error: "mask-wire" };
+			}
+			var other = inSet[edge.from] ? edge.to : edge.from;
+			if (byId[other] && isUnpackableKind(byId[other].kind)) {
+				return { error: "field-wire" };
+			}
+		}
+		var name = freshMacroId(tab, macroId);
+		var macroNodes = [];
+		var macroEdges = [];
+		var params = {};
+		var paramOf = {};
+		var normEdges = [];
+		picked.forEach(function (node) {
+			var copy = { id: node.id, kind: node.kind, inputs: cloneJson(node.inputs || {}) || {} };
+			if (node.op != null) {
+				copy.op = node.op;
+			}
+			// A `{from}` object input is the imported wire form: normalize it to an edge first.
+			Object.keys(copy.inputs).forEach(function (key) {
+				var value = copy.inputs[key];
+				if (value && typeof value === "object" && value.from != null
+						&& Object.keys(value).length <= 2) {
+					delete copy.inputs[key];
+					var wire = { from: value.from, to: node.id, input: key };
+					if (value.output != null) {
+						wire.output = value.output;
+					}
+					normEdges.push(wire);
+				}
+			});
+			macroNodes.push(copy);
+		});
+		var macroById = {};
+		macroNodes.forEach(function (node) {
+			macroById[node.id] = node;
+		});
+		function paramFor(innerId, input) {
+			var key = innerId + "" + input;
+			if (paramOf[key]) {
+				return paramOf[key];
+			}
+			var candidate = String(input);
+			var clash = macroNodes.some(function (node) {
+				return node.id !== innerId && node.inputs
+						&& Object.prototype.hasOwnProperty.call(node.inputs, candidate);
+			});
+			if (clash) {
+				candidate = innerId + "_" + input;
+			}
+			var pname = candidate;
+			var n = 1;
+			while (Object.prototype.hasOwnProperty.call(params, pname)) {
+				n++;
+				pname = candidate + "_" + n;
+			}
+			params[pname] = 0;
+			paramOf[key] = pname;
+			return pname;
+		}
+		var instanceInputs = {};
+		var outputs = {};
+		var outputOrder = [];
+		function outputFor(target, innerId) {
+			var candidate = String(target);
+			var stem = candidate;
+			var n = 1;
+			while (outputs[stem] != null) {
+				n++;
+				stem = candidate + "_" + n;
+			}
+			outputs[stem] = innerId;
+			outputOrder.push(stem);
+			return stem;
+		}
+		var keepEdges = [];
+		var allEdges = (Array.isArray(tab.edges) ? tab.edges : []).concat(normEdges);
+		allEdges.forEach(function (edge) {
+			if (!edge || edge.from == null || edge.to == null) {
+				return;
+			}
+			var fromIn = Boolean(inSet[edge.from]);
+			var toNode = byId[edge.to];
+			var toIn = Boolean(toNode && inSet[edge.to]);
+			if (fromIn && toIn) {
+				if (edge.input != null) {
+					macroEdges.push({ from: edge.from, to: edge.to, input: edge.input });
+				}
+				return;
+			}
+			if (!fromIn && !toIn) {
+				keepEdges.push(edge);
+				return;
+			}
+			if (!fromIn && toIn) {
+				// Inbound: the outer source becomes an instance `{from}` binding.
+				if (edge.input == null) {
+					return;
+				}
+				var pname = paramFor(edge.to, edge.input);
+				macroById[edge.to].inputs[edge.input] = "$" + pname;
+				instanceInputs[pname] = { from: edge.from };
+				if (edge.output != null) {
+					instanceInputs[pname].output = edge.output;
+				}
+				return;
+			}
+			// Outbound: a named macro output; the outer edge is rewired onto the instance.
+			var label = toNode && !toIn && edge.input != null ? edge.input : edge.to;
+			var oname = outputFor(label, edge.from);
+			var rewritten = { from: null, to: edge.to };
+			if (edge.input != null) {
+				rewritten.input = edge.input;
+			}
+			if (edge.effect != null) {
+				rewritten.effect = edge.effect;
+			}
+			if (oname !== outputOrder[0]) {
+				rewritten.output = oname;
+			}
+			rewritten._outputName = oname;
+			keepEdges.push(rewritten);
+		});
+		// Fix the instance id on the rewired outbound edges (allocated below).
+		var instanceId = freshMacroId(tab, name + "_inst");
+		keepEdges.forEach(function (edge) {
+			if (edge.from === null && edge._outputName) {
+				edge.from = instanceId;
+				delete edge._outputName;
+			}
+		});
+		var cx = 0, cy = 0, cn = 0;
+		picked.forEach(function (node) {
+			if (Array.isArray(node.pos) && node.pos.length === 2) {
+				cx += Number(node.pos[0]) || 0;
+				cy += Number(node.pos[1]) || 0;
+				cn++;
+			}
+		});
+		tab.valueNodes = nodes.filter(function (node) {
+			return !inSet[node.id];
+		});
+		tab.edges = keepEdges;
+		tab.valueNodes.push({
+			id: instanceId,
+			kind: "subgraph",
+			subgraph: name,
+			inputs: instanceInputs,
+			pos: cn ? [Math.round(cx / cn), Math.round(cy / cn)] : [120, 120]
+		});
+		if (!Array.isArray(tab.subgraphs)) {
+			tab.subgraphs = [];
+		}
+		tab.subgraphs.push({ id: name, inputs: params, nodes: macroNodes, edges: macroEdges,
+			outputs: outputs });
+		return { macroId: name, nodeId: instanceId };
+	}
+
+	/**
+	 * Expand one instance back into plain nodes (design §13.5 ungroup): the macro's nodes are
+	 * inlined with fresh ids, `$name` placeholders resolve to the instance bindings (else the
+	 * macro defaults), outer edges are rewired onto the inlined outputs, and the macro is dropped
+	 * when no instance references it anymore. A shared macro survives (other instances keep it).
+	 *
+	 * @param {Object} tab the tab (mutated)
+	 * @param {string} instanceId the instance value-node id
+	 * @returns {{nodeIds: Array<string>}|{error: string}} the inlined node ids, or the refusal
+	 */
+	function ungroupMacro(tab, instanceId) {
+		if (!tab) {
+			return { error: "no-tab" };
+		}
+		var nodes = Array.isArray(tab.valueNodes) ? tab.valueNodes : [];
+		var at = -1;
+		for (var i = 0; i < nodes.length; i++) {
+			if (nodes[i] && nodes[i].id === instanceId) {
+				at = i;
+				break;
+			}
+		}
+		if (at < 0 || !nodes[at] || nodes[at].kind !== "subgraph") {
+			return { error: "not-a-macro" };
+		}
+		var instance = nodes[at];
+		var macro = subgraphById(tab, instance.subgraph);
+		if (!macro) {
+			return { error: "unknown-macro" };
+		}
+		var bindings = instance.inputs && typeof instance.inputs === "object" ? instance.inputs : {};
+		var defaults = macro.inputs && typeof macro.inputs === "object" ? macro.inputs : {};
+		var used = {};
+		nodes.forEach(function (node) {
+			if (node && node.id != null) {
+				used[node.id] = true;
+			}
+		});
+		function fresh(id) {
+			if (!used[id]) {
+				used[id] = true;
+				return id;
+			}
+			var n = 1;
+			while (used[id + "_" + n]) {
+				n++;
+			}
+			used[id + "_" + n] = true;
+			return id + "_" + n;
+		}
+		var localOut = {};
+		(Array.isArray(macro.nodes) ? macro.nodes : []).forEach(function (node) {
+			localOut[node.id] = true;
+		});
+		var rename = {};
+		var freshNodes = [];
+		var pendingInbound = [];
+		(Array.isArray(macro.nodes) ? macro.nodes : []).forEach(function (node) {
+			var freshId = fresh(String(node.id));
+			rename[node.id] = freshId;
+			var inputs = {};
+			Object.keys(node.inputs || {}).forEach(function (key) {
+				if (isParamRef(node.inputs[key])) {
+					return;
+				}
+				var value = cloneJson(node.inputs[key]);
+				if (value && typeof value === "object" && value.from != null && !Array.isArray(value)) {
+					if (localOut[value.from]) {
+						value.from = rename[value.from] || value.from;
+						inputs[key] = value;
+					} else {
+						var wire = { from: value.from, to: freshId, input: key };
+						if (value.output != null) {
+							wire.output = value.output;
+						}
+						pendingInbound.push(wire);
+					}
+					return;
+				}
+				inputs[key] = value;
+			});
+			// A `$name` placeholder resolves to the instance binding (else the macro default); a
+			// binding of `{from}` to an outer node becomes a real edge (the input key is known here).
+			Object.keys(node.inputs || {}).forEach(function (key) {
+				if (!isParamRef(node.inputs[key])) {
+					return;
+				}
+				var pname = String(node.inputs[key]).substring(1);
+				var bound = Object.prototype.hasOwnProperty.call(bindings, pname)
+						? cloneJson(bindings[pname]) : cloneJson(defaults[pname]);
+				if (bound == null) {
+					bound = 0;
+				}
+				if (bound && typeof bound === "object" && bound.from != null && !Array.isArray(bound)) {
+					if (localOut[bound.from]) {
+						bound.from = rename[bound.from] || bound.from;
+						inputs[key] = bound;
+					} else {
+						var outer = { from: bound.from, to: freshId, input: key };
+						if (bound.output != null) {
+							outer.output = bound.output;
+						}
+						pendingInbound.push(outer);
+					}
+					return;
+				}
+				inputs[key] = bound;
+			});
+			var out = { id: freshId, kind: node.kind, inputs: inputs };
+			if (node.op != null) {
+				out.op = node.op;
+			}
+			if (node.subgraph != null) {
+				out.subgraph = node.subgraph;
+			}
+			freshNodes.push(out);
+		});
+		var freshEdges = [];
+		(Array.isArray(macro.edges) ? macro.edges : []).forEach(function (edge) {
+			if (!edge || edge.from == null || edge.to == null || edge.input == null) {
+				return;
+			}
+			freshEdges.push({ from: rename[edge.from] || edge.from, to: rename[edge.to] || edge.to,
+				input: edge.input });
+		});
+		var outNames = macro.outputs && typeof macro.outputs === "object" ? Object.keys(macro.outputs) : [];
+		var firstOutput = outNames.length ? outNames[0] : null;
+		var keepEdges = [];
+		(Array.isArray(tab.edges) ? tab.edges : []).forEach(function (edge) {
+			if (!edge || edge.from !== instanceId) {
+				if (edge && edge.to !== instanceId) {
+					keepEdges.push(edge);
+				}
+				return;
+			}
+			var oname = edge.output != null ? edge.output : firstOutput;
+			var local = oname != null && macro.outputs ? macro.outputs[oname] : null;
+			if (local == null || !rename[local]) {
+				return;
+			}
+			var rewritten = { from: rename[local], to: edge.to };
+			if (edge.input != null) {
+				rewritten.input = edge.input;
+			}
+			if (edge.effect != null) {
+				rewritten.effect = edge.effect;
+			}
+			keepEdges.push(rewritten);
+		});
+		nodes.splice(at, 1);
+		freshNodes.forEach(function (node) {
+			nodes.push(node);
+		});
+		pendingInbound.forEach(function (wire) {
+			keepEdges.push(wire);
+		});
+		freshEdges.forEach(function (edge) {
+			keepEdges.push(edge);
+		});
+		tab.edges = keepEdges;
+		var stillUsed = nodes.some(function (node) {
+			return node && node.kind === "subgraph" && node.subgraph === macro.id;
+		});
+		if (!stillUsed) {
+			tab.subgraphs = (Array.isArray(tab.subgraphs) ? tab.subgraphs : []).filter(function (m) {
+				return !m || m.id !== macro.id;
+			});
+		}
+		return { nodeIds: freshNodes.map(function (node) { return node.id; }) };
+	}
+
+	/**
+	 * Cap warnings for the tab's macros (design §13.5): over 64 definitions, nesting past depth 8
+	 * (a macro instancing another macro), or an instance of an unknown macro. The compiler emits
+	 * these beside its own warnings; the engine stays the loud validator.
+	 *
+	 * @param {Object} tab the tab
+	 * @returns {Array<Object>} `{reason, ...}` records (empty when clean)
+	 */
+	function subgraphWarnings(tab) {
+		var out = [];
+		var list = tab && Array.isArray(tab.subgraphs) ? tab.subgraphs : [];
+		if (list.length > MAX_SUBGRAPHS) {
+			out.push({ reason: "cap-64", count: list.length, limit: MAX_SUBGRAPHS });
+		}
+		var refs = {};
+		list.forEach(function (macro) {
+			if (!macro || macro.id == null) {
+				return;
+			}
+			refs[macro.id] = [];
+			(Array.isArray(macro.nodes) ? macro.nodes : []).forEach(function (node) {
+				if (node && node.kind === "subgraph" && node.subgraph != null) {
+					refs[macro.id].push(String(node.subgraph));
+				}
+			});
+		});
+		function depth(id, active) {
+			if (active.indexOf(id) >= 0) {
+				return MAX_MACRO_DEPTH + 1;
+			}
+			var children = refs[id] || [];
+			var best = 1;
+			for (var i = 0; i < children.length; i++) {
+				best = Math.max(best, 1 + depth(children[i], active.concat([id])));
+			}
+			return best;
+		}
+		Object.keys(refs).forEach(function (id) {
+			if (depth(id, []) > MAX_MACRO_DEPTH) {
+				out.push({ reason: "depth-8", macro: id, limit: MAX_MACRO_DEPTH });
+			}
+		});
+		var known = {};
+		list.forEach(function (macro) {
+			if (macro && macro.id != null) {
+				known[macro.id] = true;
+			}
+		});
+		(tab && Array.isArray(tab.valueNodes) ? tab.valueNodes : []).forEach(function (node) {
+			if (node && node.kind === "subgraph" && node.subgraph != null && !known[node.subgraph]) {
+				out.push({ reason: "unknown-subgraph", node: node.id, macro: node.subgraph });
+			}
+		});
+		return out;
+	}
+
+	/* ------------------------------------------------------------------ */
 	/* Pack import index (lazy open)                                       */
 	/* ------------------------------------------------------------------ */
 
@@ -2397,7 +2910,14 @@
 		makeFieldLeaf: makeFieldLeaf,
 		fieldStats: fieldStats,
 		fieldNeedsDepth: fieldNeedsDepth,
-		fieldCapWarnings: fieldCapWarnings
+		fieldCapWarnings: fieldCapWarnings,
+		MAX_SUBGRAPHS: MAX_SUBGRAPHS,
+		MAX_MACRO_DEPTH: MAX_MACRO_DEPTH,
+		isParamRef: isParamRef,
+		subgraphById: subgraphById,
+		groupSelection: groupSelection,
+		ungroupMacro: ungroupMacro,
+		subgraphWarnings: subgraphWarnings
 	};
 
 	root.VFXIR = api;
