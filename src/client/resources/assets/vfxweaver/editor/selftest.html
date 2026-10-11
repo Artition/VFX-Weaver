@@ -1727,6 +1727,22 @@ window.__vfxSelftest = function () {
 				"the authored tab.subgraphs layer wins over a carried child macro");
 	});
 
+	test("(SG6) collapsed canvas state never reaches the emitted definition", function () {
+		function build(collapsed) {
+			var tab = new VFXIR.Tab("edt", "blur");
+			var effect = tab.addEffect("blur");
+			tab.valueNodes = [{ id: "n1", kind: "constant", inputs: { value: 2 } }];
+			tab.edges = [{ from: "n1", to: "radius", effect: effect.id }];
+			if (collapsed) {
+				effect.collapsed = true;
+				tab.valueNodes[0].collapsed = true;
+			}
+			return tab;
+		}
+		eq(compileTab(build(false)), compileTab(build(true)),
+				"collapsed must not change the emitted definition");
+	});
+
 	test("(M1) mergeEdges preserves an undrawn edge but drops an explicit disconnect", function () {
 		var keep = function () { return true; };
 		var owner = function () { return "fx"; };

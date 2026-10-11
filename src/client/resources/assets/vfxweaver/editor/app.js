@@ -307,6 +307,7 @@
 			}).map(function (param) {
 				return param.name;
 			}) };
+			this.onDblClick = onNodeTitleDblClick;
 		}
 
 		EffectNode.title = typeName;
@@ -411,6 +412,7 @@
 			this.addOutput("mask", "*");
 			this.addOutput("leaf", "*");
 			this.size = [200, 90];
+			this.onDblClick = onNodeTitleDblClick;
 		}
 		MaskNode.title = "Mask";
 		MaskNode.desc = "VFXweaver mask root: op tree over the child MaskLeaf nodes";
@@ -432,6 +434,7 @@
 			this.addInput("mask", "*");
 			this.addOutput("leaf", "*");
 			this.size = [190, 80];
+			this.onDblClick = onNodeTitleDblClick;
 		}
 		MaskLeafNode.title = "MaskLeaf";
 		MaskLeafNode.desc = "VFXweaver mask leaf: a shape and its mask.p<N>.* fields";
@@ -513,6 +516,7 @@
 			// tree itself is still read from the link's origin (see syncFieldTrees), so the type
 			// carries no semantics.
 			this.addOutput("field", "*");
+			this.onDblClick = onNodeTitleDblClick;
 		}
 		FieldLeafNode.title = "Field";
 		FieldLeafNode.desc = "VFXweaver per-pixel field leaf (links to a field-capable socket)";
@@ -536,6 +540,7 @@
 			// Wildcard output, like the leaf: the op root links into a fieldCapable effect
 			// socket, whose type is the param's (see the leaf constructor).
 			this.addOutput("field", "*");
+			this.onDblClick = onNodeTitleDblClick;
 		}
 		FieldOpNode.title = "FieldOp";
 		FieldOpNode.desc = "VFXweaver field composition (links to a field-capable socket)";
@@ -1939,6 +1944,7 @@
 			}
 			this.onDrawForeground = drawSlotAffordances;
 			this.onMouseDown = slotFieldClick;
+			this.onDblClick = onNodeTitleDblClick;
 		}
 
 		ValueNode.title = kind;
@@ -2232,6 +2238,27 @@
 	}
 
 	/**
+	 * Toggle a node's collapsed state from a title-bar double-click (the whole title bar is
+	 * the hit area; LiteGraph's own collapse square keeps working for single clicks). Links
+	 * survive collapsing (LiteGraph keeps the sockets), and the state persists into the IR
+	 * through the normal debounced edit, so it survives tab switches and undo.
+	 *
+	 * @param {Object} event the canvas event (unused)
+	 * @param {Array<number>} pos the node-local position (the title bar is above y 0)
+	 */
+	function onNodeTitleDblClick(event, pos) {
+		var node = this;
+		if (!node || typeof node.collapse !== "function" || !node.graph
+				|| !pos || pos[1] >= 0) {
+			return;
+		}
+		node.collapse();
+		if (node.__tab) {
+			scheduleGraphEdit(node.__tab);
+		}
+	}
+
+	/**
 	 * Read one canvas value node into the IR node shape. Wired inputs are omitted (the compiler
 	 * routes them through `edges`); a numeric input is emitted only when the user set it explicitly
 	 * or the game parser requires it present, so a datapack default (e.g. noise `x` = elapsed) is
@@ -2293,6 +2320,9 @@
 		if (Array.isArray(node.pos) && node.pos.length === 2) {
 			ir.pos = [Math.round(node.pos[0]), Math.round(node.pos[1])];
 		}
+		if (node.flags && node.flags.collapsed === true) {
+			ir.collapsed = true;
+		}
 		return ir;
 	}
 
@@ -2340,6 +2370,11 @@
 			var entry = byId[node.properties.effectId];
 			entry.type = node.properties.effectType || entry.type;
 			entry.pos = [Math.round(num(node.pos[0])), Math.round(num(node.pos[1]))];
+			if (node.flags && node.flags.collapsed === true) {
+				entry.collapsed = true;
+			} else {
+				delete entry.collapsed;
+			}
 		});
 		if (tab.activeEffect >= tab.effects.length) {
 			tab.activeEffect = tab.effects.length - 1;
@@ -2424,7 +2459,6 @@
 			slot = Number(slot) || 0;
 			return slot > 0 && slot < names.length ? names[slot] : null;
 		}
-		var multi = Boolean(tab.effects && tab.effects.length > 1);
 		var graphLinks = (tab.graph && tab.graph.links) || {};
 		var edges = [];
 		var folds = [];
@@ -2455,12 +2489,9 @@
 				// The `mask` attachment port is a cosmetic Mask-root wire (it resolves via
 				// effectId), never a param edge — same skip as the field-tree reader below.
 				if (param && param.name !== "in" && param.name !== "mask") {
-					var edge = { from: from, to: param.name };
+					var edge = { from: from, to: param.name, effect: target.properties.effectId };
 					if (output != null) {
 						edge.output = output;
-					}
-					if (multi) {
-						edge.effect = target.properties.effectId;
 					}
 					emit(edge);
 				} else {
@@ -2473,7 +2504,7 @@
 				var maskSocket = target.inputs ? target.inputs[link.target_slot] : null;
 				if (maskSocket && maskSocket.name.indexOf("mask.") === 0) {
 					var maskEdge = { from: from, to: maskSocket.name };
-					if (target.properties.effectId && tab.effects && tab.effects.length > 1) {
+					if (target.properties.effectId) {
 						maskEdge.effect = target.properties.effectId;
 					}
 					emit(maskEdge);
@@ -2755,12 +2786,22 @@
 			self.__widgets[name] = widget;
 		});
 		outputs.forEach(function (name) {
-			self.addOutput(name, "number");
+			// Wildcard like every other value/field output: effect sockets are typed by
+			// param kind ("float", ...) and LiteGraph refuses a "number"->"float" wire,
+			// which left macro->effect edges undrawable (the compiler reads IR, so the
+			// type carries no semantics on canvas).
+			self.addOutput(name, "*");
 		});
 		node.setSize(node.computeSize());
 	}
 
 	function applyIR(node, ir) {
+		if (ir && ir.collapsed === true && node && node.flags) {
+			// Restored as a bare flag: the node is not on a graph yet and collapse()
+			// needs one. Rendering and the link reader only look at the flag, so the
+			// edge pass below is unaffected.
+			node.flags.collapsed = true;
+		}
 		var spec = node.__kindSpec || {};
 		if (spec.subgraph) {
 			applySubgraphIR(node, ir);
@@ -2966,6 +3007,9 @@
 						: [80 + count * 260, 80];
 				count++;
 				tab.graph.add(node);
+				if (effect.collapsed === true && typeof node.collapse === "function") {
+					node.collapse();
+				}
 				effectNodeById[effect.id] = node;
 			});
 			var chain = [];
@@ -5216,6 +5260,37 @@
 	}
 
 	/**
+	 * Whether `output` names the default (first) output of the macro instance `fromId`
+	 * (design §13.5): instance outputs are built in macro order with the first as slot 0,
+	 * which the canvas treats as the nameless default. An unknown macro keeps its output
+	 * (its wire stays undrawn and preserved, never silently re-aliased).
+	 *
+	 * @param {Object} tab the tab (its `valueNodes` carry the instance's macro id)
+	 * @param {string} fromId the mapped IR id of the wire's source node
+	 * @param {*} output the edge's output name
+	 * @returns {boolean} true when the output is the macro's first
+	 */
+	function isDefaultMacroOutput(tab, fromId, output) {
+		if (output == null || !tab || !window.VFXIR
+				|| typeof window.VFXIR.subgraphById !== "function") {
+			return false;
+		}
+		var macroId = null;
+		(tab.valueNodes || []).forEach(function (entry) {
+			if (entry && entry.id === fromId && entry.subgraph != null) {
+				macroId = entry.subgraph;
+			}
+		});
+		if (macroId == null) {
+			return false;
+		}
+		var macro = window.VFXIR.subgraphById(tab, macroId);
+		var names = macro && macro.outputs && typeof macro.outputs === "object"
+				? Object.keys(macro.outputs) : [];
+		return names.length > 0 && String(names[0]) === String(output);
+	}
+
+	/**
 	 * Merge one definition's value graph (`graph` + `inputs`) into the tab, tagging its param wires
 	 * with the owning effect so a chain's children keep their drivers (design §15.2, P6). Imported
 	 * node ids that collide across children are renamed.
@@ -5268,6 +5343,12 @@
 				}
 				if (edge.output != null) {
 					out.output = edge.output;
+					if (isDefaultMacroOutput(tab, from, edge.output)) {
+						// The canvas addresses slot 0 as the default output and reads it back
+						// without a name, so keep the default form: the engine aliases an
+						// `inputs` `{from}` to the first output, and the wire round-trips.
+						delete out.output;
+					}
 				}
 				tab.edges.push(out);
 			});

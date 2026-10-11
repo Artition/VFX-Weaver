@@ -40,7 +40,9 @@ If your browser does not open, copy the printed URL into it by hand.
 The tab bar is one tab per effect; a tab name is the effect id it compiles to (`<namespace>:<name>`,
 or a reserved `vfxweaver:` preview id for a scratch tab). A tab may be **empty**: delete its effect
 node (with `Del`) and the canvas shows a **+ Add effect** placeholder listing the effect types;
-picking one fills the same tab, so a tab can be retyped without opening a new one.
+picking one fills the same tab, so a tab can be retyped without opening a new one. Double-click a
+node's title bar (or the square at its left) to collapse it to the title bar; wires are kept and
+the state survives tab switches and undo.
 
 ## Editing and live playback
 
