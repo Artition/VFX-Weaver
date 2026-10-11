@@ -1149,6 +1149,13 @@
 		if (index < 0 || index >= project.tabs.length) {
 			return;
 		}
+		// A drag schedules its IR capture 200ms out; flush the outgoing tab now, so a quick
+		// tab switch cannot rebuild it from a still-stale position. The pending timer then
+		// no-ops, so one drag stays one undo step.
+		var outgoing = activeTab();
+		if (outgoing && outgoing !== project.tabs[index] && outgoing.__graphKey) {
+			flushGraphEdit(outgoing.__graphKey);
+		}
 		project.active = index;
 		var tab = project.tabs[index];
 		if (scene) {
@@ -2630,6 +2637,106 @@
 	}
 
 	/**
+	 * Deterministic layout for value nodes that carry no stored position (imported with no
+	 * meta.pos and no sidecar): topological columns (driver nodes left), rows spaced by node
+	 * height plus a gap, below the effect row. Nodes with a stored/sidecar/user position are
+	 * never moved. Mask/field structural nodes are not laid out here — they are auto-placed
+	 * beside their effect node on every rebuild and their moves are never persisted. Same IR
+	 * always yields the same layout; dependency-free.
+	 *
+	 * @param {Object} tab the tab
+	 * @param {Object} byId IR id -> canvas node
+	 */
+	var LAYOUT_COL_W = 300;
+	var LAYOUT_ROW_GAP = 40;
+	var LAYOUT_LEFT = 80;
+	function layoutAutoNodes(tab, byId) {
+		var ids = Object.keys(byId).filter(function (id) {
+			return byId[id].__autoPos === true;
+		});
+		if (!ids.length) {
+			return;
+		}
+		var deps = {};
+		ids.forEach(function (id) {
+			deps[id] = [];
+		});
+		function addDep(id, from) {
+			if (from != null && byId[from] && deps[id].indexOf(from) < 0) {
+				deps[id].push(from);
+			}
+		}
+		(tab.edges || []).forEach(function (edge) {
+			if (edge.input != null && byId[edge.to]) {
+				addDep(edge.to, edge.from);
+			}
+		});
+		ids.forEach(function (id) {
+			(byId[id].__pendingRefs || []).forEach(function (ref) {
+				addDep(id, ref.from);
+			});
+		});
+		var depth = {};
+		function level(id, seen) {
+			if (Object.prototype.hasOwnProperty.call(depth, id)) {
+				return depth[id];
+			}
+			if (seen[id] || !deps[id]) {
+				return 0;
+			}
+			seen[id] = true;
+			var top = 0;
+			deps[id].forEach(function (from) {
+				var below = level(from, seen) + 1;
+				if (below > top) {
+					top = below;
+				}
+			});
+			delete seen[id];
+			depth[id] = top;
+			return top;
+		}
+		ids.forEach(function (id) {
+			level(id, {});
+		});
+		var columns = {};
+		ids.forEach(function (id) {
+			var col = depth[id] || 0;
+			if (!columns[col]) {
+				columns[col] = [];
+			}
+			columns[col].push(id);
+		});
+		// Start below the effect row, so value wires never start out from under an effect node.
+		var top = 280;
+		effectNodes(tab).forEach(function (enode) {
+			var bottom = num(enode.pos[1]) + (enode.size ? num(enode.size[1]) : 120) + 80;
+			if (bottom > top) {
+				top = bottom;
+			}
+		});
+		Object.keys(columns).map(Number).sort(function (a, b) {
+			return a - b;
+		}).forEach(function (col) {
+			var x = LAYOUT_LEFT + col * LAYOUT_COL_W;
+			var y = top;
+			columns[col].sort().forEach(function (id) {
+				var node = byId[id];
+				if (node && typeof node.computeSize === "function") {
+					try {
+						node.setSize(node.computeSize());
+					} catch (e) {
+						// Keep the constructor size; the row gap still separates neighbours.
+					}
+				}
+				var height = node && node.size ? num(node.size[1]) : 120;
+				node.pos = [x, Math.round(y)];
+				y += height + LAYOUT_ROW_GAP;
+			});
+		});
+	}
+
+	/**
 	 * Rebuild a tab's canvas value graph from its IR (after an import, a tab switch or an undo/redo).
 	 * The effect root node and its position are preserved; only value nodes and their wires are redone.
 	 */
@@ -2697,6 +2804,10 @@
 				applyIR(node, ir);
 				if (Array.isArray(ir.pos) && ir.pos.length === 2) {
 					node.pos = [num(ir.pos[0]), num(ir.pos[1])];
+				} else {
+					// No stored pos (no meta.pos/sidecar): flagged for the layout pass below,
+					// which never moves a node that has one.
+					node.__autoPos = true;
 				}
 				tab.graph.add(node);
 				byId[ir.id] = node;
@@ -2761,6 +2872,7 @@
 					}
 				});
 			});
+			layoutAutoNodes(tab, byId);
 			materializeFieldNodes(tab, effectNodeById);
 		} finally {
 			applyingGraph = false;
