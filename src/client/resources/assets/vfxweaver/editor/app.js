@@ -3959,6 +3959,19 @@
 		effect.entitySelector = src && src.entity_selector != null ? String(src.entity_selector) : undefined;
 		effect.sound = src && src.sound != null ? String(src.sound) : undefined;
 		effect.soundPos = src && src.sound_pos !== undefined ? snapshot(src.sound_pos) : undefined;
+		// Tail slice (design §13.4): the same carry, so the new sub-editors show imported values.
+		effect.particle = src && src.particle != null ? String(src.particle) : undefined;
+		effect.shape = src && src.shape != null ? String(src.shape) : undefined;
+		effect.block = src && src.block != null ? String(src.block) : undefined;
+		effect.item = src && src.item != null ? String(src.item) : undefined;
+		effect.pattern = src && src.pattern !== undefined ? snapshot(src.pattern) : undefined;
+		effect.surface = src && src.surface !== undefined ? snapshot(src.surface) : undefined;
+		effect.anchor = src && src.anchor != null ? String(src.anchor) : undefined;
+		effect.windowId = src && src.id != null ? String(src.id) : undefined;
+		effect.windowTitles = src && src.titles !== undefined ? snapshot(src.titles) : undefined;
+		// The top-level `texture` is shared by the window spec and the screen-image spec (one is
+		// visible at a time — the sub-editors are flag-gated per type), so one IR field serves both.
+		effect.texture = src && src.texture != null ? String(src.texture) : undefined;
 	}
 
 	/**

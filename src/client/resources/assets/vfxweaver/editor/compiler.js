@@ -422,11 +422,15 @@
 
 	/**
 	 * Serialise the effect's authored structural fields (design §13.4): `positions`, `region`,
-	 * `entity_selector`, `sound` and `sound_pos`. Each is emitted only when the IR carries it
-	 * (`!== undefined`), so an imported definition's fields survive untouched through the source
-	 * clone when the editor did not touch them; an explicit empty/null value removes the field. The
-	 * shapes match {@code VFXDefinition.parse} exactly (the parser is the oracle): `positions` a
-	 * non-empty list, `region` six ints, `entity_selector`/`sound` a string, `sound_pos` three.
+	 * `entity_selector`, `sound` and `sound_pos`, plus the tail slice — the `particle`/`shape`/
+	 * `block`/`item` strings, the `pattern`/`surface` blocks, the `anchor` string, the window spec
+	 * fields (`id`/`texture`/`titles`) and the screen-image `texture`. Each is emitted only when
+	 * the IR carries it (`!== undefined`), so an imported definition's fields survive untouched
+	 * through the source clone when the editor did not touch them; an explicit empty/null value
+	 * removes the field. The shapes match {@code VFXDefinition.parse} exactly (the parser is the
+	 * oracle): `positions` a non-empty list, `region` six ints, `entity_selector`/`sound`/
+	 * `particle`/`shape`/`block`/`item`/`anchor` a string, `sound_pos` three, `pattern`/`surface`
+	 * objects, `titles` a string list.
 	 *
 	 * @param {Object|null} effect the effect entry (carries the structural fields), or null
 	 * @param {Object} def the definition being built (mutated)
@@ -468,6 +472,48 @@
 				def.sound_pos = effect.soundPos;
 			} else {
 				delete def.sound_pos;
+			}
+		}
+		["particle", "shape", "block", "item", "anchor"].forEach(function (name) {
+			if (effect[name] !== undefined) {
+				if (isNonEmptyString(effect[name])) {
+					def[name] = effect[name];
+				} else {
+					delete def[name];
+				}
+			}
+		});
+		["pattern", "surface"].forEach(function (name) {
+			if (effect[name] !== undefined) {
+				if (effect[name] != null && typeof effect[name] === "object"
+						&& Object.keys(effect[name]).length) {
+					def[name] = effect[name];
+				} else {
+					delete def[name];
+				}
+			}
+		});
+		if (effect.windowId !== undefined) {
+			if (isNonEmptyString(effect.windowId)) {
+				def.id = effect.windowId;
+			} else {
+				delete def.id;
+			}
+		}
+		if (effect.windowTitles !== undefined) {
+			if (Array.isArray(effect.windowTitles) && effect.windowTitles.length) {
+				def.titles = effect.windowTitles;
+			} else {
+				delete def.titles;
+			}
+		}
+		// The top-level `texture` serves the window spec and the screen-image spec (only one
+		// sub-editor is ever visible — flag-gated per type), so one IR field emits it.
+		if (effect.texture !== undefined) {
+			if (isNonEmptyString(effect.texture)) {
+				def.texture = effect.texture;
+			} else {
+				delete def.texture;
 			}
 		}
 	}

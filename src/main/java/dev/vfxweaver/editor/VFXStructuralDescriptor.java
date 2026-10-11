@@ -1,6 +1,14 @@
 package dev.vfxweaver.editor;
 
+import dev.vfxweaver.effect.CelestialAnchor;
 import dev.vfxweaver.effect.VFXEffectType;
+import dev.vfxweaver.effect.VFXWindowSpec;
+import dev.vfxweaver.field.VFXFieldFn;
+import dev.vfxweaver.field.VFXShape;
+import dev.vfxweaver.field.VFXShapeFigure;
+import dev.vfxweaver.field.VFXShapeFill;
+import dev.vfxweaver.field.VFXSurfaceSelection;
+import dev.vfxweaver.field.VFXTexture;
 import dev.vfxweaver.mask.VFXMaskShapeKind;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -32,10 +40,27 @@ import java.util.Objects;
  * @param supportsSound          whether the effect reads a top-level {@code sound} (plus optional
  *                               {@code sound_pos} and the {@code volume}/{@code pitch} params).
  *                               Every effect does.
+ * @param supportsParticleIds    whether the effect reads the optional top-level {@code particle}/
+ *                               {@code shape}/{@code block}/{@code item} strings (the {@code particles}
+ *                               and {@code block_chain} effects).
+ * @param supportsPattern        whether the effect reads a top-level {@code pattern} block
+ *                               ({@code VFXShape.parse} — the {@code surface_pattern} and
+ *                               {@code sky_pattern} effects).
+ * @param supportsSurface        whether the effect reads a top-level {@code surface} block
+ *                               ({@code VFXSurfaceSelection.parse} — the {@code surface_pattern} effect).
+ * @param supportsAnchor         whether the effect reads a top-level {@code anchor} string
+ *                               ({@code CelestialAnchor} — the {@code sky_pattern} effect only).
+ * @param supportsWindow         whether the effect reads the {@code VFXWindowSpec} fields
+ *                               ({@code id}, optional {@code texture}, {@code titles} — the
+ *                               {@code window_create}/{@code window_control} effects).
+ * @param supportsScreenImage    whether the effect reads the {@code VFXScreenImageSpec} field
+ *                               (required {@code texture} — the {@code screen_image} effect).
  */
 public record VFXStructuralDescriptor(boolean supportsMask, List<String> maskShapes,
 		boolean supportsPositions, boolean supportsRegion, boolean supportsEntitySelector,
-		boolean supportsSound) {
+		boolean supportsSound, boolean supportsParticleIds, boolean supportsPattern,
+		boolean supportsSurface, boolean supportsAnchor, boolean supportsWindow,
+		boolean supportsScreenImage) {
 	/** The mask shape ids, derived once from the shared {@link VFXMaskShapeKind} enum. */
 	private static final List<String> SHAPE_IDS = shapeIds();
 
@@ -61,8 +86,13 @@ public record VFXStructuralDescriptor(boolean supportsMask, List<String> maskSha
 		final boolean entitySelector = type == VFXEffectType.ENTITY_TINT
 			|| type == VFXEffectType.ENTITY_OUTLINE || type == VFXEffectType.ENTITY_DISPLACE;
 		// Every effect type may carry a sound (the manager plays definition.getSound() for any type).
+		final boolean particleIds = type == VFXEffectType.PARTICLES || type == VFXEffectType.BLOCK_CHAIN;
+		final boolean pattern = type == VFXEffectType.SURFACE_PATTERN || type == VFXEffectType.SKY_PATTERN;
 		return new VFXStructuralDescriptor(type.isPostProcessing(), SHAPE_IDS, positions, positions,
-			entitySelector, true);
+			entitySelector, true, particleIds, pattern, type == VFXEffectType.SURFACE_PATTERN,
+			type == VFXEffectType.SKY_PATTERN,
+			type == VFXEffectType.WINDOW_CREATE || type == VFXEffectType.WINDOW_CONTROL,
+			type == VFXEffectType.SCREEN_IMAGE);
 	}
 
 	/**
@@ -77,7 +107,8 @@ public record VFXStructuralDescriptor(boolean supportsMask, List<String> maskSha
 	 */
 	@Deprecated
 	public static VFXStructuralDescriptor of(final boolean post) {
-		return new VFXStructuralDescriptor(post, SHAPE_IDS, false, false, false, false);
+		return new VFXStructuralDescriptor(post, SHAPE_IDS, false, false, false, false,
+			false, false, false, false, false, false);
 	}
 
 	/**
@@ -181,6 +212,129 @@ public record VFXStructuralDescriptor(boolean supportsMask, List<String> maskSha
 		final Map<String, Object> spec = new LinkedHashMap<>();
 		spec.put("fields", List.of("sound", "sound_pos", "volume", "pitch"));
 		spec.put("posArity", 3);
+		return spec;
+	}
+
+	/**
+	 * The {@code particle}/{@code shape}/{@code block}/{@code item} metadata (design §13.4): four
+	 * optional top-level strings the {@code particles}/{@code block_chain} renderers read (mirrors
+	 * {@code VFXDefinition.parse}'s string reads).
+	 *
+	 * @return the particle-id field spec
+	 */
+	public static Map<String, Object> particleFields() {
+		final Map<String, Object> spec = new LinkedHashMap<>();
+		spec.put("fields", List.of("particle", "shape", "block", "item"));
+		return spec;
+	}
+
+	/**
+	 * The {@code pattern} metadata (design §13.4), derived from the shared shape library so the
+	 * editor's figure/fill combos and numeric fields cannot drift from {@code VFXShape.parse}: the
+	 * figure/fill spellings, the {@code VFXFieldFn.SHAPE} parameter names with their defaults, the
+	 * {@code repeat} bounds, the {@code center} arity and the {@code texture} sub-block keys with
+	 * their enum spellings and sheet caps (mirrors {@code VFXTexture.parse}).
+	 *
+	 * @return the pattern field spec
+	 */
+	public static Map<String, Object> patternFields() {
+		final List<String> figures = new ArrayList<>();
+		for (final VFXShapeFigure figure : VFXShapeFigure.values()) {
+			figures.add(figure.name().toLowerCase(java.util.Locale.ROOT));
+		}
+		final List<String> fills = new ArrayList<>();
+		for (final VFXShapeFill fill : VFXShapeFill.values()) {
+			fills.add(fill.name().toLowerCase(java.util.Locale.ROOT));
+		}
+		final List<String> names = VFXFieldFn.SHAPE.paramNames();
+		final List<List<Object>> params = new ArrayList<>(names.size());
+		for (final String name : names) {
+			params.add(List.of(name, VFXFieldFn.SHAPE.defaultParam(name)));
+		}
+		final List<String> sources = new ArrayList<>();
+		for (final VFXTexture.Source source : VFXTexture.Source.values()) {
+			sources.add(source.name().toLowerCase(java.util.Locale.ROOT));
+		}
+		final List<String> channels = new ArrayList<>();
+		for (final VFXTexture.Channel channel : VFXTexture.Channel.values()) {
+			channels.add(channel.name().toLowerCase(java.util.Locale.ROOT));
+		}
+		final List<String> aspects = new ArrayList<>();
+		for (final VFXTexture.Aspect aspect : VFXTexture.Aspect.values()) {
+			aspects.add(aspect.name().toLowerCase(java.util.Locale.ROOT));
+		}
+		final Map<String, Object> spec = new LinkedHashMap<>();
+		spec.put("figureValues", figures);
+		spec.put("fillValues", fills);
+		spec.put("shapeParams", params);
+		spec.put("repeatMin", VFXShape.MIN_REPEAT);
+		spec.put("repeatMax", VFXShape.MAX_REPEAT);
+		spec.put("centerArity", 3);
+		spec.put("textureKeys", List.of("id", "source", "atlas", "channel", "sheet", "aspect"));
+		spec.put("textureSources", sources);
+		spec.put("textureChannels", channels);
+		spec.put("textureAspects", aspects);
+		spec.put("sheetDim", VFXTexture.MAX_SHEET_DIM);
+		spec.put("sheetFrames", VFXTexture.MAX_SHEET_FRAMES);
+		return spec;
+	}
+
+	/**
+	 * The {@code surface} metadata (design §13.4), mirroring {@code VFXSurfaceSelection.parse}: the
+	 * face tokens, the token cap, the band bounds and the soft-edge cap.
+	 *
+	 * @return the surface field spec
+	 */
+	public static Map<String, Object> surfaceFields() {
+		final Map<String, Object> spec = new LinkedHashMap<>();
+		spec.put("fields", List.of("faces", "min", "max", "band_softness", "stitch"));
+		spec.put("faceTokens", List.of("up", "down", "north", "south", "east", "west",
+			"x", "y", "z", "horizontal", "vertical", "all"));
+		spec.put("maxTokens", VFXSurfaceSelection.MAX_TOKENS);
+		spec.put("bandSoftnessMax", VFXSurfaceSelection.MAX_BAND_SOFTNESS);
+		return spec;
+	}
+
+	/**
+	 * The {@code anchor} metadata (design §13.4): the {@code sky_pattern}-only celestial anchor
+	 * spellings, derived from {@link CelestialAnchor} (mirrors
+	 * {@code VFXDefinition.parse}'s {@code anchor} read).
+	 *
+	 * @return the anchor field spec
+	 */
+	public static Map<String, Object> anchorFields() {
+		final List<String> values = new ArrayList<>();
+		for (final CelestialAnchor anchor : CelestialAnchor.values()) {
+			values.add(anchor.key());
+		}
+		final Map<String, Object> spec = new LinkedHashMap<>();
+		spec.put("field", "anchor");
+		spec.put("values", values);
+		return spec;
+	}
+
+	/**
+	 * The {@code VFXWindowSpec} metadata (design §13.4): the required {@code id}, the optional
+	 * {@code texture} and the {@code titles} list cap (mirrors {@code VFXWindowSpec.parse}).
+	 *
+	 * @return the window field spec
+	 */
+	public static Map<String, Object> windowFields() {
+		final Map<String, Object> spec = new LinkedHashMap<>();
+		spec.put("fields", List.of("id", "texture", "titles"));
+		spec.put("maxTitles", VFXWindowSpec.MAX_TITLES);
+		return spec;
+	}
+
+	/**
+	 * The {@code VFXScreenImageSpec} metadata (design §13.4): the required top-level
+	 * {@code texture} string (mirrors {@code VFXScreenImageSpec.parse}).
+	 *
+	 * @return the screen-image field spec
+	 */
+	public static Map<String, Object> screenImageFields() {
+		final Map<String, Object> spec = new LinkedHashMap<>();
+		spec.put("field", "texture");
 		return spec;
 	}
 }

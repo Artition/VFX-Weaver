@@ -1328,6 +1328,92 @@ window.__vfxSelftest = function () {
 		eq(VFXIR.soundFieldSpec(beam).posArity, 3, "sound pos arity");
 	});
 
+	test("(TAIL1) particle/shape/block/item strings emit on a particle effect", function () {
+		var tab = new VFXIR.Tab("spark", "particles");
+		tab.effect().particle = "minecraft:flame";
+		tab.effect().shape = "sphere";
+		tab.effect().block = "minecraft:stone";
+		tab.effect().item = "minecraft:apple";
+		var def = parse(compileTab(tab));
+		eq(def.particle, "minecraft:flame", "particle");
+		eq(def.shape, "sphere", "shape");
+		eq(def.block, "minecraft:stone", "block");
+		eq(def.item, "minecraft:apple", "item");
+		tab.effect().particle = "";
+		var cleared = parse(compileTab(tab));
+		ok(!("particle" in cleared), "a blank particle is removed");
+	});
+
+	test("(TAIL2) pattern + surface blocks emit on a surface pattern", function () {
+		var tab = new VFXIR.Tab("field", "surface_pattern");
+		tab.effect().pattern = { figure: "circle", radius: 0.4,
+			texture: { id: "minecraft:block/stone", channel: "alpha" } };
+		tab.effect().surface = { faces: ["up"], min: 60, max: 96 };
+		var def = parse(compileTab(tab));
+		eq(def.pattern.figure, "circle", "pattern figure");
+		eq(def.pattern.radius, 0.4, "pattern radius");
+		eq(def.pattern.texture.id, "minecraft:block/stone", "pattern texture id");
+		eq(JSON.stringify(def.surface.faces), JSON.stringify(["up"]), "surface faces");
+		eq(def.surface.min, 60, "surface min");
+	});
+
+	test("(TAIL3) an anchor string emits on a sky pattern", function () {
+		var tab = new VFXIR.Tab("sky", "sky_pattern");
+		tab.effect().anchor = "sun";
+		var def = parse(compileTab(tab));
+		eq(def.anchor, "sun", "anchor");
+	});
+
+	test("(TAIL4) a window spec emits id/texture/titles on window_create", function () {
+		var tab = new VFXIR.Tab("win", "window_create");
+		tab.effect().windowId = "overlay";
+		tab.effect().texture = "minecraft:textures/gui/icon.png";
+		tab.effect().windowTitles = ["First", "Second"];
+		var def = parse(compileTab(tab));
+		eq(def.id, "overlay", "window id");
+		eq(def.texture, "minecraft:textures/gui/icon.png", "window texture");
+		eq(JSON.stringify(def.titles), JSON.stringify(["First", "Second"]), "window titles");
+	});
+
+	test("(TAIL5) a screen image emits its required texture", function () {
+		var tab = new VFXIR.Tab("pic", "screen_image");
+		tab.effect().texture = "minecraft:textures/gui/icon.png";
+		var def = parse(compileTab(tab));
+		eq(def.texture, "minecraft:textures/gui/icon.png", "texture");
+	});
+
+	test("(TAIL6) tail affordances are schema flags (no per-type branch)", function () {
+		var particles = { structural: { supportsParticleIds: true } };
+		ok(VFXIR.particleIdsAffordance(particles), "particle ids offered");
+		ok(!VFXIR.patternAffordance(particles), "no pattern without the flag");
+		var surface = { structural: { supportsPattern: true, supportsSurface: true } };
+		ok(VFXIR.patternAffordance(surface), "pattern offered");
+		ok(VFXIR.surfaceAffordance(surface), "surface offered");
+		ok(!VFXIR.anchorAffordance(surface), "no anchor without the flag");
+		ok(VFXIR.anchorAffordance({ structural: { supportsAnchor: true } }), "anchor offered");
+		ok(VFXIR.windowAffordance({ structural: { supportsWindow: true } }), "window offered");
+		ok(VFXIR.screenImageAffordance({ structural: { supportsScreenImage: true } }), "image offered");
+		ok(!VFXIR.screenImageAffordance({}), "nothing without a structural section");
+		eq(VFXIR.anchorFieldSpec({}).values.length, 4, "anchor fallback lists four anchors");
+		eq(VFXIR.windowFieldSpec({}).maxTitles, 64, "window fallback caps titles at 64");
+	});
+
+	test("(TAIL7) imported tail fields round-trip via the source clone", function () {
+		var tab = new VFXIR.Tab("sky", "sky_pattern");
+		tab.source = { type: "sky_pattern", duration: 40, anchor: "moon",
+			pattern: { figure: "rect" }, particle: "minecraft:flame",
+			texture: "minecraft:textures/gui/icon.png" };
+		var def = parse(compileTab(tab));
+		eq(def.anchor, "moon", "anchor kept");
+		eq(def.pattern.figure, "rect", "pattern kept");
+		eq(def.particle, "minecraft:flame", "particle kept");
+		eq(def.texture, "minecraft:textures/gui/icon.png", "texture kept");
+		tab.effect().anchor = "";
+		tab.effect().pattern = {};
+		var cleared = parse(compileTab(tab));
+		ok(!("anchor" in cleared), "anchor removed");
+		ok(!("pattern" in cleared), "an emptied pattern removed");
+	});
 	test("(MP1) a 200-definition pack opens lazily, not one tab per definition", function () {
 		var effects = {};
 		for (var i = 0; i < 200; i++) {

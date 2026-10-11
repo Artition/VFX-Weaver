@@ -1470,6 +1470,89 @@
 		return s && s.soundFields ? s.soundFields : SOUND_FIELD_FALLBACK;
 	}
 
+	/* ---- Tail slice (design §13.4): particle ids, pattern/surface, anchor, window, image --- */
+
+	/** Whether the effect reads the optional `particle`/`shape`/`block`/`item` strings. */
+	function particleIdsAffordance(descriptor) {
+		return Boolean(structuralSection(descriptor) && structuralSection(descriptor).supportsParticleIds === true);
+	}
+
+	/** Whether the effect reads a top-level `pattern` block (surface/sky pattern). */
+	function patternAffordance(descriptor) {
+		return Boolean(structuralSection(descriptor) && structuralSection(descriptor).supportsPattern === true);
+	}
+
+	/** Whether the effect reads a top-level `surface` block (surface pattern). */
+	function surfaceAffordance(descriptor) {
+		return Boolean(structuralSection(descriptor) && structuralSection(descriptor).supportsSurface === true);
+	}
+
+	/** Whether the effect reads a top-level `anchor` string (sky pattern only). */
+	function anchorAffordance(descriptor) {
+		return Boolean(structuralSection(descriptor) && structuralSection(descriptor).supportsAnchor === true);
+	}
+
+	/** Whether the effect reads the window spec fields (window_create/control). */
+	function windowAffordance(descriptor) {
+		return Boolean(structuralSection(descriptor) && structuralSection(descriptor).supportsWindow === true);
+	}
+
+	/** Whether the effect reads the screen-image texture (screen_image). */
+	function screenImageAffordance(descriptor) {
+		return Boolean(structuralSection(descriptor) && structuralSection(descriptor).supportsScreenImage === true);
+	}
+
+	/** The parser's particle-id field shape (mirrors VFXStructuralDescriptor.particleFields). */
+	var PARTICLE_FIELD_FALLBACK = { fields: ["particle", "shape", "block", "item"] };
+	var PATTERN_FIELD_FALLBACK = { figureValues: ["circle", "ellipse", "rect", "polygon"],
+		fillValues: ["solid", "stroke"], shapeParams: [], repeatMin: 1, repeatMax: 64,
+		centerArity: 3, textureKeys: ["id", "source", "atlas", "channel", "sheet", "aspect"],
+		textureSources: ["block", "item", "atlas", "standalone"],
+		textureChannels: ["r", "g", "b", "alpha", "luminance"],
+		textureAspects: ["preserve", "stretch"], sheetDim: 16, sheetFrames: 256 };
+	var SURFACE_FIELD_FALLBACK = { fields: ["faces", "min", "max", "band_softness", "stitch"],
+		faceTokens: ["up", "down", "north", "south", "east", "west", "x", "y", "z",
+			"horizontal", "vertical", "all"], maxTokens: 8, bandSoftnessMax: 4 };
+	var ANCHOR_FIELD_FALLBACK = { field: "anchor", values: ["dome", "sun", "moon", "stars"] };
+	var WINDOW_FIELD_FALLBACK = { fields: ["id", "texture", "titles"], maxTitles: 64 };
+	var SCREEN_IMAGE_FIELD_FALLBACK = { field: "texture" };
+
+	/** The schema's particle-id field spec, or the parser-mirroring fallback when absent. */
+	function particleFieldSpec(descriptor) {
+		var s = structuralSection(descriptor);
+		return s && s.particleFields ? s.particleFields : PARTICLE_FIELD_FALLBACK;
+	}
+
+	/** The schema's pattern field spec, or the fallback. */
+	function patternFieldSpec(descriptor) {
+		var s = structuralSection(descriptor);
+		return s && s.patternFields ? s.patternFields : PATTERN_FIELD_FALLBACK;
+	}
+
+	/** The schema's surface field spec, or the fallback. */
+	function surfaceFieldSpec(descriptor) {
+		var s = structuralSection(descriptor);
+		return s && s.surfaceFields ? s.surfaceFields : SURFACE_FIELD_FALLBACK;
+	}
+
+	/** The schema's anchor field spec, or the fallback. */
+	function anchorFieldSpec(descriptor) {
+		var s = structuralSection(descriptor);
+		return s && s.anchorFields ? s.anchorFields : ANCHOR_FIELD_FALLBACK;
+	}
+
+	/** The schema's window field spec, or the fallback. */
+	function windowFieldSpec(descriptor) {
+		var s = structuralSection(descriptor);
+		return s && s.windowFields ? s.windowFields : WINDOW_FIELD_FALLBACK;
+	}
+
+	/** The schema's screen-image field spec, or the fallback. */
+	function screenImageFieldSpec(descriptor) {
+		var s = structuralSection(descriptor);
+		return s && s.screenImageFields ? s.screenImageFields : SCREEN_IMAGE_FIELD_FALLBACK;
+	}
+
 	/** Whether a node is a composition (has an `op`). */
 	function isMaskComposition(node) {
 		return Boolean(node && typeof node === "object" && node.op != null);
@@ -2025,6 +2108,18 @@
 		regionFieldSpec: regionFieldSpec,
 		entitySelectorFieldSpec: entitySelectorFieldSpec,
 		soundFieldSpec: soundFieldSpec,
+		particleIdsAffordance: particleIdsAffordance,
+		patternAffordance: patternAffordance,
+		surfaceAffordance: surfaceAffordance,
+		anchorAffordance: anchorAffordance,
+		windowAffordance: windowAffordance,
+		screenImageAffordance: screenImageAffordance,
+		particleFieldSpec: particleFieldSpec,
+		patternFieldSpec: patternFieldSpec,
+		surfaceFieldSpec: surfaceFieldSpec,
+		anchorFieldSpec: anchorFieldSpec,
+		windowFieldSpec: windowFieldSpec,
+		screenImageFieldSpec: screenImageFieldSpec,
 		isMaskComposition: isMaskComposition,
 		maskLeaves: maskLeaves,
 		maskOps: maskOps,

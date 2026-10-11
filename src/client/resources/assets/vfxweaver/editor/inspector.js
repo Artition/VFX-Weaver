@@ -1020,10 +1020,13 @@
 	/**
 	 * Render the schema-driven non-post structural sub-editors (design §13.4): `positions`
 	 * (ordered entries, each `[x,y,z]` or an entity-anchored object), `region` (six ints),
-	 * `entity_selector` and `sound` (+ optional `sound_pos` and the `volume`/`pitch` params). Each
-	 * section appears only when the descriptor's `structural` section advertises the matching flag,
-	 * so this function holds no per-effect-type branch (forward-compat). The emitted JSON matches
-	 * the datapack parser exactly (the parser is the oracle).
+	 * `entity_selector` and `sound` (+ optional `sound_pos` and the `volume`/`pitch` params), plus
+	 * the tail slice — the `particle`/`shape`/`block`/`item` strings, the `pattern`/`surface`
+	 * blocks, the `anchor` string, the window spec (`id`/shared `texture`/`titles`) and the
+	 * screen-image `texture`. Each section appears only when the descriptor's `structural`
+	 * section advertises the matching flag, so this function holds no per-effect-type branch
+	 * (forward-compat). The emitted JSON matches the datapack parser exactly (the parser is
+	 * the oracle).
 	 *
 	 * @param {Object} tab the active `VFXIR.Tab` (its active effect entry is edited)
 	 * @param {Object} descriptor the effect's schema descriptor
@@ -1044,7 +1047,14 @@
 		var showRegion = vfxir.regionAffordance(descriptor);
 		var showEntity = vfxir.entitySelectorAffordance(descriptor);
 		var showSound = vfxir.soundAffordance(descriptor);
-		if (!showPositions && !showRegion && !showEntity && !showSound) {
+		var showParticles = vfxir.particleIdsAffordance(descriptor);
+		var showPattern = vfxir.patternAffordance(descriptor);
+		var showSurface = vfxir.surfaceAffordance(descriptor);
+		var showAnchor = vfxir.anchorAffordance(descriptor);
+		var showWindow = vfxir.windowAffordance(descriptor);
+		var showImage = vfxir.screenImageAffordance(descriptor);
+		if (!showPositions && !showRegion && !showEntity && !showSound && !showParticles
+				&& !showPattern && !showSurface && !showAnchor && !showWindow && !showImage) {
 			return null;
 		}
 
@@ -1234,6 +1244,211 @@
 			effect.params[name] = next;
 		}
 
+		/** The particle-id strings (design §13.4): four optional top-level id strings. */
+		function particleSection(spec) {
+			var box = section("Particle ids");
+			(spec.fields || ["particle", "shape", "block", "item"]).forEach(function (name) {
+				box.appendChild(textRow(name, effect, name,
+						name === "particle" ? "minecraft:flame" : ""));
+			});
+			return box;
+		}
+
+		/** The pattern object, created on first edit so an untouched effect emits nothing. */
+		function patternObj() {
+			if (!effect.pattern || typeof effect.pattern !== "object") {
+				effect.pattern = {};
+			}
+			return effect.pattern;
+		}
+
+		/** A number row writing into the pattern object (default shown as the placeholder). */
+		function patternNumRow(target, name, fallback) {
+			var input = el("input", { type: "number", class: "vfx-num",
+				value: target[name] == null ? "" : String(target[name]) });
+			if (fallback != null) {
+				input.placeholder = String(fallback);
+			}
+			input.addEventListener("input", function () {
+				if (input.value === "") {
+					delete target[name];
+				} else {
+					target[name] = num(input.value);
+				}
+				commit(false);
+			});
+			return el("label", { class: "vfx-field" }, [el("span", { text: name }), input]);
+		}
+
+		/** The pattern sub-editor (design §13.4): figure/fill, shape numbers, center, texture. */
+		function patternSection(spec) {
+			var box = section("Pattern");
+			var target = patternObj();
+			box.appendChild(selectRow("figure", target, "figure",
+					spec.figureValues || ["circle"], "circle"));
+			box.appendChild(selectRow("fill", target, "fill",
+					spec.fillValues || ["solid"], "solid"));
+			(target.shapeParams || spec.shapeParams || []).forEach(function (pair) {
+				box.appendChild(patternNumRow(target, pair[0], pair[1]));
+			});
+			box.appendChild(optionalVector("center", target, "center", function () { commit(false); }));
+			var tex = target.texture;
+			var toggle = el("input", { type: "checkbox", class: "vfx-check" });
+			toggle.checked = tex != null && typeof tex === "object";
+			toggle.addEventListener("change", function () {
+				if (toggle.checked) {
+					target.texture = { id: "minecraft:block/stone" };
+				} else {
+					delete target.texture;
+				}
+				commit(true);
+			});
+			box.appendChild(el("label", { class: "vfx-field" }, [el("span", { text: "texture" }), toggle]));
+			if (toggle.checked) {
+				var t = target.texture;
+				box.appendChild(textRow("id", t, "id", "minecraft:block/stone"));
+				var sourceSelect = el("select", { class: "vfx-select" });
+				[""].concat(spec.textureSources || []).forEach(function (value) {
+					sourceSelect.appendChild(el("option", { value: value,
+						text: value === "" ? "(infer from id)" : value }));
+				});
+				sourceSelect.value = t.source == null ? "" : String(t.source);
+				sourceSelect.addEventListener("change", function () {
+					if (sourceSelect.value === "") {
+						delete t.source;
+					} else {
+						t.source = sourceSelect.value;
+					}
+					commit(false);
+				});
+				box.appendChild(el("label", { class: "vfx-field" },
+						[el("span", { text: "source" }), sourceSelect]));
+				box.appendChild(textRow("atlas", t, "atlas", ""));
+				box.appendChild(selectRow("channel", t, "channel",
+						spec.textureChannels || ["alpha"], "alpha"));
+				["sheet_cols", "sheet_rows"].forEach(function (name, index) {
+					var sheet = Array.isArray(t.sheet) ? t.sheet : [1, 1];
+					var input = el("input", { type: "number", class: "vfx-num",
+						min: 1, max: spec.sheetDim || 16, value: String(sheet[index]) });
+					input.addEventListener("input", function () {
+						var next = Array.isArray(t.sheet) ? t.sheet.slice() : [1, 1];
+						next[index] = Math.round(num(input.value, 1));
+						t.sheet = next;
+						commit(false);
+					});
+					box.appendChild(el("label", { class: "vfx-field" }, [el("span", { text: name }), input]));
+				});
+				box.appendChild(selectRow("aspect", t, "aspect",
+						spec.textureAspects || ["preserve"], "preserve"));
+			}
+			return box;
+		}
+
+		/** The surface sub-editor (design §13.4): faces, band, soft edge, stitch. */
+		function surfaceSection(spec) {
+			var box = section("Surface");
+			var target = effect.surface;
+			if (!target || typeof target !== "object") {
+				target = effect.surface = {};
+			}
+			var faces = el("div", { class: "vfx-struct-rows" });
+			(spec.faceTokens || []).forEach(function (token) {
+				var list = Array.isArray(target.faces) ? target.faces : [];
+				var check = el("input", { type: "checkbox", class: "vfx-check" });
+				check.checked = list.indexOf(token) >= 0;
+				check.addEventListener("change", function () {
+					var next = Array.isArray(target.faces) ? target.faces.slice() : [];
+					if (check.checked) {
+						if (next.indexOf(token) < 0) {
+							next.push(token);
+						}
+					} else {
+						next = next.filter(function (t) { return t !== token; });
+					}
+					// An empty list is a parse error; omit the key (floor-only) instead.
+					if (!next.length) {
+						delete target.faces;
+					} else {
+						target.faces = next;
+					}
+					commit(false);
+				});
+				faces.appendChild(el("label", { class: "vfx-field" }, [el("span", { text: token }), check]));
+			});
+			box.appendChild(faces);
+			["min", "max", "band_softness"].forEach(function (name) {
+				box.appendChild(patternNumRow(target, name, name === "band_softness" ? 0 : null));
+			});
+			var stitch = el("input", { type: "checkbox", class: "vfx-check" });
+			stitch.checked = target.stitch === true;
+			stitch.addEventListener("change", function () {
+				if (stitch.checked) {
+					target.stitch = true;
+				} else {
+					delete target.stitch;
+				}
+				commit(false);
+			});
+			box.appendChild(el("label", { class: "vfx-field" }, [el("span", { text: "stitch" }), stitch]));
+			return box;
+		}
+
+		/** The anchor sub-editor (design §13.4): the sky_pattern-only celestial anchor. */
+		function anchorSection(spec) {
+			var box = section("Anchor");
+			box.appendChild(selectRow("anchor", effect, "anchor", spec.values || ["dome"], "dome"));
+			return box;
+		}
+
+		/** The window sub-editor (design §13.4): required id, shared texture, titles list. */
+		function windowSection(spec) {
+			var box = section("Window");
+			box.appendChild(textRow("id", effect, "windowId", "overlay"));
+			box.appendChild(textRow("texture", effect, "texture", "minecraft:textures/gui/icon.png"));
+			var rows = el("div", { class: "vfx-struct-rows" });
+			function list() {
+				if (!Array.isArray(effect.windowTitles)) {
+					effect.windowTitles = [];
+				}
+				return effect.windowTitles;
+			}
+			function rebuild() {
+				rows.textContent = "";
+				list().forEach(function (title, index) {
+					var input = el("input", { type: "text", class: "vfx-text", value: String(title) });
+					input.addEventListener("input", function () {
+						list()[index] = input.value;
+						commit(false);
+					});
+					var remove = el("button", { type: "button", class: "vfx-layer-btn", text: "\u00D7",
+						title: "Remove title" });
+					remove.addEventListener("click", function () {
+						list().splice(index, 1);
+						commit(true);
+					});
+					rows.appendChild(el("div", { class: "vfx-struct-entry" }, [input, remove]));
+				});
+			}
+			var add = el("button", { type: "button", class: "vfx-type", text: "+ Title" });
+			add.addEventListener("click", function () {
+				if (list().length < (spec.maxTitles || 64)) {
+					list().push("");
+					commit(true);
+				}
+			});
+			box.appendChild(rows);
+			box.appendChild(add);
+			rebuild();
+			return box;
+		}
+
+		/** The screen-image sub-editor (design §13.4): the required picture texture. */
+		function screenImageSection() {
+			var box = section("Screen image");
+			box.appendChild(textRow("texture", effect, "texture", "minecraft:textures/gui/icon.png"));
+			return box;
+		}
+
 		var wrap = el("div", { class: "vfx-struct" });
 		if (showPositions) {
 			wrap.appendChild(positionsSection(descriptor));
@@ -1246,6 +1461,24 @@
 		}
 		if (showSound) {
 			wrap.appendChild(soundSection());
+		}
+		if (showParticles) {
+			wrap.appendChild(particleSection(vfxir.particleFieldSpec(descriptor)));
+		}
+		if (showPattern) {
+			wrap.appendChild(patternSection(vfxir.patternFieldSpec(descriptor)));
+		}
+		if (showSurface) {
+			wrap.appendChild(surfaceSection(vfxir.surfaceFieldSpec(descriptor)));
+		}
+		if (showAnchor) {
+			wrap.appendChild(anchorSection(vfxir.anchorFieldSpec(descriptor)));
+		}
+		if (showWindow) {
+			wrap.appendChild(windowSection(vfxir.windowFieldSpec(descriptor)));
+		}
+		if (showImage) {
+			wrap.appendChild(screenImageSection());
 		}
 		return wrap;
 	}

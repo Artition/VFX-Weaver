@@ -366,6 +366,20 @@ public final class VFXEffectSchema {
 			structuralJson.put("regionFields", VFXStructuralDescriptor.regionFields());
 			structuralJson.put("entitySelectorFields", VFXStructuralDescriptor.entitySelectorFields());
 			structuralJson.put("soundFields", VFXStructuralDescriptor.soundFields());
+			// Additive tail slice (design §13.4): particle ids, pattern/surface, anchor, window and
+			// screen-image — same flag-plus-metadata shape, no per-type branch in the UI.
+			structuralJson.put("supportsParticleIds", structural.supportsParticleIds());
+			structuralJson.put("supportsPattern", structural.supportsPattern());
+			structuralJson.put("supportsSurface", structural.supportsSurface());
+			structuralJson.put("supportsAnchor", structural.supportsAnchor());
+			structuralJson.put("supportsWindow", structural.supportsWindow());
+			structuralJson.put("supportsScreenImage", structural.supportsScreenImage());
+			structuralJson.put("particleFields", VFXStructuralDescriptor.particleFields());
+			structuralJson.put("patternFields", VFXStructuralDescriptor.patternFields());
+			structuralJson.put("surfaceFields", VFXStructuralDescriptor.surfaceFields());
+			structuralJson.put("anchorFields", VFXStructuralDescriptor.anchorFields());
+			structuralJson.put("windowFields", VFXStructuralDescriptor.windowFields());
+			structuralJson.put("screenImageFields", VFXStructuralDescriptor.screenImageFields());
 			descriptorJson.put("structural", structuralJson);
 			root.put(descriptor.type().getName(), descriptorJson);
 		}
