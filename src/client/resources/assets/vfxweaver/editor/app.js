@@ -423,7 +423,10 @@
 	 */
 	function makeMaskLeafNode() {
 		function MaskLeafNode() {
-			this.properties = { maskRole: "leaf", effectId: null, leafIndex: 0 };
+			// `inputs`/`explicit` mirror the value-node convention: buildMaskLeafNode writes the
+			// reserved-slot defaults here, and without them the first mask import throws
+			// "Cannot set properties of undefined (setting 'mask.p<N>.*')".
+			this.properties = { maskRole: "leaf", effectId: null, leafIndex: 0, inputs: {}, explicit: {} };
 			this.addInput("mask", "*");
 			this.size = [190, 80];
 		}
@@ -3330,6 +3333,13 @@
 		slots.forEach(function (slot) {
 			if (slot.deferred) {
 				return;
+			}
+			// Guard stale/foreign nodes whose constructor predates the inputs convention.
+			if (!node.properties.inputs) {
+				node.properties.inputs = {};
+			}
+			if (!node.properties.explicit) {
+				node.properties.explicit = {};
 			}
 			node.__maskSlots.push(slot.name);
 			node.__kindSpec.sockets.push(slot.name);
