@@ -5817,22 +5817,41 @@
 			return;
 		}
 		status("importing " + shortPath(path) + "…");
+		var tPost0 = importNow();
 		bridge.post("/import", { path: path }).then(function (result) {
+			var tPost1 = importNow();
 			if (!result || result.ok === false) {
 				status("import failed: " + ((result && (result.detail || result.error)) || "no response"));
 				return;
 			}
 			var namespace = result.namespace || "";
 			var created = openPack(namespace, result.effects || {}, result.sidecar);
+			var tDone = importNow();
 			pushRecent(path);
+			// Import-timing probe: where the wall time went (server read vs browser build), so a
+			// slow import reports its hot stage instead of just hanging on "importing…".
+			var probe = " (post " + Math.round(tPost1 - tPost0) + "ms"
+				+ ", build " + Math.round(tDone - tPost1) + "ms"
+				+ (pack && pack.timings
+					? " [index " + Math.round(pack.timings.index) + "ms"
+						+ ", material " + Math.round(pack.timings.material) + "ms]" : "")
+				+ (result.readMs != null ? ", server " + Math.round(result.readMs) + "ms" : "") + ")";
 			if (created) {
 				status("imported " + created + " effect" + (created === 1 ? "" : "s")
-						+ (namespace ? " from " + namespace : ""));
+						+ (namespace ? " from " + namespace : "") + probe);
 			} else {
 				status("opened " + (pack ? pack.count : 0) + " effects"
-						+ (namespace ? " from " + namespace : "") + " — choose one to edit");
+						+ (namespace ? " from " + namespace : "") + " — choose one to edit" + probe);
 			}
 		});
+	}
+
+	/** Wall-clock ms for the import probe (`performance.now` when available). */
+	function importNow() {
+		if (typeof performance !== "undefined" && typeof performance.now === "function") {
+			return performance.now();
+		}
+		return Date.now();
 	}
 
 	/** The current import index (or null) and its sidecar, driving the lazy pack list UI. */
@@ -5883,10 +5902,14 @@
 			status("import failed: the IR module is not loaded");
 			return 0;
 		}
+		var tIndex0 = importNow();
 		pack = window.VFXIR.buildPackIndex(namespace, effects);
+		var tIndex1 = importNow();
 		pack.sidecar = sidecar;
 		ensureHistoryBaseline();
+		var tMaterial0 = importNow();
 		var plan = window.VFXIR.openPackPlan(pack, packHooks(), {});
+		pack.timings = { index: tIndex1 - tIndex0, material: importNow() - tMaterial0 };
 		if (plan.created && pack.sidecar) {
 			applySidecar(pack.sidecar, plan.tabs);
 		}

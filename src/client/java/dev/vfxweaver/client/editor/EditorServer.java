@@ -393,6 +393,7 @@ public final class EditorServer {
 			return;
 		}
 		try {
+			final long started = System.nanoTime();
 			final EditorPack.ImportedPack pack = EditorPack.read(Path.of(path));
 			final JsonObject effects = new JsonObject();
 			for (final Map.Entry<String, String> entry : pack.effectsJson().entrySet()) {
@@ -403,6 +404,9 @@ public final class EditorServer {
 			out.addProperty("namespace", pack.namespace());
 			out.add("effects", effects);
 			out.add("sidecar", pack.sidecarJson() == null ? JsonNull.INSTANCE : parseOrString(pack.sidecarJson()));
+			// Import-timing probe (additive): how long the read+assemble took, so the web status
+			// can show where a slow import spends its time (server vs browser materialisation).
+			out.addProperty("readMs", (System.nanoTime() - started) / 1_000_000L);
 			respondJson(exchange, out);
 		} catch (final RuntimeException | IOException e) {
 			respondActionError(exchange, EditorResult.BAD_REQUEST, String.valueOf(e.getMessage()));
