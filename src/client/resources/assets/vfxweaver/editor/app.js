@@ -1322,6 +1322,553 @@
 		if (!LiteGraph.registered_node_types["vfx/field_op"]) {
 			LiteGraph.registerNodeType("vfx/field_op", makeFieldOpNode());
 		}
+		registerRerouteNodeType();
+	}
+
+	/* ------------------------------------------------------------------ */
+	/* Reroute dots (Blender-style wire points, purely visual)             */
+	/* ------------------------------------------------------------------ */
+
+	/**
+	 * Reroute dots organise wires without changing the graph: a tiny dot node with one
+	 * wildcard input + one wildcard output (`*` matches every wire type — value, mask,
+	 * field, macro — see the gate test in scripts/run-editor-grouptest.js). Double-click
+	 * (or Alt+click) a wire to drop one at that point; dragging from a dot continues the
+	 * chain; deleting it heals the wire (predecessor back to successor).
+	 *
+	 * The vendored litegraph.js offers no link double-click (only node onDblClick /
+	 * onInputDblClick / onOutputDblClick, a canvas double-click opening the search box,
+	 * and the link menu's Add Node / Delete), so insertion is a document-level mousedown
+	 * pre-empt (see wireRerouteInsert) over a manual segment hit test (see linkAtCanvasPos).
+	 *
+	 * Dots carry no `kind`/`irId`, so every kind-based reader (refreshFromCanvas,
+	 * delete/copy/group, mergePreservedEdges) ignores them; links through them resolve
+	 * to the real endpoints (see resolveRerouteOrigin). Positions persist as the additive
+	 * `tab.__reroutes` list (rounded `{x, y, edge}` triples), which the compiler never
+	 * reads — export/emit stay byte-identical with or without dots. Dots on flow, mask
+	 * or field wires (no logical edge) heal and organise but are session-only: they are
+	 * not recorded and do not survive a canvas rebuild.
+	 */
+
+	/** Whether a canvas node is a reroute dot (never an IR node). */
+	function isRerouteNode(node) {
+		return !!(node && node.properties && node.properties.reroute === true);
+	}
+
+	/** Build the `vfx/reroute` dot constructor (schema-free, like the field nodes). */
+	function makeRerouteNode() {
+		function RerouteNode() {
+			this.properties = { reroute: true };
+			this.addInput("in", "*");
+			this.addOutput("out", "*");
+			// Slots keep the stock look on purpose: PORT_TYPES stays the fixed eight
+			// (the grouptest pins the count) and the wildcard carries the wire's type.
+			this.size = [40, 26];
+			if (typeof LiteGraph !== "undefined" && LiteGraph && LiteGraph.NO_TITLE != null) {
+				this.title_mode = LiteGraph.NO_TITLE;
+			}
+		}
+		RerouteNode.title = "reroute";
+		RerouteNode.desc = "VFXweaver reroute dot: a visual wire point (never compiled)";
+		return RerouteNode;
+	}
+
+	/** Register the `vfx/reroute` dot type. */
+	function registerRerouteNodeType() {
+		if (!LiteGraph.registered_node_types["vfx/reroute"]) {
+			LiteGraph.registerNodeType("vfx/reroute", makeRerouteNode());
+		}
+	}
+
+	/**
+	 * Follow a wire upstream through reroute dots to the real driver.
+	 *
+	 * @param {Object} tab the tab
+	 * @param {number} nodeId the canvas node id to start from
+	 * @param {number} slot the output slot on the starting node
+	 * @returns {{id: number, slot: number}|null} the first non-reroute origin, or null
+	 */
+	function resolveRerouteOrigin(tab, nodeId, slot) {
+		var seen = {};
+		var id = nodeId;
+		var at = Number(slot) || 0;
+		while (id != null && !seen[id]) {
+			seen[id] = true;
+			var node = tab.graph ? tab.graph.getNodeById(id) : null;
+			if (!isRerouteNode(node)) {
+				return node ? { id: id, slot: at } : null;
+			}
+			var fed = node.inputs && node.inputs[0] ? node.inputs[0].link : null;
+			var links = tab.graph ? tab.graph.links : {};
+			var link = fed != null ? links[fed] : null;
+			if (!link) {
+				return null;
+			}
+			id = link.origin_id;
+			at = link.origin_slot;
+		}
+		return null;
+	}
+
+	/**
+	 * Follow a wire downstream through reroute dots to the final target (first-link
+	 * wins; fan-out past a dot redraws direct on rebuild — the IR never changes).
+	 *
+	 * @param {Object} tab the tab
+	 * @param {number} nodeId the canvas node id to start from
+	 * @param {number} slot the output slot on the starting node
+	 * @returns {{id: number, slot: number}|null} the first non-reroute target, or null
+	 */
+	function resolveRerouteTarget(tab, nodeId, slot) {
+		var seen = {};
+		var id = nodeId;
+		var at = Number(slot) || 0;
+		while (id != null && !seen[id]) {
+			seen[id] = true;
+			var node = tab.graph ? tab.graph.getNodeById(id) : null;
+			if (!isRerouteNode(node)) {
+				return node ? { id: id, slot: at } : null;
+			}
+			var outs = node.outputs && node.outputs[at] ? node.outputs[at].links : null;
+			var first = outs && outs.length ? outs[0] : null;
+			var links = tab.graph ? tab.graph.links : {};
+			var link = first != null ? links[first] : null;
+			if (!link) {
+				return null;
+			}
+			id = link.target_id;
+			at = link.target_slot;
+		}
+		return null;
+	}
+
+	/**
+	 * The point-to-segment distance (canvas units): the wire hit test treats links as
+	 * straight segments while LiteGraph draws beziers — close enough at a 10px tolerance.
+	 */
+	function pointSegmentDistance(p, a, b) {
+		var dx = b[0] - a[0];
+		var dy = b[1] - a[1];
+		var squared = dx * dx + dy * dy;
+		var t = squared ? ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / squared : 0;
+		t = Math.max(0, Math.min(1, t));
+		var ex = p[0] - (a[0] + t * dx);
+		var ey = p[1] - (a[1] + t * dy);
+		return Math.sqrt(ex * ex + ey * ey);
+	}
+
+	/**
+	 * The topmost canvas link near `pos` (a dblclick/Alt+click insertion point), or null.
+	 *
+	 * @param {Object} tab the tab
+	 * @param {Array<number>} pos the canvas-space point
+	 * @param {Object} [canvas] the LiteGraph canvas (for the zoom; headless-safe)
+	 * @returns {{id: string, link: Object}|null} the link id + link
+	 */
+	function linkAtCanvasPos(tab, pos, canvas) {
+		if (!tab || !tab.graph || !pos) {
+			return null;
+		}
+		var links = tab.graph.links || {};
+		var scale = canvas && canvas.ds ? num(canvas.ds.scale, 1) : 1;
+		var tolerance = 10 / (scale || 1);
+		var best = null;
+		var bestDistance = tolerance;
+		Object.keys(links).forEach(function (id) {
+			var link = links[id];
+			if (!link) {
+				return;
+			}
+			var origin = tab.graph.getNodeById(link.origin_id);
+			var target = tab.graph.getNodeById(link.target_id);
+			if (!origin || !target || typeof origin.getConnectionPos !== "function"
+					|| typeof target.getConnectionPos !== "function") {
+				return;
+			}
+			var a = null;
+			var b = null;
+			try {
+				a = origin.getConnectionPos(false, link.origin_slot);
+				b = target.getConnectionPos(true, link.target_slot);
+			} catch (e) {
+				return;
+			}
+			if (!a || !b) {
+				return;
+			}
+			var distance = pointSegmentDistance(pos, a, b);
+			if (distance < bestDistance) {
+				bestDistance = distance;
+				best = { id: id, link: link };
+			}
+		});
+		return best;
+	}
+
+	/**
+	 * Drop a reroute dot on one canvas link at `pos`: the wire is re-threaded through
+	 * the dot (predecessor -> dot -> successor). Rolls back to the original wire when
+	 * either half refuses to connect.
+	 *
+	 * @param {Object} tab the tab
+	 * @param {string} linkId the canvas link id
+	 * @param {Array<number>} pos the canvas-space insertion point
+	 * @returns {Object|null} the dot node, or null
+	 */
+	function insertRerouteOnLink(tab, linkId, pos) {
+		if (!tab || !tab.graph) {
+			return null;
+		}
+		var link = tab.graph.links ? tab.graph.links[linkId] : null;
+		if (!link) {
+			return null;
+		}
+		var origin = tab.graph.getNodeById(link.origin_id);
+		var target = tab.graph.getNodeById(link.target_id);
+		if (!origin || !target) {
+			return null;
+		}
+		if (typeof target.disconnectInput === "function") {
+			target.disconnectInput(link.target_slot);
+		}
+		if (!LiteGraph.registered_node_types["vfx/reroute"]) {
+			return null;
+		}
+		var dot = LiteGraph.createNode("vfx/reroute");
+		if (!dot) {
+			return null;
+		}
+		dot.__tab = tab;
+		dot.pos = [Math.round(num(pos[0]) - 20), Math.round(num(pos[1]) - 13)];
+		tab.graph.add(dot);
+		var wired = false;
+		try {
+			wired = origin.connect(link.origin_slot, dot, 0) != null
+					&& dot.connect(0, target, link.target_slot) != null;
+		} catch (e) {
+			wired = false;
+		}
+		if (!wired) {
+			try {
+				tab.graph.remove(dot);
+			} catch (e2) {
+				// The dot is already gone; fall through to the wire restore.
+			}
+			try {
+				origin.connect(link.origin_slot, target, link.target_slot);
+			} catch (e3) {
+				// The original wire is already back; insertion just reports null.
+			}
+			return null;
+		}
+		scheduleGraphEdit(tab);
+		if (scene) {
+			scene.setDirty(true, true);
+		}
+		return dot;
+	}
+
+	/**
+	 * Heal a reroute dot: reconnect its driver straight into every successor it feeds
+	 * (the `connect` gate drops a half the types forbid — a dot can bridge wires no
+	 * direct link allows — and the merge pass keeps the logical edge regardless).
+	 * Runs before the dot leaves the graph; removals already disconnect first.
+	 *
+	 * @param {Object} tab the tab
+	 * @param {Object} node the reroute dot
+	 */
+	function healReroute(tab, node) {
+		if (!tab || !tab.graph || !isRerouteNode(node)) {
+			return;
+		}
+		var links = tab.graph.links || {};
+		var fed = node.inputs && node.inputs[0] ? node.inputs[0].link : null;
+		var incoming = fed != null ? links[fed] : null;
+		if (!incoming) {
+			return;
+		}
+		var source = tab.graph.getNodeById(incoming.origin_id);
+		if (!source) {
+			return;
+		}
+		var outs = node.outputs && node.outputs[0] && node.outputs[0].links
+				? node.outputs[0].links.slice() : [];
+		outs.forEach(function (id) {
+			var back = links[id];
+			if (!back) {
+				return;
+			}
+			var target = tab.graph.getNodeById(back.target_id);
+			if (!target || target === source) {
+				return;
+			}
+			try {
+				source.connect(incoming.origin_slot, target, back.target_slot);
+			} catch (e) {
+				// One successor keeps its (healed-by-merge) edge; never break the rest.
+			}
+		});
+	}
+
+	/**
+	 * Add a reroute dot to `tab` at `pos` (or a default spot), for the palette button.
+	 *
+	 * @param {Object} tab the tab
+	 * @param {Array<number>} [pos] the canvas-space position
+	 * @returns {Object|null} the dot node, or null
+	 */
+	function addRerouteNode(tab, pos) {
+		if (!tab || !tab.graph) {
+			status("choose an effect type before adding value nodes");
+			return null;
+		}
+		if (!LiteGraph.registered_node_types["vfx/reroute"]) {
+			return null;
+		}
+		var node = LiteGraph.createNode("vfx/reroute");
+		if (!node) {
+			return null;
+		}
+		node.__tab = tab;
+		if (Array.isArray(pos) && pos.length === 2) {
+			node.pos = [Math.round(num(pos[0])), Math.round(num(pos[1]))];
+		} else {
+			var count = 0;
+			tab.graph._nodes.forEach(function () {
+				count++;
+			});
+			node.pos = [120 + (count % 6) * 30, 120 + (count % 6) * 30];
+		}
+		tab.graph.add(node);
+		scheduleGraphEdit(tab);
+		if (scene) {
+			scene.setDirty(true, true);
+		}
+		return node;
+	}
+
+	/**
+	 * Snapshot the reroute dots into `tab.__reroutes` (rounded `{x, y, edge}` triples
+	 * in canvas order): the additive view-only field undo, tab switches and the
+	 * materialise pass carry. A dot whose wire is not one logical edge (flow, mask,
+	 * field, dangling, fanned) is canvas-only and not recorded.
+	 *
+	 * @param {Object} tab the tab
+	 */
+	function recordReroutes(tab) {
+		var dots = [];
+		if (tab && tab.graph) {
+			var irByGraphId = {};
+			tab.graph._nodes.forEach(function (node) {
+				if (isEffectNode(node) || !node.properties || !node.properties.kind
+						|| !node.properties.irId) {
+					return;
+				}
+				irByGraphId[node.id] = node.properties.irId;
+			});
+			(tab.graph._nodes || []).forEach(function (node) {
+				if (!isRerouteNode(node) || !Array.isArray(node.pos)) {
+					return;
+				}
+				var driver = resolveRerouteOrigin(tab, node.id, 0);
+				var dest = resolveRerouteTarget(tab, node.id, 0);
+				if (!driver || !dest) {
+					return;
+				}
+				var found = classifyCanvasLink(tab, irByGraphId, {
+					origin_id: driver.id,
+					origin_slot: driver.slot,
+					target_id: dest.id,
+					target_slot: dest.slot
+				});
+				if (found && found.edge) {
+					dots.push({
+						x: Math.round(num(node.pos[0])),
+						y: Math.round(num(node.pos[1])),
+						edge: edgeKeyOf(found.edge)
+					});
+				}
+			});
+		}
+		if (tab) {
+			tab.__reroutes = dots;
+		}
+	}
+
+	/**
+	 * Re-split the materialised direct wires through the recorded reroute dots (see
+	 * recordReroutes), in recorded order per edge. Runs under `applyingGraph`, before
+	 * the socket-collapse restore, so every socket still exists.
+	 *
+	 * @param {Object} tab the tab
+	 * @param {Object} byId IR value-node id -> canvas node
+	 * @param {Object} effectNodeById effect id -> canvas node
+	 */
+	function materializeReroutes(tab, byId, effectNodeById) {
+		var dots = (tab && tab.__reroutes) || [];
+		if (!dots.length || !tab.graph) {
+			return;
+		}
+		var multi = Boolean(tab.effects && tab.effects.length > 1);
+		var irByGraphId = {};
+		Object.keys(byId || {}).forEach(function (irId) {
+			if (byId[irId]) {
+				irByGraphId[byId[irId].id] = irId;
+			}
+		});
+		var groups = {};
+		var order = [];
+		dots.forEach(function (dot) {
+			if (!dot || dot.edge == null) {
+				return;
+			}
+			if (!groups[dot.edge]) {
+				groups[dot.edge] = [];
+				order.push(dot.edge);
+			}
+			groups[dot.edge].push(dot);
+		});
+		/** The live link currently carrying `key` out of one tail node/slot, or null. */
+		function findEdgeLink(tailId, tailSlot, key) {
+			var links = tab.graph.links || {};
+			var ids = Object.keys(links);
+			var fallback = null;
+			for (var i = 0; i < ids.length; i++) {
+				var link = links[ids[i]];
+				if (!link || link.origin_id !== tailId || link.origin_slot !== tailSlot) {
+					continue;
+				}
+				if (!fallback) {
+					fallback = { id: ids[i], link: link };
+				}
+				var driver = resolveRerouteOrigin(tab, link.origin_id, link.origin_slot);
+				var dest = resolveRerouteTarget(tab, link.target_id, link.target_slot);
+				if (driver && dest) {
+					var found = classifyCanvasLink(tab, irByGraphId, {
+						origin_id: driver.id,
+						origin_slot: driver.slot,
+						target_id: dest.id,
+						target_slot: dest.slot
+					});
+					if (found && found.edge && edgeKeyOf(found.edge) === key) {
+						return { id: ids[i], link: link };
+					}
+				}
+			}
+			return fallback;
+		}
+		order.forEach(function (key) {
+			var edge = null;
+			(tab.edges || []).forEach(function (candidate) {
+				if (!edge && edgeKeyOf(candidate) === key) {
+					edge = candidate;
+				}
+			});
+			if (!edge) {
+				return;
+			}
+			var from = (byId || {})[edge.from];
+			if (!from) {
+				return;
+			}
+			var fromSlot = 0;
+			if (edge.output != null) {
+				fromSlot = outputSlotIndex(from, edge.output);
+				if (fromSlot < 0) {
+					return;
+				}
+			}
+			var tail = { node: from, slot: fromSlot };
+			groups[key].forEach(function (dot) {
+				var carrying = findEdgeLink(tail.node.id, tail.slot, key);
+				if (!carrying) {
+					return;
+				}
+				var target = tab.graph.getNodeById(carrying.link.target_id);
+				var targetSlot = carrying.link.target_slot;
+				if (!target) {
+					return;
+				}
+				tab.graph.removeLink(carrying.id);
+				if (!LiteGraph.registered_node_types["vfx/reroute"]) {
+					tail.node.connect(tail.slot, target, targetSlot);
+					return;
+				}
+				var dotNode = LiteGraph.createNode("vfx/reroute");
+				if (!dotNode) {
+					tail.node.connect(tail.slot, target, targetSlot);
+					return;
+				}
+				dotNode.__tab = tab;
+				dotNode.pos = [Math.round(num(dot.x) - 20), Math.round(num(dot.y) - 13)];
+				tab.graph.add(dotNode);
+				if (tail.node.connect(tail.slot, dotNode, 0) == null
+						|| dotNode.connect(0, target, targetSlot) == null) {
+					tab.graph.remove(dotNode);
+					tail.node.connect(tail.slot, target, targetSlot);
+					return;
+				}
+				tail = { node: dotNode, slot: 0 };
+			});
+		});
+	}
+
+	/** The last canvas mousedown (for the manual double-click-on-wire detector). */
+	var lastWireDown = null;
+
+	/**
+	 * Pre-empt double-click (or Alt+click) on a wire to drop a reroute dot, document-level
+	 * capture like wireHotkeys so LiteGraph's own mousedown (node drag, slot clicks, the
+	 * double-click search box, Alt-drag clone) never sees the hijacked press. A press with
+	 * a node under the cursor, mid-drag, or off the canvas keeps the stock behaviour.
+	 */
+	function wireRerouteInsert() {
+		document.addEventListener("mousedown", function (event) {
+			if (!scene || !dom.canvas || event.target !== dom.canvas) {
+				return;
+			}
+			var tab = activeTab();
+			if (!tab || !tab.graph || event.button !== 0
+					|| event.ctrlKey || event.metaKey || event.shiftKey) {
+				return;
+			}
+			var pos = null;
+			try {
+				pos = scene.convertEventToCanvasOffset(event);
+			} catch (e) {
+				return;
+			}
+			if (!pos) {
+				return;
+			}
+			var under = null;
+			try {
+				under = tab.graph.getNodeOnPos(pos[0], pos[1],
+						scene.visible_nodes || tab.graph._nodes, 5);
+			} catch (e2) {
+				under = null;
+			}
+			var altTap = event.altKey === true;
+			var now = Date.now();
+			var doubleTap = !!lastWireDown && !lastWireDown.alt
+					&& (now - lastWireDown.at) < 450
+					&& Math.abs(lastWireDown.x - pos[0]) < 8
+					&& Math.abs(lastWireDown.y - pos[1]) < 8;
+			lastWireDown = { at: now, x: pos[0], y: pos[1], alt: altTap };
+			if (under || (!altTap && !doubleTap)) {
+				return;
+			}
+			if (scene.connecting_node || scene.connecting_output || scene.connecting_input) {
+				return;
+			}
+			var hit = linkAtCanvasPos(tab, pos, scene);
+			if (!hit) {
+				return;
+			}
+			event.preventDefault();
+			event.stopPropagation();
+			insertRerouteOnLink(tab, hit.id, pos);
+		}, true);
 	}
 
 	/** Keep the op node's `factor` input present exactly for the ternary mix. */
@@ -1449,6 +1996,16 @@
 	 */
 	function fieldTreeFromNode(tab, canvasId, seen) {
 		var node = tab.graph.getNodeById(canvasId);
+		if (isRerouteNode(node)) {
+			// A field wire threaded through dots reads as its real tree (dots never
+			// reach the IR); cycle-guarded by the shared `seen` map.
+			var fedId = node.inputs && node.inputs[0] ? node.inputs[0].link : null;
+			var fedLink = fedId != null && tab.graph.links ? tab.graph.links[fedId] : null;
+			if (!fedLink || seen[fedLink.origin_id]) {
+				return null;
+			}
+			return fieldTreeFromNode(tab, fedLink.origin_id, seen);
+		}
 		if (!node || !isFieldNode(node) || seen[canvasId]) {
 			return null;
 		}
@@ -1770,6 +2327,7 @@
 		tab.graph = graph;
 		tab.root = null;
 		tab.__valueSeq = 0;
+		tab.__reroutes = [];
 		wireGraphHooks(tab);
 		project.tabs.push(tab);
 		project.active = project.tabs.length - 1;
@@ -1868,7 +2426,13 @@
 		});
 		Object.keys(tab.graph.links).forEach(function (linkId) {
 			var link = tab.graph.links[linkId];
-			var origin = byId[link.origin_id];
+			var originNode = tab.graph.getNodeById(link.origin_id);
+			if (isRerouteNode(originNode)) {
+				// A flow chain threaded through dots still orders its effects.
+				var upstream = resolveRerouteOrigin(tab, link.origin_id, link.origin_slot);
+				originNode = upstream ? tab.graph.getNodeById(upstream.id) : null;
+			}
+			var origin = originNode ? byId[originNode.id] : null;
 			var target = byId[link.target_id];
 			if (!origin || !target) {
 				return;
@@ -1901,6 +2465,8 @@
 
 	/** Rewrite the flow links so they connect the effect nodes in `tab.effects` order. */
 	function rewireChain(tab) {
+		// Reroute dots unthreaded from a removed chain segment (dropped below when unwired).
+		var bypassed = [];
 		if (!tab || !tab.graph) {
 			return;
 		}
@@ -1910,6 +2476,21 @@
 			if (target && isEffectNode(target)) {
 				var slot = target.inputs ? target.inputs[link.target_slot] : null;
 				if (slot && slot.name === "in") {
+					// Unthread dots bypassed upstream first, so no dot is left
+					// dangling on a removed chain segment.
+					var cursor = tab.graph.getNodeById(link.origin_id);
+					var guard = 0;
+					while (isRerouteNode(cursor) && guard++ < 64) {
+						bypassed.push(cursor);
+						var fedId = cursor.inputs && cursor.inputs[0]
+								? cursor.inputs[0].link : null;
+						var fedLink = fedId != null ? tab.graph.links[fedId] : null;
+						if (!fedLink) {
+							break;
+						}
+						tab.graph.removeLink(fedId);
+						cursor = tab.graph.getNodeById(fedLink.origin_id);
+					}
 					tab.graph.removeLink(linkId);
 				}
 			}
@@ -1928,6 +2509,14 @@
 				chain[i].connect(out, chain[i + 1], into);
 			}
 		}
+		bypassed.forEach(function (dot) {
+			var wired = (dot.inputs && dot.inputs[0] && dot.inputs[0].link != null)
+					|| (dot.outputs && dot.outputs[0] && dot.outputs[0].links
+						&& dot.outputs[0].links.length);
+			if (!wired && tab.graph.getNodeById(dot.id)) {
+				tab.graph.remove(dot);
+			}
+		});
 	}
 
 	/** Make {@code effect} the effect the inspector/timeline edit and highlight its node. */
@@ -2732,7 +3321,8 @@
 			valueNodes: snapshot(tab && tab.valueNodes ? tab.valueNodes : []),
 			edges: snapshot(tab && tab.edges ? tab.edges : []),
 			subgraphs: snapshot(tab && tab.subgraphs ? tab.subgraphs : []),
-			effects: snapshot(tab && tab.effects ? tab.effects : [])
+			effects: snapshot(tab && tab.effects ? tab.effects : []),
+			reroutes: snapshot(tab && tab.__reroutes ? tab.__reroutes : [])
 		};
 	}
 
@@ -3226,6 +3816,100 @@
 	}
 
 	/**
+	 * Classify one canvas link into an IR edge, an instance `{from}` binding (a fold,
+	 * applied by the caller) or a diagnostic wire kind. Read-only: folds are returned,
+	 * never applied here. A wire into a dot is drawn by its downstream link (skip); a
+	 * wire out of a dot reads as its real driver (see resolveRerouteOrigin) — dots
+	 * never reach the IR.
+	 *
+	 * @param {Object} tab the tab
+	 * @param {Object} irByGraphId canvas node id -> IR value-node id
+	 * @param {Object} link the canvas link
+	 * @returns {{edge?: Object, fold?: Object, wire: Object}} the classification
+	 */
+	function classifyCanvasLink(tab, irByGraphId, link) {
+		/** The macro output name an origin slot addresses, or null for the default (first) output. */
+		function originOutput(origin, slot) {
+			if (!origin || !origin.properties || origin.properties.kind !== "subgraph") {
+				return null;
+			}
+			var names = origin.__outputs || [];
+			slot = Number(slot) || 0;
+			return slot > 0 && slot < names.length ? names[slot] : null;
+		}
+		var origin = tab.graph.getNodeById(link.origin_id);
+		var target = tab.graph.getNodeById(link.target_id);
+		if (isRerouteNode(target)) {
+			return { wire: { kind: "skip" } };
+		}
+		var from = irByGraphId[link.origin_id];
+		var originSlot = link.origin_slot;
+		if (!from && isRerouteNode(origin)) {
+			var resolved = resolveRerouteOrigin(tab, link.origin_id, link.origin_slot);
+			if (resolved) {
+				from = irByGraphId[resolved.id];
+				origin = tab.graph.getNodeById(resolved.id);
+				originSlot = resolved.slot;
+			}
+		}
+		if (!from) {
+			return { wire: { kind: "skip" } };
+		}
+		if (!target) {
+			return { wire: { kind: "skip" } };
+		}
+		var output = originOutput(origin, originSlot);
+		if (isEffectNode(target)) {
+			var param = target.inputs ? target.inputs[link.target_slot] : null;
+			// The `mask` attachment port is a cosmetic Mask-root wire (it resolves via
+			// effectId), never a param edge — same skip as the field-tree reader below.
+			if (param && param.name !== "in" && param.name !== "mask"
+					&& !isGroupHeaderSlot(param) && !isEyeSlot(param)) {
+				var edge = { from: from, to: param.name, effect: target.properties.effectId };
+				if (output != null) {
+					edge.output = output;
+				}
+				return { edge: edge, wire: { kind: "edge", key: edgeKeyOf(edge) } };
+			}
+			return { wire: { kind: (isGroupHeaderSlot(param) || isEyeSlot(param)) ? "skip"
+					: (param && param.name === "mask" ? "mask" : "flow") } };
+		} else if (isMaskLeafNode(target)) {
+			// A value node wired into a MaskLeaf's `mask.p<N>.*` socket is a param wire for the
+			// owning effect (design §13.1); the compiler consumes it. The cosmetic `mask` attach
+			// port is not a slot, so it is ignored.
+			var maskSocket = target.inputs ? target.inputs[link.target_slot] : null;
+			if (maskSocket && maskSocket.name.indexOf("mask.") === 0) {
+				var maskEdge = { from: from, to: maskSocket.name };
+				if (target.properties.effectId) {
+					maskEdge.effect = target.properties.effectId;
+				}
+				return { edge: maskEdge, wire: { kind: "edge", key: edgeKeyOf(maskEdge) } };
+			}
+			return { wire: { kind: "skip" } };
+		} else if (target.properties && target.properties.kind && irByGraphId[target.id]) {
+			var socket = target.inputs ? target.inputs[link.target_slot] : null;
+			if (socket) {
+				if (target.properties.kind === "subgraph") {
+					// The engine forbids edges into an instance: a wire into a macro
+					// input socket becomes an instance `{from}` binding instead of an edge.
+					var fold = { id: irByGraphId[target.id], input: socket.name, from: from };
+					return { fold: fold, wire: { kind: "binding", id: fold.id,
+							input: fold.input, from: from } };
+				}
+				var wire = { from: from, to: irByGraphId[target.id], input: socket.name };
+				if (output != null) {
+					wire.output = output;
+				}
+				return { edge: wire, wire: { kind: "edge", key: edgeKeyOf(wire) } };
+			}
+			return { wire: { kind: "skip" } };
+		} else if (isFieldNode(origin)) {
+			return { wire: { kind: "field" } };
+		}
+		return { wire: { kind: "skip" } };
+	}
+
+	/**
 	 * Walk the canvas links into IR edges (the canvas half of refreshFromCanvas): effect-param
 	 * wires, mask-slot wires and node-to-node wires become edges; a wire into a macro instance
 	 * becomes an instance `{from}` binding (a fold, applied by the caller); flow/mask-attach links
@@ -3237,91 +3921,23 @@
 	 * folds, the drawn edge keys and the per-link classification
 	 */
 	function collectCanvasEdges(tab, irByGraphId) {
-		/** The macro output name an origin slot addresses, or null for the default (first) output. */
-		function originOutput(origin, slot) {
-			if (!origin || !origin.properties || origin.properties.kind !== "subgraph") {
-				return null;
-			}
-			var names = origin.__outputs || [];
-			slot = Number(slot) || 0;
-			return slot > 0 && slot < names.length ? names[slot] : null;
-		}
 		var graphLinks = (tab.graph && tab.graph.links) || {};
 		var edges = [];
 		var folds = [];
 		var keys = {};
 		var wires = [];
-		function emit(edge) {
-			edges.push(edge);
-			var key = edgeKeyOf(edge);
-			keys[key] = true;
-			wires.push({ kind: "edge", key: key });
-		}
 		Object.keys(graphLinks).forEach(function (linkId) {
-			var link = graphLinks[linkId];
-			var from = irByGraphId[link.origin_id];
-			if (!from) {
-				wires.push({ kind: "skip" });
-				return;
-			}
-			var target = tab.graph.getNodeById(link.target_id);
-			if (!target) {
-				wires.push({ kind: "skip" });
-				return;
-			}
-			var origin = tab.graph.getNodeById(link.origin_id);
-			var output = originOutput(origin, link.origin_slot);
-			if (isEffectNode(target)) {
-				var param = target.inputs ? target.inputs[link.target_slot] : null;
-				// The `mask` attachment port is a cosmetic Mask-root wire (it resolves via
-				// effectId), never a param edge — same skip as the field-tree reader below.
-				if (param && param.name !== "in" && param.name !== "mask"
-						&& !isGroupHeaderSlot(param) && !isEyeSlot(param)) {
-					var edge = { from: from, to: param.name, effect: target.properties.effectId };
-					if (output != null) {
-						edge.output = output;
-					}
-					emit(edge);
-				} else {
-					wires.push({ kind: (isGroupHeaderSlot(param) || isEyeSlot(param)) ? "skip" : (param && param.name === "mask" ? "mask" : "flow") });
-				}
-			} else if (isMaskLeafNode(target)) {
-				// A value node wired into a MaskLeaf's `mask.p<N>.*` socket is a param wire for the
-				// owning effect (design §13.1); the compiler consumes it. The cosmetic `mask` attach
-				// port is not a slot, so it is ignored.
-				var maskSocket = target.inputs ? target.inputs[link.target_slot] : null;
-				if (maskSocket && maskSocket.name.indexOf("mask.") === 0) {
-					var maskEdge = { from: from, to: maskSocket.name };
-					if (target.properties.effectId) {
-						maskEdge.effect = target.properties.effectId;
-					}
-					emit(maskEdge);
-				} else {
-					wires.push({ kind: "skip" });
-				}
-			} else if (target.properties && target.properties.kind && irByGraphId[target.id]) {
-				var socket = target.inputs ? target.inputs[link.target_slot] : null;
-				if (socket) {
-					if (target.properties.kind === "subgraph") {
-						// The engine forbids edges into an instance: a wire into a macro
-						// input socket becomes an instance `{from}` binding instead of an edge.
-						var fold = { id: irByGraphId[target.id], input: socket.name, from: from };
-						folds.push(fold);
-						wires.push({ kind: "binding", id: fold.id, input: fold.input, from: from });
-					} else {
-						var wire = { from: from, to: irByGraphId[target.id], input: socket.name };
-						if (output != null) {
-							wire.output = output;
-						}
-						emit(wire);
-					}
-				} else {
-					wires.push({ kind: "skip" });
-				}
-			} else if (isFieldNode(origin)) {
-				wires.push({ kind: "field" });
+			var found = classifyCanvasLink(tab, irByGraphId, graphLinks[linkId]);
+			if (found.edge) {
+				edges.push(found.edge);
+				keys[edgeKeyOf(found.edge)] = true;
+				wires.push({ kind: "edge", key: edgeKeyOf(found.edge) });
+			} else if (found.fold) {
+				folds.push(found.fold);
+				wires.push({ kind: "binding", id: found.fold.id,
+						input: found.fold.input, from: found.fold.from });
 			} else {
-				wires.push({ kind: "skip" });
+				wires.push(found.wire || { kind: "skip" });
 			}
 		});
 		return { edges: edges, folds: folds, keys: keys, wires: wires };
@@ -3481,6 +4097,7 @@
 		tab.valueNodes = nodes;
 		mergePreservedEdges(tab, collected.edges);
 		syncFieldTrees(tab);
+		recordReroutes(tab);
 	}
 
 	/** Apply one IR node's values onto a freshly created canvas node. */
@@ -3760,6 +4377,47 @@
 	}
 
 	/**
+	 * Resolve one IR edge's canvas target (node + input slot) for the materialise pass:
+	 * a node input, a mask socket (MaskLeaf preferred, effect node for back-compat) or
+	 * an effect param. Shared by the edge pass and the reroute restore (same owner rule
+	 * as the edge pass, mirroring edgeEffectId).
+	 *
+	 * @param {Object} tab the tab
+	 * @param {Object} edge the IR edge
+	 * @param {Object} byId IR value-node id -> canvas node
+	 * @param {Object} effectNodeById effect id -> canvas node
+	 * @param {boolean} multi whether the tab holds several effects
+	 * @returns {{node: Object|null, slot: number}} the canvas target
+	 */
+	function edgeTargetNode(tab, edge, byId, effectNodeById, multi) {
+		var target = null;
+		var slot = -1;
+		if (edge.input != null) {
+			target = byId[edge.to];
+			slot = target ? inputIndex(target, edge.input) : -1;
+		} else if (typeof edge.to === "string" && edge.to.indexOf("mask.") === 0) {
+			// A mask-slot wire targets the MaskLeaf that owns the slot (design §13.1); the
+			// effect node also carries the socket for back-compat when no leaf node exists.
+			var maskEffect = multi && edge.effect != null ? edge.effect
+					: (tab.effects && tab.effects.length ? tab.effects[0].id : null);
+			target = (maskEffect ? maskSlotNode(tab, maskEffect, edge.to) : null)
+					|| (maskEffect ? effectNodeById[maskEffect] : null);
+			slot = target ? inputIndex(target, edge.to) : -1;
+			if (slot < 0 && target && isMaskLeafNode(target)) {
+				// A leaf whose field is unwired shows no socket (§15.1); re-add it for
+				// the imported wire (the end-of-materialise slot sync keeps it: wired).
+				slot = ensureMaskLeafInput(target, edge.to);
+			}
+		} else {
+			target = multi && edge.effect != null
+					? effectNodeById[edge.effect]
+					: (tab.effects && tab.effects.length ? effectNodeById[tab.effects[0].id] : null);
+			slot = target ? inputIndex(target, edge.to) : -1;
+		}
+		return { node: target, slot: slot };
+	}
+
+	/**
 	 * Rebuild a tab's canvas value graph from its IR (after an import, a tab switch or an undo/redo).
 	 * The effect root node and its position are preserved; only value nodes and their wires are redone.
 	 */
@@ -3772,7 +4430,7 @@
 		try {
 			tab.graph._nodes.slice().forEach(function (node) {
 				if (isEffectNode(node) || isMaskNode(node) || isFieldNode(node)
-						|| (node.properties && node.properties.kind)) {
+						|| isRerouteNode(node) || (node.properties && node.properties.kind)) {
 					if (isEffectNode(node) || isMaskNode(node)) {
 						node.ignore_remove = false;
 					}
@@ -3853,30 +4511,9 @@
 						return;
 					}
 				}
-				var target;
-				var slot = -1;
-				if (edge.input != null) {
-					target = byId[edge.to];
-					slot = target ? inputIndex(target, edge.input) : -1;
-				} else if (typeof edge.to === "string" && edge.to.indexOf("mask.") === 0) {
-					// A mask-slot wire targets the MaskLeaf that owns the slot (design §13.1); the
-					// effect node also carries the socket for back-compat when no leaf node exists.
-					var maskEffect = multi && edge.effect != null ? edge.effect
-							: (tab.effects && tab.effects.length ? tab.effects[0].id : null);
-					target = (maskEffect ? maskSlotNode(tab, maskEffect, edge.to) : null)
-							|| (maskEffect ? effectNodeById[maskEffect] : null);
-					slot = target ? inputIndex(target, edge.to) : -1;
-					if (slot < 0 && target && isMaskLeafNode(target)) {
-						// A leaf whose field is unwired shows no socket (§15.1); re-add it for
-						// the imported wire (the end-of-materialise slot sync keeps it: wired).
-						slot = ensureMaskLeafInput(target, edge.to);
-					}
-				} else {
-					target = multi && edge.effect != null
-							? effectNodeById[edge.effect]
-							: (tab.effects && tab.effects.length ? effectNodeById[tab.effects[0].id] : null);
-					slot = target ? inputIndex(target, edge.to) : -1;
-				}
+				var at = edgeTargetNode(tab, edge, byId, effectNodeById, multi);
+				var target = at.node;
+				var slot = at.slot;
 				if (target && slot >= 0) {
 					from.connect(fromSlot, target, slot);
 					drawnKeys[edgeKeyOf(edge)] = true;
@@ -3900,6 +4537,7 @@
 					}
 				});
 			});
+			materializeReroutes(tab, byId, effectNodeById);
 			layoutAutoNodes(tab, byId);
 			materializeFieldNodes(tab, effectNodeById);
 			// Restore the persisted socket-group collapse after the edge + field passes, so
@@ -4046,6 +4684,18 @@
 			addMaskNode(activeTab());
 		});
 		dom.valueTypes.appendChild(maskItem);
+		// Reroute dot: a visual wire point (never compiled); double-clicking a wire
+		// drops one too (see wireRerouteInsert).
+		var rerouteItem = document.createElement("button");
+		rerouteItem.type = "button";
+		rerouteItem.className = "vfx-type";
+		rerouteItem.textContent = "reroute";
+		rerouteItem.dataset.value = "reroute";
+		rerouteItem.title = "Add a reroute dot (a visual wire point; double-click a wire)";
+		rerouteItem.addEventListener("click", function () {
+			addRerouteNode(activeTab(), null);
+		});
+		dom.valueTypes.appendChild(rerouteItem);
 		// Subgraph macros (design §13.5, flat first slice): group the selected value nodes into a
 		// `subgraphs` entry + one instance node, or expand selected instances back. There is no
 		// nested-macro editing UI: an instance is opaque, its body lives in `tab.subgraphs`.
@@ -4118,6 +4768,7 @@
 			subgraphs: snapshot(tab.subgraphs || []),
 			source: snapshot(tab.source),
 			timeline: snapshot(tab.timeline),
+			reroutes: snapshot(tab.__reroutes || []),
 			root: tab.root && Array.isArray(tab.root.pos)
 					? [num(tab.root.pos[0]), num(tab.root.pos[1])] : null,
 			valueSeq: tab.__valueSeq || 0
@@ -4216,6 +4867,7 @@
 			tab.source = snapshot(state.source);
 			tab.timeline = snapshot(state.timeline) || {};
 			tab.__valueSeq = state.valueSeq || 0;
+			tab.__reroutes = Array.isArray(state.reroutes) ? snapshot(state.reroutes) : [];
 			if (Array.isArray(state.effects) && state.effects.length) {
 				tab.effects = [];
 				tab.activeEffect = -1;
@@ -7731,6 +8383,22 @@
 			mask: MASK_LINK,
 			field: FIELD_LINK,
 			wildcard: "*"
+		},
+		// Headless test seam for reroute dots (same runner): the predicate, the dot
+		// constructor, the endpoint resolvers, insert/heal, record/restore and the
+		// edge-classification + wire hit-test helpers.
+		reroute: {
+			isReroute: isRerouteNode,
+			make: makeRerouteNode,
+			resolve: resolveRerouteOrigin,
+			resolveTarget: resolveRerouteTarget,
+			insert: insertRerouteOnLink,
+			heal: healReroute,
+			add: addRerouteNode,
+			record: recordReroutes,
+			restore: materializeReroutes,
+			linkAt: linkAtCanvasPos,
+			collect: collectCanvasEdges
 		}
 	};
 	Object.defineProperty(VFXEditor, "graph", {
@@ -8112,6 +8780,12 @@
 				// Delete one chain node (design §15.2, P6); the chain and its flow links are rewired.
 				tab.removeEffect(node.properties.effectId);
 				node.ignore_remove = false;
+				tab.graph.remove(node);
+				changed = true;
+			} else if (isRerouteNode(node)) {
+				// Deleting a dot heals its wire (predecessor back to successor) instead
+				// of dropping the connection; removals already disconnect first.
+				healReroute(tab, node);
 				tab.graph.remove(node);
 				changed = true;
 			} else if (node.properties && node.properties.kind) {
@@ -8785,6 +9459,7 @@
 		wireLayout();
 		wireInlineWidgetEdit();
 		wireHotkeys();
+		wireRerouteInsert();
 		wireBridge();
 		resetHistory();
 

@@ -511,6 +511,7 @@ function makeBigNode(id) {
 	var factory = new Function("return (function(type_a, type_b) "
 			+ source.substring(begin + anchor.length - 1, begin + end) + ");");
 	var gate = { isValidConnection: factory() };
+	global.__vfxGate = gate;
 	function valid(a, b) {
 		return gate.isValidConnection(a, b) === true;
 	}
@@ -519,6 +520,8 @@ function makeBigNode(id) {
 	check(valid("*", "number,field"), "wildcard lands on a gated param");
 	check(valid("*", "field"), "wildcard lands on field");
 	check(valid("*", "mask"), "wildcard lands on mask");
+	check(valid("*", "*"), "wildcard lands on wildcard (reroute chain)");
+	check(valid("number", "*"), "number lands on a reroute input");
 	check(valid("flow", "flow"), "chain flow connects");
 	check(valid("mask", "mask"), "mask attach connects");
 	check(valid("field", "field"), "field tree links");
@@ -548,6 +551,264 @@ function makeBigNode(id) {
 	}
 	var plain = compileTab(build(false));
 	check(compileTab(build(true)) === plain, "macro + field view state never reaches the emit");
+})();
+
+/* Reroute dots (the VFXEditor.reroute seam): purely visual wire points. */
+
+var reroute = global.VFXEditor.reroute;
+
+FakeNode.prototype.disconnectInput = function (slot) {
+	var sock = this.inputs[slot];
+	if (sock && sock.link != null && this.graph) {
+		this.graph.removeLink(sock.link);
+	}
+};
+FakeNode.prototype.connect = function (slot, target, targetSlot) {
+	if (!this.graph || !this.outputs[slot] || !target || !target.inputs
+			|| targetSlot == null || targetSlot >= target.inputs.length) {
+		return null;
+	}
+	// The vendored gate, for real (stashed above): a refused half fails the whole
+	// insert/heal, exactly like LGraphNode.connect in litegraph.js.
+	var gate = global.__vfxGate;
+	if (gate && gate.isValidConnection(this.outputs[slot].type,
+			target.inputs[targetSlot].type) !== true) {
+		return null;
+	}
+	if (target.inputs[targetSlot].link != null) {
+		target.disconnectInput(targetSlot);
+	}
+	return this.graph.addLink(this.id, slot, target.id, targetSlot);
+};
+FakeNode.prototype.getConnectionPos = function (isInput, slot) {
+	if (isInput) {
+		return [this.pos[0], this.pos[1] + 20 + slot * 20];
+	}
+	return [this.pos[0] + 240, this.pos[1] + 20 + slot * 20];
+};
+
+function fakeLinkGraph() {
+	var graph = fakeGraph();
+	graph._nodes = [];
+	graph._lastLink = 0;
+	graph.add = function (node) {
+		node.graph = graph;
+		graph._nodes.push(node);
+	};
+	graph.remove = function (node) {
+		Object.keys(graph.links).forEach(function (id) {
+			var link = graph.links[id];
+			if (link.origin_id === node.id || link.target_id === node.id) {
+				graph.removeLink(id);
+			}
+		});
+		graph._nodes = graph._nodes.filter(function (n) { return n !== node; });
+	};
+	graph.removeLink = function (id) {
+		var link = graph.links[id];
+		if (!link) {
+			return;
+		}
+		delete graph.links[id];
+		var target = graph.getNodeById(link.target_id);
+		if (target && target.inputs[link.target_slot]
+				&& target.inputs[link.target_slot].link === id) {
+			target.inputs[link.target_slot].link = null;
+		}
+		var origin = graph.getNodeById(link.origin_id);
+		if (origin && origin.outputs[link.origin_slot]) {
+			var at = origin.outputs[link.origin_slot].links.indexOf(id);
+			if (at >= 0) {
+				origin.outputs[link.origin_slot].links.splice(at, 1);
+			}
+		}
+	};
+	graph.addLink = function (originId, originSlot, targetId, targetSlot) {
+		var id = "L" + (++graph._lastLink);
+		graph.links[id] = { origin_id: originId, origin_slot: originSlot,
+			target_id: targetId, target_slot: targetSlot };
+		graph.getNodeById(targetId).inputs[targetSlot].link = id;
+		graph.getNodeById(originId).outputs[originSlot].links.push(id);
+		return graph.links[id];
+	};
+	graph.getNodeById = function (id) {
+		for (var i = 0; i < graph._nodes.length; i++) {
+			if (graph._nodes[i].id === id) {
+				return graph._nodes[i];
+			}
+		}
+		return null;
+	};
+	return graph;
+}
+
+function fakeValueNode(id, irId, kind, inputNames, pos) {
+	var node = Object.create(FakeNode.prototype);
+	FakeNode.call(node);
+	node.id = id;
+	node.properties = { kind: kind, irId: irId };
+	inputNames.forEach(function (name) {
+		node.addInput(name, "number");
+	});
+	node.addOutput("out", "*");
+	node.pos = pos || [0, 0];
+	return node;
+}
+
+function fakeEffectNode(id, effectId, paramNames) {
+	var node = Object.create(FakeNode.prototype);
+	FakeNode.call(node);
+	node.id = id;
+	node.properties = { effectType: "sky_pattern", effectId: effectId };
+	paramNames.forEach(function (name) {
+		node.addInput(name, "number");
+	});
+	node.addOutput("out", "flow");
+	node.pos = [400, 0];
+	return node;
+}
+
+function fakeReroute(id, pos) {
+	var Ctor = reroute.make();
+	var node = Object.create(FakeNode.prototype);
+	FakeNode.call(node);
+	Ctor.call(node);
+	node.id = id;
+	node.pos = pos || [200, 100];
+	return node;
+}
+
+function fakeEditTab(graph) {
+	return { graph: graph, valueNodes: [], edges: [], subgraphs: [], effects: [] };
+}
+
+var nextDotId = 900;
+global.LiteGraph.createNode = function (type) {
+	if (type !== "vfx/reroute") {
+		return null;
+	}
+	return fakeReroute(nextDotId++);
+};
+global.LiteGraph.registered_node_types["vfx/reroute"] = true;
+
+(function () {
+	check(!!reroute, "reroute seam exposed");
+	var dot = fakeReroute(50);
+	check(reroute.isReroute(dot), "predicate matches the dot");
+	check(!reroute.isReroute(fakeValueNode(51, "v", "constant", ["value"])),
+			"predicate misses value nodes");
+	check(dot.inputs.length === 1 && dot.inputs[0].type === "*"
+			&& dot.outputs.length === 1 && dot.outputs[0].type === "*",
+			"one wildcard in + one wildcard out");
+	check(!dot.properties.kind && !dot.properties.irId,
+			"no kind/irId (kind readers ignore dots)");
+})();
+
+(function () {
+	function wiredTab() {
+		var graph = fakeLinkGraph();
+		var a = fakeValueNode(1, "a", "constant", ["value"], [0, 0]);
+		var b = fakeValueNode(2, "b", "math", ["a", "b"], [400, 0]);
+		var fx = fakeEffectNode(3, "fx_1", ["radius"]);
+		graph.add(a);
+		graph.add(b);
+		graph.add(fx);
+		return { graph: graph, a: a, b: b, fx: fx };
+	}
+	var dotted = wiredTab();
+	var r1 = fakeReroute(4, [200, 50]);
+	var r2 = fakeReroute(5, [300, 50]);
+	dotted.graph.add(r1);
+	dotted.graph.add(r2);
+	dotted.graph.addLink(1, 0, 4, 0);
+	dotted.graph.addLink(4, 0, 5, 0);
+	dotted.graph.addLink(5, 0, 2, 0);
+	dotted.graph.addLink(2, 0, 3, 0);
+	var irByGraphId = { 1: "a", 2: "b" };
+	var collected = reroute.collect({ graph: dotted.graph }, irByGraphId);
+	check(collected.edges.length === 2, "two logical edges through two dots");
+	check(collected.wires.filter(function (wire) { return wire.kind === "skip"; }).length === 2,
+			"dot-internal links classify as skip");
+	var direct = wiredTab();
+	direct.graph.addLink(1, 0, 2, 0);
+	direct.graph.addLink(2, 0, 3, 0);
+	var plain = reroute.collect({ graph: direct.graph }, irByGraphId);
+	check(JSON.stringify(collected.edges) === JSON.stringify(plain.edges),
+			"dots are transparent to edge collection");
+})();
+
+(function () {
+	var graph = fakeLinkGraph();
+	var a = fakeValueNode(11, "x", "constant", ["value"], [0, 0]);
+	var b = fakeValueNode(12, "y", "math", ["a", "b"], [400, 0]);
+	graph.add(a);
+	graph.add(b);
+	graph.addLink(11, 0, 12, 0);
+	var tab = fakeEditTab(graph);
+	var before = reroute.collect(tab, { 11: "x", 12: "y" });
+	var dot = reroute.insert(tab, "L1", [200, 60]);
+	check(!!dot && graph._nodes.length === 3, "insert drops a dot on the wire");
+	var after = reroute.collect(tab, { 11: "x", 12: "y" });
+	check(JSON.stringify(after.edges) === JSON.stringify(before.edges),
+			"insert keeps the logical edge");
+	reroute.heal(tab, dot);
+	graph.remove(dot);
+	var healed = reroute.collect(tab, { 11: "x", 12: "y" });
+	check(JSON.stringify(healed.edges) === JSON.stringify(before.edges)
+			&& graph._nodes.length === 2, "delete heals the wire");
+})();
+
+(function () {
+	var graph = fakeLinkGraph();
+	var a = fakeValueNode(21, "x", "constant", ["value"], [0, 0]);
+	var b = fakeValueNode(22, "y", "math", ["a", "b"], [400, 0]);
+	var r1 = fakeReroute(23, [180, 47]);
+	var r2 = fakeReroute(24, [280, 47]);
+	[a, b, r1, r2].forEach(function (n) { graph.add(n); });
+	graph.addLink(21, 0, 23, 0);
+	graph.addLink(23, 0, 24, 0);
+	graph.addLink(24, 0, 22, 0);
+	var tab = { graph: graph, effects: [{ id: "fx_1" }],
+		edges: [{ from: "x", to: "y", input: "a" }] };
+	reroute.record(tab);
+	check(tab.__reroutes && tab.__reroutes.length === 2,
+			"two dots recorded, got " + (tab.__reroutes ? tab.__reroutes.length : 0));
+	check(tab.__reroutes[0].x === 180 && tab.__reroutes[0].y === 47,
+			"positions persist rounded");
+	// Rebuild like materializeGraph: fresh nodes, one direct wire, then restore.
+	var graph2 = fakeLinkGraph();
+	var a2 = fakeValueNode(31, "x", "constant", ["value"], [0, 0]);
+	var b2 = fakeValueNode(32, "y", "math", ["a", "b"], [400, 0]);
+	graph2.add(a2);
+	graph2.add(b2);
+	graph2.addLink(31, 0, 32, 0);
+	var tab2 = { graph: graph2, effects: [{ id: "fx_1" }],
+		edges: [{ from: "x", to: "y", input: "a" }], __reroutes: tab.__reroutes };
+	reroute.restore(tab2, { x: a2, y: b2 }, {});
+	var dots2 = graph2._nodes.filter(reroute.isReroute);
+	check(dots2.length === 2, "rebuild keeps both dots, got " + dots2.length);
+	var back = reroute.collect(tab2, { 31: "x", 32: "y" });
+	check(JSON.stringify(back.edges) === JSON.stringify(tab2.edges),
+			"restored chain reads the same edge");
+})();
+
+(function () {
+	function build() {
+		var tab = new VFXIR.Tab("dots", "sky_pattern");
+		tab.valueNodes = [
+			{ id: "x", kind: "constant", inputs: { value: 2 } },
+			{ id: "y", kind: "math", op: "add", inputs: { a: 0, b: 0 } }
+		];
+		tab.edges = [{ from: "x", to: "y", input: "a" }];
+		return tab;
+	}
+	var key = VFXIR.edgeKey({ from: "x", to: "y", input: "a" });
+	var bare = compileTab(build());
+	var dotted = build();
+	dotted.__reroutes = [{ x: 180, y: 47, edge: key }, { x: 280, y: 47, edge: key }];
+	check(compileTab(dotted) === bare, "a wire through 2 reroutes emits identical JSON");
+	check(bare.indexOf("reroute") < 0 && bare.indexOf("__reroutes") < 0,
+			"no dot state leaks into the emit");
 })();
 
 console.log("");
