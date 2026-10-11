@@ -258,13 +258,14 @@
 	 * carries a visual port (its dot color + shape, so the type reads before any
 	 * label) derived from existing metadata only — param kind, socket role, node
 	 * kind — never per-effect branches or hardcoded effect lists. Colors reuse the
-	 * group palette + FLOW_COLOR, so no new hues; shapes mark the structural
-	 * families (chain/tree/mask) while every numeric driver keeps the default
-	 * circle and its color carries the exact type.
+	 * group palette + FLOW_COLOR, so no new hues; the mask keeps its dotted 3x3
+	 * square and the field a triangle, while the chain and every numeric driver keep
+	 * the default circle and color carries the exact type. No rectangles, no diamonds:
+	 * diamonds are timeline keyframes and must never appear as ports.
 	 */
 	var FLOW_COLOR = "#8fb3ff";
 	var PORT_TYPES = {
-		flow: { color: FLOW_COLOR, shape: "BOX_SHAPE" },
+		flow: { color: FLOW_COLOR, shape: "" },
 		number: { color: "#4f9dff", shape: "" },
 		mask: { color: "#b48cff", shape: "GRID_SHAPE" },
 		field: { color: "#6dd36d", shape: "ARROW_SHAPE" },
@@ -399,7 +400,6 @@
 			this.onMouseDown = onEffectNodeMouseDown;
 			this.onMouseMove = onEffectNodeMouseMove;
 			this.onDrawBackground = drawEffectGroupBands;
-			this.onDrawForeground = drawEffectFooter;
 			rebuildEffectInputs(this, null);
 		}
 
@@ -458,9 +458,6 @@
 	 */
 	var HIDE_UNUSED_THRESHOLD = 12;
 
-	/** Extra node-body height for the hidden-counter footer line. */
-	var EYE_FOOTER_H = 16;
-
 	/** While true a link drag is revealing every socket (see the boot-time canvas wrap). */
 	var linkDragReveal = false;
 
@@ -512,7 +509,7 @@
 
 	/**
 	 * Count an effect node's currently-hidden params (descriptor params absent from the
-	 * inputs) and how many of those are animated, for the eye label, the footer and diag.
+	 * inputs) and how many of those are animated, for the eye label and diag.
 	 *
 	 * @param {Object} node the effect canvas node (inputs already laid out)
 	 * @returns {{hidden: number, animated: number}} the counts
@@ -721,7 +718,7 @@
 		});
 		node.inputs = next;
 		// The hidden counts are read off the laid-out inputs (descriptor params absent from
-		// them, group-collapsed and hide-unused alike); the eye label and footer share them.
+		// them, group-collapsed and hide-unused alike); the eye label shows them.
 		var hiddenInfo = effectHiddenInfo(node);
 		node.__hiddenInfo = hiddenInfo;
 		// Refresh the header labels (arrow + hidden count), the eye label and the surviving
@@ -729,7 +726,9 @@
 		node.inputs.forEach(function (slot) {
 			if (isEyeSlot(slot)) {
 				slot.label = node.__hideUnused === true
-						? EYE_GLYPH + " +" + hiddenInfo.hidden + " hidden · show all"
+						? EYE_GLYPH + " +" + hiddenInfo.hidden + " hidden"
+								+ (hiddenInfo.animated > 0 ? " · " + hiddenInfo.animated + " animated" : "")
+								+ " · show all"
 						: EYE_GLYPH + " showing all · hide unused";
 				return;
 			}
@@ -771,9 +770,6 @@
 			graph._version++;
 		}
 		node.setSize(node.computeSize());
-		if (!(node.flags && node.flags.collapsed) && node.__hiddenInfo.hidden > 0) {
-			node.size[1] += EYE_FOOTER_H;
-		}
 		node.setDirtyCanvas(true, true);
 	}
 
@@ -881,18 +877,35 @@
 		return wired;
 	}
 
+	/**
+	 * The header/eye action at a node-local pos: "eye", a group name, or null. One
+	 * decision point for the capture pre-empt (wireGroupToggle) and the node fallback
+	 * below, so both agree on the whole-row hit area — including the socket-dot zone,
+	 * where the bundle starts a wire drag and the node handler never runs.
+	 *
+	 * @param {Object} node the effect canvas node
+	 * @param {Array<number>} pos the node-local position
+	 * @returns {string|null} "eye", the group name, or null
+	 */
+	function groupRowAction(node, pos) {
+		if (effectEyeAt(node, pos)) {
+			return "eye";
+		}
+		return effectGroupHeaderAt(node, pos);
+	}
+
 	/** Click the eye row or a group header row (consumed: the node must not drag). */
 	function onEffectNodeMouseDown(event, pos, canvas) {
 		var node = this;
-		if (effectEyeAt(node, pos)) {
+		var action = groupRowAction(node, pos);
+		if (action === "eye") {
 			toggleEye(node);
 			return true;
 		}
-		var group = effectGroupHeaderAt(node, pos);
-		if (group == null) {
+		if (action == null) {
 			return false;
 		}
-		toggleEffectGroup(node, group);
+		toggleEffectGroup(node, action);
 		return true;
 	}
 
@@ -1054,32 +1067,6 @@
 		} catch (e) {
 			// cursor only: never break the draw
 		}
-	}
-
-	/**
-	 * The hidden-counter footer (foreground, so it reads above the body): `+N hidden` plus
-	 * `· K animated` when hidden params carry tracks — an animated param never vanishes
-	 * silently. Nothing is drawn when nothing hides; the value stays editable in the
-	 * inspector and the compiler reads the IR, not the canvas.
-	 */
-	function drawEffectFooter(ctx, graphcanvas) {
-		var node = this;
-		if (!node || (node.flags && node.flags.collapsed)) {
-			return;
-		}
-		var info = node.__hiddenInfo || { hidden: 0, animated: 0 };
-		if (!info.hidden) {
-			return;
-		}
-		var scale = graphcanvas && graphcanvas.ds ? graphcanvas.ds.scale : 1;
-		ctx.save();
-		ctx.font = (11 / scale) + "px sans-serif";
-		ctx.textAlign = "left";
-		ctx.fillStyle = info.animated > 0 ? "#ffd98a" : "#7f8aa3";
-		ctx.fillText("+" + info.hidden + " hidden"
-				+ (info.animated > 0 ? " · " + info.animated + " animated" : ""),
-				8, node.size[1] - 4);
-		ctx.restore();
 	}
 
 	/** Whether a canvas node is an effect node (vs a value node / group). */
@@ -1868,6 +1855,69 @@
 			event.preventDefault();
 			event.stopPropagation();
 			insertRerouteOnLink(tab, hit.id, pos);
+		}, true);
+	}
+
+	/**
+	 * Toggle group/eye rows before LiteGraph sees the click. The header/eye rows are
+	 * input slots, so the bundle's slot hit-test (a 30x20 box around the socket dot,
+	 * checked in `processMouseDown` before `node.onMouseDown` in litegraph.js) starts a
+	 * wire drag there and the node toggle never fires. This document-capture pre-empt
+	 * (the wireRerouteInsert pattern above) resolves the same whole-row hit area first
+	 * and consumes the event, so glyph/dot-zone clicks toggle while real sockets keep
+	 * dragging: anything that is not an effect-node header/eye row falls through.
+	 */
+	function wireGroupToggle() {
+		document.addEventListener("mousedown", function (event) {
+			if (!scene || !dom.canvas || event.target !== dom.canvas) {
+				return;
+			}
+			var tab = activeTab();
+			if (!tab || !tab.graph || event.button !== 0
+					|| event.ctrlKey || event.metaKey || event.shiftKey) {
+				return;
+			}
+			var pos = null;
+			try {
+				pos = scene.convertEventToCanvasOffset(event);
+			} catch (e) {
+				return;
+			}
+			if (!pos) {
+				return;
+			}
+			var node = null;
+			try {
+				node = tab.graph.getNodeOnPos(pos[0], pos[1],
+						scene.visible_nodes || tab.graph._nodes, 5);
+			} catch (e2) {
+				node = null;
+			}
+			if (!node || !isEffectNode(node)) {
+				return;
+			}
+			var action = groupRowAction(node, [pos[0] - node.pos[0], pos[1] - node.pos[1]]);
+			if (!action) {
+				return;
+			}
+			event.preventDefault();
+			event.stopPropagation();
+			try {
+				if (!(node.flags && node.flags.pinned)
+						&& typeof scene.bringToFront === "function") {
+					scene.bringToFront(node);
+				}
+				if (!node.is_selected && typeof scene.processNodeSelected === "function") {
+					scene.processNodeSelected(node, event);
+				}
+			} catch (e3) {
+				// selection only: never break the toggle
+			}
+			if (action === "eye") {
+				toggleEye(node);
+			} else {
+				toggleEffectGroup(node, action);
+			}
 		}, true);
 	}
 
@@ -3458,22 +3508,17 @@
 		});
 	}
 
-	/** Draw a small diamond (the slot "animate" affordance) at a widget's right edge. */
-	function drawDiamond(ctx, cx, cy, color) {
-		var r = 4;
+	/** Draw a small dot (the slot "animate" affordance) at a widget's right edge. */
+	function drawAnimateDot(ctx, cx, cy, color) {
 		ctx.beginPath();
-		ctx.moveTo(cx, cy - r);
-		ctx.lineTo(cx + r, cy);
-		ctx.lineTo(cx, cy + r);
-		ctx.lineTo(cx - r, cy);
-		ctx.closePath();
+		ctx.arc(cx, cy, 4, 0, Math.PI * 2);
 		ctx.strokeStyle = color;
 		ctx.stroke();
 	}
 
 	/**
 	 * Draw each value-node numeric slot (design §15.1): a driven slot shows a read-only value + its
-	 * source node, every slot carries a diamond that animates it (a `curve` node wired in).
+	 * source node, every slot carries a dot that animates it (a `curve` node wired in).
 	 */
 	function drawSlotAffordances(ctx, canvas) {
 		var node = this;
@@ -3501,12 +3546,12 @@
 				ctx.fillStyle = "#cfe0ff";
 				ctx.fillText(num(value) + "  <- " + name + " (" + driven[name] + ")", 20, y + height * 0.7);
 			}
-			drawDiamond(ctx, node.size[0] - 9, y + height / 2, driven[name] ? "#cfe0ff" : "#7f8aa3");
+			drawAnimateDot(ctx, node.size[0] - 9, y + height / 2, driven[name] ? "#cfe0ff" : "#7f8aa3");
 		});
 		ctx.restore();
 	}
 
-	/** Click a value-node slot: the diamond animates it (or focuses its driver); the badge focuses. */
+	/** Click a value-node slot: the dot animates it (or focuses its driver); the badge focuses. */
 	function slotFieldClick(event, pos, canvas) {
 		var node = this;
 		if (!node.__kindSpec || !node.__widgets) {
@@ -3525,15 +3570,15 @@
 				return;
 			}
 			if (pos[0] >= node.size[0] - 18 && pos[0] <= node.size[0]) {
-				hit = { name: name, diamond: true };
+				hit = { name: name, dot: true };
 			} else if (driven[name] && pos[0] >= 15 && pos[0] <= node.size[0] - 15) {
-				hit = { name: name, diamond: false };
+				hit = { name: name, dot: false };
 			}
 		});
 		if (!hit) {
 			return false;
 		}
-		if (hit.diamond && !driven[hit.name]) {
+		if (hit.dot && !driven[hit.name]) {
 			animateField(node, hit.name);
 		} else {
 			focusNode(driven[hit.name]);
@@ -6155,12 +6200,12 @@
 		return raw != null ? raw : paramDefault(tab, name);
 	}
 
-	/** Add (or update) one key at `time` on a slot — the auto-key writer the diamond/K share. */
+	/** Add (or update) one key at `time` on a slot — the auto-key writer the dot/K share. */
 	function addKeyToSlot(tab, name, time, value) {
 		if (!tab) {
 			return null;
 		}
-		// The upsert + sort + param-seeding lives on the IR (`Tab.setKey`), so the diamond, the lane
+		// The upsert + sort + param-seeding lives on the IR (`Tab.setKey`), so the dot, the lane
 		// click and the selftest all exercise one writer.
 		if (!tab.setKey) {
 			return null;
@@ -8355,12 +8400,13 @@
 			sections: effectGroupSections,
 			rebuild: rebuildEffectInputs,
 			toggle: toggleEffectGroup,
+			rowAction: groupRowAction,
 			headerAt: effectGroupHeaderAt,
 			isHeader: isGroupHeaderSlot,
 			wiredParams: effectWiredParams
 		},
 		// Headless test seam for hide-unused (same runner): the size default, the eye
-		// toggle + hit test, and the hidden/animated counts behind the footer and diag.
+		// toggle + hit test, and the hidden/animated counts behind the eye label and diag.
 		hide: {
 			threshold: HIDE_UNUSED_THRESHOLD,
 			defaultHide: defaultHideUnused,
@@ -9460,6 +9506,7 @@
 		wireInlineWidgetEdit();
 		wireHotkeys();
 		wireRerouteInsert();
+		wireGroupToggle();
 		wireBridge();
 		resetHistory();
 

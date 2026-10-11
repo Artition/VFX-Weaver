@@ -239,6 +239,17 @@ function check(condition, message) {
 })();
 
 (function () {
+	check(typeof groups.rowAction === "function", "row-action decision exposed");
+	var node = makeNode();
+	var row = inputNames(node).indexOf("__group:Dome");
+	check(groups.rowAction(node, [10, row * 20 + 14]) === "Dome",
+			"row action toggles at the socket dot (the wire-drag zone)");
+	check(groups.rowAction(node, [2, 3]) === "eye", "row action hits the eye at the left edge");
+	check(groups.rowAction(node, [120, (row + 1) * 20 + 3]) === null,
+			"row action misses socket rows");
+})();
+
+(function () {
 	function build(withGroups) {
 		var tab = new VFXIR.Tab("sky", "sky_pattern");
 		tab.effect().anchor = "moon";
@@ -305,7 +316,7 @@ function makeBigNode(id) {
 	var info = hide.hiddenInfo(node);
 	check(info.hidden === 14 && info.animated === 0, "fourteen hidden, none animated");
 	check(node.inputs[0].label.indexOf("+14 hidden") >= 0, "eye label counts the hidden");
-	check(node.size[1] === 30 + 5 * 20 + 16, "footer reserves one line while hiding");
+	check(node.size[1] === 30 + 5 * 20, "no footer line: the eye row carries the only counter");
 	var small = makeNode();
 	check(hide.hiddenInfo(small).hidden === 0, "a small node hides nothing");
 	check(small.size[1] === 30 + small.inputs.length * 20, "no footer when nothing hides");
@@ -343,6 +354,8 @@ function makeBigNode(id) {
 	check(names.indexOf("b1") >= 0, "a pinned socket stays visible");
 	var info = hide.hiddenInfo(node);
 	check(info.hidden === 13 && info.animated === 1, "hidden animated params are counted");
+	check(node.inputs[0].label.indexOf("1 animated") >= 0,
+			"the eye row carries the animated count");
 })();
 
 (function () {
@@ -380,11 +393,15 @@ function makeBigNode(id) {
 		var entry = ports.types[key];
 		check(typeof entry.color === "string" && /^#[0-9a-f]{6}$/.test(entry.color),
 				"port " + key + " has a hex color");
-		check(typeof entry.shape === "string", "port " + key + " names a shape");
+		check(typeof entry.shape === "string" && /^[A-Z_]*$/.test(entry.shape),
+				"port " + key + " names exactly one shape");
+		check(entry.shape.indexOf("BOX") < 0 && entry.shape.indexOf("DIAMOND") < 0,
+				"port " + key + " is never a rectangle or a diamond");
 	});
-	check(ports.types.flow.shape === "BOX_SHAPE"
+	check(ports.types.flow.shape === ""
 			&& ports.types.field.shape === "ARROW_SHAPE"
-			&& ports.types.mask.shape === "GRID_SHAPE", "structural ports carry shapes");
+			&& ports.types.mask.shape === "GRID_SHAPE",
+			"chain is a circle, field a triangle, mask the dotted square");
 	check(ports.types.number.shape === "" && ports.types.macro.shape === ""
 			&& ports.types.bind.shape === "" && ports.types.expr.shape === ""
 			&& ports.types.time.shape === "", "numeric drivers stay circles");
