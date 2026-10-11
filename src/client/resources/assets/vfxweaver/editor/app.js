@@ -335,7 +335,7 @@
 
 	/**
 	 * Paint a socket with its port's color + shape. The only writer of color_on/off
-	 * on real ports (group headers keep groupColor, the eye keeps EYE_COLOR); stamps
+	 * on real ports (group headers keep groupColor); stamps
 	 * `__port` so diag can count sockets per type without re-deriving it.
 	 *
 	 * @param {Object} slot the LiteGraph slot
@@ -392,9 +392,9 @@
 			// header rows over the input sockets. Wired here so every construction path
 			// (palette, import, undo) gets them; the header rows are laid out just below.
 			this.__groupCollapsed = {};
-			// Hide-unused starts OFF so the fresh layout is complete: the edge pass and
-			// attachEffect resolve the real default afterwards (a hidden socket has no
-			// index, so hiding before the wires land would drop them).
+			// Show-all is the only mode: every socket stays laid out under its group
+			// header (group collapse remains the density tool, node collapse hides
+			// everything). `__hideUnused` stays false; old IR `hideUnused` is ignored.
 			this.__hideUnused = false;
 			this.__hiddenInfo = { hidden: 0, animated: 0 };
 			this.onMouseDown = onEffectNodeMouseDown;
@@ -436,36 +436,8 @@
 		return GROUP_HEADER_PREFIX + group;
 	}
 
-	/** The input-slot name of the per-node eye row (show-all / hide-unused toggle). */
-	var EYE_SLOT = "__eye";
-
-	/** The eye glyph (surrogate pair, like the header triangles below). */
-	var EYE_GLYPH = "👁";
-
-	/** The eye-row band colour (fixed, so the group palette order never shifts). */
-	var EYE_COLOR = "#8fb3ff";
-
-	/** Whether an input slot is the eye row rather than a param socket. */
-	function isEyeSlot(slot) {
-		return !!(slot && slot.name === EYE_SLOT);
-	}
-
-	/**
-	 * Param sockets above this count hide when unused by default: twelve rows are ~300px
-	 * of node, about what fits beside the inspector without scrolling; below that every
-	 * socket stays visible so small nodes never surprise. The eye toggle overrides per node;
-	 * value/field/mask/macro nodes are exempt (few, structural sockets — stated limit).
-	 */
-	var HIDE_UNUSED_THRESHOLD = 12;
-
-	/** While true a link drag is revealing every socket (see the boot-time canvas wrap). */
+	/** While true a link drag is rebuilding every effect node (see the boot-time canvas wrap). */
 	var linkDragReveal = false;
-
-	/** The default hide-unused state of a descriptor (big nodes hide, small nodes show). */
-	function defaultHideUnused(descriptor) {
-		var params = (descriptor && Array.isArray(descriptor.params)) ? descriptor.params : [];
-		return params.length > HIDE_UNUSED_THRESHOLD;
-	}
 
 	/** The effect entry owning a canvas node, or null. */
 	function effectEntryOf(tab, node) {
@@ -481,16 +453,13 @@
 		return null;
 	}
 
-	/** The hide-unused state of an effect node: the persisted eye toggle, else the default. */
+	/**
+	 * The hide-unused state of an effect node: always false (show-all is the only mode;
+	 * a carried IR `hideUnused` is kept on the entry for round-trip stability but ignored
+	 * for layout — group collapse remains the density tool).
+	 */
 	function resolveHideUnused(tab, node) {
-		var entry = effectEntryOf(tab, node);
-		if (entry && entry.hideUnused === true) {
-			return true;
-		}
-		if (entry && entry.hideUnused === false) {
-			return false;
-		}
-		return defaultHideUnused(effectNodeDescriptor(node));
+		return false;
 	}
 
 	/** Param names pinned visible on an effect entry (`shownSockets`, additive IR). */
@@ -509,7 +478,7 @@
 
 	/**
 	 * Count an effect node's currently-hidden params (descriptor params absent from the
-	 * inputs) and how many of those are animated, for the eye label and diag.
+	 * inputs, group-collapsed) and how many of those are animated, for diag.
 	 *
 	 * @param {Object} node the effect canvas node (inputs already laid out)
 	 * @returns {{hidden: number, animated: number}} the counts
@@ -542,7 +511,7 @@
 	/**
 	 * Whether a param socket is laid out: wired and pinned sockets always are (a wire is
 	 * never dropped and stays visible); a collapsed group keeps its stubs only; otherwise
-	 * hide-unused decides (suppressed while a link drag reveals).
+	 * every socket shows (show-all is the only mode; suppressed never).
 	 */
 	function effectMemberVisible(node, group, isWired, isPinned) {
 		if (isWired || isPinned) {
@@ -660,7 +629,7 @@
 			return Object.prototype.hasOwnProperty.call(linksByName, name)
 					|| (!!wiredNames && wiredNames[name] === true);
 		}
-		var ordered = [EYE_SLOT, "in"];
+		var ordered = ["in"];
 		sections.forEach(function (section) {
 			if (section.group) {
 				ordered.push(groupHeaderName(section.group));
@@ -697,11 +666,7 @@
 				if (name === "in" || name === "mask") {
 					return;
 				}
-				if (name === EYE_SLOT) {
-					slot = { name: name, type: "eye", link: null, label: "" };
-					slot.color_on = EYE_COLOR;
-					slot.color_off = slot.color_on;
-				} else if (name.indexOf(GROUP_HEADER_PREFIX) === 0) {
+				if (name.indexOf(GROUP_HEADER_PREFIX) === 0) {
 					var group = groupOfHeader(name);
 					slot = { name: name, type: "group", link: null, label: group };
 					slot.color_on = groupColor(group);
@@ -718,20 +683,12 @@
 		});
 		node.inputs = next;
 		// The hidden counts are read off the laid-out inputs (descriptor params absent from
-		// them, group-collapsed and hide-unused alike); the eye label shows them.
+		// them, group-collapsed) for diag.
 		var hiddenInfo = effectHiddenInfo(node);
 		node.__hiddenInfo = hiddenInfo;
-		// Refresh the header labels (arrow + hidden count), the eye label and the surviving
+		// Refresh the header labels (arrow + hidden count) and the surviving
 		// links, whose target_slot shifted with the array.
 		node.inputs.forEach(function (slot) {
-			if (isEyeSlot(slot)) {
-				slot.label = node.__hideUnused === true
-						? EYE_GLYPH + " +" + hiddenInfo.hidden + " hidden"
-								+ (hiddenInfo.animated > 0 ? " · " + hiddenInfo.animated + " animated" : "")
-								+ " · show all"
-						: EYE_GLYPH + " showing all · hide unused";
-				return;
-			}
 			if (!isGroupHeaderSlot(slot)) {
 				return;
 			}
@@ -877,97 +834,19 @@
 		return wired;
 	}
 
-	/**
-	 * The header/eye action at a node-local pos: "eye", a group name, or null. One
-	 * decision point for the capture pre-empt (wireGroupToggle) and the node fallback
-	 * below, so both agree on the whole-row hit area — including the socket-dot zone,
-	 * where the bundle starts a wire drag and the node handler never runs.
-	 *
-	 * @param {Object} node the effect canvas node
-	 * @param {Array<number>} pos the node-local position
-	 * @returns {string|null} "eye", the group name, or null
-	 */
-	function groupRowAction(node, pos) {
-		if (effectEyeAt(node, pos)) {
-			return "eye";
-		}
-		return effectGroupHeaderAt(node, pos);
-	}
-
-	/** Click the eye row or a group header row (consumed: the node must not drag). */
+	/** Click a group header row (consumed: the node must not drag). */
 	function onEffectNodeMouseDown(event, pos, canvas) {
 		var node = this;
-		var action = groupRowAction(node, pos);
-		if (action === "eye") {
-			toggleEye(node);
-			return true;
-		}
-		if (action == null) {
+		var group = effectGroupHeaderAt(node, pos);
+		if (group == null) {
 			return false;
 		}
-		toggleEffectGroup(node, action);
+		toggleEffectGroup(node, group);
 		return true;
 	}
 
 	/**
-	 * Whether the node-local `pos` is on the eye row (the whole row is the hit area, like
-	 * the group headers — never a glyph alone; a socket dot never shares the row, so wire
-	 * drags keep working).
-	 *
-	 * @param {Object} node the effect canvas node
-	 * @param {Array<number>} pos the node-local position
-	 * @returns {boolean} true when the eye row was hit
-	 */
-	function effectEyeAt(node, pos) {
-		if (!node || !node.inputs || !pos || pos[1] < 0) {
-			return false;
-		}
-		if (node.flags && node.flags.collapsed) {
-			return false;
-		}
-		if (typeof LiteGraph === "undefined" || !LiteGraph.NODE_SLOT_HEIGHT) {
-			return false;
-		}
-		for (var i = 0; i < node.inputs.length; i++) {
-			if (!isEyeSlot(node.inputs[i])) {
-				continue;
-			}
-			var top = i * LiteGraph.NODE_SLOT_HEIGHT;
-			return pos[1] >= top && pos[1] < top + LiteGraph.NODE_SLOT_HEIGHT
-					&& pos[0] >= 0 && pos[0] <= node.size[0];
-		}
-		return false;
-	}
-
-	/**
-	 * Flip one node's eye (show-all / hide-unused). `scheduleGraphEdit` runs first so the
-	 * pre-flip IR is the undo baseline (a flip is one undo step); the flip persists on the
-	 * IR entry (`hideUnused`, additive — the compiler never reads it) and survives tab
-	 * switches exactly like a group flip.
-	 *
-	 * @param {Object} node the effect canvas node
-	 */
-	function toggleEye(node) {
-		if (!node) {
-			return;
-		}
-		var tab = (node && node.__tab) || null;
-		if (tab) {
-			scheduleGraphEdit(tab);
-		}
-		node.__hideUnused = !resolveHideUnused(tab, node);
-		rebuildEffectInputs(node, null);
-		if (tab) {
-			var entry = effectEntryOf(tab, node);
-			if (entry) {
-				entry.hideUnused = node.__hideUnused;
-			}
-		}
-		node.setDirtyCanvas(true, true);
-	}
-
-	/**
-	 * Reveal every hidden socket while a link drags (Blender highlights its drop targets):
+	 * Reveal pass while a link drags (Blender highlights its drop targets):
 	 * the vendored litegraph.js offers no link-drag event (only the `connecting_*` canvas
 	 * state set in `processMouseDown` and cleared in `processMouseUp`), so the boot wrap
 	 * shows all on drag-start and restores on drop/cancel. Compatibility filtering needs
@@ -992,7 +871,7 @@
 		});
 	}
 
-	/** Restore the hide-unused layout after a link drop/cancel (no-op when not revealing). */
+	/** Re-sync the group layout after a link drop/cancel (no-op when not revealing). */
 	function endLinkReveal() {
 		if (!linkDragReveal) {
 			return;
@@ -1016,7 +895,7 @@
 	 */
 	function onEffectNodeMouseMove(event, pos, canvas) {
 		var node = this;
-		var over = effectGroupHeaderAt(node, pos) != null || effectEyeAt(node, pos);
+		var over = effectGroupHeaderAt(node, pos) != null;
 		if (over !== !!node.__groupHover) {
 			node.__groupHover = over;
 			node.setDirtyCanvas(true, false);
@@ -1040,12 +919,6 @@
 		ctx.save();
 		ctx.textAlign = "left";
 		for (var i = 0; i < node.inputs.length; i++) {
-			if (isEyeSlot(node.inputs[i])) {
-				ctx.globalAlpha = node.__groupHover ? 0.30 : 0.20;
-				ctx.fillStyle = EYE_COLOR;
-				ctx.fillRect(0, i * rowH, node.size[0], rowH);
-				continue;
-			}
 			if (!isGroupHeaderSlot(node.inputs[i])) {
 				continue;
 			}
@@ -1859,13 +1732,13 @@
 	}
 
 	/**
-	 * Toggle group/eye rows before LiteGraph sees the click. The header/eye rows are
+	 * Toggle group rows before LiteGraph sees the click. The header rows are
 	 * input slots, so the bundle's slot hit-test (a 30x20 box around the socket dot,
 	 * checked in `processMouseDown` before `node.onMouseDown` in litegraph.js) starts a
 	 * wire drag there and the node toggle never fires. This document-capture pre-empt
 	 * (the wireRerouteInsert pattern above) resolves the same whole-row hit area first
 	 * and consumes the event, so glyph/dot-zone clicks toggle while real sockets keep
-	 * dragging: anything that is not an effect-node header/eye row falls through.
+	 * dragging: anything that is not an effect-node header row falls through.
 	 */
 	function wireGroupToggle() {
 		document.addEventListener("mousedown", function (event) {
@@ -1896,8 +1769,8 @@
 			if (!node || !isEffectNode(node)) {
 				return;
 			}
-			var action = groupRowAction(node, [pos[0] - node.pos[0], pos[1] - node.pos[1]]);
-			if (!action) {
+			var group = effectGroupHeaderAt(node, [pos[0] - node.pos[0], pos[1] - node.pos[1]]);
+			if (group == null) {
 				return;
 			}
 			event.preventDefault();
@@ -1913,11 +1786,7 @@
 			} catch (e3) {
 				// selection only: never break the toggle
 			}
-			if (action === "eye") {
-				toggleEye(node);
-			} else {
-				toggleEffectGroup(node, action);
-			}
+			toggleEffectGroup(node, group);
 		}, true);
 	}
 
@@ -2143,7 +2012,7 @@
 					return;
 				}
 				var sock = enode.inputs ? enode.inputs[link.target_slot] : null;
-				if (!sock || sock.name === "in" || sock.name === "mask" || sock.name === EYE_SLOT) {
+				if (!sock || sock.name === "in" || sock.name === "mask") {
 					return;
 				}
 				if (!fieldGated(descriptor, sock.name)) {
@@ -2409,9 +2278,9 @@
 		node.__tab = tab;
 		node.properties.effectId = effect.id;
 		tab.graph.add(node);
-		// A fresh node has no wires yet, so the size default applies immediately: big
-		// effects open hiding their unused sockets, small ones fully shown.
-		node.__hideUnused = defaultHideUnused(schema[type]);
+		// A fresh node shows every socket under its group header (show-all is the only
+		// mode); the edge pass treats the laid-out sockets as wired where linked.
+		node.__hideUnused = false;
 		rebuildEffectInputs(node, null);
 		tab.activeEffect = indexOfEffect(tab, effect.id);
 		tab.root = node;
@@ -3496,8 +3365,8 @@
 			if (isMaskLeafNode(node)) {
 				syncMaskLeafSockets(node);
 			} else if (isEffectNode(node)) {
-				// A connect/disconnect changes which sockets count as used: re-hide the
-				// newly unused, re-show the newly wired. Skipped while a link drag
+				// A connect/disconnect changes which sockets count as used: re-sync the
+				// group layout so header counts stay truthful. Skipped while a link drag
 				// reveals (the drop's own mouseup restores) — a wire is never dropped.
 				if (!linkDragReveal) {
 					rebuildEffectInputs(node, null);
@@ -3909,14 +3778,14 @@
 			// The `mask` attachment port is a cosmetic Mask-root wire (it resolves via
 			// effectId), never a param edge — same skip as the field-tree reader below.
 			if (param && param.name !== "in" && param.name !== "mask"
-					&& !isGroupHeaderSlot(param) && !isEyeSlot(param)) {
+					&& !isGroupHeaderSlot(param)) {
 				var edge = { from: from, to: param.name, effect: target.properties.effectId };
 				if (output != null) {
 					edge.output = output;
 				}
 				return { edge: edge, wire: { kind: "edge", key: edgeKeyOf(edge) } };
 			}
-			return { wire: { kind: (isGroupHeaderSlot(param) || isEyeSlot(param)) ? "skip"
+			return { wire: { kind: isGroupHeaderSlot(param) ? "skip"
 					: (param && param.name === "mask" ? "mask" : "flow") } };
 		} else if (isMaskLeafNode(target)) {
 			// A value node wired into a MaskLeaf's `mask.p<N>.*` socket is a param wire for the
@@ -4587,7 +4456,8 @@
 			materializeFieldNodes(tab, effectNodeById);
 			// Restore the persisted socket-group collapse after the edge + field passes, so
 			// wired members already exist as stubs and their wires redraw (see the helper).
-			// The eye state resolves the same way: entry toggle, else the size default.
+			// Show-all is the only socket mode: `resolveHideUnused` is always false, and a
+			// carried IR `hideUnused` stays on the entry untouched (round-trip stable).
 			(tab.effects || []).forEach(function (effect) {
 				var enode = effectNodeById[effect.id];
 				if (!enode) {
@@ -8400,20 +8270,14 @@
 			sections: effectGroupSections,
 			rebuild: rebuildEffectInputs,
 			toggle: toggleEffectGroup,
-			rowAction: groupRowAction,
 			headerAt: effectGroupHeaderAt,
 			isHeader: isGroupHeaderSlot,
 			wiredParams: effectWiredParams
 		},
-		// Headless test seam for hide-unused (same runner): the size default, the eye
-		// toggle + hit test, and the hidden/animated counts behind the eye label and diag.
+		// Headless test seam for show-all (same runner): the always-false resolve and
+		// the hidden/animated counts behind diag.
 		hide: {
-			threshold: HIDE_UNUSED_THRESHOLD,
-			defaultHide: defaultHideUnused,
 			resolve: resolveHideUnused,
-			toggleEye: toggleEye,
-			eyeAt: effectEyeAt,
-			isEye: isEyeSlot,
 			hiddenInfo: effectHiddenInfo
 		},
 		// Headless test seam for typed ports (same runner): the fixed type table, the

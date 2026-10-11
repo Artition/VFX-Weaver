@@ -5,9 +5,9 @@
  * window/document/LiteGraph stubs it loads headlessly without booting, and the VFXEditor.groups
  * seam (make/sections/rebuild/toggle/headerAt/isHeader/wiredParams) drives the real canvas
  * logic: group partition, header layout, collapse/expand with wire preservation, and the IR
- * persist field. The VFXEditor.hide seam (threshold/defaultHide/resolve/toggleEye/eyeAt/isEye/
- * hiddenInfo) drives the hide-unused half: size defaults, the eye row, animated counts and the
- * IR persist field. ir.js + compiler.js load too (as in run-editor-selftest.js), so the last test
+ * persist field. The VFXEditor.hide seam (resolve/hiddenInfo) drives the show-all half:
+ * the always-false resolve (a carried IR hideUnused is ignored for layout) and the
+ * hidden/animated counts behind diag. ir.js + compiler.js load too (as in run-editor-selftest.js), so the last test
  * proves the persist fields never reach the emitted definition. No dependencies.
  *
  *   node scripts/run-editor-grouptest.js
@@ -175,26 +175,25 @@ function check(condition, message) {
 
 (function () {
 	var node = makeNode();
-	check(JSON.stringify(inputNames(node)) === JSON.stringify(["__eye", "in", "__group:Anchor",
+	check(JSON.stringify(inputNames(node)) === JSON.stringify(["in", "__group:Anchor",
 			"anchor_yaw", "anchor_pitch", "__group:Dome", "dome_radius", "__group:Tile",
 			"tile_scale", "__group:Color", "color_r", "intensity", "mask"]),
-			"fresh node lays out the eye row, then headers + members, mask last");
+			"fresh node lays out in, then headers + members, mask last (no eye row)");
 	check(node.outputs.length === 1 && node.outputs[0].name === "out", "flow out port kept");
-	check(node.inputs[2].label === "\u25BE Anchor", "expanded header label");
-	check(groups.isHeader(node.inputs[2]) && !groups.isHeader(node.inputs[1])
-			&& !groups.isHeader(node.inputs[3]), "only header rows are headers");
-	check(global.VFXEditor.hide.isEye(node.inputs[0]) && !global.VFXEditor.hide.isEye(node.inputs[1]),
-			"only the first row is the eye row");
+	check(node.inputs[1].label === "\u25BE Anchor", "expanded header label");
+	check(groups.isHeader(node.inputs[1]) && !groups.isHeader(node.inputs[0])
+			&& !groups.isHeader(node.inputs[2]), "only header rows are headers");
+	check(inputNames(node).indexOf("__eye") < 0, "no eye row on a fresh node");
 })();
 
 (function () {
 	var node = makeNode();
 	var tab = fakeTab(node);
 	groups.toggle(node, "Anchor");
-	check(JSON.stringify(inputNames(node)) === JSON.stringify(["__eye", "in", "__group:Anchor",
+	check(JSON.stringify(inputNames(node)) === JSON.stringify(["in", "__group:Anchor",
 			"__group:Dome", "dome_radius", "__group:Tile", "tile_scale", "__group:Color",
 			"color_r", "intensity", "mask"]), "collapse hides only the unwired members");
-	check(node.inputs[2].label === "\u25B8 Anchor (2)", "collapsed header shows hidden count");
+	check(node.inputs[1].label === "\u25B8 Anchor (2)", "collapsed header shows hidden count");
 	check(tab.effects[0].collapsedGroups
 			&& tab.effects[0].collapsedGroups.Anchor === true, "collapse persists in IR");
 	groups.toggle(node, "Anchor");
@@ -239,14 +238,14 @@ function check(condition, message) {
 })();
 
 (function () {
-	check(typeof groups.rowAction === "function", "row-action decision exposed");
 	var node = makeNode();
 	var row = inputNames(node).indexOf("__group:Dome");
-	check(groups.rowAction(node, [10, row * 20 + 14]) === "Dome",
-			"row action toggles at the socket dot (the wire-drag zone)");
-	check(groups.rowAction(node, [2, 3]) === "eye", "row action hits the eye at the left edge");
-	check(groups.rowAction(node, [120, (row + 1) * 20 + 3]) === null,
-			"row action misses socket rows");
+	check(groups.headerAt(node, [10, row * 20 + 14]) === "Dome",
+			"header hit at the socket dot (the wire-drag zone)");
+	check(groups.headerAt(node, [2, row * 20 + 3]) === "Dome",
+			"header hit at the left edge (whole row, not the glyph)");
+	check(groups.headerAt(node, [120, (row + 1) * 20 + 3]) === null,
+			"header misses socket rows");
 })();
 
 (function () {
@@ -272,7 +271,7 @@ function check(condition, message) {
 			&& plain.indexOf("shownSockets") < 0, "no view state leaks into the datapack");
 })();
 
-/* Hide-unused (the VFXEditor.hide seam): size defaults, eye row, animated counts. */
+/* Show-all (the VFXEditor.hide seam): the always-false resolve, diag counts. */
 
 var bigDescriptor = { params: [], structural: { supportsMask: true } };
 ["a1", "a2", "a3", "a4", "a5", "a6", "a7"].forEach(function (name) {
@@ -298,10 +297,9 @@ function makeBigNode(id) {
 (function () {
 	var hide = global.VFXEditor.hide;
 	check(!!hide, "hide seam exposed");
-	check(hide.threshold === 12, "hide threshold is 12 inputs");
-	check(hide.defaultHide(descriptor) === false, "six params default to show-all");
-	check(hide.defaultHide(bigDescriptor) === true, "fourteen params default to hide-unused");
-	check(hide.defaultHide(null) === false, "unknown type defaults to show-all");
+	check(hide.resolve(null, null) === false, "resolve is always false (show-all)");
+	check(hide.toggleEye === undefined && hide.eyeAt === undefined && hide.isEye === undefined,
+			"no eye API left on the seam");
 })();
 
 (function () {
@@ -310,20 +308,16 @@ function makeBigNode(id) {
 	fakeTab(node);
 	node.__hideUnused = hide.resolve(node.__tab, node);
 	groups.rebuild(node, null);
-	check(JSON.stringify(inputNames(node)) === JSON.stringify(["__eye", "in",
-			"__group:Alpha", "__group:Beta", "mask"]),
-			"a big fresh node shows only the eye row, in, headers and mask");
+	check(JSON.stringify(inputNames(node)) === JSON.stringify(["in",
+			"__group:Alpha", "a1", "a2", "a3", "a4", "a5", "a6", "a7",
+			"__group:Beta", "b1", "b2", "b3", "b4", "b5", "tail1", "tail2", "mask"]),
+			"a big fresh node shows every socket under its group header");
 	var info = hide.hiddenInfo(node);
-	check(info.hidden === 14 && info.animated === 0, "fourteen hidden, none animated");
-	check(node.inputs[0].label.indexOf("+14 hidden") >= 0, "eye label counts the hidden");
-	check(node.size[1] === 30 + 5 * 20, "no footer line: the eye row carries the only counter");
-	var small = makeNode();
-	check(hide.hiddenInfo(small).hidden === 0, "a small node hides nothing");
-	check(small.size[1] === 30 + small.inputs.length * 20, "no footer when nothing hides");
+	check(info.hidden === 0 && info.animated === 0, "nothing hidden when expanded");
+	check(node.size[1] === 30 + node.inputs.length * 20, "no footer line, no counter row");
 })();
 
 (function () {
-	var hide = global.VFXEditor.hide;
 	var node = makeBigNode();
 	fakeTab(node);
 	node.__hideUnused = false;
@@ -332,14 +326,12 @@ function makeBigNode(id) {
 	node.inputs[at].link = "11";
 	node.graph.links["11"] = { origin_id: 7, origin_slot: 0, target_id: node.id,
 		target_slot: at };
-	node.__hideUnused = true;
 	groups.rebuild(node, null);
 	var names = inputNames(node);
-	check(names.indexOf("a3") >= 0 && names.indexOf("a1") < 0,
-			"a wired socket stays visible while the rest hide");
+	check(names.indexOf("a3") >= 0 && names.indexOf("a1") >= 0,
+			"wired and unwired sockets all stay visible");
 	check(node.graph.links["11"].target_slot === names.indexOf("a3"),
 			"the surviving wire is repointed, never dropped");
-	check(hide.hiddenInfo(node).hidden === 13, "the wired socket leaves the hidden count");
 })();
 
 (function () {
@@ -347,39 +339,25 @@ function makeBigNode(id) {
 	var node = makeBigNode();
 	var tab = fakeTab(node);
 	tab.effects[0].keys = { b2: [{ time: 0, value: 1 }] };
-	tab.effects[0].shownSockets = { b1: true };
-	node.__hideUnused = true;
-	groups.rebuild(node, null);
+	groups.toggle(node, "Beta");
 	var names = inputNames(node);
-	check(names.indexOf("b1") >= 0, "a pinned socket stays visible");
+	check(names.indexOf("b2") < 0, "a collapsed group hides its members");
 	var info = hide.hiddenInfo(node);
-	check(info.hidden === 13 && info.animated === 1, "hidden animated params are counted");
-	check(node.inputs[0].label.indexOf("1 animated") >= 0,
-			"the eye row carries the animated count");
+	check(info.hidden === 5 && info.animated === 1, "hidden animated params are counted");
+	groups.toggle(node, "Beta");
+	check(hide.hiddenInfo(node).hidden === 0, "expand restores the show-all count");
 })();
 
 (function () {
 	var hide = global.VFXEditor.hide;
 	var node = makeBigNode();
 	var tab = fakeTab(node);
-	check(hide.resolve(tab, node) === true, "resolve falls back to the size default");
-	hide.toggleEye(node);
-	check(tab.effects[0].hideUnused === false, "eye persists show-all in IR");
-	check(inputNames(node).indexOf("a1") >= 0, "eye shows every socket");
-	hide.toggleEye(node);
-	check(tab.effects[0].hideUnused === true, "eye persists hide-unused in IR");
-	check(inputNames(node).indexOf("a1") < 0, "eye hides the unused again");
-	check(hide.resolve(tab, node) === true, "resolve honours the persisted toggle");
-})();
-
-(function () {
-	var hide = global.VFXEditor.hide;
-	var node = makeNode();
-	fakeTab(node);
-	check(hide.eyeAt(node, [2, 3]) === true, "eye hit on the first row");
-	check(hide.eyeAt(node, [node.size[0] - 2, 17]) === true, "eye hit at the right edge");
-	check(hide.eyeAt(node, [120, 23]) === false, "second row misses the eye");
-	check(hide.eyeAt(node, [120, -4]) === false, "title bar misses the eye");
+	tab.effects[0].hideUnused = true;
+	check(hide.resolve(tab, node) === false, "a carried hideUnused is ignored for layout");
+	node.__hideUnused = hide.resolve(tab, node);
+	groups.rebuild(node, null);
+	check(inputNames(node).indexOf("a1") >= 0, "old projects open showing every socket");
+	check(tab.effects[0].hideUnused === true, "the carried IR field survives untouched");
 })();
 
 /* Typed ports (the VFXEditor.ports seam): one table, metadata-derived paint. */
@@ -473,9 +451,8 @@ function makeBigNode(id) {
 			"mask attachment is a mask port");
 	check(node.outputs[0].type === ports.flow && node.outputs[0].__port === "flow",
 			"chain out is a flow port");
-	check(byName.__eye.__port === undefined
-			&& byName["__group:Anchor"].__port === undefined,
-			"eye + headers are not ports");
+	check(byName["__group:Anchor"].__port === undefined,
+			"headers are not ports");
 })();
 
 (function () {
