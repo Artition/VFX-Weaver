@@ -308,11 +308,412 @@
 				return param.name;
 			}) };
 			this.onDblClick = onNodeTitleDblClick;
+			// Blender-style socket groups (see rebuildEffectInputs): per-`group` collapsible
+			// header rows over the input sockets. Wired here so every construction path
+			// (palette, import, undo) gets them; the header rows are laid out just below.
+			this.__groupCollapsed = {};
+			this.onMouseDown = onEffectNodeMouseDown;
+			this.onMouseMove = onEffectNodeMouseMove;
+			this.onDrawBackground = drawEffectGroupBands;
+			rebuildEffectInputs(this, null);
 		}
 
 		EffectNode.title = typeName;
 		EffectNode.desc = "VFXweaver effect: " + typeName;
 		return EffectNode;
+	}
+
+		/* ------------------------------------------------------------------ */
+	/* Effect-node socket groups (Blender-style collapsible panels)        */
+	/* ------------------------------------------------------------------ */
+
+	/**
+	 * Mechanism (checked against the vendored litegraph.js): it offers node-level collapse
+	 * only — there are no hidden slots or slot sections. So a group collapse is a remove/add
+	 * of input sockets: unwired members leave `node.inputs`, wired members stay as stubs (a
+	 * wire is never dropped and stays visible), and the header row shows the hidden count.
+	 * Links never die in the surgery: `rebuildEffectInputs` reuses the slot objects, then
+	 * rewrites `target_slot` on the surviving graph links by socket name. The IR edge merge
+	 * (`mergePreservedEdges`) additionally preserves any wire whose socket is hidden, and the
+	 * edge pass redraws it on expand — the same thinking as the link-restore path.
+	 */
+	/** The input-slot name prefix of a group header row (never a real param). */
+	var GROUP_HEADER_PREFIX = "__group:";
+
+	/** Whether an input slot is a group header row rather than a param socket. */
+	function isGroupHeaderSlot(slot) {
+		return !!(slot && typeof slot.name === "string"
+				&& slot.name.indexOf(GROUP_HEADER_PREFIX) === 0);
+	}
+
+	/** The header-slot name of `group`. */
+	function groupHeaderName(group) {
+		return GROUP_HEADER_PREFIX + group;
+	}
+
+	/** The group name a header-slot name addresses. */
+	function groupOfHeader(name) {
+		return String(name).substring(GROUP_HEADER_PREFIX.length);
+	}
+
+	/**
+	 * Partition a descriptor's params into inspector sections. Reuses
+	 * `window.VFXInspector.paramSections` (same order/labels as the inspector); the local
+	 * fallback is the same algorithm (first-seen group order, ungrouped params share one
+	 * default section) for the boot window before inspector.js loads.
+	 *
+	 * @param {Object} [descriptor] the effect's schema descriptor
+	 * @returns {Array<{group: string, label: string, params: Array<Object>}>} the sections
+	 */
+	function effectGroupSections(descriptor) {
+		var params = (descriptor && Array.isArray(descriptor.params)) ? descriptor.params : [];
+		if (window.VFXInspector && typeof window.VFXInspector.paramSections === "function") {
+			try {
+				return window.VFXInspector.paramSections(params);
+			} catch (e) {
+				// fall through to the local partition
+			}
+		}
+		var out = [];
+		var byGroup = {};
+		params.forEach(function (param) {
+			if (!param || !param.name) {
+				return;
+			}
+			var group = (param && typeof param.group === "string" && param.group) ? param.group : "";
+			if (!Object.prototype.hasOwnProperty.call(byGroup, group)) {
+				byGroup[group] = { group: group, label: group || "Parameters", params: [] };
+				out.push(byGroup[group]);
+			}
+			byGroup[group].params.push(param);
+		});
+		return out;
+	}
+
+	/** The schema descriptor of an effect canvas node, or null for an unknown type. */
+	function effectNodeDescriptor(node) {
+		var type = node && node.properties ? node.properties.effectType : null;
+		return (type && schema[type]) || null;
+	}
+
+	/** The node's collapsed-group map (`group -> true`), always an object. */
+	function groupCollapsedMap(node) {
+		if (!node.__groupCollapsed || typeof node.__groupCollapsed !== "object") {
+			node.__groupCollapsed = {};
+		}
+		return node.__groupCollapsed;
+	}
+
+	/**
+	 * Lay out an effect node's inputs as `[in] + sections + [mask] + extras`: every named
+	 * section gets a header row, then its members (all when expanded, only the wired stubs
+	 * when collapsed); the ungrouped default section stays headerless and always expanded.
+	 * `in`/`out`/`mask` and unknown extras (`mask.*` reserved sockets) stay outside groups
+	 * and always visible. Only ever called on effect nodes; value/mask/field/macro nodes
+	 * keep their flat sockets (few sockets, structural layouts).
+	 *
+	 * @param {Object} node the effect canvas node
+	 * @param {Object|null} [wiredNames] extra socket names to treat as wired (the IR edges of
+	 * a materialise pass, whose canvas links do not exist yet); the toggle path passes null
+	 * and reads the live links instead
+	 */
+	function rebuildEffectInputs(node, wiredNames) {
+		if (!node || !isEffectNode(node) || !node.inputs) {
+			return;
+		}
+		var descriptor = effectNodeDescriptor(node);
+		var sections = effectGroupSections(descriptor);
+		var collapsed = groupCollapsedMap(node);
+		var paramsByName = {};
+		((descriptor && descriptor.params) || []).forEach(function (param) {
+			if (param && param.name) {
+				paramsByName[param.name] = param;
+			}
+		});
+		// Snapshot the live wires by socket name before the surgery (removeInput is bypassed
+		// on purpose: disconnectInput would drop the wire; the array is rebuilt instead).
+		var pool = {};
+		node.inputs.forEach(function (slot) {
+			pool[slot.name] = slot;
+		});
+		var graph = node.graph;
+		var linksByName = {};
+		if (graph && graph.links) {
+			Object.keys(graph.links).forEach(function (id) {
+				var link = graph.links[id];
+				if (link && link.target_id === node.id) {
+					var slot = node.inputs[link.target_slot];
+					if (slot) {
+						linksByName[slot.name] = id;
+					}
+				}
+			});
+		}
+		function wired(name) {
+			return Object.prototype.hasOwnProperty.call(linksByName, name)
+					|| (!!wiredNames && wiredNames[name] === true);
+		}
+		var ordered = ["in"];
+		sections.forEach(function (section) {
+			if (section.group) {
+				ordered.push(groupHeaderName(section.group));
+				section.params.forEach(function (param) {
+					if (!collapsed[section.group] || wired(param.name)) {
+						ordered.push(param.name);
+					}
+				});
+			} else {
+				section.params.forEach(function (param) {
+					ordered.push(param.name);
+				});
+			}
+		});
+		// The mask port stays outside groups (post effects only); unknown extras (`mask.*`
+		// reserved sockets appended by syncMaskSockets) keep their trailing order.
+		if (pool.mask) {
+			ordered.push("mask");
+		}
+		node.inputs.forEach(function (slot) {
+			if (ordered.indexOf(slot.name) < 0 && !isGroupHeaderSlot(slot)
+					&& !paramsByName[slot.name]) {
+				ordered.push(slot.name);
+			}
+		});
+		var next = [];
+		ordered.forEach(function (name) {
+			var slot = pool[name];
+			if (!slot) {
+				if (name === "in" || name === "mask") {
+					return;
+				}
+				if (name.indexOf(GROUP_HEADER_PREFIX) === 0) {
+					var group = groupOfHeader(name);
+					slot = { name: name, type: "group", link: null, label: group };
+					slot.color_on = groupColor(group);
+					slot.color_off = slot.color_on;
+				} else if (paramsByName[name]) {
+					var param = paramsByName[name];
+					slot = { name: name, type: socketType(param), link: null };
+					slot.color_on = groupColor(param.group);
+					slot.color_off = slot.color_on;
+				} else {
+					return;
+				}
+			}
+			next.push(slot);
+		});
+		node.inputs = next;
+		// Refresh the header labels (arrow + hidden count) and repoint the surviving links,
+		// whose target_slot shifted with the array.
+		node.inputs.forEach(function (slot) {
+			if (!isGroupHeaderSlot(slot)) {
+				return;
+			}
+			var group = groupOfHeader(slot.name);
+			var hidden = 0;
+			sections.forEach(function (section) {
+				if (section.group !== group) {
+					return;
+				}
+				section.params.forEach(function (param) {
+					if (inputIndex(node, param.name) < 0) {
+						hidden++;
+					}
+				});
+			});
+			slot.label = (collapsed[group] ? "\u25B8 " : "\u25BE ") + group
+					+ (hidden > 0 ? " (" + hidden + ")" : "");
+		});
+		if (graph && graph.links) {
+			Object.keys(linksByName).forEach(function (name) {
+				var link = graph.links[linksByName[name]];
+				var at = inputIndex(node, name);
+				if (link && at >= 0) {
+					link.target_slot = at;
+				}
+			});
+			node.inputs.forEach(function (slot) {
+				slot.link = null;
+			});
+			Object.keys(graph.links).forEach(function (id) {
+				var link = graph.links[id];
+				if (link && link.target_id === node.id && node.inputs[link.target_slot]) {
+					node.inputs[link.target_slot].link = id;
+				}
+			});
+			graph._version++;
+		}
+		node.setSize(node.computeSize());
+		node.setDirtyCanvas(true, true);
+	}
+
+	/**
+	 * The group whose header row holds the node-local `pos` (the whole header row is the hit
+	 * area, never the glyph alone), or null. Header rows are dedicated slots, so a socket dot
+	 * never shares the hit area and wire drags keep working.
+	 *
+	 * @param {Object} node the effect canvas node
+	 * @param {Array<number>} pos the node-local position
+	 * @returns {string|null} the group name, or null
+	 */
+	function effectGroupHeaderAt(node, pos) {
+		if (!node || !node.inputs || !pos || pos[1] < 0) {
+			return null;
+		}
+		if (node.flags && node.flags.collapsed) {
+			return null;
+		}
+		if (typeof LiteGraph === "undefined" || !LiteGraph.NODE_SLOT_HEIGHT) {
+			return null;
+		}
+		for (var i = 0; i < node.inputs.length; i++) {
+			if (!isGroupHeaderSlot(node.inputs[i])) {
+				continue;
+			}
+			var top = i * LiteGraph.NODE_SLOT_HEIGHT;
+			if (pos[1] >= top && pos[1] < top + LiteGraph.NODE_SLOT_HEIGHT
+					&& pos[0] >= 0 && pos[0] <= node.size[0]) {
+				return groupOfHeader(node.inputs[i].name);
+			}
+		}
+		return null;
+	}
+
+	/**
+	 * Toggle one socket group. Wired members stay as stubs, so no wire drops; the flip is
+	 * persisted on the IR entry (`collapsedGroups`, additive — the compiler never reads it)
+	 * and committed through the debounced graph edit, so it is undoable and survives tab
+	 * switches exactly like the whole-node collapse.
+	 *
+	 * @param {Object} node the effect canvas node
+	 * @param {string} group the group to flip
+	 */
+	function toggleEffectGroup(node, group) {
+		if (!node || group == null) {
+			return;
+		}
+		var map = groupCollapsedMap(node);
+		if (map[group]) {
+			delete map[group];
+		} else {
+			map[group] = true;
+		}
+		rebuildEffectInputs(node, null);
+		var tab = node.__tab;
+		if (tab) {
+			for (var i = 0; i < (tab.effects || []).length; i++) {
+				if (tab.effects[i].id === node.properties.effectId) {
+					if (Object.keys(map).length) {
+						tab.effects[i].collapsedGroups = snapshot(map);
+					} else {
+						delete tab.effects[i].collapsedGroups;
+					}
+					break;
+				}
+			}
+			scheduleGraphEdit(tab);
+		}
+		node.setDirtyCanvas(true, true);
+	}
+
+	/**
+	 * Param names of one effect that carry an IR edge or a live field tree: the materialise
+	 * pass treats them as wired, so a collapsed group keeps them as stubs and the edge pass
+	 * redraws their wires. Mirrors the owner rule of the edge pass.
+	 *
+	 * @param {Object} tab the tab
+	 * @param {string} effectId the owning effect id
+	 * @returns {Object} wired param names (`name -> true`)
+	 */
+	function effectWiredParams(tab, effectId) {
+		var wired = {};
+		(tab.edges || []).forEach(function (edge) {
+			if (!edge || edge.input != null || edge.from == null || edge.to == null) {
+				return;
+			}
+			if (typeof edge.to !== "string" || edge.to.indexOf("mask.") === 0) {
+				return;
+			}
+			if (edgeEffectId(tab, edge) === effectId) {
+				wired[edge.to] = true;
+			}
+		});
+		(tab.effects || []).forEach(function (effect) {
+			if (effect.id !== effectId || !effect.fields || typeof effect.fields !== "object") {
+				return;
+			}
+			Object.keys(effect.fields).forEach(function (name) {
+				if (effect.fields[name] != null) {
+					wired[name] = true;
+				}
+			});
+		});
+		return wired;
+	}
+
+	/** Click a group header row to collapse/expand it (consumed: the node must not drag). */
+	function onEffectNodeMouseDown(event, pos, canvas) {
+		var node = this;
+		var group = effectGroupHeaderAt(node, pos);
+		if (group == null) {
+			return false;
+		}
+		toggleEffectGroup(node, group);
+		return true;
+	}
+
+	/**
+	 * Track header hover for the pointer cursor. Only the transition repaints; the cursor
+	 * itself is applied in {@link drawEffectGroupBands}, because the canvas overwrites it
+	 * after this handler on every mousemove.
+	 */
+	function onEffectNodeMouseMove(event, pos, canvas) {
+		var node = this;
+		var over = effectGroupHeaderAt(node, pos) != null;
+		if (over !== !!node.__groupHover) {
+			node.__groupHover = over;
+			node.setDirtyCanvas(true, false);
+		}
+	}
+
+	/**
+	 * Tint each header row in the group's colour (drawn behind the slot dots/labels) and
+	 * apply the pointer cursor. Background, not foreground, so the slot rendering stays
+	 * legible on top of the band.
+	 */
+	function drawEffectGroupBands(ctx, graphcanvas, canvasEl) {
+		var node = this;
+		if (!node || !node.inputs || (node.flags && node.flags.collapsed)) {
+			return;
+		}
+		if (typeof LiteGraph === "undefined" || !LiteGraph.NODE_SLOT_HEIGHT) {
+			return;
+		}
+		var rowH = LiteGraph.NODE_SLOT_HEIGHT;
+		ctx.save();
+		ctx.textAlign = "left";
+		for (var i = 0; i < node.inputs.length; i++) {
+			if (!isGroupHeaderSlot(node.inputs[i])) {
+				continue;
+			}
+			ctx.globalAlpha = node.__groupHover ? 0.24 : 0.13;
+			ctx.fillStyle = groupColor(groupOfHeader(node.inputs[i].name));
+			ctx.fillRect(0, i * rowH, node.size[0], rowH);
+		}
+		ctx.restore();
+		// The canvas sets its own cursor on every mousemove, so only ever add/remove ours.
+		try {
+			var el = canvasEl || (graphcanvas && graphcanvas.canvas);
+			if (el && el.style) {
+				if (node.__groupHover) {
+					el.style.cursor = "pointer";
+				} else if (el.style.cursor === "pointer") {
+					el.style.cursor = "";
+				}
+			}
+		} catch (e) {
+			// cursor only: never break the draw
+		}
 	}
 
 	/** Whether a canvas node is an effect node (vs a value node / group). */
@@ -2373,6 +2774,12 @@
 			} else {
 				delete entry.collapsed;
 			}
+			var groupMap = node.__groupCollapsed;
+			if (groupMap && typeof groupMap === "object" && Object.keys(groupMap).length) {
+				entry.collapsedGroups = snapshot(groupMap);
+			} else {
+				delete entry.collapsedGroups;
+			}
 		});
 		if (tab.activeEffect >= tab.effects.length) {
 			tab.activeEffect = tab.effects.length - 1;
@@ -2486,14 +2893,15 @@
 				var param = target.inputs ? target.inputs[link.target_slot] : null;
 				// The `mask` attachment port is a cosmetic Mask-root wire (it resolves via
 				// effectId), never a param edge — same skip as the field-tree reader below.
-				if (param && param.name !== "in" && param.name !== "mask") {
+				if (param && param.name !== "in" && param.name !== "mask"
+						&& !isGroupHeaderSlot(param)) {
 					var edge = { from: from, to: param.name, effect: target.properties.effectId };
 					if (output != null) {
 						edge.output = output;
 					}
 					emit(edge);
 				} else {
-					wires.push({ kind: param && param.name === "mask" ? "mask" : "flow" });
+					wires.push({ kind: isGroupHeaderSlot(param) ? "skip" : (param && param.name === "mask" ? "mask" : "flow") });
 				}
 			} else if (isMaskLeafNode(target)) {
 				// A value node wired into a MaskLeaf's `mask.p<N>.*` socket is a param wire for the
@@ -3112,6 +3520,18 @@
 			});
 			layoutAutoNodes(tab, byId);
 			materializeFieldNodes(tab, effectNodeById);
+			// Restore the persisted socket-group collapse after the edge + field passes, so
+			// wired members already exist as stubs and their wires redraw (see the helper).
+			(tab.effects || []).forEach(function (effect) {
+				var enode = effectNodeById[effect.id];
+				if (!enode) {
+					return;
+				}
+				enode.__groupCollapsed = (effect.collapsedGroups
+						&& typeof effect.collapsedGroups === "object")
+						? snapshot(effect.collapsedGroups) : {};
+				rebuildEffectInputs(enode, effectWiredParams(tab, effect.id));
+			});
 			// The explicit-disconnect witness for the next refresh: only wires actually drawn.
 			tab.__linkSig = drawnKeys;
 		} finally {
@@ -3438,6 +3858,9 @@
 					entry.external = saved.external === true;
 					if (saved.uuid != null) {
 						entry.uuid = String(saved.uuid);
+					if (saved.collapsedGroups !== undefined) {
+						entry.collapsedGroups = snapshot(saved.collapsedGroups);
+					}
 					}
 					if (Array.isArray(saved.pos)) {
 						entry.pos = [num(saved.pos[0]), num(saved.pos[1])];
@@ -6859,7 +7282,18 @@
 		showMenu: showMenu,
 		undo: undoHistory,
 		redo: redoHistory,
-		diag: diag
+		diag: diag,
+		// Headless test seam for the socket groups (scripts/run-editor-grouptest.js):
+		// the constructor, partition, layout, toggle, hit test and wired-set helpers.
+		groups: {
+			make: makeEffectNode,
+			sections: effectGroupSections,
+			rebuild: rebuildEffectInputs,
+			toggle: toggleEffectGroup,
+			headerAt: effectGroupHeaderAt,
+			isHeader: isGroupHeaderSlot,
+			wiredParams: effectWiredParams
+		}
 	};
 	Object.defineProperty(VFXEditor, "graph", {
 		enumerable: true,

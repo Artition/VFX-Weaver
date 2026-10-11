@@ -509,6 +509,16 @@ window.__vfxSelftest = function () {
 		eq(sections[0].params[1].name, "intensity", "schema order kept");
 	});
 
+	test("(w4) param sections carry the labels the canvas headers show", function () {
+		var sections = window.VFXInspector.paramSections([
+			{ name: "anchor_yaw", group: "Anchor" },
+			{ name: "intensity" }
+		]);
+		eq(sections.length, 2, "named group plus the default section");
+		eq(sections[0].label, "Anchor", "named section label");
+		eq(sections[1].label, "Parameters", "default section label");
+	});
+
 	test("(x) curve bezier: both endpoints, monotone in time, linear is identity", function () {
 		var b = VFXIR.easingToBezier("ease_out_cubic");
 		eq(VFXIR.bezierY(b, 0), 0, "y at u=0 is 0");
@@ -1770,6 +1780,28 @@ window.__vfxSelftest = function () {
 		}
 		eq(compileTab(build(false)), compileTab(build(true)),
 				"collapsed must not change the emitted definition");
+	});
+
+	test("(SG7) socket-group collapse never reaches the emitted definition", function () {
+		// A sky_pattern with tail fields plus the slice-1 2-leaf mask fixture, compiled with
+		// and without per-group view state: AUTHOR/export must stay byte-identical.
+		function build(grouped) {
+			var tab = new VFXIR.Tab("sky", "sky_pattern");
+			tab.effect().anchor = "moon";
+			tab.effect().pattern = { figure: "rect" };
+			tab.effect().surface = { faces: ["up"], min: 60, max: 96 };
+			tab.effect().mask = { op: "union", a: { shape: "circle" }, b: { shape: "rect" } };
+			tab.valueNodes = [{ id: "v", kind: "constant", inputs: { value: 2 } }];
+			tab.edges = [{ from: "v", to: "mask.p0.p0" }];
+			if (grouped) {
+				tab.effect().collapsedGroups = { Anchor: true, Color: true };
+				tab.valueNodes[0].collapsed = true;
+			}
+			return tab;
+		}
+		var plain = compileTab(build(false));
+		eq(compileTab(build(true)), plain, "collapsedGroups must not change the emit");
+		ok(plain.indexOf("collapsedGroups") < 0, "no view state leaks into the datapack");
 	});
 
 	test("(M1) mergeEdges preserves an undrawn edge but drops an explicit disconnect", function () {

@@ -42,7 +42,12 @@ or a reserved `vfxweaver:` preview id for a scratch tab). A tab may be **empty**
 node (with `Del`) and the canvas shows a **+ Add effect** placeholder listing the effect types;
 picking one fills the same tab, so a tab can be retyped without opening a new one. Double-click a
 node's title bar (or the square at its left) to collapse it to the title bar; wires are kept and
-the state survives tab switches and undo.
+the state survives tab switches and undo. An effect node with schema `group` metadata (like
+`sky_pattern`) additionally groups its input sockets under Blender-style collapsible panels —
+one header row per group (`Anchor`, `Dome`, ...) in inspector order, clicked anywhere on the
+row to collapse/expand (wired sockets stay as stubs so wires survive); `in`/`out`/`mask` stay
+outside groups. The per-group state is undoable and survives tab switches, and never reaches
+the compiled definition.
 
 ## Editing and live playback
 
