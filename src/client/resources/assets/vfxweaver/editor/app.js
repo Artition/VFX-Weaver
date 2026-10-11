@@ -312,9 +312,15 @@
 			// header rows over the input sockets. Wired here so every construction path
 			// (palette, import, undo) gets them; the header rows are laid out just below.
 			this.__groupCollapsed = {};
+			// Hide-unused starts OFF so the fresh layout is complete: the edge pass and
+			// attachEffect resolve the real default afterwards (a hidden socket has no
+			// index, so hiding before the wires land would drop them).
+			this.__hideUnused = false;
+			this.__hiddenInfo = { hidden: 0, animated: 0 };
 			this.onMouseDown = onEffectNodeMouseDown;
 			this.onMouseMove = onEffectNodeMouseMove;
 			this.onDrawBackground = drawEffectGroupBands;
+			this.onDrawForeground = drawEffectFooter;
 			rebuildEffectInputs(this, null);
 		}
 
@@ -349,6 +355,130 @@
 	/** The header-slot name of `group`. */
 	function groupHeaderName(group) {
 		return GROUP_HEADER_PREFIX + group;
+	}
+
+	/** The input-slot name of the per-node eye row (show-all / hide-unused toggle). */
+	var EYE_SLOT = "__eye";
+
+	/** The eye glyph (surrogate pair, like the header triangles below). */
+	var EYE_GLYPH = "👁";
+
+	/** The eye-row band colour (fixed, so the group palette order never shifts). */
+	var EYE_COLOR = "#8fb3ff";
+
+	/** Whether an input slot is the eye row rather than a param socket. */
+	function isEyeSlot(slot) {
+		return !!(slot && slot.name === EYE_SLOT);
+	}
+
+	/**
+	 * Param sockets above this count hide when unused by default: twelve rows are ~300px
+	 * of node, about what fits beside the inspector without scrolling; below that every
+	 * socket stays visible so small nodes never surprise. The eye toggle overrides per node;
+	 * value/field/mask/macro nodes are exempt (few, structural sockets — stated limit).
+	 */
+	var HIDE_UNUSED_THRESHOLD = 12;
+
+	/** Extra node-body height for the hidden-counter footer line. */
+	var EYE_FOOTER_H = 16;
+
+	/** While true a link drag is revealing every socket (see the boot-time canvas wrap). */
+	var linkDragReveal = false;
+
+	/** The default hide-unused state of a descriptor (big nodes hide, small nodes show). */
+	function defaultHideUnused(descriptor) {
+		var params = (descriptor && Array.isArray(descriptor.params)) ? descriptor.params : [];
+		return params.length > HIDE_UNUSED_THRESHOLD;
+	}
+
+	/** The effect entry owning a canvas node, or null. */
+	function effectEntryOf(tab, node) {
+		if (!tab || !node || !node.properties) {
+			return null;
+		}
+		var id = node.properties.effectId;
+		for (var i = 0; i < (tab.effects || []).length; i++) {
+			if (tab.effects[i].id === id) {
+				return tab.effects[i];
+			}
+		}
+		return null;
+	}
+
+	/** The hide-unused state of an effect node: the persisted eye toggle, else the default. */
+	function resolveHideUnused(tab, node) {
+		var entry = effectEntryOf(tab, node);
+		if (entry && entry.hideUnused === true) {
+			return true;
+		}
+		if (entry && entry.hideUnused === false) {
+			return false;
+		}
+		return defaultHideUnused(effectNodeDescriptor(node));
+	}
+
+	/** Param names pinned visible on an effect entry (`shownSockets`, additive IR). */
+	function pinnedSockets(tab, node) {
+		var entry = effectEntryOf(tab, node);
+		return (entry && entry.shownSockets && typeof entry.shownSockets === "object")
+				? entry.shownSockets : {};
+	}
+
+	/** Whether a param of an effect carries keyframe tracks (effect-level or legacy tab-level). */
+	function paramAnimated(tab, effectId, name) {
+		var entry = effectEntryOf(tab, { properties: { effectId: effectId } });
+		var keys = (entry && entry.keys && entry.keys[name]) || (tab && tab.keys && tab.keys[name]);
+		return Array.isArray(keys) && keys.length > 0;
+	}
+
+	/**
+	 * Count an effect node's currently-hidden params (descriptor params absent from the
+	 * inputs) and how many of those are animated, for the eye label, the footer and diag.
+	 *
+	 * @param {Object} node the effect canvas node (inputs already laid out)
+	 * @returns {{hidden: number, animated: number}} the counts
+	 */
+	function effectHiddenInfo(node) {
+		var info = { hidden: 0, animated: 0 };
+		var descriptor = effectNodeDescriptor(node);
+		var params = (descriptor && Array.isArray(descriptor.params)) ? descriptor.params : [];
+		if (!node || !node.inputs) {
+			return info;
+		}
+		var present = {};
+		node.inputs.forEach(function (slot) {
+			present[slot.name] = true;
+		});
+		var tab = (node && node.__tab) || null;
+		var effectId = node.properties ? node.properties.effectId : null;
+		params.forEach(function (param) {
+			if (!param || !param.name || present[param.name]) {
+				return;
+			}
+			info.hidden++;
+			if (tab && paramAnimated(tab, effectId, param.name)) {
+				info.animated++;
+			}
+		});
+		return info;
+	}
+
+	/**
+	 * Whether a param socket is laid out: wired and pinned sockets always are (a wire is
+	 * never dropped and stays visible); a collapsed group keeps its stubs only; otherwise
+	 * hide-unused decides (suppressed while a link drag reveals).
+	 */
+	function effectMemberVisible(node, group, isWired, isPinned) {
+		if (isWired || isPinned) {
+			return true;
+		}
+		if (group && groupCollapsedMap(node)[group]) {
+			return false;
+		}
+		if (linkDragReveal) {
+			return true;
+		}
+		return node.__hideUnused !== true;
 	}
 
 	/** The group name a header-slot name addresses. */
@@ -424,6 +554,7 @@
 		var descriptor = effectNodeDescriptor(node);
 		var sections = effectGroupSections(descriptor);
 		var collapsed = groupCollapsedMap(node);
+		var pinned = pinnedSockets((node && node.__tab) || null, node);
 		var paramsByName = {};
 		((descriptor && descriptor.params) || []).forEach(function (param) {
 			if (param && param.name) {
@@ -453,18 +584,22 @@
 			return Object.prototype.hasOwnProperty.call(linksByName, name)
 					|| (!!wiredNames && wiredNames[name] === true);
 		}
-		var ordered = ["in"];
+		var ordered = [EYE_SLOT, "in"];
 		sections.forEach(function (section) {
 			if (section.group) {
 				ordered.push(groupHeaderName(section.group));
 				section.params.forEach(function (param) {
-					if (!collapsed[section.group] || wired(param.name)) {
+					if (effectMemberVisible(node, section.group, wired(param.name),
+							pinned[param.name] === true)) {
 						ordered.push(param.name);
 					}
 				});
 			} else {
 				section.params.forEach(function (param) {
-					ordered.push(param.name);
+					if (effectMemberVisible(node, "", wired(param.name),
+							pinned[param.name] === true)) {
+						ordered.push(param.name);
+					}
 				});
 			}
 		});
@@ -486,7 +621,11 @@
 				if (name === "in" || name === "mask") {
 					return;
 				}
-				if (name.indexOf(GROUP_HEADER_PREFIX) === 0) {
+				if (name === EYE_SLOT) {
+					slot = { name: name, type: "eye", link: null, label: "" };
+					slot.color_on = EYE_COLOR;
+					slot.color_off = slot.color_on;
+				} else if (name.indexOf(GROUP_HEADER_PREFIX) === 0) {
 					var group = groupOfHeader(name);
 					slot = { name: name, type: "group", link: null, label: group };
 					slot.color_on = groupColor(group);
@@ -503,9 +642,19 @@
 			next.push(slot);
 		});
 		node.inputs = next;
-		// Refresh the header labels (arrow + hidden count) and repoint the surviving links,
-		// whose target_slot shifted with the array.
+		// The hidden counts are read off the laid-out inputs (descriptor params absent from
+		// them, group-collapsed and hide-unused alike); the eye label and footer share them.
+		var hiddenInfo = effectHiddenInfo(node);
+		node.__hiddenInfo = hiddenInfo;
+		// Refresh the header labels (arrow + hidden count), the eye label and the surviving
+		// links, whose target_slot shifted with the array.
 		node.inputs.forEach(function (slot) {
+			if (isEyeSlot(slot)) {
+				slot.label = node.__hideUnused === true
+						? EYE_GLYPH + " +" + hiddenInfo.hidden + " hidden · show all"
+						: EYE_GLYPH + " showing all · hide unused";
+				return;
+			}
 			if (!isGroupHeaderSlot(slot)) {
 				return;
 			}
@@ -544,6 +693,9 @@
 			graph._version++;
 		}
 		node.setSize(node.computeSize());
+		if (!(node.flags && node.flags.collapsed) && node.__hiddenInfo.hidden > 0) {
+			node.size[1] += EYE_FOOTER_H;
+		}
 		node.setDirtyCanvas(true, true);
 	}
 
@@ -651,9 +803,13 @@
 		return wired;
 	}
 
-	/** Click a group header row to collapse/expand it (consumed: the node must not drag). */
+	/** Click the eye row or a group header row (consumed: the node must not drag). */
 	function onEffectNodeMouseDown(event, pos, canvas) {
 		var node = this;
+		if (effectEyeAt(node, pos)) {
+			toggleEye(node);
+			return true;
+		}
 		var group = effectGroupHeaderAt(node, pos);
 		if (group == null) {
 			return false;
@@ -663,13 +819,111 @@
 	}
 
 	/**
+	 * Whether the node-local `pos` is on the eye row (the whole row is the hit area, like
+	 * the group headers — never a glyph alone; a socket dot never shares the row, so wire
+	 * drags keep working).
+	 *
+	 * @param {Object} node the effect canvas node
+	 * @param {Array<number>} pos the node-local position
+	 * @returns {boolean} true when the eye row was hit
+	 */
+	function effectEyeAt(node, pos) {
+		if (!node || !node.inputs || !pos || pos[1] < 0) {
+			return false;
+		}
+		if (node.flags && node.flags.collapsed) {
+			return false;
+		}
+		if (typeof LiteGraph === "undefined" || !LiteGraph.NODE_SLOT_HEIGHT) {
+			return false;
+		}
+		for (var i = 0; i < node.inputs.length; i++) {
+			if (!isEyeSlot(node.inputs[i])) {
+				continue;
+			}
+			var top = i * LiteGraph.NODE_SLOT_HEIGHT;
+			return pos[1] >= top && pos[1] < top + LiteGraph.NODE_SLOT_HEIGHT
+					&& pos[0] >= 0 && pos[0] <= node.size[0];
+		}
+		return false;
+	}
+
+	/**
+	 * Flip one node's eye (show-all / hide-unused). `scheduleGraphEdit` runs first so the
+	 * pre-flip IR is the undo baseline (a flip is one undo step); the flip persists on the
+	 * IR entry (`hideUnused`, additive — the compiler never reads it) and survives tab
+	 * switches exactly like a group flip.
+	 *
+	 * @param {Object} node the effect canvas node
+	 */
+	function toggleEye(node) {
+		if (!node) {
+			return;
+		}
+		var tab = (node && node.__tab) || null;
+		if (tab) {
+			scheduleGraphEdit(tab);
+		}
+		node.__hideUnused = !resolveHideUnused(tab, node);
+		rebuildEffectInputs(node, null);
+		if (tab) {
+			var entry = effectEntryOf(tab, node);
+			if (entry) {
+				entry.hideUnused = node.__hideUnused;
+			}
+		}
+		node.setDirtyCanvas(true, true);
+	}
+
+	/**
+	 * Reveal every hidden socket while a link drags (Blender highlights its drop targets):
+	 * the vendored litegraph.js offers no link-drag event (only the `connecting_*` canvas
+	 * state set in `processMouseDown` and cleared in `processMouseUp`), so the boot wrap
+	 * shows all on drag-start and restores on drop/cancel. Compatibility filtering is
+	 * skipped — effect sockets are all numeric wildcards, so every hidden socket is a valid
+	 * target. ESC-cancel without a mouseup keeps the reveal until the next click.
+	 */
+	function beginLinkReveal() {
+		if (linkDragReveal) {
+			return;
+		}
+		var tab = activeTab();
+		if (!tab || !tab.graph) {
+			return;
+		}
+		linkDragReveal = true;
+		(tab.graph._nodes || []).forEach(function (node) {
+			if (isEffectNode(node)) {
+				rebuildEffectInputs(node, null);
+			}
+		});
+	}
+
+	/** Restore the hide-unused layout after a link drop/cancel (no-op when not revealing). */
+	function endLinkReveal() {
+		if (!linkDragReveal) {
+			return;
+		}
+		linkDragReveal = false;
+		var tab = activeTab();
+		if (!tab || !tab.graph) {
+			return;
+		}
+		(tab.graph._nodes || []).forEach(function (node) {
+			if (isEffectNode(node)) {
+				rebuildEffectInputs(node, null);
+			}
+		});
+	}
+
+	/**
 	 * Track header hover for the pointer cursor. Only the transition repaints; the cursor
 	 * itself is applied in {@link drawEffectGroupBands}, because the canvas overwrites it
 	 * after this handler on every mousemove.
 	 */
 	function onEffectNodeMouseMove(event, pos, canvas) {
 		var node = this;
-		var over = effectGroupHeaderAt(node, pos) != null;
+		var over = effectGroupHeaderAt(node, pos) != null || effectEyeAt(node, pos);
 		if (over !== !!node.__groupHover) {
 			node.__groupHover = over;
 			node.setDirtyCanvas(true, false);
@@ -693,6 +947,12 @@
 		ctx.save();
 		ctx.textAlign = "left";
 		for (var i = 0; i < node.inputs.length; i++) {
+			if (isEyeSlot(node.inputs[i])) {
+				ctx.globalAlpha = node.__groupHover ? 0.30 : 0.20;
+				ctx.fillStyle = EYE_COLOR;
+				ctx.fillRect(0, i * rowH, node.size[0], rowH);
+				continue;
+			}
 			if (!isGroupHeaderSlot(node.inputs[i])) {
 				continue;
 			}
@@ -716,12 +976,36 @@
 		}
 	}
 
+	/**
+	 * The hidden-counter footer (foreground, so it reads above the body): `+N hidden` plus
+	 * `· K animated` when hidden params carry tracks — an animated param never vanishes
+	 * silently. Nothing is drawn when nothing hides; the value stays editable in the
+	 * inspector and the compiler reads the IR, not the canvas.
+	 */
+	function drawEffectFooter(ctx, graphcanvas) {
+		var node = this;
+		if (!node || (node.flags && node.flags.collapsed)) {
+			return;
+		}
+		var info = node.__hiddenInfo || { hidden: 0, animated: 0 };
+		if (!info.hidden) {
+			return;
+		}
+		var scale = graphcanvas && graphcanvas.ds ? graphcanvas.ds.scale : 1;
+		ctx.save();
+		ctx.font = (11 / scale) + "px sans-serif";
+		ctx.textAlign = "left";
+		ctx.fillStyle = info.animated > 0 ? "#ffd98a" : "#7f8aa3";
+		ctx.fillText("+" + info.hidden + " hidden"
+				+ (info.animated > 0 ? " · " + info.animated + " animated" : ""),
+				8, node.size[1] - 4);
+		ctx.restore();
+	}
+
 	/** Whether a canvas node is an effect node (vs a value node / group). */
 	function isEffectNode(node) {
 		return !!(node && node.properties && node.properties.effectType);
-	}
-
-	/** The effect nodes on a tab's canvas, in insertion order. */
+	}	/** The effect nodes on a tab's canvas, in insertion order. */
 	function effectNodes(tab) {
 		var out = [];
 		if (tab && tab.graph && tab.graph._nodes) {
@@ -1168,7 +1452,7 @@
 					return;
 				}
 				var sock = enode.inputs ? enode.inputs[link.target_slot] : null;
-				if (!sock || sock.name === "in" || sock.name === "mask") {
+				if (!sock || sock.name === "in" || sock.name === "mask" || sock.name === EYE_SLOT) {
 					return;
 				}
 				if (!fieldGated(descriptor, sock.name)) {
@@ -1433,6 +1717,10 @@
 		node.__tab = tab;
 		node.properties.effectId = effect.id;
 		tab.graph.add(node);
+		// A fresh node has no wires yet, so the size default applies immediately: big
+		// effects open hiding their unused sockets, small ones fully shown.
+		node.__hideUnused = defaultHideUnused(schema[type]);
+		rebuildEffectInputs(node, null);
 		tab.activeEffect = indexOfEffect(tab, effect.id);
 		tab.root = node;
 		rewireChain(tab);
@@ -2480,6 +2768,13 @@
 		tab.graph._nodes.forEach(function (node) {
 			if (isMaskLeafNode(node)) {
 				syncMaskLeafSockets(node);
+			} else if (isEffectNode(node)) {
+				// A connect/disconnect changes which sockets count as used: re-hide the
+				// newly unused, re-show the newly wired. Skipped while a link drag
+				// reveals (the drop's own mouseup restores) — a wire is never dropped.
+				if (!linkDragReveal) {
+					rebuildEffectInputs(node, null);
+				}
 			} else if (node !== tab.root) {
 				applySlotState(node);
 			}
@@ -2894,14 +3189,14 @@
 				// The `mask` attachment port is a cosmetic Mask-root wire (it resolves via
 				// effectId), never a param edge — same skip as the field-tree reader below.
 				if (param && param.name !== "in" && param.name !== "mask"
-						&& !isGroupHeaderSlot(param)) {
+						&& !isGroupHeaderSlot(param) && !isEyeSlot(param)) {
 					var edge = { from: from, to: param.name, effect: target.properties.effectId };
 					if (output != null) {
 						edge.output = output;
 					}
 					emit(edge);
 				} else {
-					wires.push({ kind: isGroupHeaderSlot(param) ? "skip" : (param && param.name === "mask" ? "mask" : "flow") });
+					wires.push({ kind: (isGroupHeaderSlot(param) || isEyeSlot(param)) ? "skip" : (param && param.name === "mask" ? "mask" : "flow") });
 				}
 			} else if (isMaskLeafNode(target)) {
 				// A value node wired into a MaskLeaf's `mask.p<N>.*` socket is a param wire for the
@@ -3522,6 +3817,7 @@
 			materializeFieldNodes(tab, effectNodeById);
 			// Restore the persisted socket-group collapse after the edge + field passes, so
 			// wired members already exist as stubs and their wires redraw (see the helper).
+			// The eye state resolves the same way: entry toggle, else the size default.
 			(tab.effects || []).forEach(function (effect) {
 				var enode = effectNodeById[effect.id];
 				if (!enode) {
@@ -3530,6 +3826,7 @@
 				enode.__groupCollapsed = (effect.collapsedGroups
 						&& typeof effect.collapsedGroups === "object")
 						? snapshot(effect.collapsedGroups) : {};
+				enode.__hideUnused = resolveHideUnused(tab, enode);
 				rebuildEffectInputs(enode, effectWiredParams(tab, effect.id));
 			});
 			// The explicit-disconnect witness for the next refresh: only wires actually drawn.
@@ -3858,9 +4155,12 @@
 					entry.external = saved.external === true;
 					if (saved.uuid != null) {
 						entry.uuid = String(saved.uuid);
+					}
 					if (saved.collapsedGroups !== undefined) {
 						entry.collapsedGroups = snapshot(saved.collapsedGroups);
 					}
+					if (saved.hideUnused !== undefined) {
+						entry.hideUnused = saved.hideUnused === true;
 					}
 					if (Array.isArray(saved.pos)) {
 						entry.pos = [num(saved.pos[0]), num(saved.pos[1])];
@@ -7210,6 +7510,14 @@
 		var fieldKeys = Object.keys(currentFields).map(function (key) {
 			return currentFields[key] == null ? key + " (removed)" : key;
 		});
+		var hidden = [];
+		effectNodes(tab).forEach(function (node) {
+			var info = node.__hiddenInfo || effectHiddenInfo(node);
+			if (info.hidden > 0) {
+				hidden.push({ id: node.properties.effectId, hidden: info.hidden,
+						animated: info.animated });
+			}
+		});
 		var info = {
 			name: tab.name,
 			type: tab.type,
@@ -7220,6 +7528,7 @@
 			valueNodes: (tab.valueNodes || []).length,
 			fieldKeys: fieldKeys,
 			instanceIds: instanceIds,
+			hidden: hidden,
 			sections: rendered,
 			schemaGroups: schemaGroups,
 			anomalies: anomalies
@@ -7293,6 +7602,17 @@
 			headerAt: effectGroupHeaderAt,
 			isHeader: isGroupHeaderSlot,
 			wiredParams: effectWiredParams
+		},
+		// Headless test seam for hide-unused (same runner): the size default, the eye
+		// toggle + hit test, and the hidden/animated counts behind the footer and diag.
+		hide: {
+			threshold: HIDE_UNUSED_THRESHOLD,
+			defaultHide: defaultHideUnused,
+			resolve: resolveHideUnused,
+			toggleEye: toggleEye,
+			eyeAt: effectEyeAt,
+			isEye: isEyeSlot,
+			hiddenInfo: effectHiddenInfo
 		}
 	};
 	Object.defineProperty(VFXEditor, "graph", {
@@ -8284,6 +8604,34 @@
 						this.connections_width -= 2;
 					}
 				}
+			};
+		}
+		// Show-all while a link drags, restore on drop/cancel (see beginLinkReveal): the
+		// vendor exposes no drag event, so wrap the pair that owns `connecting_*` — once,
+		// guarded, never editing litegraph.js itself.
+		if (!canvasProto.__vfxLinkReveal) {
+			canvasProto.__vfxLinkReveal = true;
+			var originalMouseDown = canvasProto.processMouseDown;
+			var originalMouseUp = canvasProto.processMouseUp;
+			canvasProto.processMouseDown = function (event) {
+				var result = originalMouseDown ? originalMouseDown.call(this, event) : undefined;
+				try {
+					if (this.connecting_node || this.connecting_output || this.connecting_input) {
+						beginLinkReveal();
+					}
+				} catch (e) {
+					// reveal only: never break the drag
+				}
+				return result;
+			};
+			canvasProto.processMouseUp = function (event) {
+				var result = originalMouseUp ? originalMouseUp.call(this, event) : undefined;
+				try {
+					endLinkReveal();
+				} catch (e) {
+					// restore only: never break the drop
+				}
+				return result;
 			};
 		}
 		// Intercept the node right-click: a value-node field shows the slot menu (replace with

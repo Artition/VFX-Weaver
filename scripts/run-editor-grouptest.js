@@ -5,8 +5,10 @@
  * window/document/LiteGraph stubs it loads headlessly without booting, and the VFXEditor.groups
  * seam (make/sections/rebuild/toggle/headerAt/isHeader/wiredParams) drives the real canvas
  * logic: group partition, header layout, collapse/expand with wire preservation, and the IR
- * persist field. ir.js + compiler.js load too (as in run-editor-selftest.js), so the last test
- * proves the persist field never reaches the emitted definition. No dependencies.
+ * persist field. The VFXEditor.hide seam (threshold/defaultHide/resolve/toggleEye/eyeAt/isEye/
+ * hiddenInfo) drives the hide-unused half: size defaults, the eye row, animated counts and the
+ * IR persist field. ir.js + compiler.js load too (as in run-editor-selftest.js), so the last test
+ * proves the persist fields never reach the emitted definition. No dependencies.
  *
  *   node scripts/run-editor-grouptest.js
  */
@@ -173,24 +175,26 @@ function check(condition, message) {
 
 (function () {
 	var node = makeNode();
-	check(JSON.stringify(inputNames(node)) === JSON.stringify(["in", "__group:Anchor",
+	check(JSON.stringify(inputNames(node)) === JSON.stringify(["__eye", "in", "__group:Anchor",
 			"anchor_yaw", "anchor_pitch", "__group:Dome", "dome_radius", "__group:Tile",
 			"tile_scale", "__group:Color", "color_r", "intensity", "mask"]),
-			"fresh node lays out headers + members, mask last");
+			"fresh node lays out the eye row, then headers + members, mask last");
 	check(node.outputs.length === 1 && node.outputs[0].name === "out", "flow out port kept");
-	check(node.inputs[1].label === "\u25BE Anchor", "expanded header label");
-	check(groups.isHeader(node.inputs[1]) && !groups.isHeader(node.inputs[0])
-			&& !groups.isHeader(node.inputs[2]), "only header rows are headers");
+	check(node.inputs[2].label === "\u25BE Anchor", "expanded header label");
+	check(groups.isHeader(node.inputs[2]) && !groups.isHeader(node.inputs[1])
+			&& !groups.isHeader(node.inputs[3]), "only header rows are headers");
+	check(global.VFXEditor.hide.isEye(node.inputs[0]) && !global.VFXEditor.hide.isEye(node.inputs[1]),
+			"only the first row is the eye row");
 })();
 
 (function () {
 	var node = makeNode();
 	var tab = fakeTab(node);
 	groups.toggle(node, "Anchor");
-	check(JSON.stringify(inputNames(node)) === JSON.stringify(["in", "__group:Anchor",
+	check(JSON.stringify(inputNames(node)) === JSON.stringify(["__eye", "in", "__group:Anchor",
 			"__group:Dome", "dome_radius", "__group:Tile", "tile_scale", "__group:Color",
 			"color_r", "intensity", "mask"]), "collapse hides only the unwired members");
-	check(node.inputs[1].label === "\u25B8 Anchor (2)", "collapsed header shows hidden count");
+	check(node.inputs[2].label === "\u25B8 Anchor (2)", "collapsed header shows hidden count");
 	check(tab.effects[0].collapsedGroups
 			&& tab.effects[0].collapsedGroups.Anchor === true, "collapse persists in IR");
 	groups.toggle(node, "Anchor");
@@ -245,13 +249,124 @@ function check(condition, message) {
 		tab.edges = [{ from: "v", to: "mask.p0.p0" }];
 		if (withGroups) {
 			tab.effect().collapsedGroups = { Anchor: true, Color: true };
+			tab.effect().hideUnused = true;
+			tab.effect().shownSockets = { anchor_yaw: true };
 			tab.valueNodes[0].collapsed = true;
 		}
 		return tab;
 	}
 	var plain = compileTab(build(false));
-	check(compileTab(build(true)) === plain, "collapsedGroups never reaches the emit");
-	check(plain.indexOf("collapsedGroups") < 0, "no view state leaks into the datapack");
+	check(compileTab(build(true)) === plain, "collapsedGroups+hideUnused never reach the emit");
+	check(plain.indexOf("collapsedGroups") < 0 && plain.indexOf("hideUnused") < 0
+			&& plain.indexOf("shownSockets") < 0, "no view state leaks into the datapack");
+})();
+
+/* Hide-unused (the VFXEditor.hide seam): size defaults, eye row, animated counts. */
+
+var bigDescriptor = { params: [], structural: { supportsMask: true } };
+["a1", "a2", "a3", "a4", "a5", "a6", "a7"].forEach(function (name) {
+	bigDescriptor.params.push({ name: name, kind: "float", group: "Alpha" });
+});
+["b1", "b2", "b3", "b4", "b5"].forEach(function (name) {
+	bigDescriptor.params.push({ name: name, kind: "float", group: "Beta" });
+});
+bigDescriptor.params.push({ name: "tail1", kind: "float", group: "" });
+bigDescriptor.params.push({ name: "tail2", kind: "float", group: "" });
+global.VFXEditor.schema.big_effect = bigDescriptor;
+
+function makeBigNode(id) {
+	var Ctor = groups.make("big_effect", bigDescriptor);
+	var node = Object.create(FakeNode.prototype);
+	FakeNode.call(node);
+	Ctor.call(node);
+	node.id = id == null ? 9 : id;
+	node.graph = fakeGraph();
+	return node;
+}
+
+(function () {
+	var hide = global.VFXEditor.hide;
+	check(!!hide, "hide seam exposed");
+	check(hide.threshold === 12, "hide threshold is 12 inputs");
+	check(hide.defaultHide(descriptor) === false, "six params default to show-all");
+	check(hide.defaultHide(bigDescriptor) === true, "fourteen params default to hide-unused");
+	check(hide.defaultHide(null) === false, "unknown type defaults to show-all");
+})();
+
+(function () {
+	var hide = global.VFXEditor.hide;
+	var node = makeBigNode();
+	fakeTab(node);
+	node.__hideUnused = hide.resolve(node.__tab, node);
+	groups.rebuild(node, null);
+	check(JSON.stringify(inputNames(node)) === JSON.stringify(["__eye", "in",
+			"__group:Alpha", "__group:Beta", "mask"]),
+			"a big fresh node shows only the eye row, in, headers and mask");
+	var info = hide.hiddenInfo(node);
+	check(info.hidden === 14 && info.animated === 0, "fourteen hidden, none animated");
+	check(node.inputs[0].label.indexOf("+14 hidden") >= 0, "eye label counts the hidden");
+	check(node.size[1] === 30 + 5 * 20 + 16, "footer reserves one line while hiding");
+	var small = makeNode();
+	check(hide.hiddenInfo(small).hidden === 0, "a small node hides nothing");
+	check(small.size[1] === 30 + small.inputs.length * 20, "no footer when nothing hides");
+})();
+
+(function () {
+	var hide = global.VFXEditor.hide;
+	var node = makeBigNode();
+	fakeTab(node);
+	node.__hideUnused = false;
+	groups.rebuild(node, null);
+	var at = inputNames(node).indexOf("a3");
+	node.inputs[at].link = "11";
+	node.graph.links["11"] = { origin_id: 7, origin_slot: 0, target_id: node.id,
+		target_slot: at };
+	node.__hideUnused = true;
+	groups.rebuild(node, null);
+	var names = inputNames(node);
+	check(names.indexOf("a3") >= 0 && names.indexOf("a1") < 0,
+			"a wired socket stays visible while the rest hide");
+	check(node.graph.links["11"].target_slot === names.indexOf("a3"),
+			"the surviving wire is repointed, never dropped");
+	check(hide.hiddenInfo(node).hidden === 13, "the wired socket leaves the hidden count");
+})();
+
+(function () {
+	var hide = global.VFXEditor.hide;
+	var node = makeBigNode();
+	var tab = fakeTab(node);
+	tab.effects[0].keys = { b2: [{ time: 0, value: 1 }] };
+	tab.effects[0].shownSockets = { b1: true };
+	node.__hideUnused = true;
+	groups.rebuild(node, null);
+	var names = inputNames(node);
+	check(names.indexOf("b1") >= 0, "a pinned socket stays visible");
+	var info = hide.hiddenInfo(node);
+	check(info.hidden === 13 && info.animated === 1, "hidden animated params are counted");
+})();
+
+(function () {
+	var hide = global.VFXEditor.hide;
+	var node = makeBigNode();
+	var tab = fakeTab(node);
+	check(hide.resolve(tab, node) === true, "resolve falls back to the size default");
+	hide.toggleEye(node);
+	check(tab.effects[0].hideUnused === false, "eye persists show-all in IR");
+	check(inputNames(node).indexOf("a1") >= 0, "eye shows every socket");
+	hide.toggleEye(node);
+	check(tab.effects[0].hideUnused === true, "eye persists hide-unused in IR");
+	check(inputNames(node).indexOf("a1") < 0, "eye hides the unused again");
+	check(hide.resolve(tab, node) === true, "resolve honours the persisted toggle");
+})();
+
+(function () {
+	var hide = global.VFXEditor.hide;
+	var node = makeNode();
+	fakeTab(node);
+	check(hide.eyeAt(node, [2, 3]) === true, "eye hit on the first row");
+	check(hide.eyeAt(node, [node.size[0] - 2, 17]) === true, "eye hit at the right edge");
+	check(hide.eyeAt(node, [120, 23]) === false, "second row misses the eye");
+	check(hide.eyeAt(node, [120, -4]) === false, "title bar misses the eye");
 })();
 
 console.log("");
