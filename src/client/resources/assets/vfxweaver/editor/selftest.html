@@ -1233,6 +1233,35 @@ window.__vfxSelftest = function () {
 			JSON.stringify(mask), "node state round-trips");
 	});
 
+	test("(MASK9) structural mask wires leave no trace in edges or emit", function () {
+		// The canvas Mask/MaskLeaf nodes carry no IR id and no structural ports: the only
+		// mask edges are value-node wires into `mask.p<N>.*` sockets. A structural endpoint
+		// (`mask`/`leaf`) must never appear in `tab.edges` or the compiled definition.
+		var tab = new VFXIR.Tab("blur", "blur");
+		tab.params.radius = VFXIR.ParamSpec.constant(0);
+		tab.effect().mask = { op: "union", a: { shape: "circle" }, b: { shape: "rect" } };
+		tab.valueNodes = [{ id: "v", kind: "constant", inputs: { value: 2 } }];
+		tab.edges = [{ from: "v", to: "mask.p0.p0" }];
+		var known = { v: true };
+		tab.edges.forEach(function (edge) {
+			ok(known[edge.from] === true, "edge source " + edge.from + " is a value node");
+			ok(edge.to !== "mask" && edge.to !== "leaf" && edge.to !== "in"
+					&& edge.to !== "out", "no structural endpoint: " + edge.to);
+		});
+		var def = parse(compileTab(tab));
+		eq(def.mask.op, "union", "union op kept");
+		eq(def.mask.b.shape, "rect", "leaf b shape kept");
+		eq(def.mask.a.radius.from, "v", "the wired slot lands in leaf a");
+		ok(!def.inputs || (!Object.prototype.hasOwnProperty.call(def.inputs, "mask")
+				&& !Object.prototype.hasOwnProperty.call(def.inputs, "leaf")),
+				"no structural key in inputs");
+		(def.graph.edges || []).forEach(function (edge) {
+			ok(known[edge.from] === true && known[edge.to] === true,
+					"graph edge stays between value nodes");
+		});
+		eq(JSON.stringify(parse(compileTab(tab))), JSON.stringify(def), "emit is deterministic");
+	});
+
 	test("(MASK7) node-authored masks never right-nest; a right-nested import is flagged", function () {
 		var state = { invert: false, space: null,
 			leaves: [{ shape: "circle" }, { shape: "rect" }, { shape: "sky" }],

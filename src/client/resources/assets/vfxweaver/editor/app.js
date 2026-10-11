@@ -403,14 +403,14 @@
 
 	/**
 	 * A `Mask` canvas node (design §13.1): the root of an effect's mask tree. It owns the `invert`
-	 * and `space` fields, one `op` combo per composition join, and an attachment output the owning
-	 * effect node's `mask` input links from. The leaf list lives on the `MaskLeaf` child nodes.
+	 * and `space` fields, one `op` combo per composition join, and the single `mask` attachment
+	 * output the owning effect node's `mask` input links from. The leaves are port-less operands:
+	 * their order (titles, leafIndex) and the root's op rows are the tree the compiler consumes.
 	 */
 	function makeMaskNode() {
 		function MaskNode() {
 			this.properties = { maskRole: "mask", effectId: null };
 			this.addOutput("mask", "*");
-			this.addOutput("leaf", "*");
 			this.size = [200, 90];
 			this.onDblClick = onNodeTitleDblClick;
 		}
@@ -422,8 +422,8 @@
 	/**
 	 * A `MaskLeaf` canvas node (design §13.1): one shape of a mask tree. It exposes the leaf's
 	 * reserved `mask.p&lt;N&gt;.*` numeric fields as widgets, turning one field at a time into a
-	 * driven input socket while a wire feeds it (design §15.1: socket XOR widget). The `leaf`
-	 * output daisy-chains the tree, so the composition reads leaf(a) -&gt; op -&gt; leaf(b).
+	 * driven input socket while a wire feeds it (design §15.1: socket XOR widget). Leaves carry
+	 * no structural ports: the tree order lives in the leaf titles and leafIndex, never in wires.
 	 */
 	function makeMaskLeafNode() {
 		function MaskLeafNode() {
@@ -431,8 +431,6 @@
 			// reserved-slot defaults here, and without them the first mask import throws
 			// "Cannot set properties of undefined (setting 'mask.p<N>.*')".
 			this.properties = { maskRole: "leaf", effectId: null, leafIndex: 0, inputs: {}, explicit: {} };
-			this.addInput("mask", "*");
-			this.addOutput("leaf", "*");
 			this.size = [190, 80];
 			this.onDblClick = onNodeTitleDblClick;
 		}
@@ -3912,7 +3910,6 @@
 				var maskNode = buildMaskNode(tab, effect, chain, descriptor);
 				tab.graph.add(maskNode);
 				var slotsByLeaf = window.VFXIR.maskSlotsByLeaf(effect.mask, table);
-				var leafNodes = [];
 				chain.leaves.forEach(function (leaf, i) {
 					var leafNode = buildMaskLeafNode(tab, effect, chain, i, leaf,
 							slotsByLeaf[i] || [], descriptor, table, maskNode.pos);
@@ -3920,9 +3917,9 @@
 						leafNode.pos = keptPos[i];
 					}
 					tab.graph.add(leafNode);
-					leafNodes.push(leafNode);
 				});
-				// Attach the tree to the effect node (cosmetic port links; the compiler reads `mask.` edges).
+				// Attach the tree to the effect node with one cosmetic wire (the compiler
+				// reads the `mask.` edges; mask nodes carry no IR id, so the wire is never an edge).
 				var effectNode = nodeForEffect(tab, effect.id);
 				if (effectNode) {
 					var port = outputIndex(maskNode, "mask");
@@ -3931,18 +3928,6 @@
 						maskNode.connect(port, effectNode, into);
 					}
 				}
-				// Daisy-chain the composition leaf(a) -> op -> leaf(b): the Mask root (which owns
-				// the op combos) feeds the first leaf, each leaf feeds the next, instead of a star
-				// of long wires out of the root's `leaf` output.
-				var prev = maskNode;
-				leafNodes.forEach(function (leafNode) {
-					var prevOut = outputIndex(prev, "leaf");
-					var leafInto = inputIndex(leafNode, "mask");
-					if (prevOut >= 0 && leafInto >= 0) {
-						prev.connect(prevOut, leafNode, leafInto);
-					}
-					prev = leafNode;
-				});
 			});
 			connectMaskEdges(tab);
 			// A fresh leaf shows widgets only (§15.1); sockets appear as wires land (above).
