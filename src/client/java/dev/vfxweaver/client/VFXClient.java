@@ -105,9 +105,7 @@ public class VFXClient {
 	 */
 	public static int toggleEditor() {
 		if (editorServer != null) {
-			editorServer.stop();
-			editorServer = null;
-			EditorPreviewController.get().shutdown();
+			shutdownEditor();
 			message("VFX editor stopped");
 			return 1;
 		}
@@ -129,9 +127,22 @@ public class VFXClient {
 		return 1;
 	}
 
+	/**
+	 * Stops the editor bridge if it runs: the JDK HttpServer's dispatcher/selector threads are
+	 * not daemon, so a running bridge holds the JVM past client shutdown and trips the shutdown
+	 * watchdog. Idempotent; safe to call when the bridge was never started or already stopped.
+	 * Runs on the client thread (toggle handler / {@code CLIENT_STOPPING}).
+	 */
+	public static void shutdownEditor() {
+		if (editorServer != null) {
+			editorServer.stop();
+			editorServer = null;
+		}
+		EditorPreviewController.get().shutdown();
+	}
+
 	/** Sends a client chat message and logs it at INFO (any bridge token is stripped from the log). */
-	private static void message(final String text) {
-		final Minecraft minecraft = Minecraft.getInstance();
+	private static void message(final String text) {		final Minecraft minecraft = Minecraft.getInstance();
 		if (minecraft.player != null) {
 			//? if <26.1 {
 			/*minecraft.player.displayClientMessage(Component.literal(text), false);
