@@ -2646,6 +2646,88 @@
 	}
 
 	/* ------------------------------------------------------------------ */
+	/* Canvas edge merge (a missing canvas link is a view bug, never a delete) */
+	/* ------------------------------------------------------------------ */
+
+	/**
+	 * The stable identity of one IR edge, independent of key order (datapack imports and canvas
+	 * rebuilds serialize the same wire with different key orders; a JSON dump would miss that).
+	 *
+	 * @param {Object} edge the edge (`{from, to, input?, output?, effect?}`)
+	 * @returns {string} the canonical key
+	 */
+	function edgeKey(edge) {
+		function field(value) {
+			return value == null ? "" : String(value);
+		}
+		return ["f:" + field(edge && edge.from), "t:" + field(edge && edge.to),
+			"i:" + field(edge && edge.input), "o:" + field(edge && edge.output),
+			"e:" + field(edge && edge.effect)].join(" ");
+	}
+
+	/**
+	 * The driven slot an edge feeds, so a rewired target supersedes the old wire: a node input
+	 * (`to` + `input`), a mask slot (owning effect + `to`) or an effect param (owning effect + `to`).
+	 *
+	 * @param {Object} edge the edge
+	 * @param {string|null} effectId the owning effect id (null for node-to-node wires)
+	 * @returns {string} the target signature
+	 */
+	function edgeTargetSig(edge, effectId) {
+		if (edge && edge.input != null) {
+			return "n " + String(edge.to) + " " + String(edge.input);
+		}
+		if (edge && typeof edge.to === "string" && edge.to.indexOf("mask.") === 0) {
+			return "m " + String(effectId) + " " + String(edge.to);
+		}
+		return "p " + String(effectId) + " " + String(edge && edge.to);
+	}
+
+	/**
+	 * Merge the edges rebuilt from the canvas links with the tab's existing edges: a canvas wire
+	 * always wins, and an old edge survives a missing canvas link (a view bug — the canvas rebuild
+	 * failed to draw it — never a delete) while its endpoints still resolve. An old edge is still
+	 * dropped when it was drawn before and the canvas link is now gone (an explicit disconnect is
+	 * a real delete), when another canvas wire now drives the same slot (rewired), or when
+	 * `keepEdge` rejects it (endpoint node/param genuinely vanished). Pure: no DOM, no mutation.
+	 *
+	 * @param {Array<Object>} oldEdges the tab's existing edges
+	 * @param {Array<Object>} canvasEdges the edges rebuilt from the canvas links
+	 * @param {Object} drawnBefore edge keys drawn at the last materialise/flush (the explicit-
+	 * disconnect witness; missing links here were never drawn)
+	 * @param {Function} resolveEffect maps an edge to its owning effect id (null for node wires)
+	 * @param {Function} keepEdge whether an undrawn old edge still resolves (endpoint check)
+	 * @returns {Array<Object>} the merged edges (canvas first, then the preserved old ones)
+	 */
+	function mergeEdges(oldEdges, canvasEdges, drawnBefore, resolveEffect, keepEdge) {
+		var seen = {};
+		var targets = {};
+		(Array.isArray(canvasEdges) ? canvasEdges : []).forEach(function (edge) {
+			seen[edgeKey(edge)] = true;
+			targets[edgeTargetSig(edge, resolveEffect(edge))] = true;
+		});
+		var out = (Array.isArray(canvasEdges) ? canvasEdges : []).slice();
+		(Array.isArray(oldEdges) ? oldEdges : []).forEach(function (edge) {
+			if (!edge || seen[edgeKey(edge)]) {
+				return;
+			}
+			if (drawnBefore && drawnBefore[edgeKey(edge)]) {
+				return;
+			}
+			var effectId = resolveEffect(edge);
+			if (targets[edgeTargetSig(edge, effectId)]) {
+				return;
+			}
+			if (!keepEdge(edge, effectId)) {
+				return;
+			}
+			out.push(edge);
+			seen[edgeKey(edge)] = true;
+		});
+		return out;
+	}
+
+	/* ------------------------------------------------------------------ */
 	/* Pack import index (lazy open)                                       */
 	/* ------------------------------------------------------------------ */
 
@@ -2932,6 +3014,9 @@
 		subgraphById: subgraphById,
 		groupSelection: groupSelection,
 		ungroupMacro: ungroupMacro,
+		edgeKey: edgeKey,
+		edgeTargetSig: edgeTargetSig,
+		mergeEdges: mergeEdges,
 		subgraphWarnings: subgraphWarnings
 	};
 

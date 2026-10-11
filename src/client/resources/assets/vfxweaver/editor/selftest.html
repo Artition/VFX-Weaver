@@ -1727,6 +1727,66 @@ window.__vfxSelftest = function () {
 				"the authored tab.subgraphs layer wins over a carried child macro");
 	});
 
+	test("(M1) mergeEdges preserves an undrawn edge but drops an explicit disconnect", function () {
+		var keep = function () { return true; };
+		var owner = function () { return "fx"; };
+		var preserved = VFXIR.mergeEdges([{ from: "a", to: "radius" }], [], {}, owner, keep);
+		eq(preserved.length, 1, "a never-drawn edge survives a link-less refresh");
+		eq(preserved[0].from, "a", "the surviving wire source");
+		var drawn = {};
+		drawn[VFXIR.edgeKey({ from: "a", to: "radius" })] = true;
+		var dropped = VFXIR.mergeEdges([{ from: "a", to: "radius" }], [], drawn, owner, keep);
+		eq(dropped.length, 0, "a drawn-then-disconnected wire stays deleted");
+	});
+
+	test("(M2) mergeEdges dedupes canvas wires, drops rewired targets and invalid endpoints", function () {
+		var owner = function () { return "fx"; };
+		var dup = VFXIR.mergeEdges([{ from: "a", to: "radius" }], [{ from: "a", to: "radius" }],
+				{}, owner, function () { return true; });
+		eq(dup.length, 1, "a drawn wire is not duplicated");
+		var rewired = VFXIR.mergeEdges([{ from: "a", to: "radius" }], [{ from: "b", to: "radius" }],
+				{}, owner, function () { return true; });
+		eq(rewired.length, 1, "a rewired param keeps one wire");
+		eq(rewired[0].from, "b", "the canvas wire wins");
+		var invalid = VFXIR.mergeEdges([{ from: "gone", to: "radius" }], [],
+				{}, owner, function () { return false; });
+		eq(invalid.length, 0, "a vanished endpoint stays deleted");
+	});
+
+	test("(M3) edgeKey is key-order independent; node wires address their own slots", function () {
+		eq(VFXIR.edgeKey({ from: "a", to: "b" }), VFXIR.edgeKey({ to: "b", from: "a" }),
+				"key order must not matter");
+		var owner = function () { return null; };
+		var merged = VFXIR.mergeEdges([{ from: "a", to: "b", input: "x" }],
+				[{ from: "a", to: "radius" }], {}, owner, function () { return true; });
+		eq(merged.length, 2, "a node wire and a param wire are different slots");
+	});
+
+	test("(D1) formatDiag reports counts and OK when clean", function () {
+		ok(window.VFXInspector && typeof window.VFXInspector.formatDiag === "function",
+				"VFXInspector.formatDiag loaded");
+		var text = window.VFXInspector.formatDiag({ name: "blur", type: "blur", effects: 1,
+			edges: [{ from: "n1", to: "radius", output: "amount" }],
+			canvasNodes: 3, canvasLinks: 2, valueNodes: 2, fieldKeys: ["intensity"],
+			instanceIds: ["n1"], sections: 2, schemaGroups: 2, anomalies: [] });
+		ok(text.indexOf("tab: blur (type: blur, effects: 1)") === 0, "tab line first");
+		ok(text.indexOf("ir edges: 1") >= 0, "edge count");
+		ok(text.indexOf("n1 -> radius") >= 0, "edge listed");
+		ok(text.indexOf("instances: [n1]") >= 0, "instances listed");
+		ok(text.indexOf("inspector sections: 2 (schema groups: 2)") >= 0, "sections line");
+		ok(text.indexOf("OK: no anomalies") >= 0, "clean verdict");
+	});
+
+	test("(D2) formatDiag renders one ANOMALY line per anomaly", function () {
+		var text = window.VFXInspector.formatDiag({ name: "t", type: "dent", effects: 1, edges: [],
+			canvasNodes: 1, canvasLinks: 0, valueNodes: 0, fieldKeys: [], instanceIds: [],
+			sections: 1, schemaGroups: 3,
+			anomalies: ["IR edge n1 -> radius has no canvas link",
+				"params have 3 schema groups but 1 rendered section"] });
+		eq(text.split("ANOMALY: ").length - 1, 2, "two anomaly lines");
+		ok(text.indexOf("OK:") < 0, "no clean verdict alongside anomalies");
+	});
+
 	return results;
 };
 /* SELFTEST:END */

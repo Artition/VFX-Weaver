@@ -741,6 +741,12 @@
 			return;
 		}
 		var links = tab.graph.links || {};
+		var fieldOwner = {};
+		(tab.graph._nodes || []).forEach(function (node) {
+			if (isFieldNode(node) && node.properties && node.properties.effectId != null) {
+				fieldOwner[node.properties.effectId] = true;
+			}
+		});
 		tab.effects.forEach(function (effect) {
 			var enode = nodeForEffect(tab, effect.id);
 			if (!enode) {
@@ -776,6 +782,15 @@
 						next[key] = null;
 					}
 				});
+				// A field entry whose tree node never materialised is a view bug, never a delete:
+				// restore it. A node on canvas with its wire removed stays an explicit disconnect.
+				if (!fieldOwner[effect.id]) {
+					Object.keys(prev).forEach(function (key) {
+						if (prev[key] != null && next[key] == null) {
+							next[key] = snapshot(prev[key]);
+						}
+					});
+				}
 				effect.fields = next;
 			}
 		});
@@ -2382,6 +2397,236 @@
 		}
 	}
 
+	/** The canonical key of one IR edge (via `VFXIR.edgeKey`; JSON only without the IR layer). */
+	function edgeKeyOf(edge) {
+		var vfxir = ir();
+		return vfxir && typeof vfxir.edgeKey === "function" ? vfxir.edgeKey(edge) : JSON.stringify(edge);
+	}
+
+	/**
+	 * Walk the canvas links into IR edges (the canvas half of refreshFromCanvas): effect-param
+	 * wires, mask-slot wires and node-to-node wires become edges; a wire into a macro instance
+	 * becomes an instance `{from}` binding (a fold, applied by the caller); flow/mask-attach links
+	 * are classified for the diagnostic. Read-only: folds are returned, never applied here.
+	 *
+	 * @param {Object} tab the tab
+	 * @param {Object} irByGraphId canvas node id -> IR value-node id
+	 * @returns {{edges: Array, folds: Array, keys: Object, wires: Array}} the edges, the instance
+	 * folds, the drawn edge keys and the per-link classification
+	 */
+	function collectCanvasEdges(tab, irByGraphId) {
+		/** The macro output name an origin slot addresses, or null for the default (first) output. */
+		function originOutput(origin, slot) {
+			if (!origin || !origin.properties || origin.properties.kind !== "subgraph") {
+				return null;
+			}
+			var names = origin.__outputs || [];
+			slot = Number(slot) || 0;
+			return slot > 0 && slot < names.length ? names[slot] : null;
+		}
+		var multi = Boolean(tab.effects && tab.effects.length > 1);
+		var graphLinks = (tab.graph && tab.graph.links) || {};
+		var edges = [];
+		var folds = [];
+		var keys = {};
+		var wires = [];
+		function emit(edge) {
+			edges.push(edge);
+			var key = edgeKeyOf(edge);
+			keys[key] = true;
+			wires.push({ kind: "edge", key: key });
+		}
+		Object.keys(graphLinks).forEach(function (linkId) {
+			var link = graphLinks[linkId];
+			var from = irByGraphId[link.origin_id];
+			if (!from) {
+				wires.push({ kind: "skip" });
+				return;
+			}
+			var target = tab.graph.getNodeById(link.target_id);
+			if (!target) {
+				wires.push({ kind: "skip" });
+				return;
+			}
+			var origin = tab.graph.getNodeById(link.origin_id);
+			var output = originOutput(origin, link.origin_slot);
+			if (isEffectNode(target)) {
+				var param = target.inputs ? target.inputs[link.target_slot] : null;
+				// The `mask` attachment port is a cosmetic Mask-root wire (it resolves via
+				// effectId), never a param edge — same skip as the field-tree reader below.
+				if (param && param.name !== "in" && param.name !== "mask") {
+					var edge = { from: from, to: param.name };
+					if (output != null) {
+						edge.output = output;
+					}
+					if (multi) {
+						edge.effect = target.properties.effectId;
+					}
+					emit(edge);
+				} else {
+					wires.push({ kind: param && param.name === "mask" ? "mask" : "flow" });
+				}
+			} else if (isMaskLeafNode(target)) {
+				// A value node wired into a MaskLeaf's `mask.p<N>.*` socket is a param wire for the
+				// owning effect (design §13.1); the compiler consumes it. The cosmetic `mask` attach
+				// port is not a slot, so it is ignored.
+				var maskSocket = target.inputs ? target.inputs[link.target_slot] : null;
+				if (maskSocket && maskSocket.name.indexOf("mask.") === 0) {
+					var maskEdge = { from: from, to: maskSocket.name };
+					if (target.properties.effectId && tab.effects && tab.effects.length > 1) {
+						maskEdge.effect = target.properties.effectId;
+					}
+					emit(maskEdge);
+				} else {
+					wires.push({ kind: "skip" });
+				}
+			} else if (target.properties && target.properties.kind && irByGraphId[target.id]) {
+				var socket = target.inputs ? target.inputs[link.target_slot] : null;
+				if (socket) {
+					if (target.properties.kind === "subgraph") {
+						// The engine forbids edges into an instance: a wire into a macro
+						// input socket becomes an instance `{from}` binding instead of an edge.
+						var fold = { id: irByGraphId[target.id], input: socket.name, from: from };
+						folds.push(fold);
+						wires.push({ kind: "binding", id: fold.id, input: fold.input, from: from });
+					} else {
+						var wire = { from: from, to: irByGraphId[target.id], input: socket.name };
+						if (output != null) {
+							wire.output = output;
+						}
+						emit(wire);
+					}
+				} else {
+					wires.push({ kind: "skip" });
+				}
+			} else if (isFieldNode(origin)) {
+				wires.push({ kind: "field" });
+			} else {
+				wires.push({ kind: "skip" });
+			}
+		});
+		return { edges: edges, folds: folds, keys: keys, wires: wires };
+	}
+
+	/**
+	 * The effect id an edge belongs to (the multi-effect disambiguator, else the first effect),
+	 * mirroring the materialise pass so preserved edges resolve to the same owner.
+	 */
+	function edgeEffectId(tab, edge) {
+		var multi = Boolean(tab.effects && tab.effects.length > 1);
+		if (multi && edge && edge.effect != null) {
+			return edge.effect;
+		}
+		return tab.effects && tab.effects.length ? tab.effects[0].id : null;
+	}
+
+	/**
+	 * Whether an old edge with no canvas link still resolves (a view bug, worth preserving): its
+	 * source node must still exist and its target must still exist (a param on the owning effect,
+	 * a node input, or a mask slot). A wire into a macro instance is folded into the instance's
+	 * `{from}` binding instead (the engine forbids edges there) and reports false.
+	 *
+	 * @param {Object} tab the tab
+	 * @param {Object} irById rebuilt IR value-node id -> node
+	 * @param {Object} byIrId IR value-node id -> canvas node
+	 * @param {Object} edge the old edge
+	 * @param {string|null} effectId the owning effect id
+	 * @returns {boolean} true when the edge is preserved as an edge
+	 */
+	function keepPreservedEdge(tab, irById, byIrId, edge, effectId) {
+		if (!edge || edge.from == null || edge.to == null || !irById[edge.from]) {
+			return false;
+		}
+		if (edge.input != null) {
+			var target = byIrId[edge.to];
+			if (!target || inputIndex(target, edge.input) < 0) {
+				return false;
+			}
+			if (target.properties && target.properties.kind === "subgraph") {
+				irById[edge.to].inputs[edge.input] = { from: edge.from };
+				return false;
+			}
+			return true;
+		}
+		if (typeof edge.to === "string" && edge.to.indexOf("mask.") === 0) {
+			if (!effectId || indexOfEffect(tab, effectId) < 0) {
+				return false;
+			}
+			var enode = nodeForEffect(tab, effectId);
+			if (enode && inputIndex(enode, edge.to) >= 0) {
+				return true;
+			}
+			var found = false;
+			(tab.graph._nodes || []).forEach(function (node) {
+				if (isMaskLeafNode(node) && node.properties.effectId === effectId
+						&& inputIndex(node, edge.to) >= 0) {
+					found = true;
+				}
+			});
+			return found;
+		}
+		if (!effectId || indexOfEffect(tab, effectId) < 0) {
+			return false;
+		}
+		var effect = null;
+		(tab.effects || []).forEach(function (entry) {
+			if (entry.id === effectId) {
+				effect = entry;
+			}
+		});
+		var descriptor = effect ? schema[effect.type] : null;
+		if (descriptor && Array.isArray(descriptor.params)) {
+			for (var i = 0; i < descriptor.params.length; i++) {
+				if (descriptor.params[i] && descriptor.params[i].name === edge.to) {
+					return true;
+				}
+			}
+		}
+		var owned = nodeForEffect(tab, effectId);
+		return !!owned && inputIndex(owned, edge.to) >= 0;
+	}
+
+	/**
+	 * Merge the canvas-rebuilt edges with the tab's existing ones (a missing canvas link is a
+	 * view bug, never a delete) and record the drawn edge keys as the next explicit-disconnect
+	 * witness. Without the IR layer this falls back to replacing.
+	 *
+	 * @param {Object} tab the tab (its `edges` and `__linkSig` are written)
+	 * @param {Array<Object>} canvasEdges the edges rebuilt from the canvas links
+	 */
+	function mergePreservedEdges(tab, canvasEdges) {
+		var vfxir = ir();
+		if (vfxir && typeof vfxir.mergeEdges === "function") {
+			var byIrId = {};
+			(tab.graph._nodes || []).forEach(function (node) {
+				if (node && node.properties && node.properties.irId != null
+						&& node.properties.kind && !isEffectNode(node)) {
+					byIrId[node.properties.irId] = node;
+				}
+			});
+			var irById = {};
+			(tab.valueNodes || []).forEach(function (entry) {
+				if (entry && entry.id != null) {
+					irById[entry.id] = entry;
+				}
+			});
+			tab.edges = vfxir.mergeEdges(tab.edges, canvasEdges, tab.__linkSig || {},
+					function (edge) {
+						return edgeEffectId(tab, edge);
+					},
+					function (edge, effectId) {
+						return keepPreservedEdge(tab, irById, byIrId, edge, effectId);
+					});
+		} else {
+			tab.edges = canvasEdges;
+		}
+		var keys = {};
+		canvasEdges.forEach(function (edge) {
+			keys[edgeKeyOf(edge)] = true;
+		});
+		tab.__linkSig = keys;
+	}
+
 	/** Rebuild `tab.effects`/`tab.valueNodes`/`tab.edges` from the canvas. */
 	function refreshFromCanvas(tab) {
 		if (!tab || !tab.graph) {
@@ -2408,74 +2653,14 @@
 		nodes.forEach(function (entry) {
 			irById[entry.id] = entry;
 		});
-		/** The macro output name an origin slot addresses, or null for the default (first) output. */
-		function originOutput(origin, slot) {
-			if (!origin || !origin.properties || origin.properties.kind !== "subgraph") {
-				return null;
-			}
-			var names = origin.__outputs || [];
-			slot = Number(slot) || 0;
-			return slot > 0 && slot < names.length ? names[slot] : null;
-		}
-		var multi = Boolean(tab.effects && tab.effects.length > 1);
-		var edges = [];
-		Object.keys(tab.graph.links).forEach(function (linkId) {
-			var link = tab.graph.links[linkId];
-			var from = irByGraphId[link.origin_id];
-			if (!from) {
-				return;
-			}
-			var target = tab.graph.getNodeById(link.target_id);
-			if (!target) {
-				return;
-			}
-			var origin = tab.graph.getNodeById(link.origin_id);
-			var output = originOutput(origin, link.origin_slot);
-			if (isEffectNode(target)) {
-				var param = target.inputs ? target.inputs[link.target_slot] : null;
-				// The `mask` attachment port is a cosmetic Mask-root wire (it resolves via
-				// effectId), never a param edge — same skip as the field-tree reader below.
-				if (param && param.name !== "in" && param.name !== "mask") {
-					var edge = { from: from, to: param.name };
-					if (output != null) {
-						edge.output = output;
-					}
-					if (multi) {
-						edge.effect = target.properties.effectId;
-					}
-					edges.push(edge);
-				}
-			} else if (isMaskLeafNode(target)) {
-				// A value node wired into a MaskLeaf's `mask.p<N>.*` socket is a param wire for the
-				// owning effect (design §13.1); the compiler consumes it. The cosmetic `mask` attach
-				// port is not a slot, so it is ignored.
-				var maskSocket = target.inputs ? target.inputs[link.target_slot] : null;
-				if (maskSocket && maskSocket.name.indexOf("mask.") === 0) {
-					var maskEdge = { from: from, to: maskSocket.name };
-					if (target.properties.effectId && tab.effects && tab.effects.length > 1) {
-						maskEdge.effect = target.properties.effectId;
-					}
-					edges.push(maskEdge);
-				}
-			} else if (target.properties && target.properties.kind && irByGraphId[target.id]) {
-				var socket = target.inputs ? target.inputs[link.target_slot] : null;
-				if (socket) {
-					if (target.properties.kind === "subgraph") {
-						// The engine forbids edges into an instance: a wire into a macro
-						// input socket becomes an instance `{from}` binding instead of an edge.
-						irById[irByGraphId[target.id]].inputs[socket.name] = { from: from };
-					} else {
-						var wire = { from: from, to: irByGraphId[target.id], input: socket.name };
-						if (output != null) {
-							wire.output = output;
-						}
-						edges.push(wire);
-					}
-				}
+		var collected = collectCanvasEdges(tab, irByGraphId);
+		collected.folds.forEach(function (fold) {
+			if (irById[fold.id]) {
+				irById[fold.id].inputs[fold.input] = { from: fold.from };
 			}
 		});
 		tab.valueNodes = nodes;
-		tab.edges = edges;
+		mergePreservedEdges(tab, collected.edges);
 		syncFieldTrees(tab);
 	}
 
@@ -2822,6 +3007,7 @@
 				byId[ir.id] = node;
 			});
 			var multi = Boolean(tab.effects && tab.effects.length > 1);
+			var drawnKeys = {};
 			(tab.edges || []).forEach(function (edge) {
 				var from = byId[edge.from];
 				if (!from) {
@@ -2861,6 +3047,7 @@
 				}
 				if (target && slot >= 0) {
 					from.connect(fromSlot, target, slot);
+					drawnKeys[edgeKeyOf(edge)] = true;
 				}
 			});
 			// Imported datapacks may wire node->node as `inputs: { name: { from } }`; materialize those.
@@ -2883,6 +3070,8 @@
 			});
 			layoutAutoNodes(tab, byId);
 			materializeFieldNodes(tab, effectNodeById);
+			// The explicit-disconnect witness for the next refresh: only wires actually drawn.
+			tab.__linkSig = drawnKeys;
 		} finally {
 			applyingGraph = false;
 		}
@@ -6411,6 +6600,145 @@
 		}, { className: "vfx-modal-wide" });
 	}
 
+	/**
+	 * A read-only diagnostic of the active tab for pasting from devtools (no DOM/state mutation):
+	 * tab name/type, IR edge list, canvas/value-node counts, field keys, instance ids, inspector
+	 * section vs schema group counts, plus explicit ANOMALY lines. Formatting is pure
+	 * (`VFXInspector.formatDiag`).
+	 *
+	 * @returns {string} the multi-line report
+	 */
+	function diag() {
+		var tab = activeTab();
+		if (!tab) {
+			return "VFXEditor.diag: no active tab";
+		}
+		var anomalies = [];
+		var nodes = (tab.graph && tab.graph._nodes) ? tab.graph._nodes : [];
+		var links = (tab.graph && tab.graph.links) ? tab.graph.links : {};
+		var irByGraphId = {};
+		var canvasIrIds = {};
+		nodes.forEach(function (node) {
+			if (node && node.properties && node.properties.irId != null) {
+				irByGraphId[node.id] = node.properties.irId;
+				canvasIrIds[node.properties.irId] = true;
+			}
+		});
+		var collected = collectCanvasEdges(tab, irByGraphId);
+		var drawnKeys = {};
+		var bindings = [];
+		collected.wires.forEach(function (wire) {
+			if (wire.kind === "edge") {
+				drawnKeys[wire.key] = true;
+			} else if (wire.kind === "binding") {
+				bindings.push(wire);
+			}
+		});
+		var irKeys = {};
+		(tab.edges || []).forEach(function (edge) {
+			irKeys[edgeKeyOf(edge)] = true;
+		});
+		// Link-comparison anomalies are only stable after the debounced flush ran; while one is
+		// pending the IR is simply the pre-edit snapshot.
+		var settled = !tab.__graphKey || !graphEdits[tab.__graphKey];
+		if (settled) {
+			(tab.edges || []).forEach(function (edge) {
+				if (!drawnKeys[edgeKeyOf(edge)]) {
+					anomalies.push("IR edge " + edge.from + " -> " + edge.to + " has no canvas link");
+				}
+			});
+			collected.wires.forEach(function (wire) {
+				if (wire.kind === "edge" && !irKeys[wire.key]) {
+					anomalies.push("canvas wire " + wire.key + " has no IR edge");
+				}
+			});
+			bindings.forEach(function (wire) {
+				var entry = null;
+				(tab.valueNodes || []).forEach(function (node) {
+					if (node && node.id === wire.id) {
+						entry = node;
+					}
+				});
+				var bound = entry && entry.inputs ? entry.inputs[wire.input] : null;
+				if (!bound || bound.from !== wire.from) {
+					anomalies.push("canvas wire " + wire.from + " -> " + wire.id + "." + wire.input
+							+ " has no IR edge");
+				}
+			});
+		}
+		var instanceIds = [];
+		(tab.valueNodes || []).forEach(function (entry) {
+			if (entry && entry.kind === "subgraph") {
+				instanceIds.push(entry.id);
+			}
+		});
+		(tab.edges || []).forEach(function (edge) {
+			if (edge && instanceIds.indexOf(edge.from) >= 0 && !canvasIrIds[edge.from]) {
+				anomalies.push("instance edge from " + edge.from + " is not on canvas");
+			}
+		});
+		var fieldOwners = {};
+		nodes.forEach(function (node) {
+			if (isFieldNode(node) && node.properties && node.properties.effectId != null) {
+				fieldOwners[node.properties.effectId] = true;
+			}
+		});
+		(tab.effects || []).forEach(function (effect) {
+			var fields = effect && effect.fields;
+			var live = fields && typeof fields === "object" ? Object.keys(fields).filter(function (key) {
+				return fields[key] != null;
+			}) : [];
+			if (live.length && !fieldOwners[effect.id]) {
+				anomalies.push("effect " + effect.id + " fields [" + live.join(", ")
+						+ "] have no field node");
+			}
+		});
+		var descriptor = tab.type && schema[tab.type] ? schema[tab.type] : null;
+		var params = descriptor && Array.isArray(descriptor.params) ? descriptor.params : [];
+		var groups = {};
+		params.forEach(function (param) {
+			if (param && param.group) {
+				groups[param.group] = true;
+			}
+		});
+		var schemaGroups = Object.keys(groups).length;
+		var rendered = 0;
+		if (dom.inspector && typeof dom.inspector.querySelectorAll === "function") {
+			rendered = dom.inspector.querySelectorAll(".vfx-param-group").length;
+			if (!rendered && dom.inspector.querySelector(".vfx-params")) {
+				rendered = 1;
+			}
+		}
+		if (schemaGroups > 1 && rendered <= 1) {
+			anomalies.push("params have " + schemaGroups + " schema groups but "
+					+ rendered + " rendered section");
+		}
+		var current = ((typeof tab.effect === "function" && tab.effect()) || (tab.effects || [])[0]) || null;
+		var currentFields = current && current.fields && typeof current.fields === "object"
+				? current.fields : {};
+		var fieldKeys = Object.keys(currentFields).map(function (key) {
+			return currentFields[key] == null ? key + " (removed)" : key;
+		});
+		var info = {
+			name: tab.name,
+			type: tab.type,
+			effects: (tab.effects || []).length,
+			edges: snapshot(tab.edges || []),
+			canvasNodes: nodes.length,
+			canvasLinks: Object.keys(links).length,
+			valueNodes: (tab.valueNodes || []).length,
+			fieldKeys: fieldKeys,
+			instanceIds: instanceIds,
+			sections: rendered,
+			schemaGroups: schemaGroups,
+			anomalies: anomalies
+		};
+		if (window.VFXInspector && typeof window.VFXInspector.formatDiag === "function") {
+			return window.VFXInspector.formatDiag(info);
+		}
+		return "tab: " + info.name + " (type: " + info.type + ")\n" + anomalies.join("\n");
+	}
+
 	var VFXEditor = {
 		project: project,
 		openPack: openPack,
@@ -6462,7 +6790,8 @@
 		},
 		showMenu: showMenu,
 		undo: undoHistory,
-		redo: redoHistory
+		redo: redoHistory,
+		diag: diag
 	};
 	Object.defineProperty(VFXEditor, "graph", {
 		enumerable: true,

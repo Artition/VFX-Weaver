@@ -1909,6 +1909,52 @@
 		}
 	}
 
+	/**
+	 * Format the active-tab diagnostic gathered by the shell (`VFXEditor.diag`) as a short
+	 * multi-line string for pasting from devtools. Pure: `info` is plain data, no DOM read here.
+	 *
+	 * @param {Object} info `{name, type, effects, edges:[{from,to,input,output,effect}],
+	 * canvasNodes, canvasLinks, valueNodes, fieldKeys, instanceIds, sections, schemaGroups,
+	 * anomalies:[string]}`
+	 * @returns {string} the multi-line report
+	 */
+	function formatDiag(info) {
+		var data = info && typeof info === "object" ? info : {};
+		var lines = [];
+		lines.push("tab: " + data.name + " (type: " + data.type
+				+ ", effects: " + num(data.effects, 0) + ")");
+		var edges = Array.isArray(data.edges) ? data.edges : [];
+		lines.push("ir edges: " + edges.length);
+		edges.forEach(function (edge) {
+			var text = "  " + edge.from + " -> " + edge.to;
+			if (edge.input != null) {
+				text += " [input=" + edge.input + "]";
+			}
+			if (edge.output != null) {
+				text += " [output=" + edge.output + "]";
+			}
+			if (edge.effect != null) {
+				text += " [effect=" + edge.effect + "]";
+			}
+			lines.push(text);
+		});
+		lines.push("canvas: " + num(data.canvasNodes, 0) + " nodes, "
+				+ num(data.canvasLinks, 0) + " links; valueNodes: " + num(data.valueNodes, 0)
+				+ "; instances: [" + (Array.isArray(data.instanceIds) ? data.instanceIds : []).join(", ") + "]");
+		var fields = Array.isArray(data.fieldKeys) ? data.fieldKeys : [];
+		lines.push("fields: " + (fields.length ? fields.join(", ") : "(none)"));
+		lines.push("inspector sections: " + num(data.sections, 0)
+				+ " (schema groups: " + num(data.schemaGroups, 0) + ")");
+		var anomalies = Array.isArray(data.anomalies) ? data.anomalies : [];
+		anomalies.forEach(function (text) {
+			lines.push("ANOMALY: " + text);
+		});
+		if (!anomalies.length) {
+			lines.push("OK: no anomalies");
+		}
+		return lines.join("\n");
+	}
+
 	var api = {
 		render: render,
 		renderGroup: renderGroup,
@@ -1919,6 +1965,7 @@
 		renderTiming: renderTiming,
 		refreshLiveValues: refreshLiveValues,
 		slotState: slotState,
+		formatDiag: formatDiag,
 		DEFAULT_BIND: DEFAULT_BIND
 	};
 	root.VFXInspector = api;
