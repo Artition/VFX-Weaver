@@ -683,6 +683,8 @@ body {
 	display: flex;
 	align-items: baseline;
 	gap: 6px;
+	cursor: pointer;
+}
 	padding: 2px 0;
 }
 

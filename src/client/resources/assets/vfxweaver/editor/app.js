@@ -4561,7 +4561,9 @@
 						body.appendChild(groupChooser);
 					}
 				};
-				toggle.addEventListener("click", function (event) {
+				// The whole header flips, not just the 16px glyph: a toggle-only target is a
+				// guaranteed missed click. One listener on the header (the button bubbles to it).
+				head.addEventListener("click", function (event) {
 					event.preventDefault();
 					collapsed = !collapsed;
 					paramGroupCollapsed[key] = collapsed;
