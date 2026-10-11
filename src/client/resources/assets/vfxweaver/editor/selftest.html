@@ -1491,6 +1491,98 @@ window.__vfxSelftest = function () {
 				"a qualified child id resolves");
 	});
 
+	test("(FLD1) a dent intensity field emits the parser shape, with one op tree", function () {
+		window.VFXEditor = window.VFXEditor || {};
+		window.VFXEditor.schema = window.VFXEditor.schema || {};
+		window.VFXEditor.schema.field = {
+			fns: [
+				{ id: "constant", outputType: "float", spatial: false, hasChannel: false,
+					needsDepth: false, hasCurve: false, hasTexture: false, hasShape: false,
+					params: [["value", 1]] },
+				{ id: "noise", outputType: "float", spatial: true, hasChannel: false,
+					needsDepth: false, hasCurve: false, hasTexture: false, hasShape: false,
+					params: [["scale", 1], ["octaves", 1], ["gain", 0.5], ["lacunarity", 2]] },
+				{ id: "depth", outputType: "float", spatial: false, hasChannel: false,
+					needsDepth: true, hasCurve: false, hasTexture: false, hasShape: false,
+					params: [["near", 0], ["far", 1]] }
+			],
+			ops: [{ id: "multiply", arity: 2 }, { id: "add", arity: 2 }, { id: "mix", arity: 3 }],
+			caps: { maxDepth: 3, maxLeaves: 4, maxProgram: 8, maxCurvePoints: 8,
+				maxTextureLeaves: 1, maxParams: 16 }
+		};
+		var tab = new VFXIR.Tab("dent", "dent");
+		tab.params.intensity = VFXIR.ParamSpec.constant(1);
+		tab.effect().fields = { intensity: { op: "multiply",
+			a: { field: "noise", space: "screen", scale: 2 },
+			b: { field: "constant", value: 0.5 } } };
+		var def = parse(compileTab(tab));
+		eq(def.inputs.intensity.op, "multiply", "op emitted");
+		eq(def.inputs.intensity.a.field, "noise", "leaf a");
+		eq(def.inputs.intensity.a.scale, 2, "leaf a param");
+		eq(def.inputs.intensity.b.value, 0.5, "leaf b param");
+		var stats = VFXIR.fieldStats(def.inputs.intensity);
+		eq(stats.leaves, 2, "two leaves");
+		eq(stats.depth, 2, "depth two");
+		eq(stats.nodes, 3, "two leaves + one op");
+		ok(!VFXIR.fieldNeedsDepth(def.inputs.intensity), "screen-space noise needs no depth");
+		// The affordance gate: only a fieldCapable descriptor opens it; the fn/op inventory
+		// comes from the schema, never hardcoded.
+		ok(VFXIR.fieldAffordance({ params: [{ name: "intensity", fieldCapable: true }] },
+				"intensity"), "gate open on a fieldCapable socket");
+		ok(!VFXIR.fieldAffordance({ params: [{ name: "radius", fieldCapable: false }] },
+				"radius"), "gate shut on an ordinary socket");
+		ok(!VFXIR.fieldAffordance({}, "intensity"), "no section, no gate");
+		eq(VFXIR.fieldFnIds().join(","), "constant,noise,depth", "fn ids from the schema");
+		eq(VFXIR.fieldOpArity("mix"), 3, "mix is ternary");
+		eq(VFXIR.fieldOpArity("multiply"), 2, "multiply is binary");
+	});
+
+	test("(FLD2) cap breaches and the layer-0 rule warn but still emit", function () {
+		function leaf() {
+			return { field: "constant", value: 1 };
+		}
+		var wide = { op: "add",
+			a: { op: "add", a: leaf(), b: leaf() },
+			b: { op: "add", a: leaf(), b: { op: "add", a: leaf(), b: leaf() } } };
+		var tab = new VFXIR.Tab("dent", "dent");
+		tab.effect().fields = { intensity: wide };
+		var def = parse(compileTab(tab));
+		eq(def.inputs.intensity.op, "add", "a breaching tree still emits");
+		var reasons = window.VFXCompiler.getWarnings().map(function (w) { return w.reason; });
+		["cap-depth", "cap-leaves", "cap-program"].forEach(function (reason) {
+			ok(reasons.indexOf(reason) >= 0, "warning " + reason);
+		});
+		// A depth fn on the default layer 1 warns once; on layer 0 it is quiet.
+		var off = new VFXIR.Tab("dent", "dent");
+		off.effect().fields = { intensity: { field: "depth", near: 0, far: 1 } };
+		parse(compileTab(off));
+		var w2 = window.VFXCompiler.getWarnings();
+		eq(w2.filter(function (w) { return w.reason === "layer-0"; }).length, 1,
+				"one layer-0 warning per definition");
+		var on = new VFXIR.Tab("dent", "dent");
+		on.effect().params.screen_layer = { value: 0 };
+		on.effect().fields = { intensity: { field: "depth", near: 0, far: 1 } };
+		parse(compileTab(on));
+		ok(!window.VFXCompiler.getWarnings().some(function (w) { return w.reason === "layer-0"; }),
+				"no layer warning on layer 0");
+		// A spaceless spatial fn reads as world (the parser default) and needs depth.
+		ok(VFXIR.fieldNeedsDepth({ field: "noise", scale: 1 }), "spaceless noise is world");
+		ok(!VFXIR.fieldNeedsDepth({ field: "noise", space: "screen", scale: 1 }),
+				"screen noise needs no depth");
+	});
+
+	test("(FLD3) a hand-written field block round-trips via the source clone", function () {
+		var tab = new VFXIR.Tab("dent", "dent");
+		tab.source = { type: "dent", duration: 40,
+			inputs: { intensity: { field: "noise", space: "screen", scale: 2 } } };
+		var def = parse(compileTab(tab));
+		eq(def.inputs.intensity.field, "noise", "carried field kept");
+		eq(def.inputs.intensity.scale, 2, "carried param kept");
+		tab.effect().fields = { intensity: null };
+		var cleared = parse(compileTab(tab));
+		ok(!cleared.inputs || !cleared.inputs.intensity, "explicit null removes the block");
+	});
+
 	return results;
 };
 /* SELFTEST:END */

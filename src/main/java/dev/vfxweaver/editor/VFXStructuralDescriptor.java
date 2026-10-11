@@ -3,7 +3,9 @@ package dev.vfxweaver.editor;
 import dev.vfxweaver.effect.CelestialAnchor;
 import dev.vfxweaver.effect.VFXEffectType;
 import dev.vfxweaver.effect.VFXWindowSpec;
+import dev.vfxweaver.field.VFXField;
 import dev.vfxweaver.field.VFXFieldFn;
+import dev.vfxweaver.field.VFXFieldOp;
 import dev.vfxweaver.field.VFXShape;
 import dev.vfxweaver.field.VFXShapeFigure;
 import dev.vfxweaver.field.VFXShapeFill;
@@ -335,6 +337,71 @@ public record VFXStructuralDescriptor(boolean supportsMask, List<String> maskSha
 	public static Map<String, Object> screenImageFields() {
 		final Map<String, Object> spec = new LinkedHashMap<>();
 		spec.put("field", "texture");
+		return spec;
+	}
+
+	/**
+	 * The per-pixel field function inventory the editor's field nodes generate from (design
+	 * §13.2: the UI never hardcodes the function list). One entry per {@link VFXFieldFn}, in
+	 * declaration order.
+	 *
+	 * @return the field function specs, in enum declaration order
+	 */
+	public static List<Map<String, Object>> fieldFunctions() {
+		final List<Map<String, Object>> out = new ArrayList<>(VFXFieldFn.values().length);
+		for (final VFXFieldFn fn : VFXFieldFn.values()) {
+			final Map<String, Object> spec = new LinkedHashMap<>();
+			spec.put("id", fn.id());
+			spec.put("outputType", fn.outputType().name().toLowerCase(java.util.Locale.ROOT));
+			spec.put("spatial", fn.spatial());
+			spec.put("hasChannel", fn.hasChannel());
+			spec.put("needsDepth", fn.needsDepth());
+			spec.put("hasCurve", fn.hasCurve());
+			spec.put("hasTexture", fn.hasTexture());
+			spec.put("hasShape", fn.hasShape());
+			final List<String> names = fn.paramNames();
+			final List<List<Object>> params = new ArrayList<>(names.size());
+			for (final String name : names) {
+				params.add(List.of(name, fn.defaultParam(name)));
+			}
+			spec.put("params", params);
+			out.add(spec);
+		}
+		return out;
+	}
+
+	/**
+	 * The field composition operators, derived from {@link VFXFieldOp} so the editor cannot
+	 * drift from the parser (design §13.2). One {@code { id, arity }} entry per operator, in
+	 * declaration order.
+	 *
+	 * @return the field operator specs, in enum declaration order
+	 */
+	public static List<Map<String, Object>> fieldOperators() {
+		final List<Map<String, Object>> out = new ArrayList<>(VFXFieldOp.values().length);
+		for (final VFXFieldOp op : VFXFieldOp.values()) {
+			final Map<String, Object> spec = new LinkedHashMap<>();
+			spec.put("id", op.id());
+			spec.put("arity", op.arity());
+			out.add(spec);
+		}
+		return out;
+	}
+
+	/**
+	 * The field tree caps, mirroring {@link VFXField} (design §13.2). The editor enforces
+	 * them with warnings, never by refusing to emit.
+	 *
+	 * @return the cap map
+	 */
+	public static Map<String, Object> fieldCaps() {
+		final Map<String, Object> spec = new LinkedHashMap<>();
+		spec.put("maxDepth", VFXField.MAX_DEPTH);
+		spec.put("maxLeaves", VFXField.MAX_LEAVES);
+		spec.put("maxProgram", VFXField.MAX_PROGRAM);
+		spec.put("maxCurvePoints", VFXField.MAX_CURVE_POINTS);
+		spec.put("maxTextureLeaves", VFXField.MAX_TEXTURE_LEAVES);
+		spec.put("maxParams", VFXField.MAX_PARAMS);
 		return spec;
 	}
 }

@@ -301,7 +301,11 @@
 					maskSlot.color_off = maskSlot.color_on;
 				}
 			}
-			this.properties = { effectType: typeName };
+			this.properties = { effectType: typeName, fieldCapable: params.filter(function (param) {
+				return param && param.fieldCapable === true;
+			}).map(function (param) {
+				return param.name;
+			}) };
 		}
 
 		EffectNode.title = typeName;
@@ -435,6 +439,471 @@
 		}
 		if (!LiteGraph.registered_node_types["vfx/mask_leaf"]) {
 			LiteGraph.registerNodeType("vfx/mask_leaf", makeMaskLeafNode());
+		}
+		registerFieldNodeTypes();
+	}
+
+	/* ------------------------------------------------------------------ */
+	/* Field nodes (design §13.2)                                          */
+	/* ------------------------------------------------------------------ */
+
+	/**
+	 * Field nodes are a separate kind set from the value graph: a `vfx/field` leaf (one
+	 * `VFXFieldFn`, literals only in slice 1) and a `vfx/field_op` composition. They link only
+	 * into a field-capable effect socket (the `fieldAffordance` gate); the compiler walks them
+	 * into `inputs.<param>` (`{field}|{op}`), never into the value `graph` block.
+	 */
+	var FIELD_LINK = "field";
+
+	/** Whether a canvas node belongs to the field tree (never to the value graph). */
+	function isFieldNode(node) {
+		return !!(node && node.properties && node.properties.fieldRole);
+	}
+
+	/** The schema's field function table, or {} (the UI never hardcodes the ids). */
+	function fieldTable() {
+		var vfxir = ir();
+		return vfxir && typeof vfxir.fieldFnTable === "function" ? vfxir.fieldFnTable() : {};
+	}
+
+	/** The schema's field function ids in order, or []. */
+	function fieldFnIds() {
+		var vfxir = ir();
+		return vfxir && typeof vfxir.fieldFnIds === "function" ? vfxir.fieldFnIds() : [];
+	}
+
+	/** The schema's field operator specs (`[{id, arity}]`), or []. */
+	function fieldOpList() {
+		var vfxir = ir();
+		return vfxir && typeof vfxir.fieldOpList === "function" ? vfxir.fieldOpList() : [];
+	}
+
+	/**
+	 * Whether the descriptor gates a field on `name` (the fieldCapable affordance gate).
+	 *
+	 * @param {Object} [descriptor] the effect's schema descriptor
+	 * @param {string} name the param/socket name
+	 * @returns {boolean} true when a field node may be attached to the socket
+	 */
+	function fieldGated(descriptor, name) {
+		var vfxir = ir();
+		return !!vfxir && typeof vfxir.fieldAffordance === "function"
+				&& vfxir.fieldAffordance(descriptor, name);
+	}
+
+	/** A `vfx/field` leaf node: one field function with literal widgets (slice 1 has no input sockets). */
+	function makeFieldLeafNode() {
+		function FieldLeafNode() {
+			this.properties = { fieldRole: "leaf", fn: "", inputs: {}, effectId: null };
+			this.size = [210, 110];
+			var self = this;
+			this.addWidget("combo", "fn", "", function (v) {
+				self.properties.fn = v;
+				rebuildFieldLeaf(self);
+				scheduleGraphEdit(self.__tab);
+			}, { values: fieldFnIds() });
+			this.addOutput("field", FIELD_LINK);
+		}
+		FieldLeafNode.title = "Field";
+		FieldLeafNode.desc = "VFXweaver per-pixel field leaf (links to a field-capable socket)";
+		return FieldLeafNode;
+	}
+
+	/** A `vfx/field_op` composition node: `a <op> b` (plus `factor` for the ternary mix). */
+	function makeFieldOpNode() {
+		function FieldOpNode() {
+			this.properties = { fieldRole: "op", op: "multiply", effectId: null };
+			this.size = [170, 90];
+			this.addInput("a", FIELD_LINK);
+			this.addInput("b", FIELD_LINK);
+			var self = this;
+			this.__widgets = {};
+			this.__widgets.op = this.addWidget("combo", "op", "multiply", function (v) {
+				self.properties.op = v;
+				syncFieldOpInputs(self);
+				scheduleGraphEdit(self.__tab);
+			}, { values: fieldOpList().map(function (spec) { return String(spec.id); }) });
+			this.addOutput("field", FIELD_LINK);
+		}
+		FieldOpNode.title = "FieldOp";
+		FieldOpNode.desc = "VFXweaver field composition (links to a field-capable socket)";
+		return FieldOpNode;
+	}
+
+	/** Register the `vfx/field` and `vfx/field_op` node types (constructors are schema-free). */
+	function registerFieldNodeTypes() {
+		if (!LiteGraph.registered_node_types["vfx/field"]) {
+			LiteGraph.registerNodeType("vfx/field", makeFieldLeafNode());
+		}
+		if (!LiteGraph.registered_node_types["vfx/field_op"]) {
+			LiteGraph.registerNodeType("vfx/field_op", makeFieldOpNode());
+		}
+	}
+
+	/** Keep the op node's `factor` input present exactly for the ternary mix. */
+	function syncFieldOpInputs(node) {
+		var vfxir = ir();
+		var arity = vfxir && typeof vfxir.fieldOpArity === "function"
+				? vfxir.fieldOpArity(node.properties.op) : 2;
+		var at = inputIndex(node, "factor");
+		if (arity === 3 && at < 0) {
+			node.addInput("factor", FIELD_LINK);
+		} else if (arity !== 3 && at >= 0 && typeof node.removeInput === "function") {
+			node.removeInput(at);
+		}
+		if (node.__widgets && node.__widgets.op) {
+			node.__widgets.op.options = { values: fieldOpList().map(function (spec) {
+				return String(spec.id);
+			}) };
+		}
+	}
+
+	/**
+	 * Rebuild a leaf node's widgets from the schema's function inventory: one number widget per
+	 * numeric param plus combos/text for space/channel/texture/primitive/fill/points. A param
+	 * holding a `{from}` graph reference (hand-written) is preserved opaquely — slice 1 offers
+	 * no visual wire into a leaf param.
+	 *
+	 * @param {Object} node the canvas leaf node
+	 * @param {Object} [values] initial values (`{name: value}`), seeding `properties.inputs`
+	 */
+	function rebuildFieldLeaf(node, values) {
+		var table = fieldTable();
+		var spec = table[node.properties.fn] || null;
+		if (node.widgets && node.widgets.length > 1) {
+			node.widgets.length = 1;
+		}
+		if (node.widgets && node.widgets[0]) {
+			node.widgets[0].options = { values: fieldFnIds() };
+			node.widgets[0].value = node.properties.fn;
+		}
+		var inputs = node.properties.inputs || (node.properties.inputs = {});
+		if (values) {
+			Object.keys(values).forEach(function (key) {
+				inputs[key] = values[key];
+			});
+		}
+		if (!spec) {
+			return;
+		}
+		(spec.params || []).forEach(function (pair) {
+			var name = pair[0];
+			var current = inputs[name];
+			if (current && typeof current === "object") {
+				return;
+			}
+			if (typeof current !== "number") {
+				current = inputs[name] = num(pair[1], 0);
+			}
+			node.addWidget("number", name, current, function (v) {
+				inputs[name] = v;
+				scheduleGraphEdit(node.__tab);
+			});
+		});
+		function combo(name, options, fallback) {
+			var current = inputs[name];
+			if (typeof current !== "string" || options.indexOf(current) < 0) {
+				current = inputs[name] = fallback;
+			}
+			node.addWidget("combo", name, current, function (v) {
+				inputs[name] = v;
+				scheduleGraphEdit(node.__tab);
+			}, { values: options });
+		}
+		if (spec.spatial) {
+			combo("space", ["screen", "world"], "screen");
+		}
+		if (spec.hasChannel) {
+			combo("channel", ["r", "g", "b", "a", "luminance"], "luminance");
+		}
+		if (spec.hasTexture && typeof inputs.texture !== "string") {
+			inputs.texture = "minecraft:textures/block/stone.png";
+		}
+		if (spec.hasTexture) {
+			node.addWidget("text", "texture", String(inputs.texture || ""), function (v) {
+				inputs.texture = String(v);
+				scheduleGraphEdit(node.__tab);
+			});
+		}
+		if (spec.hasShape) {
+			combo("primitive", ["circle", "ellipse", "rect", "polygon"], "circle");
+			combo("fill", ["solid", "stroke"], "solid");
+		}
+		if (spec.hasCurve) {
+			var text = Array.isArray(inputs.points) ? inputs.points.map(function (point) {
+				return num(point.time) + " " + num(point.value);
+			}).join("\n") : "0 0\n1 1";
+			node.addWidget("text", "points", text, function (v) {
+				var out = [];
+				String(v == null ? "" : v).split("\n").forEach(function (line) {
+					var parts = line.trim().split(/\s+/);
+					if (parts.length >= 2) {
+						var time = parseNumber(parts[0]);
+						var value = parseNumber(parts[1]);
+						if (time != null && value != null) {
+							out.push({ time: time, value: value });
+						}
+					}
+				});
+				inputs.points = out;
+				scheduleGraphEdit(node.__tab);
+			});
+		}
+	}
+
+	/** The input slot index named `name` on a field node, or -1 (inputIndex covers any node). */
+
+	/**
+	 * Read one field tree from the canvas, starting at a field node id. A leaf emits
+	 * `{field, ...literals}` (`{from}` refs preserved verbatim); an op emits `{op, a, b, factor?}`.
+	 * An incomplete tree (missing child, unknown fn) is transient canvas state and reads as null.
+	 *
+	 * @param {Object} tab the tab
+	 * @param {number} canvasId the LiteGraph node id
+	 * @param {Object} seen guards against a link cycle
+	 * @returns {Object|null} the datapack-shaped field object
+	 */
+	function fieldTreeFromNode(tab, canvasId, seen) {
+		var node = tab.graph.getNodeById(canvasId);
+		if (!node || !isFieldNode(node) || seen[canvasId]) {
+			return null;
+		}
+		seen[canvasId] = true;
+		if (node.properties.fieldRole === "leaf") {
+			var fn = String(node.properties.fn || "");
+			if (!fn || !fieldTable()[fn]) {
+				return null;
+			}
+			var leaf = { field: fn };
+			var inputs = node.properties.inputs || {};
+			Object.keys(inputs).forEach(function (key) {
+				leaf[key] = snapshot(inputs[key]);
+			});
+			return leaf;
+		}
+		var op = String(node.properties.op || "multiply");
+		var out = { op: op };
+		var complete = true;
+		["a", "b", "factor"].forEach(function (name) {
+			var at = inputIndex(node, name);
+			if (at < 0) {
+				if (name !== "factor") {
+					complete = false;
+				}
+				return;
+			}
+			var child = fieldChildFromSlot(tab, node, at, seen);
+			if (child) {
+				out[name] = child;
+			} else if (name !== "factor") {
+				complete = false;
+			}
+		});
+		return complete && out.a && out.b ? out : null;
+	}
+
+	/** The field tree wired into a field node's input slot, or null. */
+	function fieldChildFromSlot(tab, node, slot, seen) {
+		var links = (tab.graph && tab.graph.links) || {};
+		var found = null;
+		Object.keys(links).forEach(function (id) {
+			var link = links[id];
+			if (link.target_id === node.id && link.target_slot === slot) {
+				found = link.origin_id;
+			}
+		});
+		return found == null ? null : fieldTreeFromNode(tab, found, seen);
+	}
+
+	/**
+	 * Rebuild every effect's `fields` map (`param -> field object`) from the canvas field links.
+	 * Only a field node wired into a fieldCapable socket counts (the gate, enforced again here so
+	 * a hand-placed wire into an ordinary socket can never emit a field). Params that lose their
+	 * node are recorded as `null`, so an imported carried block is explicitly removed instead of
+	 * silently resurrected by the compiler's clone pass-through.
+	 *
+	 * @param {Object} tab the tab
+	 */
+	function syncFieldTrees(tab) {
+		if (!tab || !tab.graph) {
+			return;
+		}
+		var links = tab.graph.links || {};
+		tab.effects.forEach(function (effect) {
+			var enode = nodeForEffect(tab, effect.id);
+			if (!enode) {
+				return;
+			}
+			var descriptor = schema[effect.type];
+			var next = {};
+			Object.keys(links).forEach(function (id) {
+				var link = links[id];
+				if (link.target_id !== enode.id) {
+					return;
+				}
+				var origin = tab.graph.getNodeById(link.origin_id);
+				if (!origin || !isFieldNode(origin)) {
+					return;
+				}
+				var sock = enode.inputs ? enode.inputs[link.target_slot] : null;
+				if (!sock || sock.name === "in" || sock.name === "mask") {
+					return;
+				}
+				if (!fieldGated(descriptor, sock.name)) {
+					return;
+				}
+				var tree = fieldTreeFromNode(tab, link.origin_id, {});
+				if (tree) {
+					next[sock.name] = tree;
+				}
+			});
+			if (Object.keys(next).length || effect.fields !== undefined) {
+				var prev = effect.fields && typeof effect.fields === "object" ? effect.fields : {};
+				Object.keys(prev).forEach(function (key) {
+					if (!(key in next)) {
+						next[key] = null;
+					}
+				});
+				effect.fields = next;
+			}
+		});
+	}
+
+	/** The hand-written field blocks an imported definition carries (`param -> object`). */
+	function carriedFields(effect, tab) {
+		var src = (effect && effect.source) || (tab && tab.source) || null;
+		var inputs = src && src.inputs && typeof src.inputs === "object" ? src.inputs : {};
+		var out = null;
+		Object.keys(inputs).forEach(function (name) {
+			var entry = inputs[name];
+			if (entry && typeof entry === "object" && (entry.field != null || entry.op != null)) {
+				(out || (out = {}))[name] = snapshot(entry);
+			}
+		});
+		return out;
+	}
+
+	/**
+	 * Materialise the canvas field nodes for every effect's authored (or carried) field tree:
+	 * one node per leaf/op, wired into the owning effect's fieldCapable socket. Canvas-only view
+	 * of `effect.fields` (like the mask nodes); positions fan out left of the effect node.
+	 *
+	 * @param {Object} tab the tab
+	 * @param {Object} effectNodeById effect id -> canvas node
+	 */
+	function materializeFieldNodes(tab, effectNodeById) {
+		(tab.effects || []).forEach(function (effect) {
+			var view = effect.fields === undefined ? carriedFields(effect, tab) : effect.fields;
+			if (!view) {
+				return;
+			}
+			var enode = effectNodeById[effect.id];
+			if (!enode) {
+				return;
+			}
+			var descriptor = schema[effect.type];
+			var base = enode.pos ? [num(enode.pos[0]) - 300, num(enode.pos[1])] : [80, 80];
+			Object.keys(view).forEach(function (param, pi) {
+				var tree = view[param];
+				if (!tree || typeof tree !== "object") {
+					return;
+				}
+				var slot = inputIndex(enode, param);
+				if (slot < 0 || !fieldGated(descriptor, param)) {
+					return;
+				}
+				var root = materializeFieldTree(tab, tree, [base[0], base[1] + pi * 170],
+						effect.id);
+				if (root) {
+					root.connect(0, enode, slot);
+				}
+			});
+		});
+	}
+
+	/**
+	 * Materialise one field tree as canvas nodes, children fanning further left.
+	 *
+	 * @param {Object} tab the tab
+	 * @param {Object} tree the datapack-shaped field object
+	 * @param {Array<number>} pos the canvas position
+	 * @param {string} effectId the owning effect id
+	 * @returns {Object|null} the root canvas node
+	 */
+	function materializeFieldTree(tab, tree, pos, effectId) {
+		if (!tree || typeof tree !== "object") {
+			return null;
+		}
+		var node = null;
+		if (tree.field != null) {
+			if (!fieldTable()[String(tree.field)]) {
+				return null;
+			}
+			node = LiteGraph.createNode("vfx/field");
+			if (!node) {
+				return null;
+			}
+			node.properties.fn = String(tree.field);
+			var values = {};
+			Object.keys(tree).forEach(function (key) {
+				if (key !== "field") {
+					values[key] = snapshot(tree[key]);
+				}
+			});
+			rebuildFieldLeaf(node, values);
+		} else if (tree.op != null) {
+			node = LiteGraph.createNode("vfx/field_op");
+			if (!node) {
+				return null;
+			}
+			node.properties.op = String(tree.op);
+			syncFieldOpInputs(node);
+		} else {
+			return null;
+		}
+		node.__tab = tab;
+		node.properties.effectId = effectId;
+		node.pos = pos;
+		tab.graph.add(node);
+		if (node.properties.fieldRole === "op") {
+			["a", "b", "factor"].forEach(function (name, i) {
+				if (tree[name] == null) {
+					return;
+				}
+				var child = materializeFieldTree(tab, tree[name], [pos[0] - 260, pos[1] + i * 120],
+						effectId);
+				var at = inputIndex(node, name);
+				if (child && at >= 0) {
+					child.connect(0, node, at);
+				}
+			});
+		}
+		return node;
+	}
+
+	/**
+	 * Drop field nodes whose owning effect is gone (deleting an effect node must not leave its
+	 * field tree on the canvas). Guarded so the removal is not read as a user edit.
+	 *
+	 * @param {Object} tab the tab
+	 */
+	function pruneFieldNodes(tab) {
+		if (!tab || !tab.graph) {
+			return;
+		}
+		var ids = {};
+		(tab.effects || []).forEach(function (effect) { ids[effect.id] = true; });
+		var prev = applyingGraph;
+		applyingGraph = true;
+		try {
+			tab.graph._nodes.slice().forEach(function (node) {
+				if (isFieldNode(node) && !ids[node.properties.effectId]) {
+					node.ignore_remove = false;
+					tab.graph.remove(node);
+				}
+			});
+		} finally {
+			applyingGraph = prev;
 		}
 	}
 
@@ -1864,6 +2333,7 @@
 		}
 		reconcileEffects(tab);
 		pruneMaskNodes(tab);
+		pruneFieldNodes(tab);
 		var irByGraphId = {};
 		var nodes = [];
 		tab.graph._nodes.forEach(function (node) {
@@ -1915,6 +2385,7 @@
 		});
 		tab.valueNodes = nodes;
 		tab.edges = edges;
+		syncFieldTrees(tab);
 	}
 
 	/** Apply one IR node's values onto a freshly created canvas node. */
@@ -1996,7 +2467,8 @@
 		applyingGraph = true;
 		try {
 			tab.graph._nodes.slice().forEach(function (node) {
-				if (isEffectNode(node) || isMaskNode(node) || (node.properties && node.properties.kind)) {
+				if (isEffectNode(node) || isMaskNode(node) || isFieldNode(node)
+						|| (node.properties && node.properties.kind)) {
 					if (isEffectNode(node) || isMaskNode(node)) {
 						node.ignore_remove = false;
 					}
@@ -2095,6 +2567,7 @@
 					}
 				});
 			});
+			materializeFieldNodes(tab, effectNodeById);
 		} finally {
 			applyingGraph = false;
 		}
@@ -2374,6 +2847,9 @@
 					entry.source = snapshot(saved.source);
 					if (saved.mask !== undefined) {
 						entry.mask = snapshot(saved.mask);
+					}
+					if (saved.fields !== undefined) {
+						entry.fields = snapshot(saved.fields);
 					}
 					entry.effectId = saved.effectId == null ? null : String(saved.effectId);
 					entry.external = saved.external === true;
@@ -3768,6 +4244,145 @@
 		}, 0);
 	}
 
+	/** The input socket name under a graph event on an effect node, or null. */
+	function effectInputAtEvent(node, event) {
+		if (event.canvasX == null || event.canvasY == null || !node.inputs) {
+			return null;
+		}
+		for (var i = 0; i < node.inputs.length; i++) {
+			var pos = null;
+			try {
+				pos = node.getConnectionPos(true, i);
+			} catch (e) {
+				pos = null;
+			}
+			if (!pos) {
+				continue;
+			}
+			var dx = event.canvasX - pos[0];
+			var dy = event.canvasY - pos[1];
+			if (dx * dx + dy * dy < 169) {
+				return node.inputs[i].name;
+			}
+		}
+		return null;
+	}
+
+	/**
+	 * The right-click menu for a field-capable effect socket (design §13.2): the ONLY place a
+	 * field node is offered (the palette never lists field kinds). Leaf entries come from the
+	 * schema inventory, never hardcoded; "Clear" drops the authored/carried block (explicit null).
+	 */
+	function openEffectFieldMenu(node, param, event) {
+		var tab = node.__tab || activeTab();
+		var effect = tab && window.VFXIR && typeof window.VFXIR.effectById === "function"
+				? window.VFXIR.effectById(tab, node.properties.effectId) : null;
+		if (!tab || !effect) {
+			return;
+		}
+		var items = [];
+		fieldFnIds().forEach(function (fnId) {
+			items.push({ label: "Field node: " + fnId, action: function () {
+				addFieldNode(tab, node, effect, param, { field: fnId });
+			} });
+		});
+		fieldOpList().forEach(function (spec) {
+			items.push({ label: "Combine: " + spec.id, action: function () {
+				addFieldNode(tab, node, effect, param, { op: String(spec.id) });
+			} });
+		});
+		if (!items.length) {
+			items.push({ label: "No field functions in schema", enabled: false, action: function () {} });
+		}
+		var current = effect.fields && effect.fields[param];
+		if (current !== undefined && current !== null) {
+			items.push({ label: "Clear field", action: function () {
+				ensureHistoryBaseline();
+				if (!effect.fields) {
+					effect.fields = {};
+				}
+				effect.fields[param] = null;
+				commitHistory();
+				materializeGraph(tab);
+				afterSlotChange(tab);
+			} });
+		}
+		showMenu(items, event);
+	}
+
+	/**
+	 * Add a field node wired into an effect's fieldCapable socket (the gated creation path).
+	 * A leaf starts from the schema defaults; an op node adopts the socket's current tree as
+	 * its `a` child when one is linked, so "Combine" wraps instead of replacing.
+	 */
+	function addFieldNode(tab, enode, effect, param, seed) {
+		ensureHistoryBaseline();
+		var node = null;
+		if (seed && seed.op != null) {
+			node = LiteGraph.createNode("vfx/field_op");
+			if (node) {
+				node.properties.op = String(seed.op);
+				syncFieldOpInputs(node);
+			}
+		} else {
+			node = LiteGraph.createNode("vfx/field");
+			if (node) {
+				var table = fieldTable();
+				var fnId = seed && seed.field ? String(seed.field) : fieldFnIds()[0];
+				if (!fnId || !table[fnId]) {
+					status("no field functions in schema");
+					return null;
+				}
+				node.properties.fn = fnId;
+				rebuildFieldLeaf(node, window.VFXIR && typeof window.VFXIR.makeFieldLeaf === "function"
+						? window.VFXIR.makeFieldLeaf(fnId, table) : { field: fnId });
+			}
+		}
+		if (!node) {
+			return null;
+		}
+		node.__tab = tab;
+		node.properties.effectId = effect.id;
+		node.pos = [num(enode.pos[0]) - 300, num(enode.pos[1]) + 60];
+		tab.graph.add(node);
+		var slot = inputIndex(enode, param);
+		if (seed && seed.op != null && slot >= 0) {
+			// Adopt the current tree (if any) as the `a` child, then wire the op to the socket.
+			var adopted = fieldRootLink(tab, enode, slot);
+			if (adopted) {
+				var at = inputIndex(node, "a");
+				if (at >= 0) {
+					adopted.connect(0, node, at);
+				}
+			}
+		}
+		if (slot >= 0) {
+			node.connect(0, enode, slot);
+		}
+		refreshFromCanvas(tab);
+		commitHistory();
+		if (scene) {
+			scene.setDirty(true, true);
+		}
+		return node;
+	}
+
+	/** The field node currently linked into an effect socket, or null. */
+	function fieldRootLink(tab, enode, slot) {
+		var links = (tab.graph && tab.graph.links) || {};
+		var found = null;
+		Object.keys(links).forEach(function (id) {
+			var link = links[id];
+			if (link.target_id === enode.id && link.target_slot === slot) {
+				var origin = tab.graph.getNodeById(link.origin_id);
+				if (origin && isFieldNode(origin)) {
+					found = origin;
+				}
+			}
+		});
+		return found;
+	}
+
 	/** The right-click menu for a value-node field (design §15.1). */
 	function openFieldMenu(node, inputName, event) {
 		var items = [
@@ -3934,6 +4549,15 @@
 		if (childDef && childDef.inputs && typeof childDef.inputs === "object") {
 			Object.keys(childDef.inputs).forEach(function (param) {
 				var wire = childDef.inputs[param];
+				if (wire && typeof wire === "object" && (wire.field != null || wire.op != null)) {
+					// A hand-written per-pixel field block (design §13.2): carried into the IR so
+					// the field nodes show it and the compiler re-emits it verbatim.
+					if (!effect.fields) {
+						effect.fields = {};
+					}
+					effect.fields[param] = snapshot(wire);
+					return;
+				}
 				if (wire && wire.from != null && rename[String(wire.from)]) {
 					tab.edges.push({ from: rename[String(wire.from)], to: param, effect: effect.id });
 				}
@@ -6172,10 +6796,18 @@
 			};
 		}
 		// Intercept the node right-click: a value-node field shows the slot menu (replace with
-		// expr/bind, animate, disconnect), anything else keeps LiteGraph's own menu.
+		// expr/bind, animate, disconnect), a field-capable effect socket shows the field menu
+		// (design §13.2 — the only place a field node is offered), anything else keeps LiteGraph's.
 		var originalContextMenu = scene.processContextMenu;
 		scene.processContextMenu = function (node, event) {
 			var tab = activeTab();
+			if (node && tab && isEffectNode(node)) {
+				var socket = effectInputAtEvent(node, event);
+				if (socket && socket !== "in" && fieldGated(schema[node.properties.effectType], socket)) {
+					openEffectFieldMenu(node, socket, event);
+					return;
+				}
+			}
 			if (node && tab && !isEffectNode(node) && node.__kindSpec && node.__widgets) {
 				var input = fieldAtEvent(node, event);
 				if (input) {

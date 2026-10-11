@@ -1872,6 +1872,252 @@
 	}
 
 	/* ------------------------------------------------------------------ */
+	/* Per-pixel field model (design §13.2)                               */
+	/* ------------------------------------------------------------------ */
+
+	/**
+	 * The parser's field tree caps, mirroring `VFXField` (used only when the schema's additive
+	 * `field.caps` section is absent, e.g. an old bridge or the standalone selftest).
+	 */
+	var FIELD_CAP_FALLBACK = { maxDepth: 3, maxLeaves: 4, maxProgram: 8, maxCurvePoints: 8,
+		maxTextureLeaves: 1, maxParams: 16 };
+
+	/** The schema's additive `field` section (`{fns, ops, caps}`), or null. */
+	function fieldSection() {
+		var schema = root.VFXEditor && root.VFXEditor.schema;
+		var field = schema && schema.field;
+		return field && typeof field === "object" ? field : null;
+	}
+
+	/**
+	 * The field function table by id, from the schema (never hardcoded: a new `VFXFieldFn`
+	 * appears without an editor change). Each entry mirrors the Java inventory:
+	 * `{id, outputType, spatial, hasChannel, needsDepth, hasCurve, hasTexture, hasShape, params}`.
+	 *
+	 * @returns {Object<string, Object>} id -> spec
+	 */
+	function fieldFnTable() {
+		var table = {};
+		var section = fieldSection();
+		((section && section.fns) || []).forEach(function (spec) {
+			if (spec && spec.id != null) {
+				table[String(spec.id)] = spec;
+			}
+		});
+		return table;
+	}
+
+	/** The field function ids in schema order, or [] when the schema has no field section. */
+	function fieldFnIds() {
+		var section = fieldSection();
+		return section && Array.isArray(section.fns)
+				? section.fns.map(function (spec) { return String(spec.id); }) : [];
+	}
+
+	/** The field operator specs (`[{id, arity}]`) in schema order, or []. */
+	function fieldOpList() {
+		var section = fieldSection();
+		return section && Array.isArray(section.ops) ? section.ops.slice() : [];
+	}
+
+	/**
+	 * @param {string} id the operator id
+	 * @returns {number} its arity (2, or 3 for mix), or 2 when unknown
+	 */
+	function fieldOpArity(id) {
+		var ops = fieldOpList();
+		for (var i = 0; i < ops.length; i++) {
+			if (String(ops[i].id) === String(id)) {
+				return Number(ops[i].arity) === 3 ? 3 : 2;
+			}
+		}
+		return 2;
+	}
+
+	/** The schema's field caps, or the parser-mirroring fallback when absent. */
+	function fieldCaps() {
+		var section = fieldSection();
+		return section && section.caps ? section.caps : FIELD_CAP_FALLBACK;
+	}
+
+	/** Whether a value-node kind belongs to the field tree (never emitted into the value graph). */
+	function isFieldKind(kind) {
+		return kind === "field" || kind === "field_op";
+	}
+
+	/**
+	 * Whether a param offers the field affordance: its descriptor carries `fieldCapable`
+	 * (design §13.2 — the gate; only `dent:intensity` and `color_grade:tint_r` today).
+	 *
+	 * @param {Object} [descriptor] the effect's schema descriptor
+	 * @param {string} name the param name
+	 * @returns {boolean} true when a field node may be attached to the socket
+	 */
+	function fieldAffordance(descriptor, name) {
+		var params = descriptor && Array.isArray(descriptor.params) ? descriptor.params : [];
+		for (var i = 0; i < params.length; i++) {
+			if (params[i] && params[i].name === name) {
+				return params[i].fieldCapable === true;
+			}
+		}
+		return false;
+	}
+
+	/**
+	 * A fresh authored leaf for a function id: `{field, ...defaults}` with an explicit
+	 * `space` for a spatial function. The default space is `screen` (the parser would default
+	 * a missing space to `world`, which needs depth and warns off layer 0 — the editor is
+	 * explicit instead).
+	 *
+	 * @param {string} fnId the function id
+	 * @param {Object} [table] the function table (schema-driven when given)
+	 * @returns {Object} the datapack-shaped leaf
+	 */
+	function makeFieldLeaf(fnId, table) {
+		var spec = (table || fieldFnTable())[String(fnId)] || null;
+		var leaf = { field: String(fnId) };
+		if (spec && Array.isArray(spec.params)) {
+			spec.params.forEach(function (param) {
+				leaf[param[0]] = param[1];
+			});
+		}
+		if (spec && spec.spatial) {
+			leaf.space = "screen";
+		}
+		if (spec && spec.hasChannel) {
+			leaf.channel = "luminance";
+		}
+		if (spec && spec.hasTexture) {
+			leaf.texture = "minecraft:textures/block/stone.png";
+		}
+		if (spec && spec.hasShape) {
+			leaf.primitive = "circle";
+			leaf.fill = "solid";
+		}
+		if (spec && spec.hasCurve) {
+			leaf.points = [{ time: 0, value: 0 }, { time: 1, value: 1 }];
+		}
+		return leaf;
+	}
+
+	/**
+	 * The size of a field tree, mirroring the parser's cap accounting (`VFXField` adorning
+	 * leaves/depth/nodes/texture leaves; curve points are the per-leaf max, capped per leaf).
+	 *
+	 * @param {Object} field a datapack-shaped field object
+	 * @param {Object} [table] the function table
+	 * @returns {{leaves: number, depth: number, nodes: number, textureLeaves: number, curvePoints: number}}
+	 */
+	function fieldStats(field, table) {
+		var spec = table || fieldFnTable();
+		function walk(node) {
+			if (!node || typeof node !== "object") {
+				return { leaves: 0, depth: 0, nodes: 0, textureLeaves: 0, curvePoints: 0 };
+			}
+			if (node.op != null) {
+				var acc = { leaves: 0, depth: 0, nodes: 1, textureLeaves: 0, curvePoints: 0 };
+				[node.a, node.b, node.factor].forEach(function (child) {
+					if (child == null) {
+						return;
+					}
+					var sub = walk(child);
+					acc.leaves += sub.leaves;
+					acc.depth = Math.max(acc.depth, sub.depth);
+					acc.nodes += sub.nodes;
+					acc.textureLeaves += sub.textureLeaves;
+					acc.curvePoints = Math.max(acc.curvePoints, sub.curvePoints);
+				});
+				acc.depth += 1;
+				return acc;
+			}
+			if (node.field == null) {
+				return { leaves: 0, depth: 0, nodes: 0, textureLeaves: 0, curvePoints: 0 };
+			}
+			var fn = spec[String(node.field)] || null;
+			return {
+				leaves: 1,
+				depth: 1,
+				nodes: 1,
+				textureLeaves: fn && fn.hasTexture ? 1 : 0,
+				curvePoints: Array.isArray(node.points) ? node.points.length : 0
+			};
+		}
+		return walk(field);
+	}
+
+	/**
+	 * Whether any part of the tree reads the scene depth: a `needsDepth` function, or a
+	 * spatial function evaluated in `world` space (mirrors `VFXField`'s `needsDepth`; an absent
+	 * space defaults to `world` for a spatial function, exactly like the parser).
+	 *
+	 * @param {Object} field a datapack-shaped field object
+	 * @param {Object} [table] the function table
+	 * @returns {boolean} true when the field needs depth
+	 */
+	function fieldNeedsDepth(field, table) {
+		var spec = table || fieldFnTable();
+		var found = false;
+		(function walk(node) {
+			if (!node || typeof node !== "object" || found) {
+				return;
+			}
+			if (node.op != null) {
+				walk(node.a);
+				walk(node.b);
+				walk(node.factor);
+				return;
+			}
+			if (node.field == null) {
+				return;
+			}
+			var fn = spec[String(node.field)] || null;
+			if (!fn) {
+				return;
+			}
+			if (fn.needsDepth) {
+				found = true;
+				return;
+			}
+			if (fn.spatial && String(node.space || "world") === "world") {
+				found = true;
+			}
+		})(field);
+		return found;
+	}
+
+	/**
+	 * The cap/layer warnings for one authored field (design §13.2): a record per violated cap
+	 * plus at most one depth/layer-0 record (a depth/world field is only valid on screen
+	 * layer 0, else neutral — warned once per definition by the caller aggregating per param).
+	 *
+	 * @param {string} param the input name (for the record)
+	 * @param {Object} field a datapack-shaped field object
+	 * @param {number} screenLayer the effect's screen layer
+	 * @param {Object} [caps] the cap map
+	 * @param {Object} [table] the function table
+	 * @returns {Array<Object>} `{param, reason, ...}` records (empty when clean)
+	 */
+	function fieldCapWarnings(param, field, screenLayer, caps, table) {
+		var limits = caps || fieldCaps();
+		var stats = fieldStats(field, table);
+		var out = [];
+		function cap(reason, value, limit) {
+			if (isFiniteNumber(limit) && value > limit) {
+				out.push({ param: param, reason: reason, value: value, limit: limit });
+			}
+		}
+		cap("cap-depth", stats.depth, Number(limits.maxDepth));
+		cap("cap-leaves", stats.leaves, Number(limits.maxLeaves));
+		cap("cap-program", stats.nodes, Number(limits.maxProgram));
+		cap("cap-texture", stats.textureLeaves, Number(limits.maxTextureLeaves));
+		cap("cap-curve", stats.curvePoints, Number(limits.maxCurvePoints));
+		if (fieldNeedsDepth(field, table) && Number(screenLayer) !== 0) {
+			out.push({ param: param, reason: "layer-0", screenLayer: screenLayer });
+		}
+		return out;
+	}
+
+	/* ------------------------------------------------------------------ */
 	/* Pack import index (lazy open)                                       */
 	/* ------------------------------------------------------------------ */
 
@@ -2138,7 +2384,20 @@
 		maskRightCompositionInvalid: maskRightCompositionInvalid,
 		maskNodeState: maskNodeState,
 		maskFromNodeState: maskFromNodeState,
-		maskWriteSlot: maskWriteSlot
+		maskWriteSlot: maskWriteSlot,
+		FIELD_CAP_FALLBACK: FIELD_CAP_FALLBACK,
+		fieldSection: fieldSection,
+		fieldFnTable: fieldFnTable,
+		fieldFnIds: fieldFnIds,
+		fieldOpList: fieldOpList,
+		fieldOpArity: fieldOpArity,
+		fieldCaps: fieldCaps,
+		isFieldKind: isFieldKind,
+		fieldAffordance: fieldAffordance,
+		makeFieldLeaf: makeFieldLeaf,
+		fieldStats: fieldStats,
+		fieldNeedsDepth: fieldNeedsDepth,
+		fieldCapWarnings: fieldCapWarnings
 	};
 
 	root.VFXIR = api;

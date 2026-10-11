@@ -170,9 +170,12 @@
 		return null;
 	}
 
-	/** Whether `value` is a graph input reference `{ from: id }`. */
-	function isRefValue(value) {
-		return value != null && typeof value === "object" && value.from != null;
+	/** Whether a value-node kind belongs to the field tree (never in the value graph). */
+	function isFieldKind(kind) {
+		if (root.VFXIR && typeof root.VFXIR.isFieldKind === "function") {
+			return root.VFXIR.isFieldKind(kind);
+		}
+		return kind === "field" || kind === "field_op";
 	}
 
 	/** Whether a name is a reserved mask slot (`mask.p<N>.*`), which never lands in `params`/`inputs`. */
@@ -535,9 +538,16 @@
 		skip = skip || {};
 		var nodes = Array.isArray(tab.valueNodes) ? tab.valueNodes : [];
 		var ids = {};
+		var kinds = {};
 		var graphNodes = [];
 		var meta = {};
 		nodes.forEach(function (node) {
+			kinds[node.id] = node.kind;
+			if (isFieldKind(node.kind)) {
+				// Field-tree nodes are a separate kind set (design §13.2): the field compiler
+				// owns them, so they never land in the value `graph` block.
+				return;
+			}
 			if (skip[node.id]) {
 				return;
 			}
@@ -573,6 +583,11 @@
 				return;
 			}
 			if (skip[edge.from] || skip[edge.to]) {
+				return;
+			}
+			if (isFieldKind(kinds[edge.from]) || isFieldKind(kinds[edge.to])) {
+				// A wire touching a field node belongs to the field tree (design §13.2),
+				// never to the value graph or its `inputs` block.
 				return;
 			}
 			if (ids[edge.to]) {
@@ -697,6 +712,73 @@
 	}
 
 	/**
+	 * Serialise the effect's authored per-pixel fields (design §13.2). Each entry of the IR map
+	 * `effect.fields` (`param -> {field}|{op}`) is written into `def.inputs[param]`; a value-graph
+	 * wire to the same param loses (one `inputs` entry only) with a warning. Caps come from the
+	 * schema and violations warn, never refuse. A depth/world field off screen layer 0 warns
+	 * once per param (the engine falls back to neutral there).
+	 *
+	 * <p>An effect that never authored fields keeps the hand-written field blocks its imported
+	 * source carried (clone pass-through): the compiler used to drop every `inputs` field entry,
+	 * so without this an AUTHOR/export round-trip lost them. An explicit `null` entry (or
+	 * `fields: null`) removes the carried block.
+	 *
+	 * @param {Object} tab the owning tab
+	 * @param {Object|null} effect the effect entry (carries `fields`), or null for a legacy tab
+	 * @param {Object} def the definition being built (mutated)
+	 * @param {Object|null} sourceDef the imported definition to round-trip, or null
+	 * @param {Array} warnings collects field records (cap/layer/over-wire)
+	 */
+	function compileFields(tab, effect, def, sourceDef, warnings) {
+		var vfxir = root.VFXIR;
+		var authored = effect && effect.fields && typeof effect.fields === "object" ? effect.fields : undefined;
+		if (authored === undefined && !(sourceDef && sourceDef.inputs)) {
+			return;
+		}
+		var srcInputs = sourceDef && sourceDef.inputs && typeof sourceDef.inputs === "object"
+				&& !Array.isArray(sourceDef.inputs) ? sourceDef.inputs : {};
+		var merged = {};
+		Object.keys(srcInputs).forEach(function (name) {
+			var entry = srcInputs[name];
+			if (entry && typeof entry === "object" && (entry.field != null || entry.op != null)) {
+				merged[name] = clone(entry);
+			}
+		});
+		if (authored) {
+			Object.keys(authored).forEach(function (name) {
+				if (authored[name] == null) {
+					delete merged[name];
+				} else {
+					merged[name] = clone(authored[name]);
+				}
+			});
+		} else if (effect && effect.fields === null) {
+			Object.keys(merged).forEach(function (name) {
+				delete merged[name];
+			});
+		}
+		var names = Object.keys(merged);
+		if (!names.length) {
+			return;
+		}
+		if (!def.inputs || typeof def.inputs !== "object") {
+			def.inputs = {};
+		}
+		var layer = screenLayerOf(effect);
+		names.forEach(function (name) {
+			if (def.inputs[name] && def.inputs[name].from != null) {
+				warnings.push({ param: name, reason: "field-over-wire", from: def.inputs[name].from });
+			}
+			def.inputs[name] = merged[name];
+			if (vfxir && typeof vfxir.fieldCapWarnings === "function") {
+				vfxir.fieldCapWarnings(name, merged[name], layer).forEach(function (record) {
+					warnings.push(record);
+				});
+			}
+		});
+	}
+
+	/**
 	 * Compile one effect (a child of a chain, or the tab's only effect) into a datapack definition.
 	 *
 	 * @param {Object} tab the owning tab (timing + value graph live here)
@@ -759,6 +841,8 @@
 		compileMask(tab, effect, effectId, multi, def);
 		// Optional structural fields (design §13.4): positions/region, entity_selector, sound/sound_pos.
 		compileStructural(effect, def);
+		// Optional per-pixel fields (design §13.2): authored on the IR, or carried by the clone.
+		compileFields(tab, effect, def, sourceDef, warnings);
 		return JSON.stringify(def, null, "\t");
 	}
 

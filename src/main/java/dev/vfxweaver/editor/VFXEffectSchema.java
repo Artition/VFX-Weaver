@@ -384,6 +384,7 @@ public final class VFXEffectSchema {
 			root.put(descriptor.type().getName(), descriptorJson);
 		}
 		root.put("bind", bindSection());
+		root.put("field", fieldSection());
 		final JsonElement tree = GSON.toJsonTree(root);
 		nullifyNonFinite(tree);
 		return OUTPUT_GSON.toJson(tree);
@@ -418,6 +419,28 @@ public final class VFXEffectSchema {
 		bind.put("kinds", kinds);
 		bind.put("sources", sources);
 		return bind;
+	}
+
+	/**
+	 * Builds the {@code field} section of the schema (design §13.2), derived directly from
+	 * {@link dev.vfxweaver.field.VFXFieldFn}, {@link dev.vfxweaver.field.VFXFieldOp} and
+	 * {@link dev.vfxweaver.field.VFXField} so the editor's field-node inventory and caps cannot
+	 * drift from the datapack parser.
+	 *
+	 * <p>Shape: {@code { "fns": [ { "id", "outputType", "spatial", "hasChannel", "needsDepth",
+	 * "hasCurve", "hasTexture", "hasShape", "params" }, ... ], "ops": [ { "id", "arity" }, ... ],
+	 * "caps": { "maxDepth", "maxLeaves", "maxProgram", "maxCurvePoints", "maxTextureLeaves",
+	 * "maxParams" } }}. Additive: it sits beside the per-effect keys and changes none of them.
+	 * Per-param field-capability rides on each {@code VFXParamDescriptor.fieldCapable}.
+	 *
+	 * @return the {@code field} map
+	 */
+	private static Map<String, Object> fieldSection() {
+		final Map<String, Object> field = new LinkedHashMap<>();
+		field.put("fns", VFXStructuralDescriptor.fieldFunctions());
+		field.put("ops", VFXStructuralDescriptor.fieldOperators());
+		field.put("caps", VFXStructuralDescriptor.fieldCaps());
+		return field;
 	}
 
 	/**
