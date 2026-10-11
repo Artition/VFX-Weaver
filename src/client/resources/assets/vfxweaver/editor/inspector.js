@@ -1014,6 +1014,126 @@
 	}
 
 	/* ------------------------------------------------------------------ */
+	/* Schema-driven parameter groups (sky_pattern and kin)              */
+	/* ------------------------------------------------------------------ */
+
+	/** Collapsed parameter-group sections, keyed by `type + "/" + group`; survives re-renders. */
+	var paramGroupCollapsed = {};
+
+	/** The display group of a param descriptor (`""` when ungrouped). */
+	function paramGroupOf(param) {
+		return param && typeof param.group === "string" && param.group ? param.group : "";
+	}
+
+	/**
+	 * Partition a schema param list into the collapsible sections the inspector renders: one
+	 * section per non-empty `group`, in first-seen (schema) order, holding that group's params
+	 * in schema order; params without a group share one trailing default section. Pure: no DOM,
+	 * no per-type branch — grouping metadata lives in Java (`ParamGroups`).
+	 *
+	 * @param {Array<Object>} params the `VFXParamDescriptor[]` of one effect type
+	 * @returns {Array<{group: string, label: string, params: Array<Object>}>} the sections
+	 */
+	function paramSections(params) {
+		var out = [];
+		var byGroup = {};
+		(Array.isArray(params) ? params : []).forEach(function (param) {
+			if (!param || !param.name) {
+				return;
+			}
+			var group = paramGroupOf(param);
+			if (!Object.prototype.hasOwnProperty.call(byGroup, group)) {
+				byGroup[group] = { group: group, label: group || "Parameters", params: [] };
+				out.push(byGroup[group]);
+			}
+			byGroup[group].params.push(param);
+		});
+		return out;
+	}
+
+	/**
+	 * Render one section's rows, collapsing vector triples through `VFXIR.paramGroups` exactly
+	 * as the flat inspector does (a vector triple shares one param group by construction, so a
+	 * section never splits one).
+	 */
+	function sectionRows(tab, list, onEdit, ctx) {
+		var box = el("div", { class: "vfx-param-group-body" });
+		var rows;
+		if (root.VFXIR && typeof root.VFXIR.paramGroups === "function") {
+			rows = root.VFXIR.paramGroups(list);
+		} else {
+			rows = list.map(function (param) {
+				return { group: null, name: param.name, components: [param] };
+			});
+		}
+		rows.forEach(function (row) {
+			if (row.group) {
+				box.appendChild(renderGroup(tab, row, onEdit));
+				return;
+			}
+			var param = row.components[0];
+			var driven = ctx && typeof ctx.drivenFor === "function"
+					? ctx.drivenFor(param.name) : drivenSource(tab, param.name);
+			var live = ctx && typeof ctx.liveFor === "function" ? ctx.liveFor(param.name) : null;
+			box.appendChild(render(tab, param, onEdit, driven, live));
+		});
+		return box;
+	}
+
+	/**
+	 * Render every param of an effect descriptor in collapsible schema-driven group sections
+	 * (one section per `group`, plus a default section for ungrouped params). An effect type
+	 * without group metadata renders its rows flat, exactly as the single-param inspector does.
+	 * Canvas sockets are untouched (they stay flat) and groups are presentation-only: nothing
+	 * here reaches the compiler.
+	 *
+	 * @param {Object} tab the selected `VFXIR.Tab`
+	 * @param {Object} descriptor the effect's schema descriptor
+	 * @param {function} [onEdit] called `(name, spec, previous)` after every edit
+	 * @param {Object} [ctx] optional `{ drivenFor(name), liveFor(name) }` overrides
+	 * @returns {HTMLElement} the grouped inspector element
+	 */
+	function renderParamGroups(tab, descriptor, onEdit, ctx) {
+		var params = descriptor && Array.isArray(descriptor.params) ? descriptor.params : [];
+		var sections = paramSections(params);
+		var wrap = el("div", { class: "vfx-param-groups" });
+		if (sections.length === 1 && !sections[0].group) {
+			wrap.appendChild(sectionRows(tab, sections[0].params, onEdit, ctx));
+			return wrap;
+		}
+		var typeKey = tab && tab.type ? tab.type : "";
+		sections.forEach(function (section) {
+			var key = typeKey + "/" + section.group;
+			var collapsed = Boolean(paramGroupCollapsed[key]);
+			var toggle = el("button", { type: "button", class: "vfx-param-group-toggle",
+				text: collapsed ? "\u25B8" : "\u25BE", title: "Show the params in this group" });
+			var header = el("div", { class: "vfx-param-group-head" }, [
+				toggle,
+				el("span", { class: "vfx-inspect-name", text: section.label }),
+				el("span", { class: "vfx-param-group-count",
+					text: section.params.length + (section.params.length === 1 ? " param" : " params") })
+			]);
+			var body = el("div", { class: "vfx-param-group-content" });
+			function refresh() {
+				body.textContent = "";
+				if (!collapsed) {
+					body.appendChild(sectionRows(tab, section.params, onEdit, ctx));
+				}
+			}
+			toggle.addEventListener("click", function (event) {
+				event.preventDefault();
+				collapsed = !collapsed;
+				paramGroupCollapsed[key] = collapsed;
+				toggle.textContent = collapsed ? "\u25B8" : "\u25BE";
+				refresh();
+			});
+			refresh();
+			wrap.appendChild(el("div", { class: "vfx-param-group" }, [header, body]));
+		});
+		return wrap;
+	}
+
+	/* ------------------------------------------------------------------ */
 	/* Non-post structural sub-editors (design §13.4)                      */
 	/* ------------------------------------------------------------------ */
 
@@ -1792,6 +1912,8 @@
 	var api = {
 		render: render,
 		renderGroup: renderGroup,
+		paramSections: paramSections,
+		renderParamGroups: renderParamGroups,
 		renderMask: renderMask,
 		renderStructural: renderStructural,
 		renderTiming: renderTiming,

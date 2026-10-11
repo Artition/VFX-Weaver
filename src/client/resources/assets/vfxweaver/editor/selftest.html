@@ -477,6 +477,38 @@ window.__vfxSelftest = function () {
 		eq(flat[0].group, null, "an ungrouped row has no group");
 	});
 
+	test("(w2) param groups: grouped render order matches schema order", function () {
+		var Insp = window.VFXInspector;
+		ok(Insp && typeof Insp.paramSections === "function", "inspector.paramSections is exposed");
+		var sections = Insp.paramSections([
+			{ name: "anchor_yaw", group: "anchor" },
+			{ name: "tile_scale", group: "tile" },
+			{ name: "color_r", group: "color" },
+			{ name: "intensity", group: "" },
+			{ name: "anchor_pitch", group: "anchor" }
+		]);
+		eq(sections.length, 4, "four sections");
+		eq(sections[0].group, "anchor", "first section follows the first-seen group");
+		eq(sections[0].params.length, 2, "anchor holds both members");
+		eq(sections[0].params[0].name, "anchor_yaw", "schema order inside the group");
+		eq(sections[0].params[1].name, "anchor_pitch", "late member joins its group");
+		eq(sections[1].group, "tile", "second section");
+		eq(sections[2].group, "color", "third section");
+		eq(sections[3].group, "", "ungrouped params share one default section");
+		eq(sections[3].params[0].name, "intensity", "default section member");
+	});
+
+	test("(w3) param groups: an ungrouped effect renders one section", function () {
+		var sections = window.VFXInspector.paramSections([
+			{ name: "radius", group: "" },
+			{ name: "intensity", group: "" }
+		]);
+		eq(sections.length, 1, "one default section");
+		eq(sections[0].group, "", "the section is the default one");
+		eq(sections[0].params.length, 2, "every param is in it, in schema order");
+		eq(sections[0].params[1].name, "intensity", "schema order kept");
+	});
+
 	test("(x) curve bezier: both endpoints, monotone in time, linear is identity", function () {
 		var b = VFXIR.easingToBezier("ease_out_cubic");
 		eq(VFXIR.bezierY(b, 0), 0, "y at u=0 is 0");

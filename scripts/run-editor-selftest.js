@@ -2,7 +2,7 @@
  * Headless runner for the editor's in-page selftest.
  *
  * Extracts the `window.__vfxSelftest` function from `selftest.html` (between the
- * `SELFTEST:START`/`SELFTEST:END` markers), loads ir.js + compiler.js into this
+ * `SELFTEST:START`/`SELFTEST:END` markers), loads ir.js + compiler.js + inspector.js into this
  * Node process the same way the browser page does, runs every test and exits
  * non-zero on the first failure. No dependencies.
  *
@@ -17,11 +17,13 @@ var vm = require("vm");
 var editorDir = path.join(__dirname, "..", "src", "client", "resources", "assets",
 		"vfxweaver", "editor");
 
-// ir.js/compiler.js pick `window` first and fall back to globalThis; aliasing window to
-// globalThis makes them write VFXIR/VFXCompiler exactly where the selftest reads them.
+// ir.js/compiler.js/inspector.js pick `window` first and fall back to globalThis; aliasing
+// window to globalThis makes them write VFXIR/VFXCompiler/VFXInspector exactly where the
+// selftest reads them. inspector.js is load-safe headlessly (it only touches `document`
+// inside render calls, which the DOM-free selftest never makes).
 global.window = global;
 
-["ir.js", "compiler.js"].forEach(function (file) {
+["ir.js", "compiler.js", "inspector.js"].forEach(function (file) {
 	var source = fs.readFileSync(path.join(editorDir, file), "utf8");
 	vm.runInThisContext(source, { filename: file });
 });

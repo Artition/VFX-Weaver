@@ -220,7 +220,7 @@ public final class VFXEffectSchema {
 				min,
 				max,
 				0.0F,
-				"",
+				ParamGroups.groupOf(type, name),
 				animatable,
 				animatable,
 				false,
@@ -234,6 +234,8 @@ public final class VFXEffectSchema {
 
 	/**
 	 * Builds the descriptor of one post-processing effect from its ordered parameter names.
+	 * Each parameter's display group comes from {@link ParamGroups} (presentation-only; the
+	 * compiler never reads it).
 	 *
 	 * @param type  the effect type
 	 * @param names the parameter names, in {@code Config} order with any field input appended
@@ -252,7 +254,7 @@ public final class VFXEffectSchema {
 				bounded ? 0.0F : Float.NEGATIVE_INFINITY,
 				bounded ? 64.0F : Float.POSITIVE_INFINITY,
 				0.0F,
-				"",
+				ParamGroups.groupOf(type, name),
 				true,
 				true,
 				fieldCapable,
