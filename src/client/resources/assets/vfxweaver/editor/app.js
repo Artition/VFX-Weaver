@@ -5818,15 +5818,35 @@
 		}
 		status("importing " + shortPath(path) + "…");
 		var tPost0 = importNow();
+		var settled = false;
+		var timer = setTimeout(function () {
+			// The POST (or the synchronous open below) is still stuck: say so instead of leaving
+			// "importing…" forever. A late response still processes normally when it arrives.
+			if (!settled) {
+				status("importing " + shortPath(path) + "… (still waiting after 15s)");
+			}
+		}, 15000);
 		bridge.post("/import", { path: path }).then(function (result) {
 			var tPost1 = importNow();
 			if (!result || result.ok === false) {
+				settled = true;
+				clearTimeout(timer);
 				status("import failed: " + ((result && (result.detail || result.error)) || "no response"));
 				return;
 			}
 			var namespace = result.namespace || "";
-			var created = openPack(namespace, result.effects || {}, result.sidecar);
+			var created;
+			try {
+				created = openPack(namespace, result.effects || {}, result.sidecar);
+			} catch (error) {
+				settled = true;
+				clearTimeout(timer);
+				status("import failed: " + (error && error.message ? error.message : String(error)));
+				return;
+			}
 			var tDone = importNow();
+			settled = true;
+			clearTimeout(timer);
 			pushRecent(path);
 			// Import-timing probe: where the wall time went (server read vs browser build), so a
 			// slow import reports its hot stage instead of just hanging on "importing…".
@@ -5843,6 +5863,12 @@
 				status("opened " + (pack ? pack.count : 0) + " effects"
 						+ (namespace ? " from " + namespace : "") + " — choose one to edit" + probe);
 			}
+		}).catch(function (error) {
+			// Any synchronous throw the try/catch above missed must still surface: "importing…"
+			// must never stick forever with an empty project and no explanation.
+			settled = true;
+			clearTimeout(timer);
+			status("import failed: " + (error && error.message ? error.message : String(error)));
 		});
 	}
 
