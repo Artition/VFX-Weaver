@@ -99,13 +99,25 @@ final class EditorPreviewPlan {
 
 	/**
 	 * The child's rank in the explicit order list; keys not listed (or with no order) sort last so
-	 * a missing entry degrades to the previous order rather than to a random one.
+	 * a missing entry degrades to the previous order rather than to a random one. A nested leaf
+	 * (`<parent>/<i>/...`, Phase 2) composites with its parent key, so an expanded collection
+	 * keeps its chain position.
 	 *
 	 * @param order the node keys in compositing order (lowest first)
 	 * @param key   the child key
 	 */
 	static int orderIndex(final List<String> order, final String key) {
 		final int index = order.indexOf(key);
-		return index < 0 ? Integer.MAX_VALUE : index;
+		if (index >= 0) {
+			return index;
+		}
+		final int slash = key == null ? -1 : key.indexOf('/');
+		if (slash > 0) {
+			final int parent = order.indexOf(key.substring(0, slash));
+			if (parent >= 0) {
+				return parent;
+			}
+		}
+		return Integer.MAX_VALUE;
 	}
 }
