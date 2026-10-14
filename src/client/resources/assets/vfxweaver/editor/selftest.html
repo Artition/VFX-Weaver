@@ -258,6 +258,77 @@ window.__vfxSelftest = function () {
 		eq(panned[1], 2.5, "panned y = (3 + 2) * 0.5");
 	});
 
+	test("(l2) autoLayout never overlaps, grows the chain and keeps user spots", function () {
+		// A fresh import: a 2-effect chain, one driver, a mask root with two leaves —
+		// nothing carries a position.
+		function freshImport() {
+			return [
+				{ id: "fx:a", w: 240, h: 200, pos: null, kind: "effect", order: 0 },
+				{ id: "fx:b", w: 240, h: 200, pos: null, kind: "effect", order: 1 },
+				{ id: "v:x", w: 180, h: 120, pos: null, kind: "value", parent: "fx:a" },
+				{ id: "mask:a", w: 200, h: 150, pos: null, kind: "mask", parent: "fx:a" },
+				{ id: "leaf:a:0", w: 190, h: 160, pos: null, kind: "leaf",
+					parent: "fx:a", order: 0 },
+				{ id: "leaf:a:1", w: 190, h: 160, pos: null, kind: "leaf",
+					parent: "fx:a", order: 1 }
+			];
+		}
+		function overlaps(a, b) {
+			return a[0] < b[0] + b[2] && b[0] < a[0] + a[2]
+					&& a[1] < b[1] + b[3] && b[1] < a[1] + a[3];
+		}
+		function checkClean(items, placed, message) {
+			var boxes = {};
+			items.forEach(function (item) {
+				var at = placed[item.id];
+				ok(at && at.length === 2, message + ": " + item.id + " placed");
+				boxes[item.id] = [at[0], at[1],
+					item.w || 240, item.h || 120];
+			});
+			var ids = Object.keys(boxes);
+			for (var i = 0; i < ids.length; i++) {
+				for (var j = i + 1; j < ids.length; j++) {
+					ok(!overlaps(boxes[ids[i]], boxes[ids[j]]),
+							message + ": " + ids[i] + " clear of " + ids[j]);
+				}
+			}
+			return boxes;
+		}
+		var placed = VFXIR.autoLayout(freshImport());
+		var boxes = checkClean(freshImport(), placed, "fresh import");
+		ok(placed["fx:b"][0] > placed["fx:a"][0], "chain x grows in chain order");
+		eq(placed["fx:a"][1], placed["fx:b"][1], "the flow line stays straight");
+		ok(placed["v:x"][1] + 120 <= placed["fx:a"][1], "the driver sits above its effect");
+		ok(placed["leaf:a:1"][0] > placed["leaf:a:0"][0], "leaves run in operand order");
+		ok(placed["mask:a"][1] >= placed["fx:a"][1] + 200, "the mask stack sits below");
+		// Determinism: the same input twice is the same output.
+		eq(JSON.stringify(VFXIR.autoLayout(freshImport())), JSON.stringify(placed),
+				"two runs agree");
+		// User spots never move, and newcomers land clear of them.
+		var user = freshImport();
+		user[0].pos = [1000, 700];
+		user[2].pos = [50, 500];
+		var kept = VFXIR.autoLayout(user);
+		eq(kept["fx:a"][0], 1000, "user effect x kept");
+		eq(kept["fx:a"][1], 700, "user effect y kept");
+		eq(kept["v:x"][0], 50, "user driver x kept");
+		eq(kept["v:x"][1], 500, "user driver y kept");
+		checkClean(user, kept, "mixed user/auto");
+		ok(kept["fx:b"][0] > 1000 || kept["fx:b"][1] !== 700, "auto nodes leave user spots");
+		// A driver on a free value node lands above it, not in the orphan zone: the
+		// shallowest free value is placed first, so its driver finds the consumer.
+		var chain = [
+			{ id: "fx:a", w: 240, h: 200, pos: null, kind: "effect", order: 0 },
+			{ id: "v:mid", w: 180, h: 120, pos: null, kind: "value", parent: "fx:a" },
+			{ id: "v:top", w: 180, h: 120, pos: null, kind: "value", parent: "v:mid" }
+		];
+		var stacked = VFXIR.autoLayout(chain);
+		checkClean(chain, stacked, "driver on a free value");
+		eq(stacked["v:top"][0], stacked["v:mid"][0], "the driver centers over its consumer");
+		ok(stacked["v:top"][1] + 120 <= stacked["v:mid"][1],
+				"the driver sits above its consumer, not in the orphan zone");
+	});
+
 	test("(m) validNamespace accepts [a-z0-9_.-]+ only (design §15.6)", function () {
 		ok(VFXIR.validNamespace("vfx_demos"), "lowercase + underscore");
 		ok(VFXIR.validNamespace("my.pack-1"), "dot and dash allowed");
@@ -1023,6 +1094,79 @@ window.__vfxSelftest = function () {
 		eq(store.count(), 1, "a repeated reject stays one entry");
 	});
 
+	test("(P11) authored-root compile keeps authored timings and addresses the root", function () {
+		var tab = new VFXIR.Tab("show", null);
+		tab.duration = 100;
+		tab.loop = false;
+		tab.persistent = true;
+		tab.fade_ticks = 6;
+		var e0 = tab.addEffect("blur");
+		e0.delay = 10;
+		e0.duration = 20;
+		e0.loop = true;
+		e0.fade_ticks = 5;
+		var e1 = tab.addEffect("pixelate");
+		e1.duration = 30;
+		var set = window.VFXCompiler.compileAuthoredSet(tab);
+		eq(set.root, "vfxweaver:editor_preview/show/root", "root id under the preview namespace");
+		eq(set.meta.root, set.root, "meta names the root to play");
+		eq(set.meta.tabDuration, 100, "authored tab duration in meta");
+		eq(set.meta.loop, false, "authored loop in meta");
+		var root = parse(set.definitions[set.root]);
+		eq(root.type, "collection", "a chain authors a collection root");
+		eq(root.duration, 100, "root keeps the authored duration");
+		eq(root.loop, false, "root keeps the authored loop (never forced)");
+		eq(root.persistent, true, "root keeps authored persistent");
+		eq(root.fade_ticks, 6, "root keeps authored fade_ticks (never zeroed)");
+		eq(root.effects.length, 2, "two authored children");
+		eq(root.effects[0].delay, 10, "child delay kept");
+		var id0 = "vfxweaver:editor_preview/show/authored-" + window.VFXCompiler.nodeUuid(e0);
+		var id1 = "vfxweaver:editor_preview/show/authored-" + window.VFXCompiler.nodeUuid(e1);
+		eq(root.effects[0].effect, id0, "child 0 referenced by preview id");
+		eq(root.effects[1].effect, id1, "child 1 referenced by preview id");
+		var child0 = parse(set.definitions[id0]);
+		eq(child0.loop, true, "child keeps its authored loop (never forced off)");
+		eq(child0.fade_ticks, 5, "child keeps its authored fade (never zeroed)");
+		eq(Object.keys(set.definitions).length, 3, "root plus one def per chain node");
+		// Keyed by node, never by position: a reorder keeps the same ids on both sides.
+		tab.effects.reverse();
+		var moved = parse(window.VFXCompiler.compileAuthoredSet(tab).definitions[
+				"vfxweaver:editor_preview/show/root"]);
+		eq(moved.effects[0].effect, id1, "a reorder keeps the moved child's id");
+		eq(moved.effects[1].effect, id0, "a reorder keeps the other child's id");
+	});
+
+	test("(P12) an authored single compiles the flat root with authored timings", function () {
+		var tab = new VFXIR.Tab("show", null);
+		tab.duration = 25;
+		tab.loop = true;
+		tab.fade_ticks = 7;
+		tab.addEffect("blur");
+		var set = window.VFXCompiler.compileAuthoredSet(tab);
+		eq(Object.keys(set.definitions).length, 1, "one root definition");
+		var root = parse(set.definitions[set.root]);
+		eq(root.loop, true, "authored loop kept");
+		eq(root.fade_ticks, 7, "authored fade kept");
+		eq(root.duration, 25, "authored duration kept");
+		var empty = new VFXIR.Tab("show", null);
+		var cleared = window.VFXCompiler.compileAuthoredSet(empty, { empty: true });
+		eq(Object.keys(cleared.definitions).length, 0, "an emptied tab clears the preview");
+		eq(cleared.meta.root, null, "no root when empty");
+	});
+
+	test("(P13) the badge shows the preview mode", function () {
+		eq(window.VFXCompiler.previewStatus({ revision: 4, playing: true, tick: 3,
+				mode: "authored" }, 60).text,
+				"rev 4 → live ● · Authored", "authored suffix on live");
+		eq(window.VFXCompiler.previewStatus({ revision: 4, mode: "exact" }, 60).text,
+				"rev 4 → in game · Exact", "exact suffix on idle");
+		eq(window.VFXCompiler.previewStatus({ revision: 4, playing: true, tick: 3 }, 60).text,
+				"rev 4 → live ●", "no suffix without a mode (existing strings unchanged)");
+		eq(window.VFXCompiler.previewStatus({ revision: 4, playing: false, ended: true, tick: 60,
+				mode: "authored" }, 60).text,
+				"ended @ 60/60 — ▶ replay · Authored", "mode survives the ended text");
+	});
+
 	test("(VFX1) bind field set is derived from the schema (single source of truth)", function () {
 		window.VFXEditor = window.VFXEditor || {};
 		window.VFXEditor.schema = {
@@ -1243,33 +1387,55 @@ window.__vfxSelftest = function () {
 			JSON.stringify(mask), "node state round-trips");
 	});
 
-	test("(MASK9) structural mask wires leave no trace in edges or emit", function () {
-		// The canvas Mask/MaskLeaf nodes carry no IR id and no structural ports: the only
-		// mask edges are value-node wires into `mask.p<N>.*` sockets. A structural endpoint
-		// (`mask`/`leaf`) must never appear in `tab.edges` or the compiled definition.
-		var tab = new VFXIR.Tab("blur", "blur");
-		tab.params.radius = VFXIR.ParamSpec.constant(0);
-		tab.effect().mask = { op: "union", a: { shape: "circle" }, b: { shape: "rect" } };
-		tab.valueNodes = [{ id: "v", kind: "constant", inputs: { value: 2 } }];
-		tab.edges = [{ from: "v", to: "mask.p0.p0" }];
+	test("(MASK9) operand wires set the tree order and never leak into edges or emit", function () {
+		// The canvas leaf→operand wires carry no IR id: the only mask edges are value-node
+		// wires into `mask.p<N>.*` sockets. The port order rides `effect.maskWires`
+		// (operand -> leaf index); the compiler folds it left, so a rewire reorders the
+		// tree and an empty operand fails the whole mask.
+		function wiredTab(wires) {
+			var tab = new VFXIR.Tab("blur", "blur");
+			tab.params.radius = VFXIR.ParamSpec.constant(0);
+			tab.effect().mask = { op: "union", a: { shape: "circle" }, b: { shape: "rect" } };
+			tab.valueNodes = [{ id: "v", kind: "constant", inputs: { value: 2 } }];
+			tab.edges = [{ from: "v", to: "mask.p0.p0" }];
+			if (wires !== undefined) {
+				tab.effect().maskWires = wires;
+			}
+			return tab;
+		}
+		var legacy = parse(compileTab(wiredTab()));
 		var known = { v: true };
-		tab.edges.forEach(function (edge) {
+		wiredTab().edges.forEach(function (edge) {
 			ok(known[edge.from] === true, "edge source " + edge.from + " is a value node");
 			ok(edge.to !== "mask" && edge.to !== "leaf" && edge.to !== "in"
-					&& edge.to !== "out", "no structural endpoint: " + edge.to);
+					&& edge.to !== "out" && edge.to.indexOf("operand") !== 0,
+					"no structural endpoint: " + edge.to);
 		});
-		var def = parse(compileTab(tab));
-		eq(def.mask.op, "union", "union op kept");
-		eq(def.mask.b.shape, "rect", "leaf b shape kept");
-		eq(def.mask.a.radius.from, "v", "the wired slot lands in leaf a");
-		ok(!def.inputs || (!Object.prototype.hasOwnProperty.call(def.inputs, "mask")
-				&& !Object.prototype.hasOwnProperty.call(def.inputs, "leaf")),
+		// Migration (no wiring recorded) emits the authored order, byte-identical.
+		var migrated = parse(compileTab(wiredTab([0, 1])));
+		eq(JSON.stringify(migrated), JSON.stringify(legacy), "identity wiring keeps the legacy emit");
+		eq(migrated.mask.a.shape, "circle", "leaf a first");
+		eq(migrated.mask.b.shape, "rect", "leaf b second");
+		eq(migrated.mask.a.radius.from, "v", "the wired slot lands in leaf a");
+		// Swapping the port wires swaps the fold (matters past commutative ops).
+		var swapped = parse(compileTab(wiredTab([1, 0])));
+		eq(swapped.mask.op, "union", "op kept");
+		eq(swapped.mask.a.shape, "rect", "operand 0 now feeds rect");
+		eq(swapped.mask.b.shape, "circle", "operand 1 now feeds circle");
+		eq(swapped.mask.b.radius.from, "v", "the wired slot follows its leaf");
+		// An empty operand fails the whole mask; the effect still compiles.
+		var skipped = parse(compileTab(wiredTab([0, null])));
+		eq(skipped.mask, undefined, "unwired operand skips the mask");
+		eq(skipped.type, legacy.type, "the effect itself still compiles");
+		// The wiring never leaks into the datapack.
+		[legacy, migrated, swapped, skipped].forEach(function (def) {
+			ok(JSON.stringify(def).indexOf("maskWires") < 0, "no maskWires key in the emit");
+		});
+		ok(!skipped.inputs || (!Object.prototype.hasOwnProperty.call(skipped.inputs, "mask")
+				&& !Object.prototype.hasOwnProperty.call(skipped.inputs, "leaf")),
 				"no structural key in inputs");
-		(def.graph.edges || []).forEach(function (edge) {
-			ok(known[edge.from] === true && known[edge.to] === true,
-					"graph edge stays between value nodes");
-		});
-		eq(JSON.stringify(parse(compileTab(tab))), JSON.stringify(def), "emit is deterministic");
+		eq(JSON.stringify(parse(compileTab(wiredTab([0, 1])))), JSON.stringify(migrated),
+				"emit is deterministic");
 	});
 
 	test("(MASK7) node-authored masks never right-nest; a right-nested import is flagged", function () {
@@ -1871,6 +2037,90 @@ window.__vfxSelftest = function () {
 			sections: 1, schemaGroups: 1, anomalies: [] });
 		ok(text.indexOf("ports: flow=2 number=5 mask=1 field=3 macro=0 bind=0 expr=0 time=0") >= 0,
 				"ports line in table order with zeros");
+	});
+
+	test("(REF1) a reference plays the target tab's child definition", function () {
+		var b = new VFXIR.Tab("ns:b", null);
+		var be = b.addEffect("blur");
+		var a = new VFXIR.Tab("ns:a", null);
+		a.addEffect("pixelate");
+		var ref = a.addReference("ns:b");
+		var set = window.VFXCompiler.compilePreviewSet(a, { tabs: [a, b] });
+		eq(set.problems.length, 0, "no problems, got " + JSON.stringify(set.problems));
+		var child = null;
+		set.meta.children.forEach(function (entry) {
+			if (entry.key === window.VFXCompiler.nodeUuid(ref)) {
+				child = entry;
+			}
+		});
+		ok(child, "the reference node has a child entry");
+		var targetId = window.VFXCompiler.previewDefId(window.VFXCompiler.slugOf(b),
+				window.VFXCompiler.nodeUuid(be));
+		eq(child.def, targetId, "the child points at the target tab's definition");
+		ok(set.definitions[targetId], "the target definition is emitted");
+	});
+
+	test("(REF2) reordering a chain with a reference keeps the same ids", function () {
+		var b = new VFXIR.Tab("ns:b", null);
+		b.addEffect("blur");
+		var a = new VFXIR.Tab("ns:a", null);
+		a.addEffect("pixelate");
+		a.addReference("ns:b");
+		a.addEffect("fov_modifier");
+		function ids() {
+			var set = window.VFXCompiler.compileAuthoredSet(a, { tabs: [a, b] });
+			eq(set.problems.length, 0, "no problems, got " + JSON.stringify(set.problems));
+			var root = parse(set.definitions[set.root]);
+			return root.effects.map(function (entry) { return entry.effect; }).sort();
+		}
+		var first = ids();
+		var head = a.effects.splice(0, 1)[0];
+		a.effects.push(head);
+		eq(JSON.stringify(ids()), JSON.stringify(first), "the same ids after a reorder");
+	});
+
+	test("(REF3) a reference chain deeper than 4 names the tab", function () {
+		var tabs = [];
+		["a", "b", "c", "d", "e", "f"].forEach(function (name) {
+			tabs.push(new VFXIR.Tab("ns:" + name, null));
+		});
+		for (var i = 0; i < 5; i++) {
+			tabs[i].addReference("ns:" + ["b", "c", "d", "e", "f"][i]);
+		}
+		tabs[5].addReference("ghost");
+		var set = window.VFXCompiler.compilePreviewSet(tabs[0], { tabs: tabs });
+		eq(set.meta.children.length, 0, "the too-deep node plays nothing");
+		eq(set.problems.length, 1, "one problem, got " + JSON.stringify(set.problems));
+		ok(set.problems[0].message.indexOf("'a'") >= 0, "the error names the tab");
+	});
+
+	test("(REF4) a self reference is a problems error and plays nothing", function () {
+		var a = new VFXIR.Tab("ns:a", null);
+		a.addEffect("blur");
+		var ref = a.addReference("ns:a");
+		var set = window.VFXCompiler.compilePreviewSet(a, { tabs: [a] });
+		var keys = set.meta.children.map(function (entry) { return entry.key; });
+		ok(keys.indexOf(window.VFXCompiler.nodeUuid(ref)) < 0, "the cyclic node is skipped");
+		eq(set.problems.length, 1, "one error, got " + JSON.stringify(set.problems));
+		eq(set.problems[0].severity, "error", "it is an error");
+		var cycles = VFXIR.referenceProblems([a]);
+		eq(cycles.length, 1, "the panel reports the cycle");
+		ok(cycles[0].message.indexOf("Remove the reference node") >= 0, "the error names the fix");
+	});
+
+	test("(REF5) a dangling external id names the id", function () {
+		var b = new VFXIR.Tab("ns:b", null);
+		var be = b.addEffect("ghost_effect");
+		be.external = true;
+		be.effectId = "ghost:thing";
+		var a = new VFXIR.Tab("ns:a", null);
+		a.addEffect("blur");
+		a.addEffect("pixelate");
+		a.addReference("ns:b");
+		var set = window.VFXCompiler.compileAuthoredSet(a,
+				{ tabs: [a, b], installedIds: ["keep:me"] });
+		eq(set.problems.length, 1, "one problem, got " + JSON.stringify(set.problems));
+		ok(set.problems[0].message.indexOf("ghost:thing") >= 0, "the error names the id");
 	});
 
 	return results;

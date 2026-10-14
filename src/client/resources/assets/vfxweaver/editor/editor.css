@@ -12,6 +12,27 @@
 	--vfx-text: #d2d2da;
 	--vfx-text-dim: #8b8b98;
 	--vfx-accent: #4f9dff;
+	/* Focus owns yellow: no other state uses it. */
+	--vfx-focus: #ffd257;
+	--vfx-danger: #ff8a8a;
+	--vfx-warn: #ffb454;
+	--vfx-ok: #6dd36d;
+	--vfx-live: #b6f0b6;
+	--vfx-violet: #b48cff;
+	--vfx-canvas: #222222;
+	--vfx-on-accent: #ffffff;
+	--vfx-font-ui: "Segoe UI", Roboto, Tahoma, sans-serif;
+	--vfx-font-mono: Consolas, "Courier New", monospace;
+	--vfx-sp-1: 4px;
+	--vfx-sp-2: 8px;
+	--vfx-sp-3: 12px;
+}
+
+/* The one keyboard-focus style: a 2px outline + 1px offset, everywhere. */
+:focus-visible,
+.lgraphcanvas:focus {
+	outline: 2px solid var(--vfx-focus);
+	outline-offset: 1px;
 }
 
 html,
@@ -28,7 +49,7 @@ body {
 	overflow: hidden;
 	background: var(--vfx-bg);
 	color: var(--vfx-text);
-	font-family: "Segoe UI", Roboto, Tahoma, sans-serif;
+	font-family: var(--vfx-font-ui);
 	font-size: 13px;
 }
 
@@ -38,13 +59,17 @@ body {
 	background: #5a1d1d;
 	color: #ffd7d7;
 	border-bottom: 1px solid #8a3030;
-	font-size: 14px;
+	font-size: 13px;
+}
+
+#vfx-banner::before {
+	content: "⚠ ";
 }
 
 /*
- * Keep the banner as a zero-height grid row while hidden: the body grid has five tracks
- * (banner, top bar, main, timeline splitter, timeline) and a display:none item would shift
- * the rest onto the wrong rows.
+ * Keep the banner as a zero-height grid row while hidden: the body grid has six tracks
+ * (banner, top bar, main, timeline splitter, timeline, problems) and a display:none item
+ * would shift the rest onto the wrong rows.
  */
 #vfx-banner[hidden] {
 	display: block;
@@ -63,6 +88,12 @@ body {
 	height: 38px;
 	background: var(--vfx-panel);
 	border-bottom: 1px solid var(--vfx-border);
+	overflow: hidden;
+}
+
+#vfx-topbar > * {
+	min-width: 0;
+	flex-shrink: 0;
 }
 
 #vfx-title {
@@ -117,7 +148,7 @@ body {
 }
 
 .vfx-tab .vfx-close:hover {
-	color: #ff8a8a;
+	color: var(--vfx-danger);
 }
 
 /* Non-interactive "N more" marker shown when a big tab set is windowed. */
@@ -210,6 +241,9 @@ body {
 #vfx-status {
 	color: var(--vfx-text-dim);
 	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	flex: 1 1 auto;
 }
 
 /* App shell top bar: File menu, project name, tabs, transport, revision badge (design §15.6). */
@@ -361,7 +395,7 @@ body {
 .vfx-menu-head {
 	padding: 6px 9px 2px;
 	color: var(--vfx-text-dim);
-	font-size: 10px;
+	font-size: 11px;
 	text-transform: uppercase;
 	letter-spacing: 0.08em;
 }
@@ -407,13 +441,13 @@ body {
 	background: transparent;
 	color: var(--vfx-text-dim);
 	border: 0;
-	font-size: 18px;
+	font-size: 16px;
 	line-height: 1;
 	cursor: pointer;
 }
 
 .vfx-modal-close:hover {
-	color: #ff8a8a;
+	color: var(--vfx-danger);
 }
 
 .vfx-modal-body {
@@ -434,8 +468,8 @@ body {
 .vfx-dialog-field {
 	display: flex;
 	align-items: center;
-	gap: 10px;
-	margin-bottom: 10px;
+	gap: var(--vfx-sp-2);
+	margin-bottom: var(--vfx-sp-2);
 	color: var(--vfx-text-dim);
 }
 
@@ -689,7 +723,6 @@ body {
 	align-items: baseline;
 	gap: 6px;
 	cursor: pointer;
-}
 	padding: 2px 0;
 }
 
@@ -799,8 +832,8 @@ body {
 	display: flex;
 	align-items: center;
 	justify-content: space-between;
-	gap: 8px;
-	margin: 4px 0;
+	gap: var(--vfx-sp-2);
+	margin: var(--vfx-sp-1) 0;
 }
 
 .vfx-field > span {
@@ -862,11 +895,33 @@ body {
 
 .vfx-vec {
 	display: flex;
+	align-items: center;
 	gap: 3px;
 }
 
 .vfx-vec .vfx-num {
 	width: 56px;
+}
+
+.vfx-vec-cell {
+	display: inline-flex;
+	align-items: center;
+	gap: 2px;
+}
+
+.vfx-vec-cell > span {
+	font-size: 11px;
+	color: var(--vfx-text-dim);
+}
+
+.vfx-swatch {
+	width: 26px;
+	height: 20px;
+	padding: 0;
+	border: 1px solid var(--vfx-border);
+	border-radius: 3px;
+	background: var(--vfx-panel-alt);
+	cursor: pointer;
 }
 
 .vfx-pos .vfx-vec {
@@ -880,7 +935,7 @@ body {
 	border: 1px solid var(--vfx-border);
 	border-radius: 4px;
 	padding: 4px 6px;
-	font-family: Consolas, "Courier New", monospace;
+	font-family: var(--vfx-font-mono);
 	font-size: 12px;
 	resize: vertical;
 }
@@ -917,7 +972,7 @@ body {
 }
 
 .vfx-key-remove:hover {
-	color: #ff8a8a;
+	color: var(--vfx-danger);
 }
 
 .vfx-add-key {
@@ -961,11 +1016,9 @@ body {
 }
 
 .vfx-split:hover,
-.vfx-split.active,
-.vfx-split:focus-visible {
+.vfx-split.active {
 	background: var(--vfx-accent);
 	opacity: 0.55;
-	outline: none;
 }
 
 .vfx-split-v {
@@ -1003,8 +1056,8 @@ body {
 .vfx-tl-transport {
 	display: flex;
 	align-items: center;
-	gap: 6px;
-	padding: 5px 8px;
+	gap: var(--vfx-sp-2);
+	padding: var(--vfx-sp-1) var(--vfx-sp-2);
 	border-bottom: 1px solid var(--vfx-border);
 	flex: 0 0 auto;
 }
@@ -1074,7 +1127,7 @@ body {
 .vfx-tl-tick {
 	position: absolute;
 	top: 2px;
-	font-size: 10px;
+	font-size: 11px;
 	color: var(--vfx-text-dim);
 	border-left: 1px solid var(--vfx-border);
 	padding-left: 3px;
@@ -1132,8 +1185,8 @@ body {
 
 .vfx-tl-key:hover,
 .vfx-tl-key.active {
-	background: #ffd257;
-	border-color: #fff;
+	background: var(--vfx-accent);
+	border-color: var(--vfx-on-accent);
 }
 
 .vfx-tl-playhead {
@@ -1147,7 +1200,38 @@ body {
 	z-index: 1;
 }
 
+/* LiteGraph contrast overrides (never edit litegraph.css): canvas menus use the UI
+   stack and panel text tones so entries stay readable on the dark menu. */
+.lgraphcanvas {
+	font-family: var(--vfx-font-ui);
+}
+.litegraph.litecontextmenu,
+.litegraph.graphdialog,
+.litegraph.litesearchbox {
+	font-family: var(--vfx-font-ui);
+}
+.litegraph .litemenu-entry,
+.litegraph .litemenu-title {
+	color: var(--vfx-text);
+}
+.litegraph .litemenu-entry.disabled {
+	color: var(--vfx-text-dim);
+}
+.litegraph .litesearchbox .helper {
+	color: var(--vfx-text-dim);
+}
+
 /* v1.1 quick wins --------------------------------------------------- */
+
+/* Reduced motion: no transitions or animations, canvas JS drawing is unaffected. */
+@media (prefers-reduced-motion: reduce) {
+	*,
+	*::before,
+	*::after {
+		transition: none !important;
+		animation: none !important;
+	}
+}
 
 /* Empty-tab placeholder (design §15.2, fix 1): shown over the canvas until an effect is picked. */
 .vfx-empty {
@@ -1205,13 +1289,12 @@ body {
 	box-sizing: border-box;
 	margin: 0;
 	padding: 0 6px;
-	background: #222;
+	background: var(--vfx-canvas);
 	color: #ddd;
 	border: none;
 	border-radius: 999px;
-	font-family: Arial, sans-serif;
+	font-family: var(--vfx-font-ui);
 	text-align: right;
-	outline: none;
 }
 
 /* Shortcut help overlay (?). */
@@ -1283,6 +1366,12 @@ body {
 	pointer-events: none;
 }
 
+/* Loop is on: the duration fill reads as the loop bracket. */
+.vfx-tl-duration-fill.loop {
+	background: rgba(79, 157, 255, 0.45);
+	border-right: 1px solid var(--vfx-accent);
+}
+
 .vfx-tl-duration-handle {
 	position: absolute;
 	top: 0;
@@ -1303,7 +1392,7 @@ body {
 
 .vfx-tl-key.vfx-tl-clamped {
 	border-style: dashed;
-	border-color: #ffb454;
+	border-color: var(--vfx-warn);
 }
 
 /* Curve editor (design §15.4, fix #13): the visual per-segment bezier view. */
@@ -1345,7 +1434,7 @@ body {
 
 .vfx-tl-axis-label {
 	fill: var(--vfx-text-dim);
-	font-size: 10px;
+	font-size: 11px;
 	pointer-events: none;
 }
 
@@ -1357,15 +1446,15 @@ body {
 }
 
 .vfx-tl-handle-line {
-	stroke: #ffd257;
+	stroke: var(--vfx-accent);
 	stroke-width: 1;
 	opacity: 0.6;
 	pointer-events: none;
 }
 
 .vfx-tl-handle {
-	fill: #ffd257;
-	stroke: #6b5417;
+	fill: var(--vfx-accent);
+	stroke: #cfe4ff;
 	stroke-width: 1;
 	cursor: grab;
 }
@@ -1379,8 +1468,8 @@ body {
 
 .vfx-tl-curve-key:hover,
 .vfx-tl-curve-key.active {
-	fill: #ffd257;
-	stroke: #fff;
+	fill: var(--vfx-accent);
+	stroke: var(--vfx-on-accent);
 }
 
 .vfx-tl-curve-key.vfx-tl-out {
@@ -1398,7 +1487,7 @@ body {
 	border: 1px solid var(--vfx-border);
 	border-radius: 3px;
 	font: inherit;
-	font-size: 10px;
+	font-size: 11px;
 	cursor: pointer;
 }
 
@@ -1408,7 +1497,7 @@ body {
 
 /* Driven (wired) slots are read-only (design §15.1, fix 5). */
 .vfx-param.driven {
-	color: #ffd257;
+	color: #cfe0ff;
 }
 
 .vfx-driven-badge {
@@ -1443,7 +1532,7 @@ body {
 
 /* Slot model (design §15.1): state badge, diamond animate, multiplier badge, context menu. */
 .vfx-state-badge {
-	font-size: 10px;
+	font-size: 11px;
 	text-transform: uppercase;
 	letter-spacing: 0.06em;
 	color: var(--vfx-text-dim);
@@ -1453,8 +1542,8 @@ body {
 }
 
 .vfx-state-badge.track {
-	color: #ffd257;
-	border-color: #6a5a20;
+	color: var(--vfx-accent);
+	border-color: var(--vfx-accent);
 }
 
 .vfx-state-badge.driven {
@@ -1479,12 +1568,12 @@ body {
 }
 
 .vfx-diamond.active {
-	color: #ffd257;
-	border-color: #6a5a20;
+	color: var(--vfx-accent);
+	border-color: var(--vfx-accent);
 }
 
 .vfx-multiply-badge {
-	color: #b48cff;
+	color: var(--vfx-violet);
 	border: 1px solid #4a3a70;
 	border-radius: 3px;
 	padding: 0 4px;
@@ -1576,16 +1665,16 @@ body {
 	cursor: grab;
 }
 .vfx-layer.active {
-	border-color: #4f9dff;
+	border-color: var(--vfx-accent);
 }
 .vfx-layer.muted {
 	opacity: 0.5;
 }
 .vfx-layer.solo {
-	box-shadow: inset 0 0 0 1px #ffb454;
+	box-shadow: inset 0 0 0 1px var(--vfx-warn);
 }
 .vfx-layer.dragover {
-	border-color: #6dd36d;
+	border-color: var(--vfx-ok);
 }
 .vfx-layer-name {
 	flex: 1 1 auto;
@@ -1615,9 +1704,15 @@ body {
 	width: 46px;
 	font: inherit;
 	color: var(--vfx-text);
-	background: #1b1b1b;
+	background: var(--vfx-bg);
 	border: 1px solid var(--vfx-border);
 	border-radius: 3px;
+}
+
+.vfx-layer-tag {
+	flex: 0 0 auto;
+	font-size: 11px;
+	color: var(--vfx-text-dim);
 }
 
 /* --- Timeline gantt rows (P6, design 15.4) ----------------------------------------- */
@@ -1649,11 +1744,11 @@ body {
 	position: absolute;
 	top: 0;
 	height: 100%;
-	background: #4f9dff;
+	background: var(--vfx-accent);
 	border-radius: 3px;
 }
 .vfx-tl-gantt-bar.active {
-	background: #6dd36d;
+	background: var(--vfx-ok);
 }
 .vfx-tl-gantt-bar.muted {
 	background: #7f8aa3;
@@ -1663,7 +1758,7 @@ body {
 /* --- Preview v2: live badge, toasts, layer groups (design 16) ---------------------- */
 .vfx-badge.live {
 	border-color: #3f7a3f;
-	color: #b6f0b6;
+	color: var(--vfx-live);
 }
 .vfx-badge.ended {
 	border-color: #8a6a30;
@@ -1681,8 +1776,8 @@ body {
 	border: 1px solid #3f7a3f;
 	border-radius: 8px;
 	background: #1d2f1d;
-	color: #b6f0b6;
-	font-size: 10px;
+	color: var(--vfx-live);
+	font-size: 11px;
 	line-height: 15px;
 	white-space: nowrap;
 }
@@ -1763,7 +1858,7 @@ body {
 .vfx-problem-sev {
 	flex: 0 0 auto;
 	width: 38px;
-	font-size: 10px;
+	font-size: 11px;
 	text-transform: uppercase;
 	letter-spacing: 0.04em;
 }
@@ -1802,7 +1897,7 @@ body {
 .vfx-mask-leaf {
 	margin: 6px 0;
 	padding: 6px;
-	border: 1px solid var(--vfx-line, #333);
+	border: 1px solid var(--vfx-border);
 	border-radius: 4px;
 }
 .vfx-mask-leaf.deferred {
@@ -1848,7 +1943,7 @@ body {
 .vfx-struct-entry {
 	margin: 2px 0;
 	padding: 6px;
-	border: 1px solid var(--vfx-line, #333);
+	border: 1px solid var(--vfx-border);
 	border-radius: 4px;
 	display: flex;
 	flex-wrap: wrap;

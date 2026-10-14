@@ -197,7 +197,10 @@
 			});
 			return select;
 		}
-		if (kind === "COLOR_RGB" || kind === "POSITION") {
+		if (kind === "COLOR_RGB") {
+			return vectorFor(value, onValue, ["R", "G", "B"], onValue);
+		}
+		if (kind === "POSITION") {
 			return vectorFor(value, onValue);
 		}
 		return numberFor(param, value, onValue);
@@ -251,11 +254,24 @@
 		return wrap;
 	}
 
-	/** Three number fields for a COLOR_RGB / POSITION vector; the value is a 3-array. */
-	function vectorFor(value, onValue) {
+	/** Three labelled number fields for a COLOR_RGB / POSITION vector; the value is a 3-array. */
+	function vectorFor(value, onValue, channels, onPickColor) {
 		var wrap = el("div", { class: "vfx-vec" });
+		var labels = Array.isArray(channels) && channels.length === 3
+				? channels : ["X", "Y", "Z"];
 		var current = Array.isArray(value) ? value : [0, 0, 0];
+		if (typeof onPickColor === "function") {
+			var swatch = el("input", { type: "color", class: "vfx-swatch" });
+			swatch.value = rgbToHex(current);
+			swatch.title = "Pick a color";
+			swatch.addEventListener("input", function () {
+				onPickColor(hexToRgb(swatch.value));
+			});
+			wrap.appendChild(swatch);
+		}
 		[0, 1, 2].forEach(function (index) {
+			var cell = el("label", { class: "vfx-vec-cell" });
+			cell.appendChild(el("span", { text: labels[index] }));
 			var field = el("input", {
 				type: "number",
 				class: "vfx-num",
@@ -266,9 +282,31 @@
 				out[index] = num(field.value);
 				onValue(out);
 			});
-			wrap.appendChild(field);
+			cell.appendChild(field);
+			wrap.appendChild(cell);
 		});
 		return wrap;
+	}
+
+	/** A 3-float color as a `#rrggbb` swatch value (clamped to [0, 1]). */
+	function rgbToHex(rgb) {
+		function channel(value) {
+			var byte = Math.max(0, Math.min(255, Math.round(num(value) * 255)));
+			var hex = byte.toString(16);
+			return hex.length === 1 ? "0" + hex : hex;
+		}
+		return "#" + channel(rgb[0]) + channel(rgb[1]) + channel(rgb[2]);
+	}
+
+	/** A `#rrggbb` swatch value as 3 floats in [0, 1]. */
+	function hexToRgb(hex) {
+		var clean = String(hex || "").replace(/^#/, "");
+		if (!/^[0-9a-fA-F]{6}$/.test(clean)) {
+			return [0, 0, 0];
+		}
+		return [parseInt(clean.substring(0, 2), 16) / 255,
+			parseInt(clean.substring(2, 4), 16) / 255,
+			parseInt(clean.substring(4, 6), 16) / 255];
 	}
 
 	/** An optional number row: an empty field removes the key from the spec. */
@@ -278,7 +316,7 @@
 			class: "vfx-num",
 			value: target[key] == null ? "" : String(target[key])
 		});
-		input.placeholder = "-";
+		input.placeholder = "(unset)";
 		input.addEventListener("input", function () {
 			if (input.value === "") {
 				delete target[key];
@@ -631,9 +669,9 @@
 			var box = el("div", { class: "vfx-body vfx-driven" });
 			box.appendChild(el("div", { class: "vfx-field" }, [
 				el("span", { text: "value" }),
-				el("span", { class: "vfx-driven-value", text: String(num(currentValue())) })
+				el("span", { class: "vfx-driven-value", text: "—" })
 			]));
-			box.appendChild(el("span", { class: "vfx-driven-badge", text: "driven by " + driven }));
+			box.appendChild(el("span", { class: "vfx-driven-badge", text: "From " + driven }));
 			var actions = el("div", { class: "vfx-slot-actions" });
 			if (root.VFXEditor && typeof root.VFXEditor.focusNode === "function") {
 				var go = el("button", { type: "button", class: "vfx-driven-go", text: "go to node" });
@@ -675,7 +713,8 @@
 				}
 				refresh();
 			});
-			box.appendChild(el("label", { class: "vfx-field" }, [el("span", { text: "× multiply" }), check]));
+			box.appendChild(el("label", { class: "vfx-field", title: "has × multiplier" },
+					[el("span", { text: "× multiply" }), check]));
 			if (current) {
 				// The bind form mutates `current` in place; commit without re-rendering so the
 				// focused field keeps its caret.
@@ -720,16 +759,15 @@
 			}));
 		}
 		if (rawSpec().multiply) {
-			header.appendChild(el("span", { class: "vfx-multiply-badge", text: "×" }));
+			header.appendChild(el("span", { class: "vfx-multiply-badge", text: "×",
+				title: "has × multiplier" }));
 		}
 		if (stateName !== "driven" && param.animatable !== false && slot) {
 			var diamond = el("button", {
 				type: "button",
 				class: "vfx-diamond" + (stateName === "track" ? " active" : ""),
 				text: stateName === "track" ? "◆" : "◇",
-				title: stateName === "track"
-						? "Add a key at the playhead"
-						: "Animate: add a key at the playhead"
+				title: "Animate — key at playhead (K)"
 			});
 			diamond.addEventListener("click", function (event) {
 				event.preventDefault();
@@ -773,7 +811,7 @@
 			var state = slotState(tab, name, driven);
 			var items = [];
 			if (state !== "driven") {
-				items.push({ label: "Animate (key at playhead)",
+				items.push({ label: "Animate — key at playhead (K)",
 					action: function () { slot.animate(tab, name, currentValue()); } });
 			}
 			if (param.bindable !== false) {
@@ -787,7 +825,7 @@
 					action: function () { slot.removeDriver(tab, name); } });
 			}
 			if (state === "track") {
-				items.push({ label: "Clear track", action: function () { slot.clearTrack(tab, name); } });
+				items.push({ label: "Delete track", action: function () { slot.clearTrack(tab, name); } });
 				items.push({ label: "Show as curve node",
 					action: function () { slot.showAsCurve(tab, name); } });
 			}
@@ -957,7 +995,8 @@
 				applyAll(function (name) { slot.setMultiply(tab, name, check.checked); });
 			});
 			body.appendChild(el("div", { class: "vfx-multiply" }, [
-				el("label", { class: "vfx-field" }, [el("span", { text: "\u00D7 multiply" }), check])
+				el("label", { class: "vfx-field", title: "has × multiplier" },
+					[el("span", { text: "× multiply" }), check])
 			]));
 			content.appendChild(body);
 
@@ -1698,10 +1737,19 @@
 		function leafRow(leafIndex) {
 			var leaf = leaves[leafIndex];
 			var deferred = vfxir.maskShapeDeferred(leaf.shape, table);
+			// Number by the wired operand when known, else by chain order.
+			var shown = leafIndex;
+			if (effect && Array.isArray(effect.maskWires)) {
+				effect.maskWires.forEach(function (li, op) {
+					if (li === leafIndex) {
+						shown = op;
+					}
+				});
+			}
 			var row = el("div", { class: "vfx-mask-leaf" + (deferred ? " deferred" : "") });
 			var head = el("div", { class: "vfx-mask-leaf-head" }, [
 				el("span", { class: "vfx-mask-leaf-title",
-					text: "leaf " + leafIndex + " · " + String(leaf.shape) })
+					text: "leaf " + shown + " · " + String(leaf.shape) })
 			]);
 			var go = el("button", { type: "button", class: "vfx-layer-btn",
 				text: "go to leaf", title: "Centre the canvas on this leaf's node" });
@@ -1711,6 +1759,15 @@
 			head.appendChild(go);
 			var remove = el("button", { type: "button", class: "vfx-layer-btn", text: "\u00D7", title: "Remove leaf" });
 			remove.addEventListener("click", function () {
+				if (root.VFXEditor && root.VFXEditor.maskWire
+						&& typeof root.VFXEditor.maskWire.afterRemove === "function") {
+					try {
+						effect.maskWires = root.VFXEditor.maskWire.afterRemove(
+								effect.maskWires, leafIndex, leaves.length - 1);
+					} catch (e) {
+						// mapping only: the rebuild falls back to chain order
+					}
+				}
 				leaves.splice(leafIndex, 1);
 				if (ops.length > Math.max(0, leaves.length - 1)) {
 					ops.length = Math.max(0, leaves.length - 1);
@@ -1765,7 +1822,7 @@
 		wrap.appendChild(actions);
 
 		wrap.appendChild(el("p", { class: "vfx-mask-note",
-			text: "Leaf numbers live on the canvas MaskLeaf nodes (mask.p<N>.*); wire a value node into a leaf field, or right-click it, to drive one." }));
+			text: "Leaf numbers live on the canvas MaskLeaf nodes (mask.p<N>.*); wire each leaf output into a Mask operand on the root, and a value node into a leaf field (or right-click it) to drive one." }));
 		return wrap;
 	}
 

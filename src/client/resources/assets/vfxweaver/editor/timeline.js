@@ -259,6 +259,9 @@
 	 * the revision counter. `dirty` is set by every structural edit and cleared by a successful
 	 * sync, so an SSE reconnect only recompiles when the graph actually changed. `lastSet` caches
 	 * the last built definition set, so a clean reconnect can re-send it without recompiling.
+	 * `mode` is the preview projection (`exact` = per-child instances, `authored` = the collection
+	 * root with its real timing); every sync stamps it into `meta.mode`, so a reconnect reasserts
+	 * the mode along with the set.
 	 */
 	var preview = {
 		revision: 0,
@@ -270,6 +273,7 @@
 		syncing: false,
 		dirty: true,
 		lastSet: null,
+		mode: "exact",
 		context: { anchor: "player", pos: null, targets: [] }
 	};
 
@@ -291,9 +295,14 @@
 		return project && project.active >= 0 ? project.tabs[project.active] : null;
 	}
 
-	/** Surface a preview failure in the status line and the console (never silently). */
+	/** Surface a preview failure in the status line, the problems panel and the console. */
 	function previewError(message) {
 		surface("preview: " + message);
+		var panels = problemsApi();
+		if (panels) {
+			panels.add({ key: "error:preview", severity: "error",
+				message: "preview: " + message });
+		}
 		if (root.console && root.console.error) {
 			root.console.error("[vfx preview] " + message);
 		}
@@ -391,17 +400,25 @@
 			return Promise.resolve(null);
 		}
 		preview.tab = target;
+		var authored = preview.mode === "authored" && typeof root.VFXCompiler.compileAuthoredSet === "function";
 		var set;
 		try {
-			set = root.VFXCompiler.compilePreviewSet(target,
-					{ context: preview.context, empty: forceEmpty === true });
+			set = (authored ? root.VFXCompiler.compileAuthoredSet : root.VFXCompiler.compilePreviewSet)(
+					target, { context: preview.context, empty: forceEmpty === true });
 		} catch (e) {
 			previewError("compile failed: " + (e && e.message ? e.message : e));
 			return Promise.resolve(null);
 		}
+		if (set && set.meta) {
+			set.meta.mode = preview.mode;
+		}
 		reportCompileWarnings(target);
 		preview.syncing = true;
 		preview.lastSet = set;
+		var panels = problemsApi();
+		if (panels) {
+			panels.clear("error:preview");
+		}
 		var empty = forceEmpty === true || !(target.effects && target.effects.length);
 		return post("/preview/sync", {
 			revision: nextRevision(),
@@ -450,6 +467,9 @@
 		if (!set) {
 			return Promise.resolve(null);
 		}
+		if (set.meta) {
+			set.meta.mode = preview.mode;
+		}
 		preview.syncing = true;
 		return post("/preview/sync", {
 			revision: nextRevision(),
@@ -473,7 +493,9 @@
 			if (result && result.ok === false && result.error === "stale_revision") {
 				return previewResync(previewTab()).then(function () {
 					body.revision = preview.revision;
-					return post("/preview/transport", body);
+					return post("/preview/transport", body).then(function (retry) {
+						return handlePreviewResult(retry, previewTab());
+					});
 				});
 			}
 			return handlePreviewResult(result, previewTab());
@@ -550,6 +572,33 @@
 	}
 
 	/** The preview session, exposed for the shell (layers, status badge). */
+
+	/**
+	 * Switch the preview projection (Authored phase 1): `exact` replays every child looped and
+	 * fadeless, `authored` plays the collection root with its real timing. A switch is a full
+	 * re-sync (the definition payloads differ per mode) with `meta.mode` stamped, so the game
+	 * follows atomically and a later reconnect reasserts the same mode.
+	 *
+	 * @param {string} mode `exact` or `authored` (anything else reads as `exact`)
+	 * @returns {Promise<Object|null>} the sync response
+	 */
+	function previewSetMode(mode) {
+		preview.mode = mode === "authored" ? "authored" : "exact";
+		return previewSyncNow(previewTab());
+	}
+
+	/** The mode toggle buttons of the last-rendered transport bar (null before the first render). */
+	var modeButtons = null;
+
+	/** Refresh the Exact/Authored toggle highlight from the session mode (no-op before first render). */
+	function paintPreviewMode() {
+		if (!modeButtons) {
+			return;
+		}
+		modeButtons.exact.classList.toggle("active", preview.mode !== "authored");
+		modeButtons.authored.classList.toggle("active", preview.mode === "authored");
+	}
+
 	var previewApi = {
 		sync: previewSync,
 		resync: previewResync,
@@ -560,6 +609,7 @@
 		transport: previewTransport,
 		viewstate: previewViewstate,
 		param: previewParam,
+		setMode: previewSetMode,
 		state: function () {
 			return preview;
 		},
@@ -684,8 +734,8 @@
 	}
 
 	/**
-	 * Scrub: move the local playhead only. The pause-while-dragging / restore-after gesture lives in
-	 * {@link beginScrub}; the actual game seek is a debounced transport call.
+	 * Scrub: move the local playhead only. The scrub-equals-pause gesture lives in
+	 * {@link beginScrub}; the game seek + hold is sent on release.
 	 */
 	function scrub(tab, ticks) {
 		if (!tab) {
@@ -984,7 +1034,7 @@
 					ui.easing.focus();
 				}
 			} },
-			{ label: "Remove whole track", action: function () { removeTrack(tab, name); } }
+			{ label: "Delete track", action: function () { removeTrack(tab, name); } }
 		], event);
 	}
 
@@ -1201,9 +1251,13 @@
 			dot.classList.add("active");
 		}
 		if (ui && ui.easing) {
-			ui.easing.value = key.easing || "linear";
+			var easingName = typeof key.easing === "string" ? key.easing
+					: (root.VFXIR && typeof root.VFXIR.snapEasing === "function"
+							? root.VFXIR.snapEasing(key.easing) : null);
+			ui.easing.value = easingName || (key.easing == null ? "linear" : "__custom__");
 			ui.easingRow.hidden = false;
-			ui.easingLabel.textContent = name + " @" + Math.round(Number(key.time) || 0);
+			ui.easingLabel.textContent = name + " @" + Math.round(Number(key.time) || 0)
+					+ " · " + easingTitle(key.easing);
 		}
 	}
 
@@ -1235,7 +1289,8 @@
 				positionKey(dot, name, key);
 				markOutOfRange(dot, descriptor, key.value);
 				if (ui && ui.easingRow && !ui.easingRow.hidden && ui.easingLabel) {
-					ui.easingLabel.textContent = name + " @" + key.time;
+					ui.easingLabel.textContent = name + " @" + key.time
+							+ " · " + easingTitle(key.easing);
 				}
 			}
 
@@ -1296,8 +1351,9 @@
 	}
 
 	/**
-	 * Scrub the playhead by dragging the track background (never a key dot or a lane). The preview
-	 * is paused for the drag (so the game holds its frame) and restored on release (design §16.6).
+	 * Scrub the playhead by dragging the track background (never a key dot or a lane). A scrub
+	 * equals pause (design §16.9 P1): the preview is paused for the drag (so the game holds its
+	 * frame) and stays paused on release — resume is via play/replay only, never automatic.
 	 */
 	function beginScrub(tab) {
 		return function (event) {
@@ -1306,8 +1362,7 @@
 				return;
 			}
 			event.preventDefault();
-			var wasPlaying = clock.playing;
-			if (wasPlaying) {
+			if (clock.playing) {
 				previewTransport("pause");
 				stopClock();
 			}
@@ -1318,10 +1373,14 @@
 				document.removeEventListener("mousemove", move);
 				document.removeEventListener("mouseup", up);
 				var target = clampToDuration(tab, tickAt(ev.clientX));
-				previewTransport("seek", { tick: target });
-				if (wasPlaying) {
-					play(tab);
-				}
+				// Scrub ends paused even when the drag started while playing (design §16.9 P1):
+				// order with the seek is irrelevant because a seek never flips the playing flag.
+				// The clock stays stopped even if a mid-drag state frame re-armed it, and a
+				// failed hold surfaces instead of leaving the game playing behind a parked UI.
+				stopClock();
+				previewTransport("seek", { tick: target }).catch(surface).then(function () {
+					return previewTransport("pause").catch(surface);
+				});
 			}
 			document.addEventListener("mousemove", move);
 			document.addEventListener("mouseup", up);
@@ -1434,23 +1493,57 @@
 		return node;
 	}
 
+	/** The loop toggle title: the bracket it loops while on. */
+	function loopTitle(tab) {
+		return clock.loop
+				? "⟳ looping 0–" + Math.round(duration(tab)) + " (loop is on)"
+				: "Loop the preview";
+	}
+
+	/** The playhead readout title: the loop bracket while looping. */
+	function readoutTitle(tab) {
+		return clock.loop
+				? "⟳ looping 0–" + Math.round(duration(tab))
+				: "Playhead tick / duration in ticks";
+	}
+
 	function transportBar(tab) {
 		var bar = el("div", { class: "vfx-tl-transport" });
 		bar.appendChild(button("▶", "Play (Space)", false, function () { play(tab); }));
 		// R11: the bridge accepts /transport pause but there is no game pause - disable, don't fake.
 		bar.appendChild(button("⏸", "Pause is not supported by VFXweaver — use Stop", true, null));
 		bar.appendChild(button("■", "Stop (Space)", false, function () { stop(tab); }));
-		bar.appendChild(button("⟲", "Replay from the start (R)", false, function () { play(tab); }));
+		bar.appendChild(button("⟲", "Replay from the start (R)", false, function () { replay(tab); }));
 
-		var loop = button("⟳", "Loop", false, function () {
+		// The preview projection (Authored phase 1): Exact replays every child looped and fadeless,
+		// Authored plays the collection root with its real timing. A switch re-syncs the set.
+		var modeExact = button("Exact", "Exact preview: every child looped, never fades", false,
+				function () { previewSetMode("exact"); paintPreviewMode(); });
+		var modeAuthored = button("Authored", "Authored preview: the collection root with its real timing",
+				false, function () { previewSetMode("authored"); paintPreviewMode(); });
+		modeButtons = { exact: modeExact, authored: modeAuthored };
+		paintPreviewMode();
+		bar.appendChild(modeExact);
+		bar.appendChild(modeAuthored);
+
+		var readout = el("span", { class: "vfx-tl-readout", text: "0 / " + Math.round(duration(tab)) + " t" });
+		readout.title = readoutTitle(tab);
+		bar.appendChild(readout);
+
+		var loop = button("⟳", loopTitle(tab), false, function () {
 			clock.loop = !clock.loop;
 			loop.classList.toggle("active", clock.loop);
+			loop.title = loopTitle(tab);
+			readout.title = readoutTitle(tab);
+			var panel = bar.parentNode;
+			var fill = panel && panel.querySelector
+					? panel.querySelector(".vfx-tl-duration-fill") : null;
+			if (fill) {
+				fill.classList.toggle("loop", clock.loop);
+			}
 		});
 		loop.classList.toggle("active", clock.loop);
 		bar.appendChild(loop);
-
-		var readout = el("span", { class: "vfx-tl-readout", text: "0 / " + Math.round(duration(tab)) + " t" });
-		bar.appendChild(readout);
 
 		var easingRow = el("div", { class: "vfx-tl-easing" });
 		var easingLabel = el("span", { class: "vfx-tl-easing-label", text: "" });
@@ -1529,12 +1622,15 @@
 	function durationBar(tab, pxPerTick) {
 		var bar = el("div", { class: "vfx-tl-duration" });
 		var total = duration(tab);
-		var fill = el("div", { class: "vfx-tl-duration-fill" });
+		var fill = el("div", { class: "vfx-tl-duration-fill" + (clock.loop ? " loop" : "") });
 		fill.style.left = LABEL_COLUMN + "px";
 		fill.style.width = total * pxPerTick + "px";
+		if (clock.loop) {
+			fill.title = "⟳ looping 0–" + Math.round(total);
+		}
 		var handle = el("div", { class: "vfx-tl-duration-handle" });
 		handle.style.left = LABEL_COLUMN + total * pxPerTick + "px";
-		handle.title = "Drag to change the effect duration (currently " + Math.round(total) + " ticks)";
+		handle.title = "Drag to change the effect duration (currently " + Math.round(total) + " ticks; time snaps to ticks)";
 		handle.addEventListener("mousedown", function (event) {
 			event.preventDefault();
 			event.stopPropagation();
@@ -1542,6 +1638,8 @@
 				var ticks = Math.max(1, Math.round(tickAt(ev.clientX)));
 				tab.duration = ticks;
 				handle.style.left = LABEL_COLUMN + ticks * pxPerTick + "px";
+				handle.title = "Drag to change the effect duration (currently " + ticks
+						+ " ticks; time snaps to ticks)";
 				fill.style.width = ticks * pxPerTick + "px";
 				if (ui && ui.content) {
 					ui.content.style.width = LABEL_COLUMN + Math.max(1, ticks * pxPerTick + 20) + "px";
@@ -1645,12 +1743,14 @@
 	 */
 	function curveEditor(tab, name, pxPerTick, range, panel) {
 		var wrap = el("div", { class: "vfx-tl-curve-host" });
+		var live = root.VFXEditor && typeof root.VFXEditor.liveKind === "function"
+				? root.VFXEditor.liveKind(tab, name) : null;
 		var component = root.VFXCurveView && typeof root.VFXCurveView.curveView === "function"
 				? root.VFXCurveView.curveView(wrap, tab.keys[name], {
 					total: duration(tab),
 					range: range,
 					pxPerTick: pxPerTick,
-					title: "Curve · " + name,
+					title: "Curve · " + name + (live ? " ●live (" + live + ")" : ""),
 					name: name,
 					descriptor: paramDescriptor(tab, name),
 					selectedKey: selected && selected.key,
@@ -1693,7 +1793,8 @@
 				})
 				: null;
 		if (!component) {
-			wrap.appendChild(el("p", { class: "vfx-tl-hint", text: "curve editor unavailable" }));
+			wrap.appendChild(el("p", { class: "vfx-tl-hint",
+				text: "Curve editor did not load — drag keys on the lane instead, then reload the page" }));
 		}
 
 		// Delete removes the selected key; Escape closes the view (design §15.4). The shared component
@@ -1782,7 +1883,8 @@
 			selected = null;
 		}
 		if (!tab) {
-			panel.appendChild(el("p", { class: "vfx-tl-empty", text: "No active tab" }));
+			panel.appendChild(el("p", { class: "vfx-tl-empty",
+				text: "No active tab — press + for a new tab, or open a pack with File → Open…" }));
 			ui = null;
 			return panel;
 		}
@@ -1810,7 +1912,8 @@
 		scroller.appendChild(content);
 
 		if (names.length === 0) {
-			content.appendChild(el("p", { class: "vfx-tl-hint", text: "No animated parameters — add keyframes in the inspector" }));
+			content.appendChild(el("p", { class: "vfx-tl-hint",
+				text: "No keys yet — select a slot in the inspector and press K (Animate — key at playhead (K))" }));
 		}
 
 		content.appendChild(ruler(tab, pxPerTick));
@@ -1830,7 +1933,8 @@
 		} else {
 			curvePanel = null;
 			names.forEach(function (name) {
-				var lane = el("div", { class: "vfx-tl-lane" });
+				var lane = el("div", { class: "vfx-tl-lane",
+					title: "Click to add a key (time snaps to ticks); double-click opens the curve editor" });
 				lane.style.height = LANE_HEIGHT + "px";
 				lane.addEventListener("mousedown", beginLaneAdd(tab, name, panel));
 				lane.appendChild(laneLabel(tab, name, panel));
@@ -1857,9 +1961,6 @@
 					lane.appendChild(dot);
 					positionKeyLater(dot, name, key, pxPerTick, ranges);
 					markOutOfRange(dot, paramDescriptor(tab, name), key.value);
-					if (Number(key.time) < 0 || Number(key.time) > total) {
-						dot.classList.add("vfx-tl-clamped");
-					}
 				});
 				content.appendChild(lane);
 			});
@@ -1941,6 +2042,12 @@
 		}
 		if (typeof data.ended === "boolean") {
 			preview.ended = data.ended;
+		}
+		// The game is authoritative for the projection: adopt its mode so the badge and the
+		// transport switch follow a switch made elsewhere (or reasserted on reconnect).
+		if (data.mode === "authored" || data.mode === "exact") {
+			preview.mode = data.mode;
+			paintPreviewMode();
 		}
 		// Reconcile the problems panel from the state frame's `rejected` list, but only when it
 		// changes: state frames are ~20/s, and a successful sync must clear resolved entries

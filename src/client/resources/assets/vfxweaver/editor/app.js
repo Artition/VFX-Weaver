@@ -67,6 +67,12 @@
 	function showBanner(message) {
 		dom.banner.textContent = message;
 		dom.banner.hidden = false;
+		try {
+			dom.banner.tabIndex = -1;
+			dom.banner.focus();
+		} catch (e) {
+			// focus only: never break the banner
+		}
 	}
 
 	function status(message) {
@@ -214,9 +220,11 @@
 	/**
 	 * The project model (design §15.6): an object with the datapack `namespace`, a display `name`,
 	 * `defaults` new tabs inherit, and the tabs themselves. `revision` is the bridge counter echoed
-	 * on every reply (`bridge.js`).
+	 * on every reply (`bridge.js`). `curves` / `particles` carry the verbatim `vfx_curves` /
+	 * `vfx_particles` blocks (`namespace -> name -> JSON text`, never parsed), so an imported pack's
+	 * presets round-trip through export instead of being dropped.
 	 *
-	 * @type {{revision: number, name: string, namespace: string, defaults: Object, tabs: Array, active: number}}
+	 * @type {{revision: number, name: string, namespace: string, defaults: Object, tabs: Array, active: number, curves: Object, particles: Object}}
 	 */
 	var project = {
 		revision: 0,
@@ -224,7 +232,9 @@
 		namespace: "vfx_project",
 		defaults: {},
 		tabs: [],
-		active: -1
+		active: -1,
+		curves: {},
+		particles: {}
 	};
 
 	/** The parsed GET /schema payload: `{ "<type>": { params: [...] } }`. */
@@ -259,9 +269,11 @@
 	 * label) derived from existing metadata only — param kind, socket role, node
 	 * kind — never per-effect branches or hardcoded effect lists. Colors reuse the
 	 * group palette + FLOW_COLOR, so no new hues; the mask keeps its dotted 3x3
-	 * square and the field a triangle, while the chain and every numeric driver keep
-	 * the default circle and color carries the exact type. No rectangles, no diamonds:
-	 * diamonds are timeline keyframes and must never appear as ports.
+	 * square and the field a triangle, while the chain and the plain numeric drivers
+	 * keep the default circle and color carries the exact type. Bind/expr keep the
+	 * circle too (LiteGraph offers no more slot shapes) and read through an in-dot
+	 * glyph drawn on the canvas foreground (see drawPortGlyphs). No rectangles, no
+	 * diamonds: diamonds are timeline keyframes and must never appear as ports.
 	 */
 	var FLOW_COLOR = "#8fb3ff";
 	var PORT_TYPES = {
@@ -270,8 +282,8 @@
 		mask: { color: "#b48cff", shape: "GRID_SHAPE" },
 		field: { color: "#6dd36d", shape: "ARROW_SHAPE" },
 		macro: { color: "#ffb454", shape: "" },
-		bind: { color: "#4fd6d6", shape: "" },
-		expr: { color: "#ff6b9d", shape: "" },
+		bind: { color: "#4fd6d6", shape: "", glyph: "B" },
+		expr: { color: "#ff6b9d", shape: "", glyph: "E" },
 		time: { color: "#ff8a5c", shape: "" }
 	};
 
@@ -297,6 +309,18 @@
 			return "number,field";
 		}
 		return "number";
+	}
+
+	/**
+	 * The visual port of an effect param socket: a fieldCapable param reads as the
+	 * field port (green triangle — the socket takes a field tree), anything else as
+	 * number. The wire type (see socketWireType) is unchanged: paint only.
+	 *
+	 * @param {Object} param the schema param descriptor
+	 * @returns {string} the PORT_TYPES key
+	 */
+	function paramPort(param) {
+		return param && param.fieldCapable === true ? "field" : "number";
 	}
 
 	/**
@@ -336,7 +360,8 @@
 	/**
 	 * Paint a socket with its port's color + shape. The only writer of color_on/off
 	 * on real ports (group headers keep groupColor); stamps
-	 * `__port` so diag can count sockets per type without re-deriving it.
+	 * `__port` so diag can count sockets per type without re-deriving it, and
+	 * `__glyph` for the in-dot letter (see drawPortGlyphs).
 	 *
 	 * @param {Object} slot the LiteGraph slot
 	 * @param {string} port the PORT_TYPES key
@@ -353,6 +378,11 @@
 			slot.shape = shape;
 		} else if (slot.shape !== undefined) {
 			delete slot.shape;
+		}
+		if (PORT_TYPES[key].glyph) {
+			slot.__glyph = PORT_TYPES[key].glyph;
+		} else if (slot.__glyph !== undefined) {
+			delete slot.__glyph;
 		}
 		slot.__port = key;
 	}
@@ -371,7 +401,7 @@
 			for (var i = 0; i < params.length; i++) {
 				var param = params[i];
 				var slot = this.addInput(param.name, socketWireType(param));
-				paintPort(slot, "number");
+				paintPort(slot, paramPort(param));
 			}
 			var outSlot = this.addOutput("out", FLOW_LINK);
 			paintPort(outSlot, "flow");
@@ -391,7 +421,10 @@
 			// Blender-style socket groups (see rebuildEffectInputs): per-`group` collapsible
 			// header rows over the input sockets. Wired here so every construction path
 			// (palette, import, undo) gets them; the header rows are laid out just below.
-			this.__groupCollapsed = {};
+			// Groups start collapsed (Blender hides the unconnected): a fresh node shows
+			// the wired stubs, the ungrouped params and the headers with hidden counts;
+			// a link drag reveals everything (see beginLinkReveal).
+			this.__groupCollapsed = defaultCollapsedGroups(descriptor);
 			// Show-all is the only mode: every socket stays laid out under its group
 			// header (group collapse remains the density tool, node collapse hides
 			// everything). `__hideUnused` stays false; old IR `hideUnused` is ignored.
@@ -400,6 +433,7 @@
 			this.onMouseDown = onEffectNodeMouseDown;
 			this.onMouseMove = onEffectNodeMouseMove;
 			this.onDrawBackground = drawEffectGroupBands;
+			this.onDrawForeground = drawEffectSoloBadge;
 			rebuildEffectInputs(this, null);
 		}
 
@@ -438,6 +472,9 @@
 
 	/** While true a link drag is rebuilding every effect node (see the boot-time canvas wrap). */
 	var linkDragReveal = false;
+
+	/** Last cursor position over the canvas (client px), for Tab search placement. */
+	var lastCanvasCursor = null;
 
 	/** The effect entry owning a canvas node, or null. */
 	function effectEntryOf(tab, node) {
@@ -510,18 +547,19 @@
 
 	/**
 	 * Whether a param socket is laid out: wired and pinned sockets always are (a wire is
-	 * never dropped and stays visible); a collapsed group keeps its stubs only; otherwise
+	 * never dropped and stays visible); a link drag reveals everything (Blender
+	 * highlights its drop targets); a collapsed group keeps its stubs only; otherwise
 	 * every socket shows (show-all is the only mode; suppressed never).
 	 */
 	function effectMemberVisible(node, group, isWired, isPinned) {
 		if (isWired || isPinned) {
 			return true;
 		}
-		if (group && groupCollapsedMap(node)[group]) {
-			return false;
-		}
 		if (linkDragReveal) {
 			return true;
+		}
+		if (group && groupCollapsedMap(node)[group]) {
+			return false;
 		}
 		return node.__hideUnused !== true;
 	}
@@ -569,6 +607,25 @@
 	function effectNodeDescriptor(node) {
 		var type = node && node.properties ? node.properties.effectType : null;
 		return (type && schema[type]) || null;
+	}
+
+	/**
+	 * The collapsed-group map a fresh effect node starts with (Blender hides the
+	 * unconnected): every named param group collapsed, the headerless ungrouped
+	 * section always expanded. The materialise path replaces this with the persisted
+	 * `collapsedGroups` when the entry carries one.
+	 *
+	 * @param {Object} [descriptor] the effect's schema descriptor
+	 * @returns {Object} the `group -> true` map
+	 */
+	function defaultCollapsedGroups(descriptor) {
+		var collapsed = {};
+		effectGroupSections(descriptor).forEach(function (section) {
+			if (section.group) {
+				collapsed[section.group] = true;
+			}
+		});
+		return collapsed;
 	}
 
 	/** The node's collapsed-group map (`group -> true`), always an object. */
@@ -674,7 +731,7 @@
 				} else if (paramsByName[name]) {
 					var param = paramsByName[name];
 					slot = { name: name, type: socketWireType(param), link: null };
-					paintPort(slot, "number");
+					paintPort(slot, paramPort(param));
 				} else {
 					return;
 				}
@@ -726,7 +783,17 @@
 			});
 			graph._version++;
 		}
-		node.setSize(node.computeSize());
+		// Skip the resize when the layout did not change (link-drag reveals on big
+		// graphs must not throb every node on drag-start).
+		var sameLayout = node.__lastInputLayout
+				&& node.__lastInputLayout.length === next.length
+				&& node.__lastInputLayout.every(function (name, i) {
+					return next[i] && next[i].name === name;
+				});
+		node.__lastInputLayout = next.map(function (slot) { return slot.name; });
+		if (!sameLayout) {
+			node.setSize(node.computeSize());
+		}
 		node.setDirtyCanvas(true, true);
 	}
 
@@ -834,15 +901,10 @@
 		return wired;
 	}
 
-	/** Click a group header row (consumed: the node must not drag). */
+	/** Group headers toggle via the document click pre-empt (see wireGroupToggle);
+	 * the node handler never consumes, so drags starting on a header keep working. */
 	function onEffectNodeMouseDown(event, pos, canvas) {
-		var node = this;
-		var group = effectGroupHeaderAt(node, pos);
-		if (group == null) {
-			return false;
-		}
-		toggleEffectGroup(node, group);
-		return true;
+		return false;
 	}
 
 	/**
@@ -853,7 +915,9 @@
 	 * no custom hook: the bundle already dims incompatible slots while dragging (alpha
 	 * 0.4 via `isValidConnection`) and refuses the drop, so typed ports (flow/mask/field)
 	 * highlight their legal targets for free and "*" wildcard outputs keep matching all.
-	 * ESC-cancel without a mouseup keeps the reveal until the next click.
+	 * Only nodes with collapsed groups are rebuilt (expanded nodes already show every
+	 * socket; collapsed ones gain their unwired members for the drag, wired stubs stay).
+	 * ESC-cancel without a
 	 */
 	function beginLinkReveal() {
 		if (linkDragReveal) {
@@ -865,7 +929,8 @@
 		}
 		linkDragReveal = true;
 		(tab.graph._nodes || []).forEach(function (node) {
-			if (isEffectNode(node)) {
+			if (isEffectNode(node) && node.__groupCollapsed
+					&& Object.keys(node.__groupCollapsed).length) {
 				rebuildEffectInputs(node, null);
 			}
 		});
@@ -882,7 +947,8 @@
 			return;
 		}
 		(tab.graph._nodes || []).forEach(function (node) {
-			if (isEffectNode(node)) {
+			if (isEffectNode(node) && node.__groupCollapsed
+					&& Object.keys(node.__groupCollapsed).length) {
 				rebuildEffectInputs(node, null);
 			}
 		});
@@ -940,6 +1006,104 @@
 		} catch (e) {
 			// cursor only: never break the draw
 		}
+	}
+
+	/**
+	 * Canvas viewer/solo (the Layers-panel S button's canvas twin): one click on the
+	 * title-bar badge solos the effect, reusing the same entry state (`effect.solo`,
+	 * no new model) and the same side effects as the panel button. Mute stays
+	 * panel-only — solo is the viewer.
+	 */
+
+	/** The title-bar height behind the solo badge (the vendored 30, guarded headless). */
+	function effectTitleHeight() {
+		if (typeof LiteGraph !== "undefined" && LiteGraph.NODE_TITLE_HEIGHT) {
+			return LiteGraph.NODE_TITLE_HEIGHT;
+		}
+		return 30;
+	}
+
+	/**
+	 * Whether a node-local `pos` hits the effect node's solo badge (a box at the
+	 * title-bar right; the collapse square lives on the left, so they never overlap).
+	 *
+	 * @param {Object} node the effect canvas node
+	 * @param {Array<number>} pos the node-local position
+	 * @returns {boolean} true on the badge
+	 */
+	function effectSoloAt(node, pos) {
+		if (!node || !node.size || !pos || pos[1] >= 0
+				|| (node.flags && node.flags.collapsed)) {
+			return false;
+		}
+		var height = effectTitleHeight();
+		return pos[1] >= -height + 4 && pos[1] < -4
+				&& pos[0] >= node.size[0] - 28 && pos[0] <= node.size[0] - 4;
+	}
+
+	/**
+	 * Draw the solo badge over the title bar (the node foreground runs underneath,
+	 * so this hook is the only clean layer for it). Filled while soloed, outline
+	 * otherwise; collapsed nodes draw nothing.
+	 */
+	function drawEffectSoloBadge(ctx) {
+		var node = this;
+		if (!node || !node.size || !ctx || (node.flags && node.flags.collapsed)) {
+			return;
+		}
+		try {
+			var solo = false;
+			var tab = node.__tab || null;
+			var entry = tab ? effectEntryOf(tab, node) : null;
+			solo = !!(entry && entry.solo === true);
+			var height = effectTitleHeight();
+			var x = node.size[0] - 28;
+			var y = -height + 4;
+			var w = 24;
+			var h = Math.min(18, height - 8);
+			ctx.save();
+			ctx.globalAlpha = 1;
+			ctx.fillStyle = solo ? "#e8b64c" : "rgba(10, 14, 24, 0.55)";
+			ctx.strokeStyle = solo ? "#0c0f16" : "#7f8aa3";
+			ctx.lineWidth = 1;
+			if (typeof ctx.roundRect === "function") {
+				ctx.beginPath();
+				ctx.roundRect(x, y, w, h, 3);
+				ctx.fill();
+				ctx.stroke();
+			} else {
+				ctx.fillRect(x, y, w, h);
+				ctx.strokeRect(x, y, w, h);
+			}
+			ctx.fillStyle = solo ? "#0c0f16" : "#cfe0ff";
+			ctx.font = "bold 11px sans-serif";
+			ctx.textAlign = "center";
+			ctx.textBaseline = "middle";
+			ctx.fillText("S", x + w / 2, y + h / 2 + 0.5);
+			ctx.restore();
+		} catch (e) {
+			// badge only: never break the frame
+		}
+	}
+
+	/**
+	 * Flip one effect's solo from its canvas badge. Same state and side effects as
+	 * the Layers-panel button (see setEffectSolo): the preview refresh is viewstate-only,
+	 * while export honors solo exactly as it always did for the panel button.
+	 *
+	 * @param {Object} node the effect canvas node
+	 */
+	function toggleEffectSolo(node) {
+		if (!node) {
+			return;
+		}
+		var tab = node.__tab || null;
+		var entry = effectEntryOf(tab, node);
+		if (!tab || !entry) {
+			return;
+		}
+		setEffectSolo(tab, entry, entry.solo !== true);
+		node.setDirtyCanvas(true, true);
 	}
 
 	/** Whether a canvas node is an effect node (vs a value node / group). */
@@ -1012,6 +1176,12 @@
 			}
 			LiteGraph.registerNodeType(registered, makeEffectNode(typeName, schema[typeName]));
 		}
+		// A reference instances another tab (no params of its own): register it explicitly,
+		// since it is not a schema type and never appears in the palette type list.
+		if (!LiteGraph.registered_node_types["vfx/effect/reference"]) {
+			LiteGraph.registerNodeType("vfx/effect/reference",
+					makeEffectNode("reference", { params: [] }));
+		}
 		registerValueNodeTypes();
 	}
 
@@ -1028,9 +1198,10 @@
 
 	/**
 	 * A `Mask` canvas node (design §13.1): the root of an effect's mask tree. It owns the `invert`
-	 * and `space` fields, one `op` combo per composition join, and the single `mask` attachment
-	 * output the owning effect node's `mask` input links from. The leaves are port-less operands:
-	 * their order (titles, leafIndex) and the root's op rows are the tree the compiler consumes.
+	 * and `space` fields, one `op` combo per composition join, one `operand N` input per leaf
+	 * (type `mask`) and the single `mask` attachment output the owning effect node's `mask`
+	 * input links from. Each operand takes exactly one MaskLeaf of the same effect; the port
+	 * order is the operand order the compiler folds left, which matters for noncommutative ops.
 	 */
 	function makeMaskNode() {
 		function MaskNode() {
@@ -1047,8 +1218,9 @@
 	/**
 	 * A `MaskLeaf` canvas node (design §13.1): one shape of a mask tree. It exposes the leaf's
 	 * reserved `mask.p&lt;N&gt;.*` numeric fields as widgets, turning one field at a time into a
-	 * driven input socket while a wire feeds it (design §15.1: socket XOR widget). Leaves carry
-	 * no structural ports: the tree order lives in the leaf titles and leafIndex, never in wires.
+	 * driven input socket while a wire feeds it (design §15.1: socket XOR widget), and one
+	 * `mask` output feeding its operand on the Mask root. The operand wiring (not the titles)
+	 * is the tree the compiler folds.
 	 */
 	function makeMaskLeafNode() {
 		function MaskLeafNode() {
@@ -1056,6 +1228,7 @@
 			// reserved-slot defaults here, and without them the first mask import throws
 			// "Cannot set properties of undefined (setting 'mask.p<N>.*')".
 			this.properties = { maskRole: "leaf", effectId: null, leafIndex: 0, inputs: {}, explicit: {} };
+			paintPort(this.addOutput("mask", MASK_LINK), "mask");
 			this.size = [190, 80];
 			this.onDblClick = onNodeTitleDblClick;
 		}
@@ -1479,7 +1652,7 @@
 	 */
 	function addRerouteNode(tab, pos) {
 		if (!tab || !tab.graph) {
-			status("choose an effect type before adding value nodes");
+			status("Choose an effect type before adding value nodes");
 			return null;
 		}
 		if (!LiteGraph.registered_node_types["vfx/reroute"]) {
@@ -1493,11 +1666,7 @@
 		if (Array.isArray(pos) && pos.length === 2) {
 			node.pos = [Math.round(num(pos[0])), Math.round(num(pos[1]))];
 		} else {
-			var count = 0;
-			tab.graph._nodes.forEach(function () {
-				count++;
-			});
-			node.pos = [120 + (count % 6) * 30, 120 + (count % 6) * 30];
+			node.pos = canvasCenter() || [120, 120];
 		}
 		tab.graph.add(node);
 		scheduleGraphEdit(tab);
@@ -1508,10 +1677,57 @@
 	}
 
 	/**
+	 * The synthetic persist key of a structural wire (flow/mask/field) a dot sits on,
+	 * or null. Value wires record their logical edge instead (see recordReroutes).
+	 *
+	 * @param {Object} tab the tab
+	 * @param {{id: number, slot: number}} driver the resolved upstream endpoint
+	 * @param {{id: number, slot: number}} dest the resolved downstream endpoint
+	 * @returns {string|null} `flow:A->B`, `mask:E` or `field:E.param`
+	 */
+	function structuralWireKey(tab, driver, dest) {
+		if (!tab || !tab.graph || !driver || !dest) {
+			return null;
+		}
+		var origin = tab.graph.getNodeById(driver.id);
+		var target = tab.graph.getNodeById(dest.id);
+		if (!origin || !target) {
+			return null;
+		}
+		var outName = origin.outputs && origin.outputs[driver.slot]
+				? origin.outputs[driver.slot].name : null;
+		var inName = target.inputs && target.inputs[dest.slot]
+				? target.inputs[dest.slot].name : null;
+		if (isEffectNode(origin) && isEffectNode(target)
+				&& outName === "out" && inName === "in") {
+			return "flow:" + origin.properties.effectId + "->" + target.properties.effectId;
+		}
+		if (isMaskNode(origin) && !isMaskLeafNode(origin) && isEffectNode(target)
+				&& outName === "mask" && inName === "mask") {
+			return "mask:" + target.properties.effectId;
+		}
+		if (isFieldNode(origin) && isEffectNode(target) && outName === "field"
+				&& inName && inName !== "in" && inName !== "mask") {
+			return "field:" + target.properties.effectId + "." + inName;
+		}
+		var operand = maskOperandIndex(inName);
+		if (isMaskLeafNode(origin) && isMaskNode(target) && !isMaskLeafNode(target)
+				&& operand >= 0 && outName === "mask"
+				&& origin.properties.effectId != null
+				&& origin.properties.effectId === target.properties.effectId) {
+			return "maskop:" + target.properties.effectId + ":" + operand;
+		}
+		return null;
+	}
+
+	/**
 	 * Snapshot the reroute dots into `tab.__reroutes` (rounded `{x, y, edge}` triples
 	 * in canvas order): the additive view-only field undo, tab switches and the
-	 * materialise pass carry. A dot whose wire is not one logical edge (flow, mask,
-	 * field, dangling, fanned) is canvas-only and not recorded.
+	 * materialise pass carry. Value wires record their logical edge; flow, mask,
+	 * field and mask-operand wires record a synthetic structural key (see structuralWireKey) so dots
+	 * persist on every wire. The compiler never reads `__reroutes`, so the export
+	 * stays byte-identical with or without dots. A dot on a dangling or fanned wire
+	 * is canvas-only and not recorded.
 	 *
 	 * @param {Object} tab the tab
 	 */
@@ -1547,6 +1763,15 @@
 						y: Math.round(num(node.pos[1])),
 						edge: edgeKeyOf(found.edge)
 					});
+				} else {
+					var structural = structuralWireKey(tab, driver, dest);
+					if (structural) {
+						dots.push({
+							x: Math.round(num(node.pos[0])),
+							y: Math.round(num(node.pos[1])),
+							edge: structural
+						});
+					}
 				}
 			});
 		}
@@ -1673,6 +1898,199 @@
 		});
 	}
 
+	/**
+	 * Resolve a structural persist key (see structuralWireKey) to its live endpoints
+	 * on the freshly materialised canvas, or null when the wire is gone.
+	 *
+	 * @param {Object} tab the tab
+	 * @param {Object} effectNodeById effect id -> canvas node
+	 * @param {string} key the persist key
+	 * @returns {{origin: Object, originSlot: number, target: Object, targetSlot: number}|null}
+	 */
+	function structuralEndpoints(tab, effectNodeById, key) {
+		if (!tab || !tab.graph || typeof key !== "string") {
+			return null;
+		}
+		if (key.indexOf("flow:") === 0) {
+			var arrow = key.substring(5).split("->");
+			var from = (effectNodeById || {})[arrow[0]];
+			var into = (effectNodeById || {})[arrow[1]];
+			if (!from || !into) {
+				return null;
+			}
+			var outSlot = outputIndex(from, "out");
+			var inSlot = inputIndex(into, "in");
+			if (outSlot < 0 || inSlot < 0) {
+				return null;
+			}
+			return { origin: from, originSlot: outSlot, target: into, targetSlot: inSlot };
+		}
+		if (key.indexOf("mask:") === 0) {
+			var enode = (effectNodeById || {})[key.substring(5)];
+			if (!enode) {
+				return null;
+			}
+			var root = null;
+			maskNodesForEffect(tab, enode.properties.effectId).forEach(function (node) {
+				if (!root && isMaskNode(node) && !isMaskLeafNode(node)) {
+					root = node;
+				}
+			});
+			if (!root) {
+				return null;
+			}
+			var maskOut = outputIndex(root, "mask");
+			var maskIn = inputIndex(enode, "mask");
+			if (maskOut < 0 || maskIn < 0) {
+				return null;
+			}
+			return { origin: root, originSlot: maskOut, target: enode, targetSlot: maskIn };
+		}
+		if (key.indexOf("maskop:") === 0) {
+			var at = key.substring(7).split(":");
+			var effectId = at[0];
+			var op = Number(at[1]);
+			var effect = null;
+			(tab.effects || []).forEach(function (candidate) {
+				if (candidate && candidate.id === effectId) {
+					effect = candidate;
+				}
+			});
+			if (!effect) {
+				return null;
+			}
+			var oproot = null;
+			var opleaves = [];
+			maskNodesForEffect(tab, effectId).forEach(function (node) {
+				if (isMaskLeafNode(node)) {
+					opleaves.push(node);
+				} else if (!oproot) {
+					oproot = node;
+				}
+			});
+			if (!oproot) {
+				return null;
+			}
+			var wires = Array.isArray(effect.maskWires) ? effect.maskWires : null;
+			var li = wires && op < wires.length ? wires[op] : op;
+			var opleaf = null;
+			opleaves.forEach(function (node) {
+				if (node && node.properties && Number(node.properties.leafIndex) === li) {
+					opleaf = node;
+				}
+			});
+			if (!opleaf) {
+				return null;
+			}
+			var opOut = outputIndex(opleaf, "mask");
+			var opIn = inputIndex(oproot, maskOperandName(op));
+			if (opOut < 0 || opIn < 0) {
+				return null;
+			}
+			return { origin: opleaf, originSlot: opOut, target: oproot, targetSlot: opIn };
+		}
+		if (key.indexOf("field:") === 0) {
+			var rest = key.substring(6).split(".");
+			var fenode = (effectNodeById || {})[rest[0]];
+			var param = rest.slice(1).join(".");
+			if (!fenode || !param) {
+				return null;
+			}
+			var fieldIn = inputIndex(fenode, param);
+			if (fieldIn < 0) {
+				return null;
+			}
+			// The field root is whatever field node currently feeds the socket.
+			var links = tab.graph.links || {};
+			var found = null;
+			Object.keys(links).forEach(function (id) {
+				var link = links[id];
+				if (!link || link.target_id !== fenode.id || link.target_slot !== fieldIn) {
+					return;
+				}
+				var source = tab.graph.getNodeById(link.origin_id);
+				if (source && isFieldNode(source) && !found) {
+					found = { node: source, slot: link.origin_slot };
+				}
+			});
+			if (!found) {
+				return null;
+			}
+			return { origin: found.node, originSlot: found.slot,
+				target: fenode, targetSlot: fieldIn };
+		}
+		return null;
+	}
+
+	/** The direct canvas link id from one exact endpoint to another, or null. */
+	function directLinkId(tab, originId, originSlot, targetId, targetSlot) {
+		var links = (tab && tab.graph && tab.graph.links) || {};
+		var ids = Object.keys(links);
+		for (var i = 0; i < ids.length; i++) {
+			var link = links[ids[i]];
+			if (link && link.origin_id === originId && link.origin_slot === originSlot
+					&& link.target_id === targetId && link.target_slot === targetSlot) {
+				return ids[i];
+			}
+		}
+		return null;
+	}
+
+	/**
+	 * Re-split the materialised direct structural wires (flow/mask/field) through
+	 * their recorded dots, in recorded order per key. Runs after the socket-collapse
+	 * restore, so every socket exists at its final slot; value edges are handled by
+	 * materializeReroutes instead. Dots whose wire is gone are dropped silently.
+	 *
+	 * @param {Object} tab the tab
+	 * @param {Object} effectNodeById effect id -> canvas node
+	 */
+	function materializeStructuralReroutes(tab, effectNodeById) {
+		var dots = (tab && tab.__reroutes) || [];
+		if (!dots.length || !tab.graph) {
+			return;
+		}
+		var groups = {};
+		var order = [];
+		dots.forEach(function (dot) {
+			if (!dot || typeof dot.edge !== "string") {
+				return;
+			}
+			if (dot.edge.indexOf("flow:") !== 0 && dot.edge.indexOf("mask:") !== 0
+					&& dot.edge.indexOf("maskop:") !== 0 && dot.edge.indexOf("field:") !== 0) {
+				return;
+			}
+			if (!groups[dot.edge]) {
+				groups[dot.edge] = [];
+				order.push(dot.edge);
+			}
+			groups[dot.edge].push(dot);
+		});
+		order.forEach(function (key) {
+			var ends = structuralEndpoints(tab, effectNodeById, key);
+			if (!ends) {
+				return;
+			}
+			var tailId = ends.origin.id;
+			var tailSlot = ends.originSlot;
+			groups[key].forEach(function (dot) {
+				var linkId = directLinkId(tab, tailId, tailSlot,
+						ends.target.id, ends.targetSlot);
+				if (linkId == null) {
+					return;
+				}
+				// insertRerouteOnLink offsets pos by (-20,-13): compensate so the
+				// dot lands back on its recorded spot.
+				var placed = insertRerouteOnLink(tab, linkId,
+						[num(dot.x) + 20, num(dot.y) + 13]);
+				if (placed) {
+					tailId = placed.id;
+					tailSlot = 0;
+				}
+			});
+		});
+	}
+
 	/** The last canvas mousedown (for the manual double-click-on-wire detector). */
 	var lastWireDown = null;
 
@@ -1732,17 +2150,27 @@
 	}
 
 	/**
-	 * Toggle group rows before LiteGraph sees the click. The header rows are
+	 * Toggle the title-bar solo badge or a group row on click (not mousedown). The header rows are
 	 * input slots, so the bundle's slot hit-test (a 30x20 box around the socket dot,
-	 * checked in `processMouseDown` before `node.onMouseDown` in litegraph.js) starts a
-	 * wire drag there and the node toggle never fires. This document-capture pre-empt
-	 * (the wireRerouteInsert pattern above) resolves the same whole-row hit area first
-	 * and consumes the event, so glyph/dot-zone clicks toggle while real sockets keep
-	 * dragging: anything that is not an effect-node header row falls through.
+	 * checked in `processMouseDown` in litegraph.js) starts a
+	 * wire drag there. This document-capture pre-empt resolves the same whole-row hit
+	 * area on click first and consumes it, so glyph/dot-zone clicks toggle while real
+	 * sockets keep dragging and larger presses pan/move: anything that is not an
+	 * effect-node header row, or moved >~4px, falls through.
 	 */
 	function wireGroupToggle() {
+		var downAt = null;
 		document.addEventListener("mousedown", function (event) {
+			downAt = [event.clientX, event.clientY];
+		}, true);
+		// Toggle on click, not mousedown: a press that moves <~4px counts, anything
+		// larger passes through as a drag so headers never swallow canvas pans/moves.
+		document.addEventListener("click", function (event) {
 			if (!scene || !dom.canvas || event.target !== dom.canvas) {
+				return;
+			}
+			if (downAt && (Math.abs(event.clientX - downAt[0]) > 4
+					|| Math.abs(event.clientY - downAt[1]) > 4)) {
 				return;
 			}
 			var tab = activeTab();
@@ -1769,6 +2197,14 @@
 			if (!node || !isEffectNode(node)) {
 				return;
 			}
+			// The title-bar solo badge first (it lives above y 0, so it never
+			// overlaps a header row); then the socket-group headers.
+			if (effectSoloAt(node, [pos[0] - node.pos[0], pos[1] - node.pos[1]])) {
+				event.preventDefault();
+				event.stopPropagation();
+				toggleEffectSolo(node);
+				return;
+			}
 			var group = effectGroupHeaderAt(node, [pos[0] - node.pos[0], pos[1] - node.pos[1]]);
 			if (group == null) {
 				return;
@@ -1786,7 +2222,48 @@
 			} catch (e3) {
 				// selection only: never break the toggle
 			}
-			toggleEffectGroup(node, group);
+			toggleEffectGroup(node, group);		}, true);
+	}
+
+	/**
+	 * Double-click a frame's title strip to rename it (the canvas menu's Title entry
+	 * stays as the alternative). Only the strip is consumed, so a body double-click
+	 * keeps the stock behaviour and node hits keep theirs.
+	 */
+	function wireFrameRename() {
+		document.addEventListener("dblclick", function (event) {
+			if (!scene || !dom.canvas || event.target !== dom.canvas) {
+				return;
+			}
+			var tab = activeTab();
+			if (!tab || !tab.graph || event.button !== 0
+					|| event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) {
+				return;
+			}
+			var pos = null;
+			try {
+				pos = scene.convertEventToCanvasOffset(event);
+			} catch (e) {
+				return;
+			}
+			if (!pos) {
+				return;
+			}
+			var at = frameGroupTitleAt(tab, pos);
+			if (at < 0) {
+				return;
+			}
+			event.preventDefault();
+			event.stopPropagation();
+			var groups = tab.graph._groups || [];
+			var current = groups[at] && groups[at].title != null ? String(groups[at].title) : "";
+			if (scene && typeof scene.prompt === "function") {
+				scene.prompt("Frame title", current, function (value) {
+					if (value != null) {
+						renameFrameGroup(tab, at, value);
+					}
+				}, event);
+			}
 		}, true);
 	}
 
@@ -2257,6 +2734,41 @@
 	}
 
 	/**
+	 * The default target of a fresh reference node: the first other tab's name, or "" (the
+	 * problems panel asks for a target until one is picked in Layers).
+	 *
+	 * @param {Object} tab the tab the node is added to
+	 * @returns {string} the target tab name, or ""
+	 */
+	function suggestedReferenceTarget(tab) {
+		for (var i = 0; i < project.tabs.length; i++) {
+			if (project.tabs[i] !== tab && project.tabs[i].name) {
+				return project.tabs[i].name;
+			}
+		}
+		return "";
+	}
+
+	/**
+	 * Retitle every reference canvas node (`↦ <target>`), so the target reads on the canvas.
+	 * Reference nodes share the effect constructor (flow in/out, no param sockets); the title
+	 * is their only canvas affordance beyond the Layers row.
+	 *
+	 * @param {Object} tab the tab
+	 */
+	function syncReferenceTitles(tab) {
+		(tab.effects || []).forEach(function (effect) {
+			if (!effect || effect.type !== "reference") {
+				return;
+			}
+			var node = nodeForEffect(tab, effect.id);
+			if (node) {
+				node.title = "↦ " + (effect.reference || "pick a tab");
+			}
+		});
+	}
+
+	/**
 	 * Append an effect of {@code type} to {@code tab}'s chain (design §15.2, P6): adds the model
 	 * entry and its canvas node (with the flow in/out ports), then rewires the flow chain and makes
 	 * it the active effect.
@@ -2272,19 +2784,22 @@
 			return null;
 		}
 		var count = effectNodes(tab).length;
-		var effect = tab.addEffect(type);
+		var effect = type === "reference" && typeof tab.addReference === "function"
+				? tab.addReference(suggestedReferenceTarget(tab)) : tab.addEffect(type);
 		node.pos = [80 + count * 260, 80];
 		node.ignore_remove = true;
 		node.__tab = tab;
 		node.properties.effectId = effect.id;
 		tab.graph.add(node);
-		// A fresh node shows every socket under its group header (show-all is the only
-		// mode); the edge pass treats the laid-out sockets as wired where linked.
+		// A fresh node hides its unconnected sockets (groups start collapsed; the
+		// constructor default above applies). The edge pass treats the laid-out
+		// sockets as wired where linked.
 		node.__hideUnused = false;
 		rebuildEffectInputs(node, null);
 		tab.activeEffect = indexOfEffect(tab, effect.id);
 		tab.root = node;
 		rewireChain(tab);
+		syncReferenceTitles(tab);
 		return node;
 	}
 
@@ -2382,6 +2897,87 @@
 		return order.length === nodes.length ? order : null;
 	}
 
+	/**
+	 * Warn once when the flow chain is not a single full path (a fork, a cycle, a
+	 * disconnected node): one status line naming the offending nodes plus one
+	 * problems-panel entry. Clears the entry once the chain is whole again.
+	 *
+	 * @param {Object} tab the tab
+	 */
+	function warnFlowChain(tab) {
+		if (!tab || !tab.graph) {
+			return;
+		}
+		var nodes = effectNodes(tab);
+		if (nodes.length < 2 || orderEffectsFromCanvas(tab)) {
+			clearProblems("flow:");
+			return;
+		}
+		var names = nodes.map(function (node) {
+			return node.properties && node.properties.effectId
+					? String(node.properties.effectId) : ("#" + node.id);
+		});
+		status("flow chain is broken (fork, cycle or disconnected node): "
+				+ names.join(", ") + " — reconnect out → in in chain order");
+		reportProblem({
+			key: "flow:chain",
+			severity: "warning",
+			message: "flow chain is broken: " + names.join(", ")
+					+ " — reconnect out → in in chain order"
+		});
+	}
+
+	/**
+	 * Surface reference-node problems (a self- or circular reference, a missing target): one
+	 * problems-panel error per offending node, cleared once fixed. The compilers skip such a
+	 * node, so the panel is the only place it is reported.
+	 */
+	function checkReferenceProblems() {
+		var ir = window.VFXIR;
+		var tabs = project.tabs;
+		var cycles = ir && typeof ir.referenceProblems === "function"
+				? ir.referenceProblems(tabs) : [];
+		var missing = [];
+		tabs.forEach(function (tab) {
+			var label = tab.name || "tab";
+			(tab.effects || []).forEach(function (effect) {
+				var isRef = ir && typeof ir.isReferenceEffect === "function"
+						? ir.isReferenceEffect(effect) : effect && effect.type === "reference";
+				if (!isRef) {
+					return;
+				}
+				var target = ir && typeof ir.referenceTarget === "function"
+						? ir.referenceTarget(effect) : null;
+				if (!target) {
+					missing.push({
+						key: "ref:target:" + label + ":" + effect.id,
+						severity: "error",
+						message: "Reference node in tab '" + label + "' has no target. Pick a tab.",
+						context: "[" + label + "]"
+					});
+				} else if (ir && typeof ir.findTabByName === "function"
+						&& !ir.findTabByName(tabs, target)) {
+					missing.push({
+						key: "ref:target:" + label + ":" + effect.id,
+						severity: "error",
+						message: "Reference target '" + target + "' is missing. Fix the reference in tab '"
+								+ label + "'.",
+						context: "[" + label + "]"
+					});
+				}
+			});
+		});
+		var live = cycles.map(function (entry) {
+			return entry.key;
+		});
+		missing.forEach(function (entry) {
+			live.push(entry.key);
+		});
+		retainProblems("ref:", live);
+		cycles.forEach(reportProblem);
+		missing.forEach(reportProblem);
+	}
+
 	/** Rewrite the flow links so they connect the effect nodes in `tab.effects` order. */
 	function rewireChain(tab) {
 		// Reroute dots unthreaded from a removed chain segment (dropped below when unwired).
@@ -2469,6 +3065,7 @@
 			scene.setDirty(true, true);
 		}
 		materializeGraph(tab);
+		checkReferenceProblems();
 		if (dom.tabName) {
 			dom.tabName.value = tab.name;
 		}
@@ -2615,6 +3212,18 @@
 			});
 			dom.types.appendChild(item);
 		});
+		// A reference instances another tab (no params of its own): one explicit entry, since
+		// it is not a schema type.
+		var refItem = document.createElement("button");
+		refItem.type = "button";
+		refItem.className = "vfx-type";
+		refItem.textContent = "↦ reference";
+		refItem.dataset.type = "reference";
+		refItem.title = "Instance another tab (plays that tab's effect in this chain)";
+		refItem.addEventListener("click", function () {
+			chooseType("reference");
+		});
+		dom.types.appendChild(refItem);
 	}
 
 	/**
@@ -3375,6 +3984,7 @@
 				applySlotState(node);
 			}
 		});
+		warnFlowChain(tab);
 	}
 
 	/** Draw a small dot (the slot "animate" affordance) at a widget's right edge. */
@@ -3383,6 +3993,52 @@
 		ctx.arc(cx, cy, 4, 0, Math.PI * 2);
 		ctx.strokeStyle = color;
 		ctx.stroke();
+	}
+
+	/**
+	 * Draw the in-dot glyphs of bind/expr outputs (the driver-family letters). LiteGraph
+	 * slot shapes are only circle/triangle/square/rectangle — no free shapes exist, and
+	 * rectangles are banned — so bind/expr keep the circle and read through a letter in
+	 * the dot. Runs on the canvas foreground (above the slot dots: the node foreground
+	 * runs underneath them); colors stay the port colors, no new hues.
+	 *
+	 * @param {Object} ctx the canvas 2d context (already in canvas coordinates)
+	 */
+	function drawPortGlyphs(ctx) {
+		var tab = activeTab();
+		if (!tab || !tab.graph || !ctx) {
+			return;
+		}
+		var nodes = tab.graph._nodes || [];
+		ctx.save();
+		try {
+			ctx.font = "bold 8px sans-serif";
+			ctx.textAlign = "center";
+			ctx.textBaseline = "middle";
+			ctx.fillStyle = "#000";
+			for (var n = 0; n < nodes.length; n++) {
+				var node = nodes[n];
+				if (!node || !node.outputs || (node.flags && node.flags.collapsed)
+						|| typeof node.getConnectionPos !== "function") {
+					continue;
+				}
+				for (var i = 0; i < node.outputs.length; i++) {
+					var slot = node.outputs[i];
+					if (!slot || !slot.__glyph) {
+						continue;
+					}
+					var pos = node.getConnectionPos(false, i);
+					if (!pos) {
+						continue;
+					}
+					ctx.fillText(slot.__glyph, pos[0], pos[1] + 0.5);
+				}
+			}
+		} catch (e) {
+			// glyphs only: never break the frame
+		} finally {
+			ctx.restore();
+		}
 	}
 
 	/**
@@ -3675,6 +4331,7 @@
 		}
 		var active = tab.effect();
 		tab.root = active ? present[active.id] || null : null;
+		syncReferenceTitles(tab);
 	}
 
 	/** Reorder `tab.effects` to the given id order, keeping any entry the order omitted. */
@@ -4011,7 +4668,9 @@
 		tab.valueNodes = nodes;
 		mergePreservedEdges(tab, collected.edges);
 		syncFieldTrees(tab);
+		syncMaskWires(tab);
 		recordReroutes(tab);
+		recordFrameGroups(tab);
 	}
 
 	/** Apply one IR node's values onto a freshly created canvas node. */
@@ -4191,105 +4850,320 @@
 	}
 
 	/**
-	 * Deterministic layout for value nodes that carry no stored position (imported with no
-	 * meta.pos and no sidecar): topological columns (driver nodes left), rows spaced by node
-	 * height plus a gap, below the effect row. Nodes with a stored/sidecar/user position are
-	 * never moved. Mask/field structural nodes are not laid out here — they are auto-placed
-	 * beside their effect node on every rebuild and their moves are never persisted. Same IR
-	 * always yields the same layout; dependency-free.
+	 * Measure a canvas node in place (guarded) and read its size.
+	 *
+	 * @param {Object} node the canvas node
+	 * @returns {{w: number, h: number}} the size
+	 */
+	function measuredSize(node) {
+		if (node && typeof node.computeSize === "function") {
+			try {
+				node.setSize(node.computeSize());
+			} catch (e) {
+				// Keep the constructor size; gaps still separate neighbours.
+			}
+		}
+		return nodeSize(node);
+	}
+
+	/**
+	 * Read a canvas node size without touching it (for settled obstacles).
+	 *
+	 * @param {Object} node the canvas node
+	 * @returns {{w: number, h: number}} the size
+	 */
+	function nodeSize(node) {
+		return {
+			w: node && node.size ? num(node.size[0], 240) : 240,
+			h: node && node.size ? num(node.size[1], 120) : 120
+		};
+	}
+
+	/**
+	 * Lay out every canvas node without a persisted position (fresh materialise, import,
+	 * new leaves): the chain runs left to right, drivers sit above their consumer, mask
+	 * and field trees stack below their effect, the rest fills the free zone right.
+	 * Nodes with an IR/sidecar/user position (effects with `pos`, values with `pos`,
+	 * keptPos leaves, reroute dots) are obstacles, never moved. Runs at the end of the
+	 * materialise pass, so every node exists at its final size; the next refresh
+	 * persists the assigned spots into the IR, making them user positions from then on.
 	 *
 	 * @param {Object} tab the tab
-	 * @param {Object} byId IR id -> canvas node
+	 * @param {Object} effectNodeById effect id -> canvas node
+	 * @param {Object} byId IR value-node id -> canvas node
 	 */
-	var LAYOUT_COL_W = 300;
-	var LAYOUT_ROW_GAP = 40;
-	var LAYOUT_LEFT = 80;
-	function layoutAutoNodes(tab, byId) {
-		var ids = Object.keys(byId).filter(function (id) {
-			return byId[id].__autoPos === true;
-		});
-		if (!ids.length) {
+	function layoutTabNodes(tab, effectNodeById, byId) {
+		var vfxir = ir();
+		if (!tab || !tab.graph || !vfxir || typeof vfxir.autoLayout !== "function") {
 			return;
 		}
-		var deps = {};
-		ids.forEach(function (id) {
-			deps[id] = [];
-		});
-		function addDep(id, from) {
-			if (from != null && byId[from] && deps[id].indexOf(from) < 0) {
-				deps[id].push(from);
-			}
+		var items = [];
+		var nodes = {};
+		function add(item, node) {
+			items.push(item);
+			nodes[item.id] = node;
 		}
-		(tab.edges || []).forEach(function (edge) {
-			if (edge.input != null && byId[edge.to]) {
-				addDep(edge.to, edge.from);
+		(tab.effects || []).forEach(function (effect, index) {
+			var node = (effectNodeById || {})[effect.id];
+			if (!node) {
+				return;
 			}
+			var size = measuredSize(node);
+			add({ id: "fx:" + effect.id, w: size.w, h: size.h,
+				pos: Array.isArray(effect.pos) && effect.pos.length === 2
+						? [num(effect.pos[0]), num(effect.pos[1])] : null,
+				kind: "effect", order: index }, node);
 		});
-		ids.forEach(function (id) {
-			(byId[id].__pendingRefs || []).forEach(function (ref) {
-				addDep(id, ref.from);
-			});
-		});
-		var depth = {};
-		function level(id, seen) {
-			if (Object.prototype.hasOwnProperty.call(depth, id)) {
-				return depth[id];
+		Object.keys(byId || {}).forEach(function (id) {
+			var node = byId[id];
+			if (!node) {
+				return;
 			}
-			if (seen[id] || !deps[id]) {
-				return 0;
-			}
-			seen[id] = true;
-			var top = 0;
-			deps[id].forEach(function (from) {
-				var below = level(from, seen) + 1;
-				if (below > top) {
-					top = below;
+			var size = measuredSize(node);
+			var irNode = null;
+			(tab.valueNodes || []).forEach(function (entry) {
+				if (entry && entry.id === id) {
+					irNode = entry;
 				}
 			});
-			delete seen[id];
-			depth[id] = top;
-			return top;
-		}
-		ids.forEach(function (id) {
-			level(id, {});
+			add({ id: "v:" + id, w: size.w, h: size.h,
+				pos: irNode && Array.isArray(irNode.pos) && irNode.pos.length === 2
+						? [num(irNode.pos[0]), num(irNode.pos[1])] : null,
+				kind: "value", parent: valueConsumerOf(tab, id, effectNodeById, byId) }, node);
 		});
-		var columns = {};
-		ids.forEach(function (id) {
-			var col = depth[id] || 0;
-			if (!columns[col]) {
-				columns[col] = [];
-			}
-			columns[col].push(id);
-		});
-		// Start below the effect row, so value wires never start out from under an effect node.
-		var top = 280;
-		effectNodes(tab).forEach(function (enode) {
-			var bottom = num(enode.pos[1]) + (enode.size ? num(enode.size[1]) : 120) + 80;
-			if (bottom > top) {
-				top = bottom;
-			}
-		});
-		Object.keys(columns).map(Number).sort(function (a, b) {
-			return a - b;
-		}).forEach(function (col) {
-			var x = LAYOUT_LEFT + col * LAYOUT_COL_W;
-			var y = top;
-			columns[col].sort().forEach(function (id) {
-				var node = byId[id];
-				if (node && typeof node.computeSize === "function") {
-					try {
-						node.setSize(node.computeSize());
-					} catch (e) {
-						// Keep the constructor size; the row gap still separates neighbours.
-					}
+		(tab.effects || []).forEach(function (effect) {
+			var list = maskNodesForEffect(tab, effect.id);
+			var root = null;
+			var leaves = [];
+			list.forEach(function (node) {
+				if (isMaskLeafNode(node)) {
+					leaves.push(node);
+				} else if (!root) {
+					root = node;
 				}
-				var height = node && node.size ? num(node.size[1]) : 120;
-				node.pos = [x, Math.round(y)];
-				y += height + LAYOUT_ROW_GAP;
 			});
+			if (root) {
+				var rsize = measuredSize(root);
+				add({ id: "mask:" + effect.id, w: rsize.w, h: rsize.h, pos: null,
+					kind: "mask", parent: "fx:" + effect.id, order: 0 }, root);
+			}
+			leaves.forEach(function (node) {
+				var lsize = measuredSize(node);
+				var kept = node.__keptPos === true && Array.isArray(node.pos);
+				var op = maskLeafOperand(tab, node);
+				add({ id: "leaf:" + effect.id + ":" + Number(node.properties.leafIndex),
+					w: lsize.w, h: lsize.h,
+					pos: kept ? [num(node.pos[0]), num(node.pos[1])] : null,
+					kind: "leaf", parent: "fx:" + effect.id,
+					order: op >= 0 ? op : 1e9 }, node);
+			});
+		});
+		var fieldRoots = fieldRootNodes(tab);
+		fieldRoots.forEach(function (root, index) {
+			var fsize = measuredSize(root);
+			add({ id: "field:" + root.id, w: fsize.w, h: fsize.h, pos: null,
+				kind: "field", parent: "fx:" + root.properties.effectId, order: index }, root);
+		});
+		(tab.graph._nodes || []).forEach(function (node) {
+			if (!node) {
+				return;
+			}
+			if (isRerouteNode(node) && Array.isArray(node.pos)) {
+				add({ id: "dot:" + node.id, w: num(node.size && node.size[0], 40),
+					h: num(node.size && node.size[1], 26),
+					pos: [num(node.pos[0]), num(node.pos[1])], kind: "other" }, node);
+			}
+		});
+		var placed = vfxir.autoLayout(items);
+		Object.keys(nodes).forEach(function (id) {
+			var at = placed[id];
+			var node = nodes[id];
+			if (!at || !node || !node.pos) {
+				return;
+			}
+			if (id.indexOf("field:") === 0) {
+				shiftFieldTree(tab, node, at[0] - num(node.pos[0]), at[1] - num(node.pos[1]));
+				return;
+			}
+			// Fixed items keep coming back with their exact pos; assigning is a no-op.
+			node.pos = [at[0], at[1]];
 		});
 	}
 
+	/**
+	 * Lay out one effect's fresh mask nodes (a leaf added, a rebuild): the root and the
+	 * position-less leaves land below their effect without overlapping anything already
+	 * on the canvas; keptPos leaves stay exactly where the user dragged them.
+	 *
+	 * @param {Object} tab the tab
+	 * @param {Object} effect the effect entry
+	 * @param {Object} maskNode the Mask root canvas node
+	 * @param {Array<Object>} leafNodes the MaskLeaf canvas nodes in chain order
+	 */
+	function layoutMaskNodes(tab, effect, maskNode, leafNodes) {
+		var vfxir = ir();
+		if (!tab || !tab.graph || !effect || !vfxir || typeof vfxir.autoLayout !== "function") {
+			return;
+		}
+		var items = [];
+		var targets = {};
+		var enode = nodeForEffect(tab, effect.id);
+		if (enode && Array.isArray(enode.pos)) {
+			var esize = measuredSize(enode);
+			items.push({ id: "fx", w: esize.w, h: esize.h,
+				pos: [num(enode.pos[0]), num(enode.pos[1])], kind: "effect", order: 0 });
+		}
+		if (maskNode) {
+			var rsize = measuredSize(maskNode);
+			items.push({ id: "mroot", w: rsize.w, h: rsize.h, pos: null,
+				kind: "mask", parent: "fx", order: 0 });
+			targets.mroot = maskNode;
+		}
+		(leafNodes || []).forEach(function (node) {
+			if (!node) {
+				return;
+			}
+			var lsize = measuredSize(node);
+			var kept = node.__keptPos === true && Array.isArray(node.pos);
+			var op = maskLeafOperand(tab, node);
+			var id = "mleaf:" + Number(node.properties.leafIndex);
+			items.push({ id: id, w: lsize.w, h: lsize.h,
+				pos: kept ? [num(node.pos[0]), num(node.pos[1])] : null,
+				kind: "leaf", parent: "fx", order: op >= 0 ? op : 1e9 });
+			if (!kept) {
+				targets[id] = node;
+			}
+		});
+		(tab.graph._nodes || []).forEach(function (node) {
+			if (!node || node === maskNode || node === enode || !Array.isArray(node.pos)
+					|| (leafNodes || []).indexOf(node) >= 0) {
+				return;
+			}
+			var size = nodeSize(node);
+			items.push({ id: "ob:" + node.id, w: size.w, h: size.h,
+				pos: [num(node.pos[0]), num(node.pos[1])], kind: "other" });
+		});
+		var placed = vfxir.autoLayout(items);
+		Object.keys(targets).forEach(function (id) {
+			if (placed[id]) {
+				targets[id].pos = [placed[id][0], placed[id][1]];
+			}
+		});
+	}
+
+	/**
+	 * The consumer of a value node for layout: the effect, value node or mask leaf its
+	 * first outgoing edge addresses, as a layout item id — or null for a free-zone node.
+	 *
+	 * @param {Object} tab the tab
+	 * @param {string} id the value-node IR id
+	 * @param {Object} effectNodeById effect id -> canvas node
+	 * @param {Object} byId IR value-node id -> canvas node
+	 * @returns {string|null} the consumer layout id, or null
+	 */
+	function valueConsumerOf(tab, id, effectNodeById, byId) {
+		var edges = (tab && tab.edges) || [];
+		for (var i = 0; i < edges.length; i++) {
+			var edge = edges[i];
+			if (!edge || edge.from !== id) {
+				continue;
+			}
+			if (edge.input != null) {
+				if (byId && byId[edge.to]) {
+					return "v:" + edge.to;
+				}
+				return null;
+			}
+			if (typeof edge.to === "string" && edge.to.indexOf("mask.") === 0) {
+				var effectId = edge.effect != null ? edge.effect
+						: (tab.effects && tab.effects.length ? tab.effects[0].id : null);
+				if (effectId == null) {
+					return null;
+				}
+				var parts = String(edge.to).split(".");
+				var leafIndex = Number((parts[1] || "").substring(1));
+				if (!isFinite(leafIndex)) {
+					return null;
+				}
+				return "leaf:" + effectId + ":" + leafIndex;
+			}
+			var targetEffect = edge.effect != null ? edge.effect
+					: (tab.effects && tab.effects.length ? tab.effects[0].id : null);
+			if (targetEffect != null && effectNodeById && effectNodeById[targetEffect]) {
+				return "fx:" + targetEffect;
+			}
+			return null;
+		}
+		return null;
+	}
+
+	/**
+	 * The field-tree roots of a tab: field nodes whose output feeds an effect socket
+	 * directly (their subtrees move rigidly with them).
+	 *
+	 * @param {Object} tab the tab
+	 * @returns {Array<Object>} the root canvas nodes
+	 */
+	function fieldRootNodes(tab) {
+		var roots = [];
+		if (!tab || !tab.graph) {
+			return roots;
+		}
+		var links = tab.graph.links || {};
+		(tab.graph._nodes || []).forEach(function (node) {
+			if (!isFieldNode(node)) {
+				return;
+			}
+			var feedsEffect = ((node.outputs || [])[0] || {}).links || [];
+			for (var i = 0; i < feedsEffect.length; i++) {
+				var link = links[feedsEffect[i]];
+				if (!link) {
+					continue;
+				}
+				var target = tab.graph.getNodeById(link.target_id);
+				if (target && isEffectNode(target)) {
+					roots.push(node);
+					break;
+				}
+			}
+		});
+		return roots;
+	}
+
+	/**
+	 * Shift a field tree rigidly: the root plus every field node upstream of it.
+	 *
+	 * @param {Object} tab the tab
+	 * @param {Object} root the tree root canvas node
+	 * @param {number} dx the x shift
+	 * @param {number} dy the y shift
+	 */
+	function shiftFieldTree(tab, root, dx, dy) {
+		if (!tab || !tab.graph || !root || (!dx && !dy)) {
+			return;
+		}
+		var seen = {};
+		var stack = [root];
+		seen[root.id] = true;
+		var links = tab.graph.links || {};
+		while (stack.length) {
+			var node = stack.pop();
+			if (Array.isArray(node.pos)) {
+				node.pos = [num(node.pos[0]) + dx, num(node.pos[1]) + dy];
+			}
+			(node.inputs || []).forEach(function (slot) {
+				var link = slot && slot.link != null ? links[slot.link] : null;
+				if (!link) {
+					return;
+				}
+				var from = tab.graph.getNodeById(link.origin_id);
+				if (from && isFieldNode(from) && !seen[from.id]) {
+					seen[from.id] = true;
+					stack.push(from);
+				}
+			});
+		}
+	}
 	/**
 	 * Resolve one IR edge's canvas target (node + input slot) for the materialise pass:
 	 * a node input, a mask socket (MaskLeaf preferred, effect node for back-compat) or
@@ -4402,11 +5276,9 @@
 				applyIR(node, ir);
 				if (Array.isArray(ir.pos) && ir.pos.length === 2) {
 					node.pos = [num(ir.pos[0]), num(ir.pos[1])];
-				} else {
-					// No stored pos (no meta.pos/sidecar): flagged for the layout pass below,
-					// which never moves a node that has one.
-					node.__autoPos = true;
 				}
+				// Without a stored pos the end-of-materialise layout pass places the node;
+				// nodes with one are never moved.
 				tab.graph.add(node);
 				byId[ir.id] = node;
 			});
@@ -4452,7 +5324,6 @@
 				});
 			});
 			materializeReroutes(tab, byId, effectNodeById);
-			layoutAutoNodes(tab, byId);
 			materializeFieldNodes(tab, effectNodeById);
 			// Restore the persisted socket-group collapse after the edge + field passes, so
 			// wired members already exist as stubs and their wires redraw (see the helper).
@@ -4465,17 +5336,24 @@
 				}
 				enode.__groupCollapsed = (effect.collapsedGroups
 						&& typeof effect.collapsedGroups === "object")
-						? snapshot(effect.collapsedGroups) : {};
+						? snapshot(effect.collapsedGroups)
+						: defaultCollapsedGroups(schema[effect.type]);
 				enode.__hideUnused = resolveHideUnused(tab, enode);
 				rebuildEffectInputs(enode, effectWiredParams(tab, effect.id));
 			});
 			// The explicit-disconnect witness for the next refresh: only wires actually drawn.
+			materializeStructuralReroutes(tab, effectNodeById);
+			materializeFrameGroups(tab);
+			// Last: every node exists at its final size, so position-less nodes land
+			// without overlaps while user/IR/sidecar spots stay put.
+			layoutTabNodes(tab, effectNodeById, byId);
 			tab.__linkSig = drawnKeys;
 		} finally {
 			applyingGraph = false;
 		}
 		var active = tab.effect();
 		tab.root = active ? effectNodeById[active.id] || null : (effectNodes(tab)[0] || null);
+		syncReferenceTitles(tab);
 		syncAllSlots(tab);
 		if (scene) {
 			scene.setDirty(true, true);
@@ -4521,15 +5399,31 @@
 		}
 	}
 
+	/** The viewport center in canvas coordinates (palette placement), or null. */
+	function canvasCenter() {
+		if (!scene || !dom.canvas || typeof scene.convertEventToCanvasOffset !== "function") {
+			return null;
+		}
+		try {
+			var rect = dom.canvas.getBoundingClientRect();
+			return scene.convertEventToCanvasOffset({
+				clientX: rect.left + rect.width / 2,
+				clientY: rect.top + rect.height / 2
+			});
+		} catch (e) {
+			return null;
+		}
+	}
+
 	/** Add a value node of {@code kind} to {@code tab} at a default canvas position. */
 	function addValueNode(tab, kind) {
 		if (!tab) {
-			status("choose an effect type before adding value nodes");
+			status("Choose an effect type before adding value nodes");
 			return null;
 		}
 		if (kind === "subgraph") {
 			// Instances are born from Group (they need a macro); see groupSelectionIntoMacro.
-			status("select value nodes, then group them into a macro");
+			status("Select value nodes, then group them into a macro");
 			return null;
 		}
 		var registered = "vfx/value/" + kind;
@@ -4545,7 +5439,7 @@
 				count++;
 			}
 		});
-		node.pos = [120 + (count % 6) * 30, 120 + (count % 6) * 30];
+		node.pos = canvasCenter() || [120 + (count % 6) * 30, 120 + (count % 6) * 30];
 		tab.graph.add(node);
 		scheduleGraphEdit(tab);
 		if (scene) {
@@ -4684,6 +5578,7 @@
 			source: snapshot(tab.source),
 			timeline: snapshot(tab.timeline),
 			reroutes: snapshot(tab.__reroutes || []),
+			frameGroups: snapshot(tab.__frameGroups || []),
 			root: tab.root && Array.isArray(tab.root.pos)
 					? [num(tab.root.pos[0]), num(tab.root.pos[1])] : null,
 			valueSeq: tab.__valueSeq || 0
@@ -4697,6 +5592,8 @@
 			name: project.name,
 			namespace: project.namespace,
 			defaults: snapshot(project.defaults || {}),
+			curves: snapshot(project.curves || {}),
+			particles: snapshot(project.particles || {}),
 			tabs: project.tabs.map(snapshotTab)
 		};
 	}
@@ -4758,6 +5655,8 @@
 		project.name = snap.name == null ? project.name : String(snap.name);
 		project.namespace = snap.namespace == null ? project.namespace : String(snap.namespace);
 		project.defaults = snapshot(snap.defaults) || {};
+		project.curves = snapshot(snap.curves) || {};
+		project.particles = snapshot(snap.particles) || {};
 		setProjectName();
 		// Drop any pending debounced edit/commit so a stale timer cannot re-commit after the restore.
 		clearTimeout(commitTimer);
@@ -4783,6 +5682,7 @@
 			tab.timeline = snapshot(state.timeline) || {};
 			tab.__valueSeq = state.valueSeq || 0;
 			tab.__reroutes = Array.isArray(state.reroutes) ? snapshot(state.reroutes) : [];
+			tab.__frameGroups = Array.isArray(state.frameGroups) ? snapshot(state.frameGroups) : [];
 			if (Array.isArray(state.effects) && state.effects.length) {
 				tab.effects = [];
 				tab.activeEffect = -1;
@@ -4807,6 +5707,9 @@
 					}
 					entry.effectId = saved.effectId == null ? null : String(saved.effectId);
 					entry.external = saved.external === true;
+					if (saved.reference != null) {
+						entry.reference = String(saved.reference);
+					}
 					if (saved.uuid != null) {
 						entry.uuid = String(saved.uuid);
 					}
@@ -4889,11 +5792,30 @@
 		return snap;
 	}
 
-	function inspectorMessage(text) {
+	function inspectorMessage(text, action) {
 		var p = document.createElement("p");
 		p.className = "vfx-inspect-empty";
 		p.textContent = text;
+		if (action && typeof action.onClick === "function") {
+			p.appendChild(document.createTextNode(" "));
+			var button = document.createElement("button");
+			button.type = "button";
+			button.className = "vfx-slot-btn";
+			button.textContent = action.label || "Show";
+			button.addEventListener("click", action.onClick);
+			p.appendChild(button);
+		}
 		return p;
+	}
+
+	/** Focus the palette filter, so an empty-state action lands on the type list. */
+	function focusPalette() {
+		var filter = document.getElementById("vfx-filter");
+		if (filter && typeof filter.focus === "function") {
+			filter.focus();
+		} else {
+			status("Choose an effect type from the palette");
+		}
 	}
 
 	/** A deep JSON snapshot of a spec, so an undo command holds a value, not a live reference. */
@@ -5071,6 +5993,316 @@
 		}
 	}
 
+	/** The Mask root input feeding one leaf: `operand 0`, `operand 1`, … */
+	function maskOperandName(index) {
+		return "operand " + index;
+	}
+
+	/** The operand index a root input name addresses, or -1. */
+	function maskOperandIndex(name) {
+		var match = /^operand (\d+)$/.exec(name || "");
+		return match ? Number(match[1]) : -1;
+	}
+
+	/**
+	 * The mask-structural connect rule (design §13.1): a MaskLeaf feeds only an operand of its
+	 * own Mask root (one wire per leaf, one leaf per operand); only the Mask root links into
+	 * an effect `mask` input. Returns null for non-mask wires (no opinion — the vendored gate
+	 * decides), `{ok:true}` when allowed, `{ok:false, hint}` when refused. Pure over the graph,
+	 * so the headless runner pins it; the canvas connect wrap enforces it live.
+	 *
+	 * @param {Object} graph the canvas graph
+	 * @param {Object} origin the output node
+	 * @param {number} originSlot the output slot index
+	 * @param {Object} target the input node
+	 * @param {number} targetSlot the input slot index
+	 * @returns {{ok: boolean, hint?: string}|null} the verdict, or null
+	 */
+	function maskWireRule(graph, origin, originSlot, target, targetSlot) {
+		if (!graph || !origin || !target) {
+			return null;
+		}
+		if (isRerouteNode(origin) || isRerouteNode(target)) {
+			return null;
+		}
+		var outName = origin.outputs && origin.outputs[originSlot]
+				? origin.outputs[originSlot].name : null;
+		var inSlot = target.inputs && target.inputs[targetSlot]
+				? target.inputs[targetSlot] : null;
+		var inName = inSlot ? inSlot.name : null;
+		var sameEffect = origin.properties && target.properties
+				&& origin.properties.effectId != null
+				&& origin.properties.effectId === target.properties.effectId;
+		if (isMaskLeafNode(origin)) {
+			if (isMaskNode(target) && !isMaskLeafNode(target) && sameEffect
+					&& maskOperandIndex(inName) >= 0) {
+				if (inSlot.link != null) {
+					return { ok: false,
+						hint: "Mask " + inName + " already has a wire — rewire it first" };
+				}
+				var outs = origin.outputs[originSlot];
+				if (outs && outs.links && outs.links.length) {
+					return { ok: false,
+						hint: "This MaskLeaf already feeds an operand — one wire per leaf" };
+				}
+				return { ok: true };
+			}
+			if (isEffectNode(target) && inName === "mask") {
+				return { ok: false,
+					hint: "Only the Mask root links into the effect mask input"
+							+ " — wire the leaf into an operand" };
+			}
+			return { ok: false, hint: "A MaskLeaf feeds only the operands of its own effect" };
+		}
+		if (isMaskNode(target) && !isMaskLeafNode(target) && maskOperandIndex(inName) >= 0) {
+			return { ok: false,
+				hint: "Mask " + inName + " takes only a MaskLeaf of the same effect" };
+		}
+		if (isEffectNode(target) && inName === "mask"
+				&& !(isMaskNode(origin) && !isMaskLeafNode(origin))) {
+			return { ok: false, hint: "Only the Mask root links into the effect mask input" };
+		}
+		return null;
+	}
+
+	/**
+	 * The operand mapping after removing chain leaf `removed`: drop the operand that fed it
+	 * and shift higher leaf indices down, over the `newCount` surviving operands. A missing
+	 * mapping (legacy) stays missing — migration falls back to chain order, which is exact
+	 * for untouched old projects.
+	 *
+	 * @param {Array|null|undefined} wires the operand -> leaf index mapping
+	 * @param {number} removed the removed chain leaf index
+	 * @param {number} newCount the surviving operand count
+	 * @returns {Array|null} the adjusted mapping, or null
+	 */
+	function maskWiresAfterRemove(wires, removed, newCount) {
+		if (!Array.isArray(wires)) {
+			return null;
+		}
+		var out = [];
+		var dropped = false;
+		wires.forEach(function (li) {
+			if (!dropped && li === removed) {
+				dropped = true;
+				return;
+			}
+			out.push(li == null ? li : (li > removed ? li - 1 : li));
+		});
+		if (!dropped && out.length > newCount) {
+			out.length = Math.max(0, newCount);
+		}
+		while (out.length < newCount) {
+			out.push(null);
+		}
+		return out;
+	}
+
+	/**
+	 * Reconnect leaf outputs onto the root operand inputs after a mask-node build: leaf i
+	 * feeds `operand i` (migration — old projects compile byte-identical), or the stashed
+	 * `effect.maskWires` mapping when it matches the leaf count. Dots are re-threaded later
+	 * by the reroute restore; the compiler never reads them.
+	 *
+	 * @param {Object} tab the tab
+	 * @param {Object} effect the effect entry (carries `maskWires`)
+	 * @param {Object} maskNode the Mask root canvas node
+	 * @param {Array<Object>} leafNodes the MaskLeaf canvas nodes in chain order
+	 */
+	function connectMaskOperands(tab, effect, maskNode, leafNodes) {
+		if (!tab || !tab.graph || !effect || !maskNode || !leafNodes) {
+			return;
+		}
+		var wires = Array.isArray(effect.maskWires) && effect.maskWires.length === leafNodes.length
+				? effect.maskWires : null;
+		for (var op = 0; op < leafNodes.length; op++) {
+			var li = wires ? wires[op] : op;
+			if (li == null || li < 0 || li >= leafNodes.length) {
+				continue;
+			}
+			var leaf = leafNodes[li];
+			if (!leaf || leaf === maskNode) {
+				continue;
+			}
+			var outSlot = outputIndex(leaf, "mask");
+			var inSlot = inputIndex(maskNode, maskOperandName(op));
+			if (outSlot < 0 || inSlot < 0) {
+				continue;
+			}
+			try {
+				if (!hasLink(leaf, maskNode, inSlot)) {
+					leaf.connect(outSlot, maskNode, inSlot);
+				}
+			} catch (e) {
+				// Migration only: a refused half leaves the operand unwired, which the
+				// refresh reports instead of breaking the build.
+			}
+		}
+	}
+
+	/**
+	 * The operand index a leaf feeds (resolved through reroute dots), or -1 when unwired.
+	 *
+	 * @param {Object} tab the tab
+	 * @param {Object} leaf a canvas MaskLeaf node
+	 * @returns {number} the operand index, or -1
+	 */
+	function maskLeafOperand(tab, leaf) {
+		if (!tab || !tab.graph || !leaf || !leaf.properties) {
+			return -1;
+		}
+		var root = null;
+		maskNodesForEffect(tab, leaf.properties.effectId).forEach(function (node) {
+			if (!root && isMaskNode(node) && !isMaskLeafNode(node)) {
+				root = node;
+			}
+		});
+		if (!root) {
+			return -1;
+		}
+		var links = tab.graph.links || {};
+		for (var i = 0; i < (root.inputs || []).length; i++) {
+			var op = maskOperandIndex(root.inputs[i].name);
+			if (op < 0) {
+				continue;
+			}
+			var id = root.inputs[i].link;
+			var link = id != null ? links[id] : null;
+			if (!link) {
+				continue;
+			}
+			var resolved = resolveRerouteOrigin(tab, link.origin_id, link.origin_slot);
+			if (resolved && resolved.id === leaf.id) {
+				return op;
+			}
+		}
+		return -1;
+	}
+
+	/**
+	 * The chain leaf index feeding one root operand (resolved through reroute dots), or null
+	 * when the operand is empty or fed by a non-leaf (a smuggled wire the refresh reports).
+	 *
+	 * @param {Object} tab the tab
+	 * @param {Object} root a canvas Mask root node
+	 * @param {number} op the operand index
+	 * @returns {number|null} the chain leaf index, or null
+	 */
+	function maskOperandLeaf(tab, root, op) {
+		if (!tab || !tab.graph || !root) {
+			return null;
+		}
+		var at = inputIndex(root, maskOperandName(op));
+		if (at < 0 || !root.inputs[at] || root.inputs[at].link == null) {
+			return null;
+		}
+		var links = tab.graph.links || {};
+		var link = links[root.inputs[at].link];
+		if (!link) {
+			return null;
+		}
+		var resolved = resolveRerouteOrigin(tab, link.origin_id, link.origin_slot);
+		if (!resolved) {
+			return null;
+		}
+		var leaf = tab.graph.getNodeById(resolved.id);
+		if (!leaf || !isMaskLeafNode(leaf) || leaf.properties.effectId !== root.properties.effectId) {
+			return null;
+		}
+		var li = Number(leaf.properties.leafIndex);
+		return isFinite(li) && li >= 0 ? li : null;
+	}
+
+	/** The operand input count of a Mask root node. */
+	function maskOperandCount(root) {
+		var count = 0;
+		(root.inputs || []).forEach(function (slot) {
+			if (slot && maskOperandIndex(slot.name) >= 0) {
+				count++;
+			}
+		});
+		return count;
+	}
+
+	/**
+	 * Retitle every leaf of an effect from its wired operand (`leaf N · shape`), falling back
+	 * to the chain index while unwired. In-place (no rebuild): titles stay truthful after a
+	 * rewire without one.
+	 *
+	 * @param {Object} tab the tab
+	 * @param {Object} effect the effect entry
+	 */
+	function retitleMaskLeaves(tab, effect) {
+		if (!tab || !effect) {
+			return;
+		}
+		maskNodesForEffect(tab, effect.id).forEach(function (node) {
+			if (!isMaskLeafNode(node)) {
+				return;
+			}
+			var op = maskLeafOperand(tab, node);
+			var shape = node.__leafShape != null ? node.__leafShape : "?";
+			var deferred = node.__leafDeferred === true ? " (not authored)" : "";
+			node.title = "leaf " + (op >= 0 ? op : Number(node.properties.leafIndex)) + " · "
+					+ shape + deferred;
+		});
+	}
+
+	/**
+	 * Record the operand wiring into `effect.maskWires` (operand -> chain leaf index, null
+	 * when empty) and report empty operands. Runs on every canvas sync; the compiler folds
+	 * the order and skips the mask past an empty operand, so a rewire needs no rebuild.
+	 *
+	 * @param {Object} tab the tab
+	 */
+	function syncMaskWires(tab) {
+		if (!tab || !tab.graph) {
+			return;
+		}
+		var keys = [];
+		(tab.effects || []).forEach(function (effect) {
+			var nodes = maskNodesForEffect(tab, effect.id);
+			var root = null;
+			var leaves = [];
+			nodes.forEach(function (node) {
+				if (isMaskLeafNode(node)) {
+					leaves.push(node);
+				} else if (!root) {
+					root = node;
+				}
+			});
+			if (!root || !leaves.length) {
+				if (effect.maskWires !== undefined) {
+					delete effect.maskWires;
+				}
+				return;
+			}
+			var wires = [];
+			for (var op = 0; op < maskOperandCount(root); op++) {
+				wires.push(maskOperandLeaf(tab, root, op));
+			}
+			effect.maskWires = wires;
+			wires.forEach(function (li, index) {
+				if (li == null) {
+					keys.push("mask:unwired:" + effect.id + ":" + index);
+				}
+			});
+			retitleMaskLeaves(tab, effect);
+		});
+		var sig = keys.join("|");
+		if (tab.__maskUnwiredSig !== sig) {
+			tab.__maskUnwiredSig = sig;
+			retainProblems("mask:unwired:", keys);
+			keys.forEach(function (key) {
+				var tail = key.substring(key.lastIndexOf(":") + 1);
+				var head = key.substring(0, key.lastIndexOf(":"));
+				reportProblem({ key: key, severity: "error",
+					message: "Mask operand " + tail + " is not wired",
+					context: "[" + head.substring(head.lastIndexOf(":") + 1) + "]" });
+			});
+		}
+	}
+
 	/** Build the Mask root node for an effect's node state, beside the effect node. */
 	function buildMaskNode(tab, effect, chain, descriptor) {
 		var node = LiteGraph.createNode("vfx/mask");
@@ -5103,6 +6335,11 @@
 				}, { values: window.VFXIR.MASK_OPS });
 			})(i);
 		}
+		// One operand input per leaf, in leaf order: leaf i migrates onto `operand i`, and
+		// the port order is the fold order the compiler emits.
+		for (var o = 0; o < chain.leaves.length; o++) {
+			paintPort(node.addInput(maskOperandName(o), MASK_LINK), "mask");
+		}
 		// Add another MaskLeaf to the composition (design §13.1). The joins stay left-nested, so the
 		// right operand of every composition is a leaf, matching the parser.
 		node.addWidget("button", "+ leaf", null, function () {
@@ -5116,6 +6353,9 @@
 		});
 		var effectNode = nodeForEffect(tab, effect.id);
 		node.pos = effectNode ? [effectNode.pos[0] + 240, effectNode.pos[1] - 20] : [140, 220];
+		if (typeof node.computeSize === "function" && typeof node.setSize === "function") {
+			node.setSize(node.computeSize());
+		}
 		return node;
 	}
 
@@ -5136,6 +6376,8 @@
 		node.__leafIndex = index;
 		node.__kindSpec = { sockets: [] };
 		node.__widgets = {};
+		node.__leafShape = String(leaf.shape);
+		node.__leafDeferred = Boolean(deferred);
 		node.__maskSlots = [];
 		var deferred = vfxir.maskShapeDeferred(leaf.shape, table);
 		node.title = "leaf " + index + " · " + leaf.shape + (deferred ? " (not authored)" : "");
@@ -5145,7 +6387,9 @@
 			onMaskChange(tab, true);
 		}, { values: vfxir.maskShapeList(descriptor) });
 		// Remove this leaf; the remaining leaves keep their order and the joins are re-trimmed.
+		// The operand mapping is stashed first so survivors reconnect to their operands.
 		node.addWidget("button", "\u00D7 remove leaf", null, function () {
+			effect.maskWires = maskWiresAfterRemove(effect.maskWires, index, chain.leaves.length - 1);
 			chain.leaves.splice(index, 1);
 			if (chain.ops.length > Math.max(0, chain.leaves.length - 1)) {
 				chain.ops.length = Math.max(0, chain.leaves.length - 1);
@@ -5185,6 +6429,9 @@
 		// A horizontal chain: the leaves read a -> b in join order to the right of the Mask
 		// root that owns the op combos, instead of a vertical stack under it.
 		node.pos = [basePos[0] + 250 + index * 260, basePos[1] + 30];
+		if (typeof node.computeSize === "function" && typeof node.setSize === "function") {
+			node.setSize(node.computeSize());
+		}
 		return node;
 	}
 
@@ -5282,13 +6529,16 @@
 				var maskNode = buildMaskNode(tab, effect, chain, descriptor);
 				tab.graph.add(maskNode);
 				var slotsByLeaf = window.VFXIR.maskSlotsByLeaf(effect.mask, table);
+				var leafNodes = [];
 				chain.leaves.forEach(function (leaf, i) {
 					var leafNode = buildMaskLeafNode(tab, effect, chain, i, leaf,
 							slotsByLeaf[i] || [], descriptor, table, maskNode.pos);
 					if (keptPos[i]) {
 						leafNode.pos = keptPos[i];
+						leafNode.__keptPos = true;
 					}
 					tab.graph.add(leafNode);
+					leafNodes.push(leafNode);
 				});
 				// Attach the tree to the effect node with one cosmetic wire (the compiler
 				// reads the `mask.` edges; mask nodes carry no IR id, so the wire is never an edge).
@@ -5300,6 +6550,12 @@
 						maskNode.connect(port, effectNode, into);
 					}
 				}
+				// Leaves feed the root operands (migration: leaf i onto operand i), then the
+				// leaf titles follow the ports they landed on. Fresh nodes land without
+				// overlaps; dragged ones (keptPos) stay exactly where the user put them.
+				connectMaskOperands(tab, effect, maskNode, leafNodes);
+				retitleMaskLeaves(tab, effect);
+				layoutMaskNodes(tab, effect, maskNode, leafNodes);
 			});
 			connectMaskEdges(tab);
 			// A fresh leaf shows widgets only (§15.1); sockets appear as wires land (above).
@@ -5564,6 +6820,10 @@
 
 	/** Whether an effect renders a fullscreen post pass (via the compiler's classification). */
 	function effectIsPost(effect) {
+		// A reference renders nothing itself (its target does), so it groups with world/camera.
+		if (effect && effect.type === "reference") {
+			return false;
+		}
 		return window.VFXCompiler && typeof window.VFXCompiler.isPostType === "function"
 				? window.VFXCompiler.isPostType(effect && effect.type) : true;
 	}
@@ -5572,6 +6832,22 @@
 	function effectScreenLayer(effect) {
 		return window.VFXCompiler && typeof window.VFXCompiler.screenLayerOf === "function"
 				? window.VFXCompiler.screenLayerOf(effect) : 1;
+	}
+
+	/**
+	 * Set one effect's solo from the Layers panel or its canvas badge (the two are
+	 * twins over `effect.solo`): the preview refresh is viewstate-only, while export
+	 * honors solo exactly as it always did for the panel button.
+	 */
+	function setEffectSolo(tab, effect, value) {
+		if (!effect) {
+			return;
+		}
+		effect.solo = value === true;
+		commitHistory();
+		renderInspector();
+		renderTimeline();
+		refreshViewstate(tab);
 	}
 
 	/** Push the view state (order/mute/solo) to the preview — instance ops only, no recompilation. */
@@ -5623,6 +6899,12 @@
 	}
 
 	/** Build one draggable layer row for an effect (mute/solo/delay/duration/reorder). */
+	function layerTag(text) {
+		var tag = document.createElement("span");
+		tag.className = "vfx-layer-tag";
+		tag.textContent = text;
+		return tag;
+	}
 	function renderLayerRow(tab, effect, index) {
 		var row = document.createElement("div");
 		row.className = "vfx-layer" + (index === tab.activeEffect ? " active" : "")
@@ -5634,9 +6916,10 @@
 
 		var mute = document.createElement("button");
 		mute.type = "button";
-		mute.className = "vfx-layer-btn";
+		mute.className = "vfx-layer-btn" + (effect.mute ? " active" : "");
 		mute.textContent = "M";
 		mute.title = "Mute (disable this effect)";
+		mute.setAttribute("aria-pressed", effect.mute ? "true" : "false");
 		mute.addEventListener("click", function (event) {
 			event.stopPropagation();
 			effect.mute = !effect.mute;
@@ -5648,28 +6931,28 @@
 
 		var solo = document.createElement("button");
 		solo.type = "button";
-		solo.className = "vfx-layer-btn";
+		solo.className = "vfx-layer-btn" + (effect.solo ? " active" : "");
 		solo.textContent = "S";
 		solo.title = "Solo (play only the soloed effects)";
+		solo.setAttribute("aria-pressed", effect.solo ? "true" : "false");
 		solo.addEventListener("click", function (event) {
 			event.stopPropagation();
-			effect.solo = !effect.solo;
-			commitHistory();
-			renderInspector();
-			renderTimeline();
-			refreshViewstate(tab);
+			setEffectSolo(tab, effect, effect.solo !== true);
 		});
 
 		var label = document.createElement("span");
 		label.className = "vfx-layer-name";
-		label.textContent = (index + 1) + ". " + (effect.type || "—");
-		label.title = effect.type || "";
+		var isRef = effect.type === "reference";
+		label.textContent = (index + 1) + ". "
+				+ (isRef ? "↦ " + (effect.reference || "pick a tab") : (effect.type || "—"));
+		label.title = isRef ? "Reference to " + (effect.reference || "no target") : effect.type || "";
 
 		var delay = document.createElement("input");
 		delay.type = "number";
 		delay.className = "vfx-layer-num";
 		delay.value = String(num(effect.delay, 0));
 		delay.title = "Delay (ticks) before this effect starts";
+		delay.setAttribute("aria-label", "d: delay in ticks before this effect starts");
 		delay.addEventListener("click", function (event) { event.stopPropagation(); });
 		delay.addEventListener("change", function () {
 			effect.delay = num(delay.value, 0);
@@ -5683,6 +6966,7 @@
 		duration.className = "vfx-layer-num";
 		duration.value = String(num(effect.duration, 0));
 		duration.title = "Duration (ticks); 0 inherits the tab duration";
+		duration.setAttribute("aria-label", "len: duration in ticks; 0 inherits the tab duration");
 		duration.addEventListener("click", function (event) { event.stopPropagation(); });
 		duration.addEventListener("change", function () {
 			effect.duration = num(duration.value, 0);
@@ -5694,7 +6978,40 @@
 		row.appendChild(mute);
 		row.appendChild(solo);
 		row.appendChild(label);
+		if (isRef) {
+			// The reference target picker: every other tab by name (the compilers resolve it
+			// to that tab's definition id).
+			var target = document.createElement("select");
+			target.className = "vfx-layer-target";
+			target.title = "Tab this node instances";
+			target.setAttribute("aria-label", "Reference target tab");
+			var blank = document.createElement("option");
+			blank.value = "";
+			blank.textContent = "— pick —";
+			target.appendChild(blank);
+			project.tabs.forEach(function (other) {
+				if (other === tab || !other.name) {
+					return;
+				}
+				var option = document.createElement("option");
+				option.value = other.name;
+				option.textContent = other.name;
+				target.appendChild(option);
+			});
+			target.value = effect.reference || "";
+			target.addEventListener("click", function (event) { event.stopPropagation(); });
+			target.addEventListener("change", function () {
+				effect.reference = target.value;
+				syncReferenceTitles(tab);
+				commitHistory();
+				renderInspector();
+				requestStructural(tab);
+			});
+			row.appendChild(target);
+		}
+		row.appendChild(layerTag("d:"));
 		row.appendChild(delay);
+		row.appendChild(layerTag("len:"));
 		row.appendChild(duration);
 		row.appendChild(layerMoveButton(tab, index, -1, "▲"));
 		row.appendChild(layerMoveButton(tab, index, 1, "▼"));
@@ -5858,7 +7175,9 @@
 		var params = descriptor && Array.isArray(descriptor.params) ? descriptor.params : [];
 		if (!params.length && !supportsMask && !supportsStructural) {
 			dom.inspector.appendChild(inspectorMessage(
-					tab.type ? "No editable parameters" : "Choose an effect type"));
+					tab.type ? "No editable parameters — choose another effect type from the palette"
+							: "Choose an effect type",
+					tab.type ? null : { label: "Focus palette", onClick: focusPalette }));
 			return;
 		}
 		if (params.length) {
@@ -6851,14 +8170,42 @@
 		});
 	}
 
+	/** The default export namespace (the project setting, or a safe fallback). */
+	function defaultNamespace() {
+		return validNamespace(project.namespace) ? project.namespace : "vfx_project";
+	}
+
+	/**
+	 * One tab's export namespace: the tab name's prefix when it is a valid namespace
+	 * (`<namespace>:<name>`), else the project default. Tabs from different namespaces export
+	 * under their own `data/<ns>/vfx/` in one pass (design §13.7).
+	 *
+	 * @param {Object} tab the tab
+	 * @returns {string} the namespace the tab's files are written under
+	 */
+	function tabNamespace(tab) {
+		var name = tab && tab.name ? String(tab.name) : "";
+		var colon = name.indexOf(":");
+		if (colon > 0) {
+			var prefix = name.substring(0, colon);
+			if (validNamespace(prefix)) {
+				return prefix;
+			}
+		}
+		return defaultNamespace();
+	}
+
 	/**
 	 * Every tab as `{ fileBaseName: compiledJsonString }` for `/export` (design §15.2, P6): a
 	 * single-effect tab is one flat file; a chain is a `collection` root plus one child definition
-	 * file per node, referenced by `<namespace>:<base>__<n>`.
+	 * file per node, referenced by `<namespace>:<base>__<n>`. Each tab compiles under its own
+	 * {@link tabNamespace}, so child ids point at the tab's own namespace.
+	 *
+	 * @returns {{namespaces: Object, order: Array<string>}} files per namespace, in first-use order
 	 */
-	function gatherEffects() {
-		var effects = {};
-		var namespace = validNamespace(project.namespace) ? project.namespace : "vfx_project";
+	function groupExportFiles() {
+		var grouped = {};
+		var order = [];
 		project.tabs.forEach(function (tab) {
 			if (!tab.effects || !tab.effects.length) {
 				return;
@@ -6867,24 +8214,47 @@
 			if (!base) {
 				return;
 			}
+			var namespace = tabNamespace(tab);
+			if (!Object.prototype.hasOwnProperty.call(grouped, namespace)) {
+				grouped[namespace] = {};
+				order.push(namespace);
+			}
 			if (window.VFXCompiler && typeof window.VFXCompiler.compileTabFiles === "function") {
-				var files = window.VFXCompiler.compileTabFiles(tab, { namespace: namespace, baseName: base });
+				var files = window.VFXCompiler.compileTabFiles(tab,
+						{ namespace: namespace, baseName: base, tabs: project.tabs });
 				Object.keys(files).forEach(function (name) {
-					effects[name] = files[name];
+					grouped[namespace][name] = files[name];
 				});
 			} else {
-				effects[base] = window.VFXCompiler ? window.VFXCompiler.compileTab(tab) : "{}";
+				grouped[namespace][base] = window.VFXCompiler ? window.VFXCompiler.compileTab(tab) : "{}";
 			}
 		});
-		return effects;
+		return { namespaces: grouped, order: order };
 	}
+
+	/**
+	 * Every tab as `{ fileBaseName: compiledJsonString }` for the primary namespace (the legacy
+	 * single-namespace view of {@link groupExportFiles}).
+	 */
+	function gatherEffects() {
+		var grouped = groupExportFiles();
+		var primary = defaultNamespace();
+		return grouped.namespaces[primary] || {};
+	}
+
+	/** Current `.vfxproj.json` sidecar version (design §13.7): v2 adds the project namespace. */
+	var SIDECAR_VERSION = 2;
 
 	/** The editor project document: tab layout (root position + timeline zoom) for a round-trip. */
 	function buildSidecar() {
 		return {
-			version: 1,
+			version: SIDECAR_VERSION,
+			namespace: project.namespace,
 			tabs: project.tabs.filter(function (tab) {
-				return tab.effects && tab.effects.length;
+				// Frames are sidecar-only view state: a tab with none of its own effects
+				// still keeps its frames (never the emit — groupExportFiles skips it).
+				return (tab.effects && tab.effects.length)
+						|| (tab.__frameGroups && tab.__frameGroups.length);
 			}).map(function (tab) {
 				var entry = { name: safeName(effectName(tab)) };
 				if (tab.root && Array.isArray(tab.root.pos)) {
@@ -6910,36 +8280,88 @@
 						persistent: effect.persistent === true,
 						fade_ticks: num(effect.fade_ticks, 0)
 					};
-					// Persist an imported external reference so a saved project keeps the id on export.
+					// Group collapse is canvas-only view state like mute/solo: it rides the
+				// sidecar (the compiler never reads it) so a reload keeps the layout.
+				if (effect.collapsedGroups && typeof effect.collapsedGroups === "object") {
+					out.collapsedGroups = snapshot(effect.collapsedGroups);
+				}
+				// Persist an imported external reference so a saved project keeps the id on export.
 					if (effect.effectId != null) {
 						out.effectId = String(effect.effectId);
+					}
+					// A reference node instances another tab: persist the target tab name.
+					if (effect.reference != null) {
+						out.reference = String(effect.reference);
 					}
 					if (effect.external === true) {
 						out.external = true;
 					}
 					return out;
 				});
+				// Named canvas frames ride the sidecar (canvas-only view state, never the emit).
+				if (tab.__frameGroups && tab.__frameGroups.length) {
+					entry.frameGroups = snapshot(tab.__frameGroups);
+				}
 				return entry;
 			})
 		};
 	}
 
 	/**
-	 * Apply an imported sidecar to the just-created tabs, by effect name. A missing or corrupt
-	 * sidecar is ignored, so an import without layout still works (nodes keep their default spot).
+	 * Normalise any sidecar document to the current version (design §13.7): a missing `version`
+	 * reads as v1, older versions migrate up field-by-field, and a version newer than
+	 * {@link SIDECAR_VERSION} keeps only the fields this build understands (unknown fields are
+	 * dropped on re-emit, never crash the import). Returns the v2 document, or null when the
+	 * input is not a sidecar object at all.
 	 *
-	 * @param {Object|string|null} sidecar the `/import` sidecar
-	 * @param {Array} tabs the tabs the import created
+	 * @param {Object|string|null} sidecar the raw `/import` sidecar
+	 * @returns {Object|null} `{ version: 2, namespace, tabs }`
 	 */
-	function applySidecar(sidecar, tabs) {
+	function migrateSidecar(sidecar) {
 		var doc = sidecar;
 		if (typeof sidecar === "string") {
 			try {
 				doc = JSON.parse(sidecar);
 			} catch (e) {
-				return;
+				return null;
 			}
 		}
+		if (!doc || typeof doc !== "object" || Array.isArray(doc)) {
+			return null;
+		}
+		var version = doc.version == null ? 1 : Number(doc.version);
+		if (!isFinite(version)) {
+			return null;
+		}
+		if (version > SIDECAR_VERSION) {
+			// Forward-tolerant but lossy on write-back: unknown fields are dropped on re-emit,
+			// so say so instead of silently stripping a newer editor's sidecar.
+			status("sidecar v" + version + " is newer than this editor (v" + SIDECAR_VERSION
+					+ ") — saving may strip sidecar fields this editor does not know");
+		}
+		var out = {
+			version: SIDECAR_VERSION,
+			tabs: Array.isArray(doc.tabs) ? doc.tabs : []
+		};
+		// v2 adds the project namespace (v1 documents predate it): carry it when present and
+		// valid, else leave it out so the import keeps the pack's namespace.
+		if (doc.namespace != null && validNamespace(String(doc.namespace))) {
+			out.namespace = String(doc.namespace);
+		}
+		return out;
+	}
+
+	/**
+	 * Apply an imported sidecar to the just-created tabs, by effect name. A missing or corrupt
+	 * sidecar is ignored, so an import without layout still works (nodes keep their default spot).
+	 * v1 sidecars apply unchanged ({@link migrateSidecar} fills the defaults); a sidecar newer
+	 * than this build applies the fields it recognises.
+	 *
+	 * @param {Object|string|null} sidecar the `/import` sidecar
+	 * @param {Array} tabs the tabs the import created
+	 */
+	function applySidecar(sidecar, tabs) {
+		var doc = migrateSidecar(sidecar);
 		if (!doc || !Array.isArray(doc.tabs)) {
 			return;
 		}
@@ -6956,6 +8378,9 @@
 			}
 			if (Array.isArray(entry.root) && tab.root) {
 				tab.root.pos = [num(entry.root[0]), num(entry.root[1])];
+			}
+			if (Array.isArray(entry.frameGroups)) {
+				tab.__frameGroups = snapshot(entry.frameGroups);
 			}
 			if (Array.isArray(entry.effects) && tab.effects) {
 				entry.effects.forEach(function (saved, index) {
@@ -6987,17 +8412,25 @@
 					}
 					effect.mute = saved.mute === true;
 					effect.solo = saved.solo === true;
+					if (saved.collapsedGroups && typeof saved.collapsedGroups === "object") {
+						effect.collapsedGroups = snapshot(saved.collapsedGroups);
+					}
 					if (saved.uuid != null) {
 						effect.uuid = String(saved.uuid);
 					}
 					if (saved.effectId != null) {
 						effect.effectId = String(saved.effectId);
 					}
+					if (saved.reference != null) {
+						effect.reference = String(saved.reference);
+					}
 					if (saved.external === true) {
 						effect.external = true;
 					}
 				});
 				materializeGraph(tab);
+			} else if (tab.__frameGroups && tab.__frameGroups.length) {
+				materializeFrameGroups(tab);
 			}
 			if (isFinite(Number(entry.pxPerTick))) {
 				if (!tab.timeline) {
@@ -7029,11 +8462,13 @@
 		}
 	}
 
-	/** Reset to a fresh project: new name/namespace, no tabs. */
+	/** Reset to a fresh project: new name/namespace, no tabs, no carried presets. */
 	function newProject(name, namespace) {
 		project.name = name || "Untitled project";
 		project.namespace = namespace || "vfx_project";
 		project.defaults = project.defaults || {};
+		project.curves = {};
+		project.particles = {};
 		project.tabs = [];
 		project.active = -1;
 		pack = null;
@@ -7557,13 +8992,127 @@
 	/* Export dialog (design §15.6)                                        */
 	/* ------------------------------------------------------------------ */
 
-	/** Every effect tab + the sidecar, or null when there is nothing to export. */
+	/**
+	 * Every effect tab + the verbatim curve/particle blocks + the sidecar, or null when there is
+	 * nothing to export. Tabs of different namespaces export under their own `data/<ns>/vfx/` via
+	 * the `namespaces` map (design §13.7); a single-namespace project sends only the legacy
+	 * top-level maps, byte-identical to before.
+	 */
 	function exportPayload() {
-		var effects = gatherEffects();
-		if (Object.keys(effects).length === 0) {
+		var grouped = groupExportFiles();
+		// Namespaces with files: the tabs' namespaces first (first-use order), then any namespace
+		// that only carries presets, so orphaned presets round-trip instead of being dropped.
+		var seen = {};
+		grouped.order.forEach(function (ns) {
+			seen[ns] = true;
+		});
+		Object.keys(project.curves || {}).forEach(function (ns) {
+			seen[ns] = true;
+		});
+		Object.keys(project.particles || {}).forEach(function (ns) {
+			seen[ns] = true;
+		});
+		var names = Object.keys(seen);
+		var namespaces = {};
+		var total = 0;
+		names.forEach(function (ns) {
+			var entry = {
+				effects: grouped.namespaces[ns] || {},
+				curves: (project.curves && project.curves[ns]) || {},
+				particles: (project.particles && project.particles[ns]) || {}
+			};
+			namespaces[ns] = entry;
+			total += Object.keys(entry.effects).length + Object.keys(entry.curves).length
+					+ Object.keys(entry.particles).length;
+		});
+		if (total === 0) {
 			return null;
 		}
-		return { namespace: project.namespace, effects: effects, sidecar: buildSidecar() };
+		var primary = Object.prototype.hasOwnProperty.call(seen, defaultNamespace())
+				? defaultNamespace() : names[0];
+		var payload = {
+			namespace: primary,
+			effects: namespaces[primary].effects,
+			curves: namespaces[primary].curves,
+			particles: namespaces[primary].particles,
+			sidecar: buildSidecar()
+		};
+		if (names.length > 1) {
+			payload.namespaces = namespaces;
+		}
+		return payload;
+	}
+
+	/**
+	 * One line for the export dialog: namespaces with their file counts plus the carried
+	 * curve/particle preset counts, so a multi-namespace export reads before it is sent.
+	 *
+	 * @param {Object} payload an {@link exportPayload} result
+	 * @returns {string} the summary text
+	 */
+	function exportSummary(payload) {
+		if (!payload) {
+			return "Nothing to export yet — create a tab first.";
+		}
+		var parts = [];
+		if (payload.namespaces) {
+			Object.keys(payload.namespaces).forEach(function (ns) {
+				var entry = payload.namespaces[ns];
+				parts.push(ns + " (" + Object.keys(entry.effects).length + " effects)");
+			});
+		} else {
+			parts.push(payload.namespace + " (" + Object.keys(payload.effects).length + " effects)");
+		}
+		var curves = 0;
+		var presets = 0;
+		if (payload.namespaces) {
+			Object.keys(payload.namespaces).forEach(function (ns) {
+				curves += Object.keys(payload.namespaces[ns].curves || {}).length;
+				presets += Object.keys(payload.namespaces[ns].particles || {}).length;
+			});
+		} else {
+			curves = Object.keys(payload.curves || {}).length;
+			presets = Object.keys(payload.particles || {}).length;
+		}
+		if (curves > 0 || presets > 0) {
+			parts.push(curves + " curves, " + presets + " particle presets");
+		}
+		return "Exports " + parts.join("; ") + ".";
+	}
+
+	/**
+	 * Attach the additive export blocks to an ir.js request body: non-empty `curves` /
+	 * `particles` for the primary namespace, and the `namespaces` map for a multi-namespace
+	 * project. A single-namespace project without presets sends the legacy shape untouched.
+	 *
+	 * @param {Object} body an `exportTargetBody` / `exportZipBody` result
+	 * @param {Object} payload an {@link exportPayload} result
+	 * @returns {Object} the same body, with the extra blocks attached
+	 */
+	function exportBody(body, payload) {
+		if (payload.curves && Object.keys(payload.curves).length) {
+			body.curves = payload.curves;
+		}
+		if (payload.particles && Object.keys(payload.particles).length) {
+			body.particles = payload.particles;
+		}
+		if (payload.namespaces) {
+			body.namespaces = payload.namespaces;
+		}
+		return body;
+	}
+
+	/**
+	 * Append the export summary line to the dialog (what namespaces, curves and presets one
+	 * export writes), so a multi-namespace export reads before it is sent.
+	 *
+	 * @param {Element} body the dialog body
+	 */
+	function addExportSummary(body) {
+		var summary = document.createElement("p");
+		summary.className = "vfx-dialog-note";
+		summary.textContent = exportSummary(exportPayload());
+		body.appendChild(summary);
 	}
 
 	/** Open the single export dialog with its three targets. */
@@ -7578,6 +9127,8 @@
 			body.appendChild(pane);
 
 			var msg = dialogMessage(body);
+
+			addExportSummary(body);
 
 			function target(buttonLabel, view) {
 				var button = document.createElement("button");
@@ -7599,19 +9150,74 @@
 			function exportToTarget(destination, path) {
 				var payload = exportPayload();
 				if (!payload) {
-					msg.show("no effect tabs to export", true);
+					msg.show("Nothing to export yet — create a tab first", true);
 					return;
 				}
-				msg.show("exporting to " + destination + "…", false);
-				window.VFXBridge.post("/export", window.VFXIR.exportTargetBody(
-						payload.namespace, destination, path, payload.effects, payload.sidecar)).then(function (result) {
+				msg.show("Exporting to " + destination + "…", false);
+				window.VFXBridge.post("/export", exportBody(window.VFXIR.exportTargetBody(
+						payload.namespace, destination, path, payload.effects, payload.sidecar),
+						payload)).then(function (result) {
 					if (!result || result.ok === false) {
-						msg.show("export failed: " + ((result && (result.detail || result.error)) || "no response"), true);
+						msg.show("Export failed: " + ((result && (result.detail || result.error)) || "no response"), true);
 						return;
 					}
-					pushRecent(result.path || path);
-					msg.show("exported → " + (result.path || path), false);
+					var out = result.path || path;
+					pushRecent(out);
+					msg.show("Exported to " + out + ". In game: /reload, then /vfx play "
+							+ payload.namespace + ":" + firstExportTab(), false);
+					ensureCopyPath(body, out);
 				});
+			}
+
+			/** The first exported tab name, for the in-game `/vfx play <ns>:<tab>` hint. */
+			function firstExportTab() {
+				for (var i = 0; i < project.tabs.length; i++) {
+					if (project.tabs[i] && project.tabs[i].type && project.tabs[i].name) {
+						return project.tabs[i].name;
+					}
+				}
+				return "tab";
+			}
+
+			/** A Copy path button after the message (created once, retargeted per export). */
+			function ensureCopyPath(parent, out) {
+				var button = parent.querySelector("[data-vfx-copy-path]");
+				if (!button) {
+					button = document.createElement("button");
+					button.type = "button";
+					button.className = "vfx-dialog-btn";
+					button.textContent = "Copy path";
+					button.setAttribute("data-vfx-copy-path", "1");
+					button.addEventListener("click", function () {
+						copyText(button.getAttribute("data-path") || "");
+					});
+					parent.appendChild(button);
+				}
+				button.setAttribute("data-path", out);
+				button.hidden = false;
+			}
+
+			/** Copy text via the clipboard API, falling back to a temporary field. */
+			function copyText(text) {
+				if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
+					navigator.clipboard.writeText(text).then(function () {
+						status("copied: " + text);
+					}, function () {
+						status("copy failed — select the path manually");
+					});
+					return;
+				}
+				try {
+					var field = document.createElement("textarea");
+					field.value = text;
+					document.body.appendChild(field);
+					field.select();
+					document.execCommand("copy");
+					document.body.removeChild(field);
+					status("copied: " + text);
+				} catch (e) {
+					status("copy failed — select the path manually");
+				}
 			}
 
 			// ZIP: stage on the bridge, then navigate to the download URL (native OS save dialog).
@@ -7623,17 +9229,17 @@
 				dialogButton(actions, "Download .zip", true, function () {
 					var payload = exportPayload();
 					if (!payload) {
-						msg.show("no effect tabs to export", true);
+						msg.show("Nothing to export yet — create a tab first", true);
 						return;
 					}
-					msg.show("building zip…", false);
-					window.VFXBridge.post("/export/zip", window.VFXIR.exportZipBody(
-							payload.namespace, payload.effects, payload.sidecar)).then(function (result) {
+					msg.show("Building zip…", false);
+					window.VFXBridge.post("/export/zip", exportBody(window.VFXIR.exportZipBody(
+							payload.namespace, payload.effects, payload.sidecar), payload)).then(function (result) {
 						if (!result || result.ok === false || !result.id) {
-							msg.show("zip failed: " + ((result && (result.detail || result.error)) || "no response"), true);
+							msg.show("Zip failed: " + ((result && (result.detail || result.error)) || "no response"), true);
 							return;
 						}
-						msg.show("zip ready (" + result.size + " bytes) — starting download…", false);
+						msg.show("Zip ready (" + result.size + " bytes) — starting download…", false);
 						window.location.href = window.VFXBridge.url(
 								"/export/download?id=" + encodeURIComponent(result.id));
 					});
@@ -7642,10 +9248,10 @@
 
 			// Folder: native directory picker (bridge), with a manual path fallback.
 			function viewFolder() {
-				var pathInput = dialogInput(pane, "Folder", "", "C:\\...\\export");
+				var pathInput = dialogInput(pane, "Folder", "", "…/export");
 				var actions = dialogActions(pane);
 				dialogButton(actions, "Choose…", false, function () {
-					msg.show("waiting for the folder picker…", false);
+					msg.show("Waiting for the folder picker…", false);
 					window.VFXBridge.post("/pick-folder", {}).then(function (result) {
 						if (result && result.ok && result.path) {
 							pathInput.value = result.path;
@@ -7658,10 +9264,10 @@
 						}
 					});
 				});
-				dialogButton(actions, "Export", true, function () {
+				dialogButton(actions, "Export to folder", true, function () {
 					var path = pathInput.value.trim();
 					if (!path) {
-						msg.show("choose or enter a folder", true);
+						msg.show("Choose or enter a folder", true);
 						return;
 					}
 					exportToTarget("folder", path);
@@ -7725,15 +9331,30 @@
 					select.appendChild(failed);
 				});
 				var actions = dialogActions(pane);
-				dialogButton(actions, "Export", true, function () {
+				dialogButton(actions, "Export to world", true, function () {
 					var world = select.value;
 					if (!world || !rootPath) {
-						msg.show("pick a world first", true);
+						msg.show("Pick a world first", true);
 						return;
 					}
 					var dir = rootPath.replace(/[\\/]+$/, "") + "/" + world;
-					if (!window.confirm("Export into world \"" + world + "\"? Existing files for this "
-							+ "namespace will be overwritten.")) {
+					var payload = exportPayload();
+					var count = 0;
+					var spaces = [];
+					if (payload) {
+						if (payload.namespaces) {
+							Object.keys(payload.namespaces).forEach(function (ns) {
+								count += Object.keys(payload.namespaces[ns].effects || {}).length;
+								spaces.push(ns);
+							});
+						} else {
+							count = Object.keys(payload.effects || {}).length;
+							spaces.push(payload.namespace);
+						}
+					}
+					if (!window.confirm("Export " + count + " file" + (count === 1 ? "" : "s")
+							+ " (" + spaces.join(", ") + ") into world \"" + world
+							+ "\"? Existing files for these namespaces will be overwritten.")) {
 						return;
 					}
 					exportToTarget("world", dir);
@@ -7775,7 +9396,7 @@
 			openOpenDialog();
 			return;
 		}
-		status("importing " + shortPath(path) + "…");
+		status("Importing " + shortPath(path) + "…");
 		var tPost0 = importNow();
 		var settled = false;
 		var timer = setTimeout(function () {
@@ -7790,23 +9411,26 @@
 			if (!result || result.ok === false) {
 				settled = true;
 				clearTimeout(timer);
-				status("import failed: " + ((result && (result.detail || result.error)) || "no response"));
+				status("Import failed: " + ((result && (result.detail || result.error)) || "no response"));
 				return;
 			}
 			var namespace = result.namespace || "";
 			var created;
 			try {
-				created = openPack(namespace, result.effects || {}, result.sidecar);
+				created = openPack(namespace, result.effects || {}, result.sidecar, result);
 			} catch (error) {
 				settled = true;
 				clearTimeout(timer);
-				status("import failed: " + (error && error.message ? error.message : String(error)));
+				status("Import failed: " + (error && error.message ? error.message : String(error)));
 				return;
 			}
 			var tDone = importNow();
 			settled = true;
 			clearTimeout(timer);
 			pushRecent(path);
+			var spaces = result.namespaces && typeof result.namespaces === "object"
+					? Object.keys(result.namespaces) : [];
+			var label = spaces.length > 1 ? spaces.join(", ") : namespace;
 			// Import-timing probe: where the wall time went (server read vs browser build), so a
 			// slow import reports its hot stage instead of just hanging on "importing…".
 			var probe = " (post " + Math.round(tPost1 - tPost0) + "ms"
@@ -7816,11 +9440,11 @@
 						+ ", material " + Math.round(pack.timings.material) + "ms]" : "")
 				+ (result.readMs != null ? ", server " + Math.round(result.readMs) + "ms" : "") + ")";
 			if (created) {
-				status("imported " + created + " effect" + (created === 1 ? "" : "s")
-						+ (namespace ? " from " + namespace : "") + probe);
+				status("Imported " + created + " effect" + (created === 1 ? "" : "s")
+						+ (label ? " from " + label : "") + probe);
 			} else {
-				status("opened " + (pack ? pack.count : 0) + " effects"
-						+ (namespace ? " from " + namespace : "") + " — choose one to edit" + probe);
+				status("Opened " + (pack ? pack.count : 0) + " effects"
+						+ (label ? " from " + label : "") + " — choose one to edit" + probe);
 			}
 		}).catch(function (error) {
 			// Any synchronous throw the try/catch above missed must still surface: "importing…"
@@ -7872,25 +9496,64 @@
 	}
 
 	/**
+	 * Carry an import's verbatim curve/particle blocks into the project model (`namespace ->
+	 * name -> JSON text`), merged per name so opening a second pack adds its presets without
+	 * clearing the first pack's. Export writes them back into `vfx_curves` / `vfx_particles`.
+	 *
+	 * @param {string} namespace the blocks' namespace
+	 * @param {*} curves name -> JSON text (strings only; anything else is skipped)
+	 * @param {*} particles name -> JSON text
+	 */
+	function rememberPresets(namespace, curves, particles) {
+		if (!namespace) {
+			return;
+		}
+		[["curves", curves], ["particles", particles]].forEach(function (pair) {
+			var blocks = pair[1];
+			if (!blocks || typeof blocks !== "object") {
+				return;
+			}
+			var store = project[pair[0]][namespace];
+			if (!store || typeof store !== "object") {
+				store = project[pair[0]][namespace] = {};
+			}
+			Object.keys(blocks).forEach(function (name) {
+				if (typeof blocks[name] === "string") {
+					store[name] = blocks[name];
+				}
+			});
+		});
+	}
+
+	/**
 	 * Open a pack. {@code effects} is the `/import` shape (`{ "<name>": "<effect JSON string>" }`).
 	 * The pack is indexed once (O(N), no tabs); a pack at or below {@link VFXIR.MAX_EAGER_TABS} is
 	 * materialised immediately (one commit), a bigger one stays lazy and shows the searchable list,
 	 * where opening an effect builds exactly one graph. {@code sidecar} layout is applied per tab.
+	 * {@code extra} is the raw `/import` result: its {@code curves} / {@code particles} are
+	 * remembered for the round-trip, and its {@code namespaces} map opens a multi-namespace pack.
 	 *
 	 * @param {string} namespace the pack namespace
 	 * @param {Object|Array} effects name -> raw effect JSON (object or string)
 	 * @param {*} [sidecar] the saved editor layout, or null
+	 * @param {Object} [extra] the raw `/import` result (curves/particles/namespaces)
 	 * @returns {number} the number of tabs created (0 for a lazy open)
 	 */
-	function openPack(namespace, effects, sidecar) {
+	function openPack(namespace, effects, sidecar, extra) {
 		if (!window.VFXIR || typeof window.VFXIR.buildPackIndex !== "function") {
 			status("import failed: the IR module is not loaded");
 			return 0;
+		}
+		var spaces = extra && extra.namespaces && typeof extra.namespaces === "object"
+				? extra.namespaces : null;
+		if (spaces && Object.keys(spaces).length > 0) {
+			return openPackMulti(spaces, sidecar);
 		}
 		var tIndex0 = importNow();
 		pack = window.VFXIR.buildPackIndex(namespace, effects);
 		var tIndex1 = importNow();
 		pack.sidecar = sidecar;
+		rememberPresets(namespace, extra && extra.curves, extra && extra.particles);
 		ensureHistoryBaseline();
 		var tMaterial0 = importNow();
 		var plan = window.VFXIR.openPackPlan(pack, packHooks(), {});
@@ -7903,6 +9566,61 @@
 			openPackList();
 		}
 		return plan.created;
+	}
+
+	/**
+	 * Open a multi-namespace pack (design §13.7): one import index per namespace, every tab
+	 * materialised eagerly in a single trailing commit, the sidecar applied once at the end.
+	 * The lazy searchable list is a single-namespace view, so it is not used here — every tab
+	 * opens, and nothing is dropped silently.
+	 *
+	 * @param {Object} spaces namespace -> `{ effects, curves, particles }`
+	 * @param {*} sidecar the saved editor layout, or null
+	 * @returns {number} the number of tabs created
+	 */
+	function openPackMulti(spaces, sidecar) {
+		var names = Object.keys(spaces);
+		var hooks = packHooks();
+		// One trailing commit for the whole pack, not one per namespace.
+		var shared = {
+			suspend: function () {
+				hooks.suspend();
+			},
+			resume: function () {
+				hooks.resume();
+			},
+			createTab: hooks.createTab,
+			hydrate: hooks.hydrate,
+			materialize: hooks.materialize,
+			select: hooks.select
+		};
+		var tIndex0 = importNow();
+		// Presets first, so the history baseline already carries them (one undo step total).
+		names.forEach(function (ns) {
+			var block = spaces[ns] || {};
+			rememberPresets(ns, block.curves, block.particles);
+		});
+		ensureHistoryBaseline();
+		var created = 0;
+		var tabs = [];
+		names.forEach(function (ns, at) {
+			var block = spaces[ns] || {};
+			var index = window.VFXIR.buildPackIndex(ns, block.effects || {});
+			if (at === 0) {
+				pack = index;
+				pack.sidecar = sidecar;
+			}
+			var plan = window.VFXIR.openPackPlan(index, shared, { openAll: true });
+			created += plan.created;
+			tabs = tabs.concat(plan.tabs);
+		});
+		pack.timings = { index: importNow() - tIndex0, material: 0 };
+		if (tabs.length && sidecar) {
+			applySidecar(sidecar, tabs);
+		}
+		hooks.commit();
+		updatePackButton();
+		return created;
 	}
 
 	/** Find the index of an already-open tab by name, or -1. */
@@ -8274,11 +9992,27 @@
 			isHeader: isGroupHeaderSlot,
 			wiredParams: effectWiredParams
 		},
-		// Headless test seam for show-all (same runner): the always-false resolve and
-		// the hidden/animated counts behind diag.
+		// Headless test seam for the hide-unused default (same runner): the always-false
+		// resolve, the link-drag reveal pair and the hidden/animated counts behind diag.
 		hide: {
 			resolve: resolveHideUnused,
+			beginReveal: beginLinkReveal,
+			endReveal: endLinkReveal,
 			hiddenInfo: effectHiddenInfo
+		},
+		// Headless test seam for the canvas viewer/solo (same runner): the title-bar
+		// badge hit test and the toggle over the shared Layers-panel state.
+		solo: {
+			at: effectSoloAt,
+			toggle: toggleEffectSolo
+		},
+		// Headless test seam for named canvas frames (same runner): the record/restore
+		// pair, the rename and the title-strip hit test.
+		frames: {
+			record: recordFrameGroups,
+			restore: materializeFrameGroups,
+			rename: renameFrameGroup,
+			titleAt: frameGroupTitleAt
 		},
 		// Headless test seam for typed ports (same runner): the fixed type table, the
 		// metadata mappers behind every socket, the painter and the wire constants.
@@ -8309,6 +10043,28 @@
 			restore: materializeReroutes,
 			linkAt: linkAtCanvasPos,
 			collect: collectCanvasEdges
+		},
+		// Headless test seam for the mask operand wires (same runner): the connect
+		// rule, the remove-leaf mapping adjustment and the port-number lookup.
+		maskWire: {
+			rule: maskWireRule,
+			afterRemove: maskWiresAfterRemove,
+			operandOf: maskLeafOperand
+		},
+		// Headless test seam for the export model (same runner): the per-tab namespace, the
+		// grouped files, the payload shape, the dialog summary and the sidecar migration.
+		exportModel: {
+			tabNamespace: tabNamespace,
+			defaultNamespace: defaultNamespace,
+			group: groupExportFiles,
+			gather: gatherEffects,
+			payload: exportPayload,
+			summary: exportSummary,
+			sidecarVersion: SIDECAR_VERSION,
+			buildSidecar: buildSidecar,
+			migrateSidecar: migrateSidecar,
+			applySidecar: applySidecar,
+			rememberPresets: rememberPresets
 		}
 	};
 	Object.defineProperty(VFXEditor, "graph", {
@@ -8559,7 +10315,8 @@
 			syncing: pv ? pv.syncing : state === "syncing",
 			paused: previewPaused,
 			offline: state === "offline",
-			error: state === "error"
+			error: state === "error",
+			mode: pv ? pv.mode : undefined
 		};
 		if (window.VFXCompiler && typeof window.VFXCompiler.previewStatus === "function") {
 			var shown = window.VFXCompiler.previewStatus(status, total);
@@ -8571,7 +10328,7 @@
 	/**
 	 * Preview live-badge watchdog (design §16.9 P1): `preview/state` frames stop while the game is
 	 * paused/unfocused or the client thread is busy. When the browser believes the preview is
-	 * playing but no frame has arrived for a while, the badge says so ("paused / ожидание игры")
+	 * playing but no frame has arrived for a while, the badge says so ("paused — waiting for game…")
 	 * instead of looking frozen; the next frame clears it. No values are fabricated.
 	 */
 	var PREVIEW_STATE_TIMEOUT_MS = 1500;
@@ -8603,16 +10360,16 @@
 			return;
 		}
 		bridge.on("transport-error", function (message) {
-			status("bridge: " + message);
+			status("bridge: " + message + ". Run /vfxeditor again and open the new URL.");
 			updateRevBadge("offline");
 		});
 		bridge.on("error", function (data) {
 			var message = (data && (data.detail || data.error)) || "error";
-			status("bridge: " + message);
+			status("bridge: " + message + ". Run /vfxeditor again and open the new URL.");
 			reportProblem({
 				key: "bridge:" + message,
 				severity: "error",
-				message: "bridge: " + message
+				message: "bridge: " + message + ". Run /vfxeditor again and open the new URL."
 			});
 			updateRevBadge("error");
 		});
@@ -8631,6 +10388,13 @@
 		});
 		bridge.on("preview/state", function (data) {
 			notePreviewState();
+			// Adopt the game's mode before painting the badge (the timeline's own state handler
+			// does the same; this covers a subscription order where the shell runs first).
+			var pv = window.VFXTimeline && window.VFXTimeline.preview
+					? window.VFXTimeline.preview.state() : null;
+			if (pv && data && (data.mode === "authored" || data.mode === "exact")) {
+				pv.mode = data.mode;
+			}
 			updateRevBadge();
 			if (data && data.ended) {
 				status("preview ended — press ▶ to replay");
@@ -8855,8 +10619,176 @@
 	}
 
 	/**
+	 * Named canvas frames (design §15.6 Ctrl+G): the vendored `LGraphGroup` already
+	 * carries a retitleable `title` (canvas right-click → Title, or double-click the
+	 * frame's title bar below). Groups stay out of the effect IR and the emit exactly
+	 * like reroute dots; they persist as canvas-only view state on the tab
+	 * (`tab.__frameGroups`, sidecar + undo snapshot), never in the datapack.
+	 */
+
+	/** Maximum stored frame-title length (the vendor draws it raw on the canvas). */
+	var FRAME_TITLE_MAX = 64;
+
+	/** The rounded `{ title, x, y, w, h }` of one canvas group, or null. */
+	function frameGroupEntry(group) {
+		if (!group) {
+			return null;
+		}
+		var title = group.title == null ? "" : String(group.title);
+		// The vendored `_bounding` is [x, y, w, h] (pos/size are views into it).
+		var box = group._bounding || null;
+		var x;
+		var y;
+		var w;
+		var h;
+		if (box && box.length >= 4) {
+			x = box[0];
+			y = box[1];
+			w = box[2];
+			h = box[3];
+		} else if (group.pos && group.size) {
+			x = group.pos[0];
+			y = group.pos[1];
+			w = group.size[0];
+			h = group.size[1];
+		} else {
+			return null;
+		}
+		return {
+			title: title.substring(0, FRAME_TITLE_MAX),
+			x: Math.round(num(x, 0)),
+			y: Math.round(num(y, 0)),
+			w: Math.round(num(w, 140)),
+			h: Math.round(num(h, 80))
+		};
+	}
+
+	/**
+	 * Snapshot the canvas frame groups into `tab.__frameGroups` (rounded entries).
+	 * Runs on every canvas flush (see refreshFromCanvas), so a move is kept once any
+	 * later edit commits; creation and rename commit immediately at their call sites.
+	 *
+	 * @param {Object} tab the tab
+	 */
+	function recordFrameGroups(tab) {
+		if (!tab || !tab.graph) {
+			return;
+		}
+		var groups = tab.graph._groups || [];
+		var out = [];
+		groups.forEach(function (group) {
+			var entry = frameGroupEntry(group);
+			if (entry) {
+				out.push(entry);
+			}
+		});
+		tab.__frameGroups = out;
+	}
+
+	/**
+	 * Rebuild the canvas frame groups from `tab.__frameGroups` (undo / tab switch /
+	 * import). The canvas is the only owner of the live groups, so the existing ones
+	 * are dropped first; entries that fail to construct are skipped silently.
+	 *
+	 * @param {Object} tab the tab
+	 */
+	function materializeFrameGroups(tab) {
+		if (!tab || !tab.graph) {
+			return;
+		}
+		if (typeof LiteGraph === "undefined" || !LiteGraph.LGraphGroup) {
+			return;
+		}
+		var graph = tab.graph;
+		(graph._groups || []).slice().forEach(function (group) {
+			try {
+				graph.remove(group);
+			} catch (e) {
+				// drop only: never break the materialise
+			}
+		});
+		(tab.__frameGroups || []).forEach(function (entry) {
+			if (!entry || typeof entry !== "object") {
+				return;
+			}
+			try {
+				var group = new LiteGraph.LGraphGroup();
+				group.title = entry.title != null ? String(entry.title).substring(0, FRAME_TITLE_MAX)
+						: "Frame";
+				group.pos = [num(entry.x, 0), num(entry.y, 0)];
+				group.size = [Math.max(140, num(entry.w, 140)), Math.max(80, num(entry.h, 80))];
+				graph.add(group);
+			} catch (e2) {
+				// construct only: never break the materialise
+			}
+		});
+	}
+
+	/**
+	 * Retitle one canvas frame (`tab.__frameGroups[index]` + the live group).
+	 * An empty title keeps the previous one; overlong titles are clipped.
+	 *
+	 * @param {Object} tab the tab
+	 * @param {number} index the frame index in `tab.__frameGroups`
+	 * @param {string} title the new title
+	 * @returns {boolean} true when a frame was renamed
+	 */
+	function renameFrameGroup(tab, index, title) {
+		if (!tab || !tab.graph || !isFinite(Number(index))) {
+			return false;
+		}
+		var groups = tab.graph._groups || [];
+		var at = Number(index);
+		if (at < 0 || at >= groups.length) {
+			return false;
+		}
+		var clean = title == null ? "" : String(title).trim().substring(0, FRAME_TITLE_MAX);
+		if (!clean) {
+			return false;
+		}
+		try {
+			groups[at].title = clean;
+		} catch (e) {
+			return false;
+		}
+		recordFrameGroups(tab);
+		commitHistory();
+		if (scene) {
+			scene.setDirty(true, true);
+		}
+		return true;
+	}
+
+	/**
+	 * The frame-group index whose title strip holds the canvas `pos` (the top ~30px
+	 * of the group box), or -1. The body is left alone so node drags keep working.
+	 *
+	 * @param {Object} tab the tab
+	 * @param {Array<number>} pos the canvas position
+	 * @returns {number} the group index, or -1
+	 */
+	function frameGroupTitleAt(tab, pos) {
+		if (!tab || !tab.graph || !pos) {
+			return -1;
+		}
+		var groups = tab.graph._groups || [];
+		for (var i = groups.length - 1; i >= 0; i--) {
+			var entry = frameGroupEntry(groups[i]);
+			if (!entry) {
+				continue;
+			}
+			if (pos[0] >= entry.x && pos[0] <= entry.x + entry.w
+					&& pos[1] >= entry.y && pos[1] < entry.y + 30) {
+				return i;
+			}
+		}
+		return -1;
+	}
+
+	/**
 	 * Group the selected nodes on the canvas (design §15.6 Ctrl+G). Groups are a canvas-only
-	 * convenience: they are not part of the effect IR, so they are not exported and not undoable.
+	 * convenience: they are not part of the effect IR and never reach the emit, but the
+	 * frames (title + box) persist in the sidecar and the undo snapshot (see recordFrameGroups).
 	 */
 	function groupSelection() {
 		var nodes = selectedNodes();
@@ -8876,6 +10808,11 @@
 		group.title = "group";
 		scene.graph.add(group);
 		scene.setDirty(true, true);
+		var framed = activeTab();
+		if (framed && framed.graph === scene.graph) {
+			recordFrameGroups(framed);
+			commitHistory();
+		}
 	}
 
 	/** Whether a canvas node is a groupable value node (not an effect/mask/field node). */
@@ -8954,6 +10891,15 @@
 		if (!scene || typeof scene.showSearchBox !== "function") {
 			return;
 		}
+		if (lastCanvasCursor) {
+			scene.showSearchBox({
+				clientX: lastCanvasCursor[0],
+				clientY: lastCanvasCursor[1],
+				preventDefault: function () {},
+				stopPropagation: function () {}
+			});
+			return;
+		}
 		var rect = dom.canvas.getBoundingClientRect();
 		scene.showSearchBox({
 			clientX: rect.left + rect.width / 2,
@@ -8980,7 +10926,9 @@
 				["F / Home", "frame selected / frame all"],
 				["Ctrl+S", "save (compile + preview)"],
 				["Tab / double-click", "node search-add"],
-				["Ctrl+G", "group selection (canvas only)"],
+				["Double-click / Alt+click a wire", "drop a reroute dot (visual only, never compiled)"],
+				["○ slot dot", "Animate this slot — key at playhead (K)"],
+				["Ctrl+G", "frame selection (canvas only, double-click the title to rename)"],
 				["macro buttons", "group selection into a subgraph macro / expand it back (§13.5)"],
 				["[ / ]", "previous / next tab"],
 				["MMB / Space+drag", "pan the canvas"],
@@ -9007,7 +10955,7 @@
 		node.hidden = !node.hidden;
 	}
 
-	/** Space: play the active tab, pause it when playing, or replay when the preview ended. */
+	/** Space: play the active tab, replay it when the preview ended, or stop it when playing. */
 	function transportToggle() {
 		var tab = activeTab();
 		if (!tab || !tab.type || !window.VFXTimeline) {
@@ -9019,11 +10967,7 @@
 			return;
 		}
 		if (typeof window.VFXTimeline.isPlaying === "function" && window.VFXTimeline.isPlaying()) {
-			if (typeof window.VFXTimeline.pause === "function") {
-				window.VFXTimeline.pause(tab);
-			} else {
-				window.VFXTimeline.stop(tab);
-			}
+			window.VFXTimeline.stop(tab);
 		} else {
 			window.VFXTimeline.play(tab);
 		}
@@ -9051,6 +10995,7 @@
 	 * @param {Object} tab the tab that changed
 	 */
 	function requestStructural(tab) {
+		checkReferenceProblems();
 		if (window.VFXTimeline && typeof window.VFXTimeline.structural === "function") {
 			window.VFXTimeline.structural(tab);
 		} else if (window.VFXBridge && typeof window.VFXBridge.fullCompile === "function") {
@@ -9083,8 +11028,12 @@
 	function wireHotkeys() {
 		var spaceDown = false;
 		var spaceDragged = false;
-
-		// A Space+drag pan counts as a drag only when the primary mouse button is actually held; a
+		// Last canvas cursor for Tab search placement (falls back to the center).
+		document.addEventListener("mousemove", function (event) {
+			if (event.target === dom.canvas) {
+				lastCanvasCursor = [event.clientX, event.clientY];
+			}
+		}, true);		// A Space+drag pan counts as a drag only when the primary mouse button is actually held; a
 		// tap with a pixel of pointer drift must still toggle the transport.
 		document.addEventListener("mousemove", function (event) {
 			if (spaceDown && (event.buttons & 1)) {
@@ -9134,10 +11083,15 @@
 				switchTab(1);
 			} else if (key === "?" || (event.shiftKey && key === "/")) {
 				toggleHelp();
+			} else if (key === "Escape") {
+				// Close the link-drag reveal only; never consume, so modals keep their own Esc.
+				endLinkReveal();
+				handled = false;
 			} else if (lower === "r" && !mod) {
 				var tab = activeTab();
-				if (tab && tab.type && window.VFXTimeline) {
-					window.VFXTimeline.play(tab);
+				if (tab && tab.type && window.VFXTimeline
+						&& typeof window.VFXTimeline.replay === "function") {
+					window.VFXTimeline.replay(tab);
 				}
 			} else if (lower === "k" && !mod) {
 				addKeyAtPlayhead();
@@ -9291,6 +11245,14 @@
 		LiteGraph.LGraphCanvas.link_type_colors[FLOW_LINK] = PORT_TYPES.flow.color;
 		LiteGraph.LGraphCanvas.link_type_colors[FIELD_LINK] = PORT_TYPES.field.color;
 		LiteGraph.LGraphCanvas.link_type_colors[MASK_LINK] = PORT_TYPES.mask.color;
+		LiteGraph.LGraphCanvas.link_type_colors.number = PORT_TYPES.number.color;
+		LiteGraph.LGraphCanvas.link_type_colors.macro = PORT_TYPES.macro.color;
+		LiteGraph.LGraphCanvas.link_type_colors.bind = PORT_TYPES.bind.color;
+		LiteGraph.LGraphCanvas.link_type_colors.expr = PORT_TYPES.expr.color;
+		LiteGraph.LGraphCanvas.link_type_colors.time = PORT_TYPES.time.color;
+		// In-dot bind/expr glyphs, above the slot dots (the node foreground runs
+		// underneath them, so this canvas hook is the only clean layer for it).
+		scene.onDrawForeground = drawPortGlyphs;
 		// Hovering a connection highlights it (white + slightly thicker) so a dense chain is readable.
 		// LiteGraph tracks the hovered link in `over_link_center` but only coloured it in the tooltip;
 		// wrap `renderLink` once (guarded) rather than editing the vendored library.
@@ -9341,6 +11303,39 @@
 				return result;
 			};
 		}
+		// Refuse illegal mask-structural wires at the single choke point every drop and
+		// every programmatic link goes through (the vendored isValidConnection cannot name
+		// our operand rule, and litegraph.js itself stays untouched). A refusal surfaces
+		// the hint in the status line and returns null, like any failed vendor connect.
+		if (LiteGraph.LGraphNode && LiteGraph.LGraphNode.prototype
+				&& !LiteGraph.LGraphNode.prototype.__vfxMaskGate) {
+			LiteGraph.LGraphNode.prototype.__vfxMaskGate = true;
+			var originalConnect = LiteGraph.LGraphNode.prototype.connect;
+			LiteGraph.LGraphNode.prototype.connect = function (slot, target, targetSlot) {
+				try {
+					var originSlot = (typeof slot === "string" && typeof this.findOutputSlot === "function")
+							? this.findOutputSlot(slot) : slot;
+					var targetNode = (typeof target === "number" && this.graph
+							&& typeof this.graph.getNodeById === "function")
+							? this.graph.getNodeById(target) : target;
+					var targetIndex = (typeof targetSlot === "string" && targetNode
+							&& typeof targetNode.findInputSlot === "function")
+							? targetNode.findInputSlot(targetSlot) : targetSlot;
+					if (typeof originSlot === "number" && targetNode
+							&& typeof targetIndex === "number") {
+						var verdict = maskWireRule(this.graph, this, originSlot,
+								targetNode, targetIndex);
+						if (verdict && !verdict.ok) {
+							status(verdict.hint);
+							return null;
+						}
+					}
+				} catch (e) {
+					// gate only: never break the connect
+				}
+				return originalConnect ? originalConnect.apply(this, arguments) : null;
+			};
+		}
 		// Intercept the node right-click: a value-node field shows the slot menu (replace with
 		// expr/bind, animate, disconnect), a field-capable effect socket shows the field menu
 		// (design §13.2 — the only place a field node is offered), anything else keeps LiteGraph's.
@@ -9371,6 +11366,7 @@
 		wireHotkeys();
 		wireRerouteInsert();
 		wireGroupToggle();
+		wireFrameRename();
 		wireBridge();
 		resetHistory();
 
@@ -9446,7 +11442,11 @@
 			dom.replay.addEventListener("click", function () {
 				var tab = activeTab();
 				if (tab && tab.type && window.VFXTimeline) {
-					window.VFXTimeline.play(tab);
+					if (typeof window.VFXTimeline.replay === "function") {
+						window.VFXTimeline.replay(tab);
+					} else {
+						window.VFXTimeline.play(tab);
+					}
 				}
 			});
 		}
@@ -9489,7 +11489,8 @@
 					showEmptyPlaceholder();
 				})
 				.catch(function (error) {
-					showBanner("Could not load /schema from the game bridge: " + error.message);
+					showBanner("Could not load /schema from the game bridge: " + error.message
+							+ " Run /vfxeditor again and open the new URL.");
 				});
 	}
 

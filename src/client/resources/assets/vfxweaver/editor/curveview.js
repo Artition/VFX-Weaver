@@ -383,9 +383,9 @@
 			var head = el("div", { class: "vfx-tl-curve-head" });
 			head.appendChild(el("span", { class: "vfx-tl-curve-title",
 				text: opts.title == null ? "Curve" : String(opts.title) }));
-			head.appendChild(headerButton("apply all", "Copy the selected key's easing to every segment",
+			head.appendChild(headerButton("Apply easing to all", "Copy the selected key's easing to every segment",
 				applyEasingToAll));
-			head.appendChild(headerButton("del key", "Delete the selected key (Delete)", deleteSelected));
+			head.appendChild(headerButton("Delete key", "Delete the selected key (Delete)", deleteSelected));
 			if (typeof opts.onClose === "function") {
 				head.appendChild(headerButton("✕", "Close the curve editor", opts.onClose));
 			}
