@@ -57,6 +57,11 @@ Every change goes to the running game through the local bridge:
   (switching a control, adding a keyframe, editing an `expr` or binding) recompiles and re-plays.
 - **Stop** (■) stops the effect; the playhead parks at 0. **Loop** (⟳) restarts when the playhead
   reaches the tab duration.
+- **Preview mode** (**Exact** / **Authored**, next to the transport): Exact replays every child
+  looped and fadeless for editing; Authored plays the collection root with its real timing, as the
+  export will run. A chain child imported from an existing definition id is referenced as-is, so in
+  Authored it only plays when that id is installed (a datapack or the same preview) — otherwise that
+  child is skipped, exactly as the exported pack would.
 - **Dragging a slider** (a constant param) or **a key dot** sends an incremental live update, debounced
   (~80 ms), so the running effect follows without a restart. **Pause** is not a VFXweaver operation and
   is shown disabled.
@@ -81,6 +86,23 @@ be edited there — edit the source node instead. Unwired numeric slots are edit
 the field opens a text input sized and styled as the field itself (select-on-focus, Enter/blur commits,
 Escape cancels), and a horizontal drag scrubs the value. The `bind` node carries a binding dropdown and
 labels its output by the binding's unit (`UV 0..1`, `blocks`, `world`, `deg/tick`, …).
+
+### Reference nodes
+
+A **reference** node (`↦ reference` in the palette) instances another tab inside the chain. It
+carries no params of its own — pick the target tab in the Layers row. Export points the entry at
+the target tab's file; Exact preview plays the target's effect with the delays added together.
+
+- A tab that references itself (directly or through other tabs) plays nothing for that node.
+  The problems panel names the loop — remove the reference node.
+- References nest at most 4 deep. A deeper chain names the tab in the problems panel —
+  flatten to 4 or fewer levels.
+- A reference to an id that is not installed plays nothing for that node. The preview error
+  names the id — install the pack or fix the reference.
+- A reference instances the target tab's first effect node in Exact preview, while export and
+  Authored play the target's whole chain. Muting the reference node does not silence server-expanded leaves — mute the target tab's nodes instead.
+- On export a reference resolves to the target tab's first concrete effect node (its external id
+  when that node is imported, else the target tab's file) — later nodes in the target tab are ignored.
 
 ## Keyboard shortcuts
 
@@ -107,20 +129,36 @@ Press `?` in the editor to toggle this list. Shortcuts are ignored while typing 
 ## Exporting a datapack
 
 Set the namespace in project settings (click the project name, or **File → Settings**), then
-**File → Export…**. The dialog has three **targets**; every tab that has an effect becomes one
-`data/<namespace>/vfx/<name>.json` file, where `<name>` is the tab's name (its part after the `:`,
-if any):
+**File → Export…**. The dialog shows what one export writes (namespaces with their file counts,
+plus any carried curves/particle presets) and has three **targets**; every tab that has an effect
+becomes one `data/<namespace>/vfx/<name>.json` file, where `<name>` is the tab's name (its part after the `:`,
+if any). A tab whose name carries its own valid prefix (`other_ns:my_fx`) exports under that
+namespace's `data/other_ns/vfx/` in the same pass — one project can ship several namespaces in one
+folder or zip. Tabs without a prefix use the project namespace:
 
 | Target | You provide | Where it writes |
 |---|---|---|
-| **ZIP** | nothing | a `.zip` built by the game and downloaded through your browser's native save dialog, named after the namespace |
+| **ZIP** | nothing | a `.zip` built by the game and downloaded through your browser's native save dialog, named after the primary namespace |
 | **Folder** | the native directory picker (or a path typed by hand if the picker is unavailable) | a pack root directory created/populated in place (ready to copy or zip yourself) |
-| **World** | pick one of the worlds listed from the game's `saves` folder; overwrite is confirmed | `<world>/datapacks/<namespace>/` - loadable immediately with `/reload`, no restart |
+| **World** | pick one of the worlds listed from the game's `saves` folder; overwrite is confirmed | `<world>/datapacks/<primary-namespace>/` holding every exported namespace - loadable immediately with `/reload`, no restart |
 
 The exported pack contains a per-Minecraft-line `pack.mcmeta` and the effect JSON per tab, plus a
 sidecar (`vfxweaver_editor.vfxproj.json`) holding the editor layout (root node position and timeline
 zoom). The effect JSON is self-contained; the sidecar is convenience only - a pack without it still
 loads and the editor lays the graph out automatically. The status line shows the path the server wrote.
+
+Named easing curves (`data/<namespace>/vfx_curves/<name>.json`) and particle presets
+(`data/<namespace>/vfx_particles/<name>.json`) are carried verbatim: opening a pack that has them
+keeps their exact JSON in the project, and the next export writes them back, so hand-written
+presets survive an editor round-trip instead of being dropped. Re-exporting also clears the
+namespace's own stale `vfx` / `vfx_curves` / `vfx_particles` files first, so a deleted effect or
+preset does not linger.
+
+The sidecar is versioned (`"version": 2`; v2 adds the project `"namespace"`). Single-namespace
+effect output stays effects-byte-identical; only the sidecar migrates v1→v2, by design. Older sidecars
+still open — a missing version reads as v1 and migrates up — and a sidecar newer than the editor
+applies the fields the editor recognises and ignores the rest, so a pack saved by a newer editor
+still imports its layout.
 
 ## Importing a pack
 

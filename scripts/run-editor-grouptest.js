@@ -5,9 +5,9 @@
  * window/document/LiteGraph stubs it loads headlessly without booting, and the VFXEditor.groups
  * seam (make/sections/rebuild/toggle/headerAt/isHeader/wiredParams) drives the real canvas
  * logic: group partition, header layout, collapse/expand with wire preservation, and the IR
- * persist field. The VFXEditor.hide seam (resolve/hiddenInfo) drives the show-all half:
- * the always-false resolve (a carried IR hideUnused is ignored for layout) and the
- * hidden/animated counts behind diag. ir.js + compiler.js load too (as in run-editor-selftest.js), so the last test
+ * persist field. The VFXEditor.hide seam (resolve/reveal/hiddenInfo) drives the
+ * hide-unconnected half: the always-false resolve (a carried IR hideUnused is ignored
+ * for layout), the link-drag reveal pair and the hidden/animated counts behind diag. ir.js + compiler.js load too (as in run-editor-selftest.js), so the last test
  * proves the persist fields never reach the emitted definition. No dependencies.
  *
  *   node scripts/run-editor-grouptest.js
@@ -176,46 +176,54 @@ function check(condition, message) {
 (function () {
 	var node = makeNode();
 	check(JSON.stringify(inputNames(node)) === JSON.stringify(["in", "__group:Anchor",
-			"anchor_yaw", "anchor_pitch", "__group:Dome", "dome_radius", "__group:Tile",
-			"tile_scale", "__group:Color", "color_r", "intensity", "mask"]),
-			"fresh node lays out in, then headers + members, mask last (no eye row)");
+			"__group:Dome", "__group:Tile", "__group:Color", "intensity", "mask"]),
+			"fresh node hides the unconnected (groups start collapsed, ungrouped stays)");
 	check(node.outputs.length === 1 && node.outputs[0].name === "out", "flow out port kept");
-	check(node.inputs[1].label === "\u25BE Anchor", "expanded header label");
+	check(node.inputs[1].label === "\u25B8 Anchor (2)", "collapsed header shows hidden count");
 	check(groups.isHeader(node.inputs[1]) && !groups.isHeader(node.inputs[0])
-			&& !groups.isHeader(node.inputs[2]), "only header rows are headers");
+			&& !groups.isHeader(node.inputs[5]), "only header rows are headers");
 	check(inputNames(node).indexOf("__eye") < 0, "no eye row on a fresh node");
 })();
 
 (function () {
 	var node = makeNode();
 	var tab = fakeTab(node);
+	check(inputNames(node).indexOf("anchor_yaw") < 0, "unwired members hide by default");
 	groups.toggle(node, "Anchor");
 	check(JSON.stringify(inputNames(node)) === JSON.stringify(["in", "__group:Anchor",
-			"__group:Dome", "dome_radius", "__group:Tile", "tile_scale", "__group:Color",
-			"color_r", "intensity", "mask"]), "collapse hides only the unwired members");
-	check(node.inputs[1].label === "\u25B8 Anchor (2)", "collapsed header shows hidden count");
+			"anchor_yaw", "anchor_pitch", "__group:Dome",
+			"__group:Tile", "__group:Color", "intensity", "mask"]),
+			"expand reveals the group's members");
+	check(node.inputs[1].label === "\u25BE Anchor", "expanded header drops the count");
 	check(tab.effects[0].collapsedGroups
-			&& tab.effects[0].collapsedGroups.Anchor === true, "collapse persists in IR");
+			&& tab.effects[0].collapsedGroups.Dome === true
+			&& tab.effects[0].collapsedGroups.Tile === true
+			&& tab.effects[0].collapsedGroups.Color === true
+			&& !tab.effects[0].collapsedGroups.Anchor, "expand persists the rest in IR");
 	groups.toggle(node, "Anchor");
-	check(inputNames(node).indexOf("anchor_yaw") >= 0, "expand restores members");
-	check(!("collapsedGroups" in tab.effects[0]), "expand-all clears the IR field");
+	check(inputNames(node).indexOf("anchor_yaw") < 0, "collapse hides them again");
+	check(!("collapsedGroups" in tab.effects[0]) || tab.effects[0].collapsedGroups.Anchor === true,
+			"collapse-all restores the default IR field");
 })();
 
 (function () {
 	var node = makeNode();
 	fakeTab(node);
-	var at = inputNames(node).indexOf("anchor_pitch");
+	groups.rebuild(node, { anchor_pitch: true });
+	var names = inputNames(node);
+	check(names.indexOf("anchor_pitch") >= 0, "an IR-wired member stays as a stub");
+	check(names.indexOf("anchor_yaw") < 0, "its unwired sibling stays hidden");
+	var at = names.indexOf("anchor_pitch");
 	node.inputs[at].link = "10";
 	node.graph.links["10"] = { origin_id: 7, origin_slot: 0, target_id: node.id,
 		target_slot: at };
 	groups.toggle(node, "Anchor");
-	var names = inputNames(node);
-	check(names.indexOf("anchor_pitch") >= 0, "a wired member stays as a stub");
-	check(node.graph.links["10"].target_slot === names.indexOf("anchor_pitch"),
+	check(inputNames(node).indexOf("anchor_pitch") >= 0, "expand keeps the wired stub");
+	check(node.graph.links["10"].target_slot === inputNames(node).indexOf("anchor_pitch"),
 			"the surviving wire is repointed, never dropped");
 	groups.toggle(node, "Anchor");
 	check(node.graph.links["10"] && node.inputs[inputNames(node).indexOf("anchor_pitch")].link === "10",
-			"expand keeps the wire on the same link");
+			"collapse keeps the wire on the same link");
 })();
 
 (function () {
@@ -233,7 +241,8 @@ function check(condition, message) {
 	check(groups.headerAt(node, [2, row * 20 + 3]) === "Dome", "header hit at the left edge");
 	check(groups.headerAt(node, [node.size[0] - 2, row * 20 + 17]) === "Dome",
 			"header hit at the right edge (whole row, not the glyph)");
-	check(groups.headerAt(node, [120, (row + 1) * 20 + 3]) === null, "socket rows miss");
+	check(groups.headerAt(node, [120, inputNames(node).indexOf("intensity") * 20 + 3]) === null,
+			"ungrouped rows miss");
 	check(groups.headerAt(node, [120, -4]) === null, "title bar misses");
 })();
 
@@ -244,8 +253,8 @@ function check(condition, message) {
 			"header hit at the socket dot (the wire-drag zone)");
 	check(groups.headerAt(node, [2, row * 20 + 3]) === "Dome",
 			"header hit at the left edge (whole row, not the glyph)");
-	check(groups.headerAt(node, [120, (row + 1) * 20 + 3]) === null,
-			"header misses socket rows");
+	check(groups.headerAt(node, [120, inputNames(node).indexOf("intensity") * 20 + 3]) === null,
+			"header misses ungrouped rows");
 })();
 
 (function () {
@@ -271,7 +280,7 @@ function check(condition, message) {
 			&& plain.indexOf("shownSockets") < 0, "no view state leaks into the datapack");
 })();
 
-/* Show-all (the VFXEditor.hide seam): the always-false resolve, diag counts. */
+/* Hide-unconnected (the VFXEditor.hide seam): the always-false resolve, diag counts. */
 
 var bigDescriptor = { params: [], structural: { supportsMask: true } };
 ["a1", "a2", "a3", "a4", "a5", "a6", "a7"].forEach(function (name) {
@@ -297,7 +306,7 @@ function makeBigNode(id) {
 (function () {
 	var hide = global.VFXEditor.hide;
 	check(!!hide, "hide seam exposed");
-	check(hide.resolve(null, null) === false, "resolve is always false (show-all)");
+	check(hide.resolve(null, null) === false, "resolve is always false (hide-unused ignored)");
 	check(hide.toggleEye === undefined && hide.eyeAt === undefined && hide.isEye === undefined,
 			"no eye API left on the seam");
 })();
@@ -309,27 +318,27 @@ function makeBigNode(id) {
 	node.__hideUnused = hide.resolve(node.__tab, node);
 	groups.rebuild(node, null);
 	check(JSON.stringify(inputNames(node)) === JSON.stringify(["in",
-			"__group:Alpha", "a1", "a2", "a3", "a4", "a5", "a6", "a7",
-			"__group:Beta", "b1", "b2", "b3", "b4", "b5", "tail1", "tail2", "mask"]),
-			"a big fresh node shows every socket under its group header");
+			"__group:Alpha", "__group:Beta", "tail1", "tail2", "mask"]),
+			"a big fresh node hides its unconnected (headers + ungrouped + mask)");
 	var info = hide.hiddenInfo(node);
-	check(info.hidden === 0 && info.animated === 0, "nothing hidden when expanded");
+	check(info.hidden === 12 && info.animated === 0, "twelve hidden, none animated");
 	check(node.size[1] === 30 + node.inputs.length * 20, "no footer line, no counter row");
 })();
 
 (function () {
 	var node = makeBigNode();
 	fakeTab(node);
-	node.__hideUnused = false;
-	groups.rebuild(node, null);
-	var at = inputNames(node).indexOf("a3");
-	node.inputs[at].link = "11";
-	node.graph.links["11"] = { origin_id: 7, origin_slot: 0, target_id: node.id,
-		target_slot: at };
-	groups.rebuild(node, null);
+	groups.rebuild(node, { a3: true });
 	var names = inputNames(node);
-	check(names.indexOf("a3") >= 0 && names.indexOf("a1") >= 0,
-			"wired and unwired sockets all stay visible");
+	check(names.indexOf("a3") >= 0 && names.indexOf("a1") < 0,
+			"only the wired stub shows, its siblings stay hidden");
+	node.inputs[names.indexOf("a3")].link = "11";
+	node.graph.links["11"] = { origin_id: 7, origin_slot: 0, target_id: node.id,
+		target_slot: names.indexOf("a3") };
+	groups.rebuild(node, null);
+	names = inputNames(node);
+	check(names.indexOf("a3") >= 0 && names.indexOf("a1") < 0,
+			"a live wire keeps its stub across rebuilds");
 	check(node.graph.links["11"].target_slot === names.indexOf("a3"),
 			"the surviving wire is repointed, never dropped");
 })();
@@ -339,13 +348,13 @@ function makeBigNode(id) {
 	var node = makeBigNode();
 	var tab = fakeTab(node);
 	tab.effects[0].keys = { b2: [{ time: 0, value: 1 }] };
-	groups.toggle(node, "Beta");
-	var names = inputNames(node);
-	check(names.indexOf("b2") < 0, "a collapsed group hides its members");
 	var info = hide.hiddenInfo(node);
-	check(info.hidden === 5 && info.animated === 1, "hidden animated params are counted");
+	check(info.hidden === 12 && info.animated === 1, "hidden animated params are counted");
 	groups.toggle(node, "Beta");
-	check(hide.hiddenInfo(node).hidden === 0, "expand restores the show-all count");
+	check(inputNames(node).indexOf("b2") >= 0, "expanding a group reveals its members");
+	check(hide.hiddenInfo(node).hidden === 7, "only the still-collapsed group counts");
+	groups.toggle(node, "Beta");
+	check(hide.hiddenInfo(node).hidden === 12, "collapse restores the hidden count");
 })();
 
 (function () {
@@ -356,8 +365,204 @@ function makeBigNode(id) {
 	check(hide.resolve(tab, node) === false, "a carried hideUnused is ignored for layout");
 	node.__hideUnused = hide.resolve(tab, node);
 	groups.rebuild(node, null);
-	check(inputNames(node).indexOf("a1") >= 0, "old projects open showing every socket");
+	check(inputNames(node).indexOf("a1") < 0, "grouped sockets hide by default, old or new");
+	check(inputNames(node).indexOf("tail1") >= 0, "ungrouped params stay visible");
 	check(tab.effects[0].hideUnused === true, "the carried IR field survives untouched");
+})();
+
+/* Link-drag reveal (the VFXEditor.hide reveal pair): collapsed groups open for the drag. */
+
+(function () {
+	var hide = global.VFXEditor.hide;
+	check(typeof hide.beginReveal === "function" && typeof hide.endReveal === "function",
+			"reveal pair exposed");
+	var project = global.VFXEditor.project;
+	var savedTabs = project.tabs;
+	var savedActive = project.active;
+	var node = makeBigNode();
+	var graph = fakeLinkGraph();
+	graph.add(node);
+	node.__tab = null;
+	project.tabs = [{ graph: graph, effects: [], valueNodes: [], edges: [], subgraphs: [] }];
+	project.active = 0;
+	try {
+		check(inputNames(node).indexOf("a1") < 0, "collapsed before the drag");
+		hide.beginReveal();
+		check(inputNames(node).indexOf("a1") >= 0
+				&& inputNames(node).indexOf("b5") >= 0, "every socket reveals for the drag");
+		hide.endReveal();
+		check(inputNames(node).indexOf("a1") < 0
+				&& inputNames(node).indexOf("tail1") >= 0, "the drop restores the hidden layout");
+	} finally {
+		project.tabs = savedTabs;
+		project.active = savedActive;
+	}
+})();
+
+/* Canvas viewer/solo (the VFXEditor.solo seam): the title-bar badge over panel state. */
+
+(function () {
+	var solo = global.VFXEditor.solo;
+	check(!!solo, "solo seam exposed");
+	function soloNode(tab) {
+		return { properties: { effectType: "big_effect", effectId: "fx_1" },
+			size: [240, 100], flags: {}, __tab: tab, setDirtyCanvas: function () {} };
+	}
+	var tab = { effects: [{ id: "fx_1", solo: false }] };
+	var node = soloNode(tab);
+	check(solo.at(node, [236 - 14, -15]) === true, "badge hit at the title-bar right");
+	check(solo.at(node, [10, -15]) === false, "title-bar left misses");
+	check(solo.at(node, [236 - 14, 30]) === false, "body misses");
+	node.flags.collapsed = true;
+	check(solo.at(node, [236 - 14, -15]) === false, "collapsed nodes miss");
+	node.flags.collapsed = false;
+	try {
+		solo.toggle(node);
+	} catch (e) {
+		// the flip precedes the shell refresh; headless DOM may not follow
+	}
+	check(tab.effects[0].solo === true, "one click solos the effect");
+	try {
+		solo.toggle(node);
+	} catch (e2) {
+		// same as above
+	}
+	check(tab.effects[0].solo === false, "a second click unsolos it");
+})();
+
+/* Named canvas frames (the VFXEditor.frames seam): record/restore/rename, never the emit. */
+
+(function () {
+	var frames = global.VFXEditor.frames;
+	check(!!frames, "frames seam exposed");
+	function frameTab(groups) {
+		return { graph: { _groups: groups || [] } };
+	}
+	var tab = frameTab([{ title: "blast", _bounding: [10, 20, 300, 200] }]);
+	frames.record(tab);
+	check(JSON.stringify(tab.__frameGroups) === JSON.stringify(
+			[{ title: "blast", x: 10, y: 20, w: 300, h: 200 }]),
+			"record snapshots title + box rounded");
+	check(frames.titleAt(tab, [15, 25]) === 0, "title-strip hit");
+	check(frames.titleAt(tab, [15, 60]) === -1, "frame body misses");
+	check(frames.titleAt(tab, [500, 25]) === -1, "outside misses");
+	check(frames.titleAt(frameTab([]), [15, 25]) === -1, "no frames miss");
+})();
+
+(function () {
+	var frames = global.VFXEditor.frames;
+	var tab = { graph: { _groups: [{ title: "blast", pos: [0, 0], size: [140, 80] }] } };
+	check(frames.rename(tab, 3, "boom") === false, "rename out of range fails");
+	check(frames.rename(tab, 0, "   ") === false, "an empty title keeps the old one");
+	check(tab.graph._groups[0].title === "blast", "a refused rename changes nothing");
+	try {
+		check(frames.rename(tab, 0, "  shockwave  ") === true, "rename trims + applies");
+	} catch (e) {
+		// the title precedes the history commit; headless DOM may not follow
+	}
+	check(tab.graph._groups[0].title === "shockwave", "the live group retitles");
+	check(tab.__frameGroups && tab.__frameGroups[0].title === "shockwave",
+			"the record follows the rename");
+})();
+
+(function () {
+	var frames = global.VFXEditor.frames;
+	global.LiteGraph.LGraphGroup = function () {
+		this.title = "Group";
+		this.pos = [0, 0];
+		this.size = [140, 80];
+	};
+	var tab = { graph: { _groups: [],
+		add: function (node) { node.graph = this; this._groups.push(node); },
+		remove: function (node) {
+			this._groups = this._groups.filter(function (n) { return n !== node; });
+		} } };
+	tab.__frameGroups = [{ title: "halo", x: 40, y: 50, w: 200, h: 120 }];
+	frames.restore(tab);
+	check(tab.graph._groups.length === 1, "restore rebuilds the frames");
+	check(tab.graph._groups[0].title === "halo", "the title survives the round trip");
+	check(tab.graph._groups[0].pos[0] === 40 && tab.graph._groups[0].size[0] === 200,
+			"the box survives the round trip");
+	frames.restore(tab);
+	check(tab.graph._groups.length === 1, "restore is idempotent");
+	delete global.LiteGraph.LGraphGroup;
+})();
+
+(function () {
+	var frames = global.VFXEditor.frames;
+	function build(withFrames) {
+		var tab = new VFXIR.Tab("sky", "sky_pattern");
+		if (withFrames) {
+			tab.__frameGroups = [{ title: "halo", x: 1, y: 2, w: 3, h: 4 }];
+		}
+		return tab;
+	}
+	var plain = compileTab(build(false));
+	check(compileTab(build(true)) === plain, "frame view state never reaches the emit");
+	check(plain.indexOf("__frameGroups") < 0 && plain.indexOf("halo") < 0,
+			"no frame state leaks into the datapack");
+	var moved = global.VFXEditor.exportModel.migrateSidecar({ version: 2,
+		tabs: [{ name: "sky", frameGroups: [{ title: "halo", x: 1, y: 2, w: 3, h: 4 }] }] });
+	check(moved && moved.tabs[0].frameGroups[0].title === "halo",
+			"the sidecar carries frames through untouched");
+})();
+
+(function () {
+	var project = global.VFXEditor.project;
+	var savedTabs = project.tabs;
+	var savedNs = project.namespace;
+	project.tabs = [];
+	project.namespace = "demo";
+	try {
+		var lonely = new VFXIR.Tab("demo:lonely", null);
+		lonely.__frameGroups = [{ title: "halo", x: 1, y: 2, w: 3, h: 4 }];
+		project.tabs.push(lonely);
+		var sidecar = global.VFXEditor.exportModel.buildSidecar();
+		check(sidecar.tabs.length === 1 && sidecar.tabs[0].name === "lonely",
+				"an effect-less tab keeps its sidecar entry for its frames");
+		check(JSON.stringify(sidecar.tabs[0].frameGroups)
+				=== JSON.stringify(lonely.__frameGroups),
+				"its frames ride the sidecar without effects");
+	} finally {
+		project.tabs = savedTabs;
+		project.namespace = savedNs;
+	}
+})();
+
+(function () {
+	var project = global.VFXEditor.project;
+	var savedTabs = project.tabs;
+	var savedNs = project.namespace;
+	project.tabs = [];
+	project.namespace = "demo";
+	try {
+		var tab = new VFXIR.Tab("sky", "sky_pattern");
+		tab.effect().collapsedGroups = { Anchor: true };
+		tab.effect().mute = true;
+		project.tabs.push(tab);
+		var sidecar = global.VFXEditor.exportModel.buildSidecar();
+		check(sidecar.tabs.length === 1 && sidecar.tabs[0].effects.length === 1
+				&& sidecar.tabs[0].effects[0].collapsedGroups
+				&& sidecar.tabs[0].effects[0].collapsedGroups.Anchor === true
+				&& sidecar.tabs[0].effects[0].mute === true,
+				"collapsedGroups rides the sidecar beside mute/solo");
+		check(global.VFXCompiler.compileTab(tab).indexOf("collapsedGroups") < 0,
+				"collapsedGroups never reaches the emit");
+		var fresh = new VFXIR.Tab("sky", "sky_pattern");
+		global.VFXEditor.exportModel.applySidecar(sidecar, [fresh]);
+		check(fresh.effect().collapsedGroups
+				&& fresh.effect().collapsedGroups.Anchor === true,
+				"collapsedGroups round-trips through the sidecar");
+	} finally {
+		project.tabs = savedTabs;
+		project.namespace = savedNs;
+	}
+})();
+
+(function () {
+	var afterRemove = global.VFXEditor.maskWire.afterRemove;
+	check(JSON.stringify(afterRemove([2, 3], 0, 2)) === JSON.stringify([1, 2]),
+			"a removed leaf with no operand still shifts higher wires down");
 })();
 
 /* Typed ports (the VFXEditor.ports seam): one table, metadata-derived paint. */
@@ -378,11 +583,16 @@ function makeBigNode(id) {
 	});
 	check(ports.types.flow.shape === ""
 			&& ports.types.field.shape === "ARROW_SHAPE"
-			&& ports.types.mask.shape === "GRID_SHAPE",
-			"chain is a circle, field a triangle, mask the dotted square");
+			&& ports.types.mask.shape === "GRID_SHAPE"
+			&& ports.types.bind.glyph === "B"
+			&& ports.types.expr.glyph === "E",
+			"chain is a circle, field a triangle, mask the dotted square,"
+					+ " bind/expr carry in-dot glyphs");
 	check(ports.types.number.shape === "" && ports.types.macro.shape === ""
-			&& ports.types.bind.shape === "" && ports.types.expr.shape === ""
-			&& ports.types.time.shape === "", "numeric drivers stay circles");
+			&& ports.types.time.shape === "", "number, macro and time stay circles");
+	check(ports.types.bind.shape === "" && ports.types.expr.shape === ""
+			&& ports.types.bind.glyph === "B" && ports.types.expr.glyph === "E",
+			"bind and expr stay circles with their own in-dot glyphs");
 	check(ports.flow === "flow" && ports.mask === "mask" && ports.field === "field"
 			&& ports.wildcard === "*", "wire constants exposed");
 })();
@@ -430,6 +640,13 @@ function makeBigNode(id) {
 	ports.paint(slot, "bogus");
 	check(slot.__port === "number" && slot.color_on === ports.types.number.color,
 			"paint falls back to number");
+	ports.paint(slot, "bind");
+	check(slot.__glyph === "B" && slot.color_on === ports.types.bind.color,
+			"paint stamps the in-dot glyph");
+	ports.paint(slot, "expr");
+	check(slot.__glyph === "E", "paint stamps the expr glyph");
+	ports.paint(slot, "number");
+	check(slot.__glyph == null, "paint clears the glyph off plain ports");
 	check(ports.shape("flow") === 0, "no LiteGraph shapes headlessly (guarded)");
 	check(ports.format({ flow: 2, number: 3 })
 			=== "flow=2 number=3 mask=0 field=0 macro=0 bind=0 expr=0 time=0",
@@ -439,6 +656,9 @@ function makeBigNode(id) {
 (function () {
 	var ports = global.VFXEditor.ports;
 	var node = makeNode();
+	["Anchor", "Dome", "Tile", "Color"].forEach(function (group) {
+		groups.toggle(node, group);
+	});
 	var byName = {};
 	node.inputs.forEach(function (slot) {
 		byName[slot.name] = slot;
@@ -475,7 +695,10 @@ function makeBigNode(id) {
 	}
 	check(slot("intensity").type === "number", "plain param wires number");
 	check(slot("radius").type === "number,field", "gated param wires number,field");
-	check(slot("radius").__port === "number", "gated param still paints number");
+	check(slot("radius").__port === "field"
+			&& slot("radius").color_on === global.VFXEditor.ports.types.field.color,
+			"gated param paints field");
+	check(slot("intensity").__port === "number", "plain param still paints number");
 })();
 
 /* The vendored drag/drop gate, executed for real (extracted from litegraph.js). */
@@ -525,6 +748,67 @@ function makeBigNode(id) {
 	check(!valid("field", "number"), "field never lands on an ungated param");
 	check(!valid("mask", "number"), "mask never lands on a param");
 	check(!valid("mask", "flow"), "mask never lands on the chain");
+})();
+
+/* Mask operand wires (the VFXEditor.maskWire seam): leaves feed operands, only. */
+
+(function () {
+	var maskWire = global.VFXEditor.maskWire;
+	check(!!maskWire, "maskWire seam exposed");
+	function maskNode(id, role, effectId, inputs, outputs) {
+		return { id: id, properties: { maskRole: role, effectId: effectId },
+			inputs: inputs, outputs: outputs, pos: [0, 0] };
+	}
+	function inSlot(name) {
+		return { name: name, type: "mask", link: null };
+	}
+	function outSlot(name) {
+		return { name: name, type: "mask", links: [] };
+	}
+	function build() {
+		var graph = fakeLinkGraph();
+		var root = maskNode(31, "mask", "fx_1",
+				[inSlot("operand 0"), inSlot("operand 1")], [outSlot("mask")]);
+		var leafA = maskNode(32, "leaf", "fx_1",
+				[{ name: "mask.p0.p0", type: "number", link: null }], [outSlot("mask")]);
+		leafA.properties.leafIndex = 0;
+		var leafB = maskNode(33, "leaf", "fx_1", [], [outSlot("mask")]);
+		leafB.properties.leafIndex = 1;
+		var effect = { id: 34, properties: { effectType: "blur", effectId: "fx_1" },
+			inputs: [{ name: "in", type: "flow", link: null },
+				{ name: "mask", type: "mask", link: null }],
+			outputs: [], pos: [0, 0] };
+		var value = fakeValueNode(35, "v", "constant", ["value"]);
+		[root, leafA, leafB, effect, value].forEach(function (node) { graph.add(node); });
+		return { graph: graph, root: root, leafA: leafA, leafB: leafB,
+			effect: effect, value: value };
+	}
+	function rule(graph, origin, originSlot, target, targetSlot) {
+		return maskWire.rule(graph, origin, originSlot, target, targetSlot);
+	}
+	var setup = build();
+	check(rule(setup.graph, setup.leafA, 0, setup.root, 0)
+			&& rule(setup.graph, setup.leafA, 0, setup.root, 0).ok === true,
+			"a leaf feeds its own operand");
+	var direct = rule(setup.graph, setup.leafA, 0, setup.effect, 1);
+	check(!!direct && direct.ok === false && /Mask root/.test(direct.hint),
+			"a leaf never lands on the effect mask input");
+	var occupied = build();
+	occupied.root.inputs[1].link = "L9";
+	var fanIn = rule(occupied.graph, occupied.leafB, 0, occupied.root, 1);
+	check(!!fanIn && fanIn.ok === false && /already has a wire/.test(fanIn.hint),
+			"a second link into an operand is refused");
+	var fanned = build();
+	fanned.leafA.outputs[0].links = ["L1"];
+	var fanOut = rule(fanned.graph, fanned.leafA, 0, fanned.root, 0);
+	check(!!fanOut && fanOut.ok === false && /one wire per leaf/.test(fanOut.hint),
+			"a leaf feeding two operands is refused");
+	var foreign = rule(setup.graph, setup.value, 0, setup.root, 0);
+	check(!!foreign && foreign.ok === false, "a value node never lands on an operand");
+	check(rule(setup.graph, setup.root, 0, setup.effect, 1) === null,
+			"the root attach wire is not a maskWire verdict");
+	check(rule(setup.graph, setup.value, 0, setup.leafA, 0) === null,
+			"value-node field wires bypass the operand rule");
 })();
 
 (function () {
@@ -803,6 +1087,98 @@ global.LiteGraph.registered_node_types["vfx/reroute"] = true;
 	check(compileTab(dotted) === bare, "a wire through 2 reroutes emits identical JSON");
 	check(bare.indexOf("reroute") < 0 && bare.indexOf("__reroutes") < 0,
 			"no dot state leaks into the emit");
+})();
+
+/* Export model v2 (the VFXEditor.exportModel seam): per-tab namespaces, grouped files,
+ * the payload shape with verbatim curve/particle blocks, and the sidecar migration. */
+
+var exportModel = global.VFXEditor.exportModel;
+
+(function () {
+	check(!!exportModel, "exportModel seam exposed");
+	check(exportModel.sidecarVersion === 2, "sidecar version is 2");
+	check(exportModel.tabNamespace({ name: "other_ns:blur" }) === "other_ns",
+			"a valid tab prefix wins over the project namespace");
+	check(exportModel.tabNamespace({ name: "blur" }) === exportModel.defaultNamespace(),
+			"a bare tab name falls back to the project namespace");
+	check(exportModel.tabNamespace({ name: "Bad Name:x" }) === exportModel.defaultNamespace(),
+			"an invalid tab prefix falls back to the project namespace");
+	check(exportModel.tabNamespace(null) === exportModel.defaultNamespace(),
+			"a missing tab falls back to the project namespace");
+})();
+
+(function () {
+	var project = global.VFXEditor.project;
+	var savedTabs = project.tabs;
+	var savedNs = project.namespace;
+	var savedCurves = project.curves;
+	var savedParticles = project.particles;
+	project.tabs = [];
+	project.namespace = "demo";
+	project.curves = {};
+	project.particles = {};
+	try {
+		project.tabs.push(new VFXIR.Tab("demo:one", "blur"));
+		project.tabs.push(new VFXIR.Tab("extra:two", "blur"));
+		var grouped = exportModel.group();
+		check(JSON.stringify(grouped.order) === JSON.stringify(["demo", "extra"]),
+				"tabs group under their own namespaces in first-use order");
+		check(grouped.namespaces.demo && grouped.namespaces.demo.one != null
+				&& grouped.namespaces.extra && grouped.namespaces.extra.two != null,
+				"each namespace holds its own files");
+		var payload = exportModel.payload();
+		check(payload.namespace === "demo", "the project namespace stays primary");
+		check(!!payload.namespaces && payload.namespaces.extra.effects.two != null,
+				"a multi-namespace project sends the namespaces map");
+		check(payload.effects.one != null, "legacy top-level effects carry the primary ns");
+		check(exportModel.summary(payload).indexOf("demo (1 effects)") >= 0
+				&& exportModel.summary(payload).indexOf("extra (1 effects)") >= 0,
+				"the dialog summary lists every namespace");
+
+		project.tabs.pop();
+		var single = exportModel.payload();
+		check(!("namespaces" in single), "a single namespace sends no namespaces map");
+		check(single.effects.one != null, "single-namespace effects stay top-level");
+		check(exportModel.summary(single).indexOf("demo (1 effects)") >= 0,
+				"the single-namespace summary reads as before");
+
+		exportModel.rememberPresets("demo", { soft: "{\"points\":[]}" },
+				{ puff: "{\"kind\":\"spark\"}" });
+		exportModel.rememberPresets("demo", { junk: 42 }, null);
+		var withPresets = exportModel.payload();
+		check(withPresets.curves.soft === "{\"points\":[]}"
+				&& withPresets.particles.puff === "{\"kind\":\"spark\"}",
+				"verbatim curve/particle blocks ride the payload");
+		check(!("junk" in withPresets.curves), "non-string preset blocks are skipped");
+		check(!("namespaces" in withPresets), "presets alone do not force multi-namespace");
+	} finally {
+		project.tabs = savedTabs;
+		project.namespace = savedNs;
+		project.curves = savedCurves;
+		project.particles = savedParticles;
+	}
+})();
+
+(function () {
+	var migrate = exportModel.migrateSidecar;
+	check(migrate(null) === null, "a missing sidecar migrates to null");
+	check(migrate("nope{") === null, "a corrupt sidecar migrates to null");
+	check(migrate(42) === null, "a non-object sidecar migrates to null");
+	var v1 = { tabs: [{ name: "fx", effects: [] }] };
+	var moved = migrate(v1);
+	check(moved && moved.version === 2 && moved.tabs === v1.tabs,
+			"v1 (no version) migrates to v2 keeping its tabs");
+	check(!("namespace" in moved), "v1 without a namespace gains none");
+	var named = migrate({ version: 1, namespace: "my_vfx", tabs: [] });
+	check(named && named.version === 2 && named.namespace === "my_vfx",
+			"v1 with a namespace keeps it at v2");
+	var future = migrate({ version: 99, namespace: "my_vfx", tabs: [{ name: "fx" }],
+		crystal: "ball" });
+	check(future && future.version === 2 && future.tabs.length === 1
+			&& !("crystal" in future),
+			"a newer sidecar applies its known fields and drops the rest");
+	check(exportModel.buildSidecar().version === exportModel.sidecarVersion,
+			"the emitted sidecar carries the current version");
 })();
 
 console.log("");
