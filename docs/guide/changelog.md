@@ -5,10 +5,10 @@ documentation changed. A guide revision is not a mod version — the two numbers
 released mod versions are recorded on the **[mod Changelog](../CHANGELOG.md)** instead. Where a guide
 revision shipped with a release, the entry says so (for example `v47 — released as 2.0.0`).
 
-Current guide revision: **v80**. Mod version it documents: **2.3.0** (not yet released). Which jar
+Current guide revision: **v80**. Mod version it documents: **2.4.0**. Which jar
 to download is in the [download table](../index.md#download).
 
-### v80 — documents 2.3.0 (unreleased)
+### v80 — documents 2.4.0 (released as 2.4.0)
 - **The visual node editor's v1.1 "quick wins".** The [editor page](editor.md) now documents: an
   **empty tab is valid** (delete the effect node and the canvas shows a **+ Add effect** placeholder
   to retype the tab); **snapshot undo/redo** (one drag or one action is one step, capped at 100) in
@@ -21,7 +21,7 @@ to download is in the [download table](../index.md#download).
   binding dropdown with its output labelled by the binding's unit. Editor-only; no datapack field,
   UBO, API or wire change.
 
-### v79 — documents 2.3.0 (unreleased)
+### v79 — documents 2.4.0 (released as 2.4.0)
 - **A new page `Visual node editor` documents the local web editor.** Start it with `/vfxeditor` (it
   toggles the loopback bridge, prints a token-bearing URL and opens it); the page covers the tab /
   canvas / inspector / timeline layout, live play and incremental edits, `Ctrl`/`Cmd`+`Z` undo that
@@ -30,13 +30,13 @@ to download is in the [download table](../index.md#download).
   zip), import and sidecar layout restore, the golden path from empty editor to `/vfx play`, and the
   browser baseline (current Chrome/Firefox + previous, `fetch`/`EventSource`/canvas, with an
   "Unsupported browser" banner when the canvas cannot load). New page: [Visual node editor](editor.md).
-### v78 — documents 2.3.0 (unreleased)
+### v78 — documents 2.4.0 (released as 2.4.0)
 - **A new page for `screen_image`: draw a picture over the game frame.** The effect composites a resource-pack PNG (or an image a mod registered with `VFXAPI.registerImage`) onto the game's own framebuffer inside an animatable rectangle, at the screen layer you pick. The page states what the fields do not: the canvas is the **Minecraft window**, not the monitor, so the picture scales with the window and nothing off the frame is touched; `size_w : size_h` are the **picture's own proportions** in one common unit (the smaller window side), so equal values are a square on any window and a deliberate difference stretches it; `pos_*` maps over the space `size_*` leaves, so `pos_x: 1` is flush with the edge and `pos_x: 0.5` centres; `screen_layer` `0`/`1` stay under the GUI (default `1`, above the first-person hand) and `2` draws over chat and hotbar; a resource-pack `.png.mcmeta` animation **wins over** `frames`/`frame_time` (and is the only way to get non-uniform frame times) while `interpolate: true` is not supported; and an id that does not resolve draws nothing and warns once rather than blanking the frame. Additive: one new effect type with one required top-level `texture` string, no existing field renamed, no UBO layout changed, `PROTOCOL_VERSION` unchanged, no new dependency. New page: [screen_image](effects/screen/screen-image.md). Asserted by `scripts/check-screen-image.ps1`; the GLSL cannot compile headless here. **Not verified in game** (the owner tests it).
 
-### v77 — documents 2.3.0 (unreleased)
+### v77 — documents 2.4.0 (released as 2.4.0)
 - **A window's `texture` may now be an image a mod supplies from code, not only a `.png` in a pack.** Added `VFXAPI.registerImage(id, width, height, argb)` / `VFXAPI.unregisterImage(id)`, documented in the [API](../API.md#vfxapi): a mod hands over ARGB pixels under a resource id and that id then works wherever a texture id does — a `window_create` picture, and the `surface_pattern`/`sky_pattern` texture fields. Nothing a user already authored changes: an id that is not registered resolves from the resource pack exactly as before. Additive, no datapack field, no wire or UBO change.
 
-### v76 — documents 2.3.0 (unreleased)
+### v76 — documents 2.4.0 (released as 2.4.0)
 - **The window page gained a known interaction: animating the Minecraft window's size (`id "0"`) interrupts chat input.** While `size_w`/`size_h` change every frame the OS window is resized every frame, which drops the chat's command history keys (Up/Down) and tab-completion until it settles; the page says so and recommends not animating the game-window size while typing.
 - **A new guide page for `window_create` / `window_control`, the two effects that open a real picture window on the desktop.** Documents what a user cannot guess from the fields: the window is undecorated, non-resizable, always on top and **click-through at all times**, never takes focus, is created hidden and sized to the **work area of the monitor the game is on**, and is **never moved or resized afterwards** — `pos_x`/`pos_y`/`size_w`/`size_h` animate the picture's rectangle *inside* that canvas, so an animation costs no OS call per frame. Also: `titles` + a clamped animated `title_index` pick the title, `opacity` animates, a frame sheet steps on `frame_time`, up to **8** windows may be live and a duplicate name is first-one-wins, and Wayland is best-effort. New page: [window_create and window_control](effects/window/custom-windows.md). **Not verified in game** (the owner tests it).
 
