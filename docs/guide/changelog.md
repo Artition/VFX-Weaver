@@ -5,13 +5,16 @@ documentation changed. A guide revision is not a mod version — the two numbers
 released mod versions are recorded on the **[mod Changelog](../CHANGELOG.md)** instead. Where a guide
 revision shipped with a release, the entry says so (for example `v47 — released as 2.0.0`).
 
-Current guide revision: **v82**. Mod version it documents: **2.4.0** (not yet released). Which jar
+Current guide revision: **v83**. Mod version it documents: **2.4.1**. Which jar
 to download is in the [download table](../index.md#download).
 
-### v82 — documents 2.4.0 (unreleased)
+### v83 — documents 2.4.1 (released as 2.4.1)
+- **2.4.1 release.** No page changed: v81–v82 already documented the uncapped params, and now ship as mod 2.4.1. See the [mod Changelog](../CHANGELOG.md#241).
+
+### v82 — documents 2.4.1 (released as 2.4.1)
 - **More params are unbounded above: `particles` shape params and `dust` size, `block_chain` spacing/scale, outline widths, `light_beam` top_scale, `pulse_ring` thickness, `guide_line` width/dashes, spark speed/size and `entity_displace` scale.** The renderer keeps only the lower guards (`particles`: `radius >= 0.05`, `height >= 0.5`, `turns >= 0.25`, `speed/accel/lifetime >= 0`, `vel_y` unbounded, `dust size >= 0.05`; `block_chain`: `spacing >= 0.25`, `scale >= 0.1`; outlines/ring/guide-line widths and thickness/gap `>= 0`, `dash_length >= 0.1`; `light_beam top_scale >= 0.1`; spark `speed >= 0`, `size >= 0.01`; `entity_displace scale >= 0.5`), and the editor schema mirrors the same floor-only bounds. See [particles](effects/world/particles.md), [block_chain](effects/world/block-chain.md), [light_beam](effects/world/light-beam.md), [entity_displace](effects/entity/entity-displace.md) and [spark presets](../datapack/sparks.md). No datapack field, UBO, API or wire change.
 
-### v81 — documents 2.4.0 (unreleased)
+### v81 — documents 2.4.1 (released as 2.4.1)
 - **`light_beam` radius/height and `pulse_ring` radius are unbounded above.** The renderer keeps the lower guards (`light_beam`: `radius >= 0.1`, `height >= 1`; `pulse_ring`: `radius >= 0`) but no longer caps the top end (previously `16`/`256` and `64`), and the editor schema no longer bounds them either. See [light_beam](effects/world/light-beam.md) and [pulse_ring](effects/world/pulse-ring.md). No datapack field, UBO, API or wire change.
 
 ### v80 — documents 2.4.0 (released as 2.4.0)

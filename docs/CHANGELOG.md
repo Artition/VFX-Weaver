@@ -3,7 +3,7 @@
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 **This page is the authoritative record of released mod versions.** The newest entry is the current
-mod version (`2.4.0`, read from `mod_version` in the build). Each `##` heading names a release; where
+mod version (`2.4.1`, read from `mod_version` in the build). Each `##` heading names a release; where
 a release shipped with a guide revision the heading shows both numbers (`v1.2.0 / Guide v32`), and a
 heading titled only `Guide vN` is a guide change that shipped without a mod version bump. The two
 numbers are independent: the **mod version** is what you download, the **guide revision** is how many
@@ -12,7 +12,7 @@ times this documentation has been revised. The authoritative record of guide rev
 the [download table](index.md#download). Add new entries at the top, in the same PR as the behaviour
 change.
 
-## unreleased
+## 2.4.1 - 2026-10-14
 
 ### Added
 - **`particles` shape params, `dust` size, `block_chain` spacing/scale, outline widths, `light_beam` top_scale, `pulse_ring` thickness, `guide_line` width/dashes, spark speed/size and `entity_displace` scale no longer have an upper cap.** Every lifted param keeps only its lower guard (`particles`: `radius >= 0.05`, `height >= 0.5`, `turns >= 0.25`, `speed/accel/lifetime >= 0`, `vel_y` unbounded, `dust size >= 0.05`; `block_chain`: `spacing >= 0.25`, `scale >= 0.1`; outlines/ring/guide-line widths and thickness/gap `>= 0`, `dash_length >= 0.1`; `light_beam top_scale >= 0.1`; spark `speed >= 0`, `size >= 0.01`; `entity_displace scale >= 0.5` mirroring the renderer floor), and the editor schema mirrors the same floor-only bounds. The floors that remain are the ones that avoid degenerate geometry or division by zero (spacing, dash_length, displace scale); no geometry loop count depends on any lifted param, so the caps had no perf basis. No datapack field renamed, no wire, UBO or API change, `PROTOCOL_VERSION` unchanged. Documented on [particles](guide/effects/world/particles.md), [block_chain](guide/effects/world/block-chain.md), [light_beam](guide/effects/world/light-beam.md), [entity_displace](guide/effects/entity/entity-displace.md) and [spark presets](guide/datapack/sparks.md).
