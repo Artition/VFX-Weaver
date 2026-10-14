@@ -137,6 +137,19 @@
 	};
 
 	/**
+	 * Append a reference node instancing another tab (no geometry of its own).
+	 *
+	 * @param {string} target the target tab name
+	 * @param {string} [id] a stable id; a fresh `fx_<n>` is allocated when omitted
+	 * @returns {Object} the added effect entry
+	 */
+	Tab.prototype.addReference = function (target, id) {
+		var effect = this.addEffect(REFERENCE_TYPE, id);
+		effect.reference = target == null ? null : String(target);
+		return effect;
+	};
+
+	/**
 	 * Remove an effect entry by id.
 	 *
 	 * @param {string} id the effect id
@@ -843,6 +856,235 @@
 		return [(Number(p[0]) + Number(o[0])) * s, (Number(p[1]) + Number(o[1])) * s];
 	}
 
+	/**
+	 * Deterministic canvas auto-layout (pure, no DOM): effect nodes form a straight
+	 * left-to-right chain row, value drivers sit compactly above their consumer, mask
+	 * roots/leaves and field roots stack below their effect in operand order, and
+	 * anything else lands in the free zone to the right. Nodes carrying `pos` (user,
+	 * IR or sidecar positions) are never moved; free nodes never overlap any pair.
+	 * Same input always yields the same output (no random, no dates).
+	 *
+	 * @param {Array<Object>} items `{id, w, h, pos: [x, y]|null, kind, parent, order}`
+	 *  `kind` is `effect` (order = chain index), `mask` (parent = effect item id),
+	 *  `leaf` (parent = effect item id, order = operand index), `field` (parent =
+	 *  effect item id, order = sequence), `value` (parent = consumer item id or
+	 *  null) or `other`. `w`/`h` fall back to 240x120.
+	 * @returns {Object<string, Array<number>>} item id -> `[x, y]` (fixed items keep
+	 *  their exact pos)
+	 */
+	var LAYOUT_LEFT = 80;
+	var LAYOUT_ROW_Y = 80;
+	var LAYOUT_GAP_X = 60;
+	var LAYOUT_GAP_Y = 60;
+	function autoLayout(items) {
+		var out = {};
+		var rects = [];
+		var byId = {};
+		(items || []).forEach(function (item) {
+			if (item && item.id != null) {
+				byId[item.id] = item;
+			}
+		});
+		function sizeOf(item) {
+			var w = Number(item && item.w);
+			var h = Number(item && item.h);
+			return {
+				w: isFinite(w) && w > 0 ? w : 240,
+				h: isFinite(h) && h > 0 ? h : 120
+			};
+		}
+		function hasPos(item) {
+			return item && Array.isArray(item.pos) && item.pos.length === 2
+					&& isFinite(Number(item.pos[0])) && isFinite(Number(item.pos[1]));
+		}
+		// Fixed items first (exact pos, never touched), in id order for determinism.
+		Object.keys(byId).sort().forEach(function (id) {
+			var item = byId[id];
+			if (hasPos(item)) {
+				var size = sizeOf(item);
+				out[id] = [Number(item.pos[0]), Number(item.pos[1])];
+				rects.push({ x: Number(item.pos[0]), y: Number(item.pos[1]),
+					w: size.w, h: size.h });
+			}
+		});
+		function overlaps(x, y, w, h) {
+			for (var i = 0; i < rects.length; i++) {
+				var r = rects[i];
+				if (x < r.x + r.w && r.x < x + w && y < r.y + r.h && r.y < y + h) {
+					return true;
+				}
+			}
+			return false;
+		}
+		// Nudge right past every overlapping rect; x strictly grows, so this ends.
+		function freeX(x, y, w, h) {
+			var guard = 0;
+			while (overlaps(x, y, w, h) && guard++ < 1000) {
+				var push = x + 1;
+				for (var i = 0; i < rects.length; i++) {
+					var r = rects[i];
+					if (x < r.x + r.w && r.x < x + w && y < r.y + r.h && r.y < y + h
+							&& r.x + r.w + LAYOUT_GAP_X > push) {
+						push = r.x + r.w + LAYOUT_GAP_X;
+					}
+				}
+				x = push;
+			}
+			return x;
+		}
+		function place(id, x, y) {
+			var size = sizeOf(byId[id]);
+			x = Math.round(freeX(x, y, size.w, size.h));
+			y = Math.round(y);
+			out[id] = [x, y];
+			rects.push({ x: x, y: y, w: size.w, h: size.h });
+			return { x: x, y: y, w: size.w, h: size.h };
+		}
+		function cmpOrder(a, b) {
+			var ao = a.order == null ? 1e9 : Number(a.order);
+			var bo = b.order == null ? 1e9 : Number(b.order);
+			if (ao !== bo) {
+				return ao - bo;
+			}
+			return String(a.id) < String(b.id) ? -1 : 1;
+		}
+		function freeOf(kind) {
+			return Object.keys(byId).map(function (id) {
+				return byId[id];
+			}).filter(function (item) {
+				return item.kind === kind && !hasPos(item);
+			}).sort(cmpOrder);
+		}
+		// The chain row: free effects extend it left to right in chain order on one
+		// height (the fixed effects' median, else the default), stepping over fixed
+		// nodes with a width-aware uniform stride so the flow line stays straight.
+		var effects = Object.keys(byId).map(function (id) {
+			return byId[id];
+		}).filter(function (item) {
+			return item.kind === "effect";
+		}).sort(cmpOrder);
+		var fixedY = effects.filter(hasPos).map(function (item) {
+			return Number(item.pos[1]);
+		}).sort(function (a, b) {
+			return a - b;
+		});
+		var rowY = fixedY.length ? fixedY[Math.floor(fixedY.length / 2)] : LAYOUT_ROW_Y;
+		var stepX = LAYOUT_GAP_X;
+		effects.forEach(function (item) {
+			var size = sizeOf(item);
+			if (size.w + LAYOUT_GAP_X > stepX) {
+				stepX = size.w + LAYOUT_GAP_X;
+			}
+		});
+		var cursor = LAYOUT_LEFT;
+		effects.forEach(function (item) {
+			if (hasPos(item)) {
+				var size = sizeOf(item);
+				var right = Number(item.pos[0]) + size.w + LAYOUT_GAP_X;
+				if (right > cursor) {
+					cursor = right;
+				}
+				return;
+			}
+			var placed = place(item.id, cursor, rowY);
+			cursor = placed.x + stepX;
+		});
+		// Below each effect: its mask root, then leaves in operand order, then field
+		// roots — one row starting at the effect's left edge.
+		effects.forEach(function (effect) {
+			var anchor = out[effect.id];
+			if (!anchor) {
+				return;
+			}
+			var size = sizeOf(effect);
+			var row = [];
+			Object.keys(byId).forEach(function (id) {
+				var item = byId[id];
+				if (item.parent === effect.id && !hasPos(item)
+						&& (item.kind === "mask" || item.kind === "leaf" || item.kind === "field")) {
+					row.push(item);
+				}
+			});
+			row.sort(function (a, b) {
+				var rank = { mask: 0, leaf: 1, field: 2 };
+				var ra = rank[a.kind] == null ? 3 : rank[a.kind];
+				var rb = rank[b.kind] == null ? 3 : rank[b.kind];
+				if (ra !== rb) {
+					return ra - rb;
+				}
+				return cmpOrder(a, b);
+			});
+			var bx = anchor[0];
+			var by = anchor[1] + size.h + LAYOUT_GAP_Y;
+			row.forEach(function (item) {
+				var placed = place(item.id, bx, by);
+				bx = placed.x + placed.w + LAYOUT_GAP_X;
+			});
+		});
+		// Value drivers above their consumer (shallowest first, so the consumer
+		// already sits when its drivers land); orphans join the free zone.
+		var values = freeOf("value");
+		var depthOf = {};
+		function depth(id, seen) {
+			if (Object.prototype.hasOwnProperty.call(depthOf, id)) {
+				return depthOf[id];
+			}
+			var item = byId[id];
+			if (!item || item.kind !== "value" || !item.parent || !byId[item.parent]
+					|| byId[item.parent].kind !== "value" || (seen && seen[id])) {
+				return 0;
+			}
+			seen = seen || {};
+			seen[id] = true;
+			var below = depth(item.parent, seen) + 1;
+			delete seen[id];
+			depthOf[id] = below;
+			return below;
+		}
+		values.forEach(function (item) {
+			depth(item.id, {});
+		});
+		values.sort(function (a, b) {
+			var da = depthOf[a.id] || 0;
+			var db = depthOf[b.id] || 0;
+			if (da !== db) {
+				return da - db;
+			}
+			return String(a.id) < String(b.id) ? -1 : 1;
+		});
+		var orphans = [];
+		values.forEach(function (item) {
+			var size = sizeOf(item);
+			var target = item.parent != null ? out[item.parent] : null;
+			if (!target) {
+				orphans.push(item);
+				return;
+			}
+			var consumer = byId[item.parent];
+			var csize = sizeOf(consumer);
+			var cx = target[0] + (csize.w - size.w) / 2;
+			var cy = target[1] - LAYOUT_GAP_Y - size.h;
+			place(item.id, cx, cy);
+		});
+		// The free zone right of everything, stacked top to bottom.
+		var rest = freeOf("other").concat(orphans.sort(cmpOrder));
+		if (rest.length) {
+			var right = LAYOUT_LEFT;
+			rects.forEach(function (r) {
+				if (r.x + r.w + LAYOUT_GAP_X > right) {
+					right = r.x + r.w + LAYOUT_GAP_X;
+				}
+			});
+			var top = LAYOUT_ROW_Y;
+			rest.forEach(function (item) {
+				var size = sizeOf(item);
+				var placed = place(item.id, right, top);
+				top = placed.y + size.h + LAYOUT_GAP_Y;
+			});
+		}
+		return out;
+	}
+
 	/** A valid datapack namespace: non-empty and only `[a-z0-9_.-]` (design §15.6). */
 	var NAMESPACE_RE = /^[a-z0-9_.-]+$/;
 
@@ -1093,6 +1335,170 @@
 			});
 		}
 		return out.length ? out : null;
+	}
+
+	/**
+	 * A reference node (design §15.2, Phase 2): a canvas entry of `type: "reference"` that
+	 * instances another tab instead of carrying geometry of its own. `reference` names the
+	 * target tab; the compilers resolve it to the target's definition id.
+	 */
+	var REFERENCE_TYPE = "reference";
+
+	/** How deep a reference chain may nest in the Exact preview (the architecture limit;
+	 * the single source of truth — the compiler reads it through the api). */
+	var MAX_REFERENCE_DEPTH = 4;
+
+	/** Whether an effect entry is a reference node (no geometry of its own). */
+	function isReferenceEffect(effect) {
+		return Boolean(effect) && (effect.type === REFERENCE_TYPE || effect.reference != null);
+	}
+
+	/**
+	 * The target tab name of a reference node, or null when it names none.
+	 *
+	 * @param {Object} effect the effect entry
+	 * @returns {string|null} the trimmed target name, or null
+	 */
+	function referenceTarget(effect) {
+		var target = effect ? effect.reference : null;
+		if (typeof target !== "string") {
+			return null;
+		}
+		return target.trim() !== "" ? target : null;
+	}
+
+	/** The display name of a tab (`<namespace>:<name>` or plain). */
+	function tabDisplayName(tab) {
+		return tab && tab.name ? String(tab.name) : "";
+	}
+
+	/** The effect-name part of a tab name (`<namespace>:<name>` -> `<name>`). */
+	function tabShortName(name) {
+		var text = String(name == null ? "" : name);
+		var colon = text.indexOf(":");
+		return colon > 0 && colon < text.length - 1 ? text.substring(colon + 1) : text;
+	}
+
+	/**
+	 * Find a tab by reference target: an exact `tab.name` hit wins, else a unique short-name
+	 * hit (the part after `:`), so `fx` finds `ns:fx`. An ambiguous short name matches
+	 * nothing, so the caller reports the unresolvable target.
+	 *
+	 * @param {Array<Object>} tabs the project tabs
+	 * @param {string} name the reference target
+	 * @returns {Object|null} the tab, or null
+	 */
+	function findTabByName(tabs, name) {
+		if (!Array.isArray(tabs) || name == null) {
+			return null;
+		}
+		var want = String(name);
+		for (var i = 0; i < tabs.length; i++) {
+			if (tabs[i] && tabDisplayName(tabs[i]) === want) {
+				return tabs[i];
+			}
+		}
+		var short = tabShortName(want);
+		var match = null;
+		var matches = 0;
+		for (var s = 0; s < tabs.length; s++) {
+			if (tabs[s] && tabShortName(tabDisplayName(tabs[s])) === short) {
+				match = tabs[s];
+				matches++;
+			}
+		}
+		// An ambiguous short name resolves nothing: the caller reports the unresolvable
+		// target instead of wiring the wrong tab.
+		return matches === 1 ? match : null;
+	}
+
+	/** Every reference target named across one tab's chain. */
+	function tabRefTargets(tab) {
+		var out = [];
+		((tab && tab.effects) || []).forEach(function (effect) {
+			var target = referenceTarget(effect);
+			if (target) {
+				out.push(target);
+			}
+		});
+		return out;
+	}
+
+	/**
+	 * The first reference cycle over the tabs (`a -> b -> a`, or `a -> a`), or null when the
+	 * graph is acyclic. Unresolvable targets are ignored (the compilers report those).
+	 *
+	 * @param {Array<Object>} tabs the project tabs
+	 * @returns {Array<string>|null} the tab names around the cycle (first repeated at the end)
+	 */
+	function findReferenceCycle(tabs) {
+		if (!Array.isArray(tabs)) {
+			return null;
+		}
+		var byName = {};
+		tabs.forEach(function (tab) {
+			byName[tabDisplayName(tab)] = tab;
+		});
+		function canonical(name) {
+			var found = findTabByName(tabs, name);
+			return found ? tabDisplayName(found) : null;
+		}
+		var state = {};
+		var stack = [];
+		var cycle = null;
+		function visit(name) {
+			if (cycle) {
+				return;
+			}
+			state[name] = 1;
+			stack.push(name);
+			tabRefTargets(byName[name]).forEach(function (target) {
+				if (cycle) {
+					return;
+				}
+				var next = canonical(target);
+				if (!next || !byName[next]) {
+					return;
+				}
+				if (state[next] === 1) {
+					cycle = stack.slice(stack.indexOf(next)).concat([next]);
+				} else if (!state[next]) {
+					visit(next);
+				}
+			});
+			stack.pop();
+			state[name] = 2;
+		}
+		Object.keys(byName).forEach(function (name) {
+			if (!state[name]) {
+				visit(name);
+			}
+		});
+		return cycle;
+	}
+
+	/**
+	 * One problems-panel error per tab on the reference cycle (a self- or circular reference
+	 * compiles to nothing, so the panel names the fix).
+	 *
+	 * @param {Array<Object>} tabs the project tabs
+	 * @returns {Array<Object>} `{key, severity, message, context}` entries (empty when acyclic)
+	 */
+	function referenceProblems(tabs) {
+		var cycle = findReferenceCycle(tabs);
+		if (!cycle) {
+			return [];
+		}
+		var path = cycle.join(" -> ");
+		return cycle.slice(0, -1).map(function (name) {
+			return {
+				key: "ref:cycle:" + name,
+				severity: "error",
+				message: "Tab '" + name + "' references itself through " + path
+						+ ". Remove the reference node.",
+				context: "[" + name + "]"
+			};
+		});
 	}
 
 	/** The inline spec of one param: the stored object, a `{ value }` wrapper for a literal, or its default. */
@@ -2940,7 +3346,15 @@
 		buildBindSpec: buildBindSpec,
 		chainFromDefinition: chainFromDefinition,
 		effectById: effectById,
+		REFERENCE_TYPE: REFERENCE_TYPE,
+		MAX_REFERENCE_DEPTH: MAX_REFERENCE_DEPTH,
+		isReferenceEffect: isReferenceEffect,
+		referenceTarget: referenceTarget,
+		findTabByName: findTabByName,
+		findReferenceCycle: findReferenceCycle,
+		referenceProblems: referenceProblems,
 		graphToCanvas: graphToCanvas,
+		autoLayout: autoLayout,
 		validNamespace: validNamespace,
 		exportZipBody: exportZipBody,
 		exportTargetBody: exportTargetBody,

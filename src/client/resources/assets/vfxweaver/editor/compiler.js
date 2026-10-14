@@ -371,12 +371,15 @@
 	/**
 	 * Serialise the effect's authored mask (design §13.1). The IR holds a datapack-shaped mask; a
 	 * wired slot (`mask.p<N>.*`) is written into the matching leaf field as `{ "from": node }`, and
-	 * `mask.` edges never land in `params`/`inputs`. An effect with no mask authored keeps whatever
-	 * the cloned source definition carried, so an imported mask round-trips; an explicit `null`
-	 * removes it.
+	 * `mask.` edges never land in `params`/`inputs`. The leaf order is the canvas operand wiring
+	 * (`effect.maskWires`, operand -> leaf index): an unwired operand fails the whole mask — the
+	 * shell reports `Mask operand N is not wired` and the effect compiles without it. Without
+	 * wiring (an old project) the authored order stands, so migration emits byte-identical JSON.
+	 * An effect with no mask authored keeps whatever the cloned source definition carried, so an
+	 * imported mask round-trips; an explicit `null` removes it.
 	 *
 	 * @param {Object} tab the owning tab
-	 * @param {Object|null} effect the effect entry (carries `mask`)
+	 * @param {Object|null} effect the effect entry (carries `mask`, `maskWires`)
 	 * @param {string|null} effectId the effect id param wires are tagged with
 	 * @param {boolean} multi whether the tab is a chain
 	 * @param {Object} def the definition being built (mutated)
@@ -415,7 +418,60 @@
 				}
 			});
 		}
+		built = applyMaskWireOrder(built, effect ? effect.maskWires : undefined);
+		if (built == null) {
+			delete def.mask;
+			return;
+		}
 		def.mask = built;
+	}
+
+	/**
+	 * Reorder a finished mask to the canvas operand wiring, or fail it. `wires` maps each
+	 * operand port to its leaf index (or null when unwired): any null skips the whole mask
+	 * (returns null), an absent/mismatched mapping keeps the authored order untouched so old
+	 * projects emit byte-identical JSON, and an identity mapping skips the rebuild so key
+	 * order never churns.
+	 *
+	 * @param {Object} built the datapack mask with `{from}` refs applied
+	 * @param {Array|null|undefined} wires the operand -> leaf index mapping
+	 * @returns {Object|null} the ordered mask, null when an operand is not wired
+	 */
+	function applyMaskWireOrder(built, wires) {
+		if (wires === undefined || wires === null) {
+			return built;
+		}
+		var vfxir = root.VFXIR;
+		if (!vfxir || typeof vfxir.maskLeaves !== "function"
+				|| typeof vfxir.maskNodeState !== "function"
+				|| typeof vfxir.maskFromNodeState !== "function") {
+			return built;
+		}
+		var leaves = vfxir.maskLeaves(built);
+		if (!Array.isArray(wires) || wires.length !== leaves.length) {
+			return built;
+		}
+		var identity = true;
+		var seen = {};
+		for (var i = 0; i < wires.length; i++) {
+			if (wires[i] == null || wires[i] < 0 || wires[i] >= leaves.length) {
+				return null;
+			}
+			if (seen[wires[i]]) {
+				return built;
+			}
+			seen[wires[i]] = true;
+			if (wires[i] !== i) {
+				identity = false;
+			}
+		}
+		if (identity || leaves.length < 2) {
+			return built;
+		}
+		var chain = vfxir.maskNodeState(built);
+		var ordered = wires.map(function (li) { return chain.leaves[li]; });
+		return vfxir.maskFromNodeState({ invert: chain.invert, space: chain.space,
+			leaves: ordered, ops: chain.ops });
 	}
 
 	/**
@@ -920,7 +976,31 @@
 		var namespace = namespaceOf(options);
 		var base = baseNameOf(tab, options);
 		var effects = [];
+		var refTabs = tabsOf(options);
 		chain.forEach(function (effect, index) {
+			if (isReferenceEffect(effect)) {
+				// A reference instances another tab: point at its exported id, never a local
+				// `__n` def. A cyclic or dangling reference compiles to nothing.
+				var resolved = refTabs
+						? resolveExportReference(refTabs, tab, effect, options) : null;
+				if (resolved == null) {
+					return;
+				}
+				var refDuration = childDurationTicks(tab, effect);
+				var refEntry = {
+					effect: resolved,
+					delay: num(effect.delay, 0),
+					duration: refDuration
+				};
+				if (effect.easing != null) {
+					refEntry.easing = effect.easing;
+				}
+				var refParams = compileParamMap(tab, effect, effect.id, multi, refDuration).value;
+				refParams.order = index;
+				refEntry.params = refParams;
+				effects.push(refEntry);
+				return;
+			}
 			// A child imported from an existing definition id keeps that id and is NOT re-emitted as a
 			// new local `__n` def (its params are carried as overrides); a locally-authored child gets
 			// `<ns>:<base>__<index>` plus its own `<base>__<index>.json` file (compileTabFiles).
@@ -996,8 +1076,12 @@
 			return out;
 		}
 		activeChain(tab).forEach(function (effect, index) {
+			// A reference instances another tab (its id is already in the root): no local file.
 			// A child imported from an existing definition id is referenced as-is and already ships
 			// elsewhere, so no local child file is written for it (design §15.2).
+			if (isReferenceEffect(effect)) {
+				return;
+			}
 			if (effect.external === true && effect.effectId != null) {
 				return;
 			}
@@ -1113,6 +1197,193 @@
 		return PREVIEW_NS + "/" + slug + "/" + uuid;
 	}
 
+	/** How deep a reference chain may nest in the Exact preview (the architecture limit;
+	 * read live off the IR — the single source of truth — with the same value as fallback). */
+	var MAX_PREVIEW_DEPTH = root.VFXIR && typeof root.VFXIR.MAX_REFERENCE_DEPTH === "number"
+			? root.VFXIR.MAX_REFERENCE_DEPTH : 4;
+
+	/** Whether an effect entry is a reference node (delegates to the IR when loaded). */
+	function isReferenceEffect(effect) {
+		if (root.VFXIR && typeof root.VFXIR.isReferenceEffect === "function") {
+			return root.VFXIR.isReferenceEffect(effect);
+		}
+		return Boolean(effect) && (effect.type === "reference" || effect.reference != null);
+	}
+
+	/** The target tab name of a reference node, or null (delegates to the IR when loaded). */
+	function referenceTarget(effect) {
+		if (root.VFXIR && typeof root.VFXIR.referenceTarget === "function") {
+			return root.VFXIR.referenceTarget(effect);
+		}
+		var target = effect ? effect.reference : null;
+		return typeof target === "string" && target.trim() !== "" ? target : null;
+	}
+
+	/**
+	 * Every project tab a reference may resolve against: `options.tabs` when the caller passes
+	 * it (the selftest does), else the live project. Null when neither is available.
+	 */
+	function tabsOf(options) {
+		if (options && Array.isArray(options.tabs)) {
+			return options.tabs;
+		}
+		var project = root.VFXEditor && root.VFXEditor.project;
+		return project && Array.isArray(project.tabs) ? project.tabs : null;
+	}
+
+	/** Find a tab by reference target (delegates to the IR when loaded). */
+	function findTabByName(tabs, name) {
+		if (root.VFXIR && typeof root.VFXIR.findTabByName === "function") {
+			return root.VFXIR.findTabByName(tabs, name);
+		}
+		if (!Array.isArray(tabs) || name == null) {
+			return null;
+		}
+		var want = String(name);
+		for (var i = 0; i < tabs.length; i++) {
+			if (tabs[i] && tabs[i].name === want) {
+				return tabs[i];
+			}
+		}
+		return null;
+	}
+
+	/**
+	 * Whether resolving `targetName` from `sourceName` loops back to the source: follow every
+	 * reference edge out of the target, so a self- or circular reference compiles to nothing.
+	 */
+	function refIsCyclic(tabs, sourceName, targetName) {
+		if (!Array.isArray(tabs) || targetName == null) {
+			return false;
+		}
+		var source = sourceName == null ? null : findTabByName(tabs, sourceName);
+		var origin = source ? String(source.name)
+				: (sourceName == null ? null : String(sourceName));
+		// A null source still reports a target-side self-loop: watch for the target
+		// reaching itself (the first pop is the target, so only a revisit counts).
+		var targetTab = findTabByName(tabs, targetName);
+		var targetCanonical = targetTab ? String(targetTab.name) : String(targetName);
+		var entered = false;
+		var seen = {};
+		var frontier = [targetName];
+		var guard = tabs.length + 1;
+		while (frontier.length && guard-- > 0) {
+			var name = frontier.pop();
+			var tab = findTabByName(tabs, name);
+			var canonical = tab ? String(tab.name) : String(name);
+			if (origin != null ? canonical === origin : entered && canonical === targetCanonical) {
+				return true;
+			}
+			entered = true;
+			if (seen[canonical]) {
+				continue;
+			}
+			seen[canonical] = true;
+			((tab && tab.effects) || []).forEach(function (effect) {
+				var next = referenceTarget(effect);
+				if (next) {
+					frontier.push(next);
+				}
+			});
+		}
+		return false;
+	}
+
+	/**
+	 * The exported id a reference resolves to: the target's external id when its first concrete
+	 * node is itself imported, else `<namespace>:<target base>` (the file the target tab
+	 * exports). Null when the target is missing or the edge is cyclic (compiles to nothing).
+	 */
+	function resolveExportReference(tabs, sourceTab, effect, options) {
+		var target = referenceTarget(effect);
+		if (!target) {
+			return null;
+		}
+		if (refIsCyclic(tabs, sourceTab ? sourceTab.name : null, target)) {
+			return null;
+		}
+		var tab = findTabByName(tabs, target);
+		if (!tab) {
+			return null;
+		}
+		var first = ((tab.effects) || []).filter(function (candidate) {
+			return candidate && candidate.type && !isReferenceEffect(candidate);
+		})[0];
+		if (first && first.external === true && first.effectId != null) {
+			return String(first.effectId);
+		}
+		return namespaceOf(options) + ":" + baseNameOf(tab);
+	}
+
+	/**
+	 * Resolve one Exact-preview reference to the leaf it plays: follow reference nodes down to
+	 * the first concrete effect (delays accumulate), at most {@link MAX_PREVIEW_DEPTH} hops.
+	 *
+	 * @returns {{tab:Object,effect:Object,delay:number}|{external:string}|{problem:string}}
+	 */
+	function resolvePreviewReference(tabs, sourceTab, effect) {
+		var label = effectName(sourceTab);
+		var target = referenceTarget(effect);
+		if (!target) {
+			return { problem: "Reference node in tab '" + label + "' has no target. Pick a tab." };
+		}
+		if (refIsCyclic(tabs, sourceTab ? sourceTab.name : null, target)) {
+			return { problem: "Tab '" + label + "' references itself through '" + target
+					+ "'. Remove the reference node." };
+		}
+		var delay = num(effect.delay, 0);
+		var tab = findTabByName(tabs, target);
+		var depth = 0;
+		while (tab) {
+			var next = ((tab.effects) || []).filter(function (candidate) {
+				return candidate && candidate.type;
+			})[0];
+			if (!next) {
+				return { problem: "Tab '" + effectName(tab)
+						+ "' is empty. Add an effect or retarget the reference." };
+			}
+			if (!isReferenceEffect(next)) {
+				if (next.external === true && next.effectId != null) {
+					return { external: String(next.effectId) };
+				}
+				return { tab: tab, effect: next, delay: delay + num(next.delay, 0) };
+			}
+			depth++;
+			if (depth > MAX_PREVIEW_DEPTH) {
+				return { problem: "Tab '" + label + "' nests deeper than " + MAX_PREVIEW_DEPTH
+						+ ". Flatten to " + MAX_PREVIEW_DEPTH + " or fewer levels." };
+			}
+			delay += num(next.delay, 0);
+			var following = referenceTarget(next);
+			tab = following ? findTabByName(tabs, following) : null;
+			if (!tab) {
+				return { problem: "Reference target '" + following
+						+ "' is missing. Fix the reference in tab '" + label + "'." };
+			}
+		}
+		return { problem: "Reference target '" + target + "' is missing. Fix the reference in tab '"
+				+ label + "'." };
+	}
+
+	/**
+	 * One Exact child definition for a concrete effect (the per-node timing overrides of
+	 * {@link compilePreviewSet}, shared by the plain and the reference-aware path).
+	 */
+	function exactChildDef(tab, effect, slug) {
+		var uuid = nodeUuid(effect);
+		var duration = childDurationTicks(tab, effect);
+		var exact = JSON.parse(compileSingle(tab, effect, effect.id, effect.source));
+		exact.duration = duration;
+		exact.fade_ticks = 0;
+		exact.loop = false;
+		exact.persistent = true;
+		if (exact.params && Object.prototype.hasOwnProperty.call(exact.params, "order")) {
+			delete exact.params.order;
+		}
+		return { id: previewDefId(slug, uuid), json: JSON.stringify(exact), uuid: uuid,
+			duration: duration, isPost: isPostType(effect.type) };
+	}
+
 	/**
 	 * Compile the whole preview definition SET for a tab (design §16.1/§16.3): one Exact definition
 	 * per effect node, addressed by the private id `vfxweaver:editor_preview/<tabSlug>/<nodeUuid>`.
@@ -1137,41 +1408,243 @@
 		});
 		var definitions = {};
 		var children = [];
+		var problems = [];
 		var allWarnings = [];
-		nodes.forEach(function (effect) {
-			var uuid = nodeUuid(effect);
-			var exactId = previewDefId(slug, uuid);
-			var duration = childDurationTicks(tab, effect);
-			var isPost = isPostType(effect.type);
-
-			var exact = JSON.parse(compileSingle(tab, effect, effect.id, effect.source));
-			// `compileSingle` overwrites `lastWarnings` per node; aggregate them so `getWarnings()`
-			// reflects the whole set, not just the last child.
-			allWarnings = allWarnings.concat(lastWarnings);
-			exact.duration = duration;
-			exact.fade_ticks = 0;
-			exact.loop = false;
-			exact.persistent = true;
-			if (exact.params && Object.prototype.hasOwnProperty.call(exact.params, "order")) {
-				delete exact.params.order;
-			}
-			definitions[exactId] = JSON.stringify(exact);
-
-			children.push({
-				key: uuid,
-				def: exactId,
-				delay: num(effect.delay, 0),
-				duration: duration,
-				isPost: isPost
-			});
+		var tabs = tabsOf(options);
+		var refAware = tabs && nodes.some(function (effect) {
+			return isReferenceEffect(effect);
 		});
+		if (!refAware) {
+			nodes.forEach(function (effect) {
+				var built = exactChildDef(tab, effect, slug);
+				// `compileSingle` overwrites `lastWarnings` per node; aggregate them so
+				// `getWarnings()` reflects the whole set, not just the last child.
+				allWarnings = allWarnings.concat(lastWarnings);
+				definitions[built.id] = built.json;
+
+				children.push({
+					key: built.uuid,
+					def: built.id,
+					delay: num(effect.delay, 0),
+					duration: built.duration,
+					isPost: built.isPost
+				});
+			});
+		} else {
+			nodes.forEach(function (effect) {
+				if (!isReferenceEffect(effect)) {
+					var plain = exactChildDef(tab, effect, slug);
+					allWarnings = allWarnings.concat(lastWarnings);
+					definitions[plain.id] = plain.json;
+					children.push({
+						key: plain.uuid,
+						def: plain.id,
+						delay: num(effect.delay, 0),
+						duration: plain.duration,
+						isPost: plain.isPost
+					});
+					return;
+				}
+				// A reference plays the leaf it resolves to (never itself); the child key
+				// stays the reference node's uuid, so reordering keeps the same ids.
+				var key = nodeUuid(effect);
+				var resolved = resolvePreviewReference(tabs, tab, effect);
+				if (resolved.problem) {
+					problems.push({
+						key: "ref:" + key,
+						severity: "error",
+						message: resolved.problem,
+						context: "[" + effectName(tab) + "]",
+						slug: slug,
+						uuid: key
+					});
+					return;
+				}
+				if (resolved.external) {
+					var installed = options && Array.isArray(options.installedIds)
+							? options.installedIds : null;
+					if (installed && installed.indexOf(resolved.external) < 0) {
+						problems.push({
+							key: "ref:dangling:" + resolved.external,
+							severity: "error",
+							message: "Effect '" + resolved.external
+									+ "' is not installed. Install the pack or fix the reference.",
+							context: "[" + effectName(tab) + "]"
+						});
+						return;
+					}
+					children.push({
+						key: key,
+						def: resolved.external,
+						delay: num(effect.delay, 0),
+						duration: childDurationTicks(tab, effect),
+						// The target type is unknown without its definition; order only
+						// matters for post children, so report it as non-post.
+						isPost: false
+					});
+					return;
+				}
+				var leaf = exactChildDef(resolved.tab, resolved.effect, slugOf(resolved.tab));
+				allWarnings = allWarnings.concat(lastWarnings);
+				definitions[leaf.id] = leaf.json;
+				children.push({
+					key: key,
+					def: leaf.id,
+					delay: resolved.delay,
+					duration: leaf.duration,
+					isPost: leaf.isPost
+				});
+			});
+		}
 		var meta = {
 			tabDuration: num(tab.duration, 40),
 			children: children,
 			context: options && options.context ? options.context : {}
 		};
 		lastWarnings = allWarnings;
-		return { tab: effectName(tab), slug: slug, definitions: definitions, meta: meta };
+		return { tab: effectName(tab), slug: slug, definitions: definitions, meta: meta,
+			problems: problems };
+	}
+
+	/**
+	 * Compile the AUTHORED preview set (Authored phase 1): the collection ROOT with its authored
+	 * timings (duration/loop/fade_ticks/delays as compiled by {@link compileTab}), plus one
+	 * authored child definition per chain node. This reuses {@link compileTab} — never the forced
+	 * per-child overrides of {@link compilePreviewSet} — so authors verify the real lifecycle
+	 * before export. Child references in the root are rewritten to the private preview ids.
+	 *
+	 * @param {Object} tab a `VFXIR.Tab`
+	 * @param {Object} [options] optional `{ context: {anchor,pos,targets}, empty: boolean }`; `empty`
+	 *        forces an empty definition set (the tombstone sync that clears the preview)
+	 * @returns {{tab:string,slug:string,root:string|null,definitions:Object<string,string>,meta:Object}}
+	 */
+	function compileAuthoredSet(tab, options) {
+		if (!tab || typeof tab !== "object") {
+			throw new Error("compileAuthoredSet: a tab is required");
+		}
+		var slug = slugOf(tab);
+		var rootId = previewDefId(slug, "root");
+		var nodes = options && options.empty ? [] : (tab.effects || []).filter(function (effect) {
+			return effect && effect.type;
+		});
+		var definitions = {};
+		var problems = [];
+		var allWarnings = [];
+		var tabs = tabsOf(options);
+		var refAware = tabs && nodes.some(function (effect) {
+			return isReferenceEffect(effect);
+		});
+		if (nodes.length >= 2 && !refAware) {
+			var root = JSON.parse(compileTab(tab));
+			// Key-based, like the ref-aware path below: a reorder keeps the same ids on
+			// both sides (positional `authored-<index>` ids churned on every reorder).
+			var chain = activeChain(tab);
+			var keyOf = {};
+			chain.forEach(function (effect, index) {
+				if (effect.external === true && effect.effectId != null) {
+					return;
+				}
+				keyOf[namespaceOf() + ":" + baseNameOf(tab) + "__" + index] =
+						previewDefId(slug, "authored-" + nodeUuid(effect));
+			});
+			(root.effects || []).forEach(function (entry) {
+				if (entry && keyOf[entry.effect]) {
+					entry.effect = keyOf[entry.effect];
+				}
+			});
+			chain.forEach(function (effect) {
+				// A child imported from an existing definition id is referenced as-is (as in
+				// `compileCollection`); a locally-authored child is emitted under its preview id.
+				if (effect.external === true && effect.effectId != null) {
+					return;
+				}
+				var child = JSON.parse(compileSingle(tab, effect, effect.id, effect.source));
+				allWarnings = allWarnings.concat(lastWarnings);
+				definitions[previewDefId(slug, "authored-" + nodeUuid(effect))] =
+						JSON.stringify(child);
+			});
+			definitions[rootId] = JSON.stringify(root);
+		} else if (nodes.length >= 2) {
+			// Reference-aware chains resolve through `compileTab` (which already points each
+			// reference at its exported id and drops the unresolvable ones), then the local
+			// children are re-addressed by node key — never by position — so a reorder keeps
+			// the same ids on both sides.
+			var refRoot = JSON.parse(compileTab(tab, options));
+			var chain = activeChain(tab);
+			var keyOf = {};
+			chain.forEach(function (effect, index) {
+				if (isReferenceEffect(effect) || effect.external === true) {
+					return;
+				}
+				keyOf[namespaceOf(options) + ":" + baseNameOf(tab, options) + "__" + index] =
+						previewDefId(slug, "authored-" + nodeUuid(effect));
+			});
+			(refRoot.effects || []).forEach(function (entry) {
+				if (entry && keyOf[entry.effect]) {
+					entry.effect = keyOf[entry.effect];
+				}
+			});
+			chain.forEach(function (effect) {
+				if (isReferenceEffect(effect)) {
+					if (resolveExportReference(tabs, tab, effect, options) == null) {
+						var target = referenceTarget(effect);
+						var reason = !target ? "has no target. Pick a tab."
+								: refIsCyclic(tabs, tab.name, target)
+										? "references itself through '" + target
+												+ "'. Remove the reference node."
+										: "target '" + target + "' is missing. Fix the reference.";
+						problems.push({
+							key: "ref:" + nodeUuid(effect),
+							severity: "error",
+							message: "Reference node in tab '" + effectName(tab) + "' " + reason,
+							context: "[" + effectName(tab) + "]",
+							slug: slug,
+							uuid: nodeUuid(effect)
+						});
+					}
+					return;
+				}
+				if (effect.external === true) {
+					return;
+				}
+				var local = JSON.parse(compileSingle(tab, effect, effect.id, effect.source));
+				allWarnings = allWarnings.concat(lastWarnings);
+				definitions[previewDefId(slug, "authored-" + nodeUuid(effect))] =
+						JSON.stringify(local);
+			});
+			var installedIds = options && Array.isArray(options.installedIds)
+					? options.installedIds : null;
+			if (installedIds) {
+				(refRoot.effects || []).forEach(function (entry) {
+					var id = entry && entry.effect ? String(entry.effect) : null;
+					if (id && id.indexOf(PREVIEW_NS + "/") !== 0
+							&& installedIds.indexOf(id) < 0) {
+						problems.push({
+							key: "ref:dangling:" + id,
+							severity: "error",
+							message: "Effect '" + id
+									+ "' is not installed. Install the pack or fix the reference.",
+							context: "[" + effectName(tab) + "]"
+						});
+					}
+				});
+			}
+			definitions[rootId] = JSON.stringify(refRoot);
+		} else if (nodes.length === 1) {
+			// A flat single (or a muted single's silent collection): no child references to rewrite.
+			definitions[rootId] = compileTab(tab);
+			allWarnings = allWarnings.concat(lastWarnings);
+		}
+		var meta = {
+			tabDuration: num(tab.duration, 40),
+			loop: Boolean(tab.loop),
+			root: nodes.length ? rootId : null,
+			children: [],
+			context: options && options.context ? options.context : {}
+		};
+		lastWarnings = allWarnings;
+		return { tab: effectName(tab), slug: slug, root: nodes.length ? rootId : null,
+			definitions: definitions, meta: meta, problems: problems };
 	}
 
 	/**
@@ -1369,7 +1842,7 @@
 	 * paused/unfocused so no `preview/state` frames arrive) wins over `playing` but not over an
 	 * explicit `ended`/error/offline.
 	 *
-	 * @param {Object} state `{revision, playing, ended, tick, syncing, offline, error, paused}`
+	 * @param {Object} state `{revision, playing, ended, tick, syncing, offline, error, paused, mode}`
 	 * @param {number} total the tab duration in ticks
 	 * @returns {{text: string, cls: string}} the badge text and modifier class
 	 */
@@ -1380,26 +1853,31 @@
 			rev = 0;
 		}
 		var span = num(total, 0);
+		// The preview mode suffix (Authored phase 1): `Exact`/`Authored` when the caller tracks it,
+		// else "" so every existing badge string is unchanged.
+		var modeSuffix = pv.mode === "authored" ? " · Authored"
+				: (pv.mode === "exact" ? " · Exact" : "");
 		if (pv.offline) {
 			return { text: "offline", cls: "offline" };
 		}
 		if (pv.error) {
-			return { text: "rev " + rev + " — error", cls: "error" };
+			return { text: "rev " + rev + " — error" + modeSuffix, cls: "error" };
 		}
 		if (pv.ended) {
 			var tick = Math.min(Math.max(0, Math.round(num(pv.tick, 0))), Math.round(span));
-			return { text: "ended @ " + tick + "/" + Math.round(span) + " — ▶ replay", cls: "ended" };
+			return { text: "ended @ " + tick + "/" + Math.round(span) + " — ▶ replay" + modeSuffix,
+				cls: "ended" };
 		}
 		if (pv.paused && pv.playing) {
-			return { text: "rev " + rev + " — paused (ожидание игры)", cls: "paused" };
+			return { text: "rev " + rev + " — paused — waiting for game…" + modeSuffix, cls: "paused" };
 		}
 		if (pv.playing) {
-			return { text: "rev " + rev + " → live ●", cls: "live" };
+			return { text: "rev " + rev + " → live ●" + modeSuffix, cls: "live" };
 		}
 		if (pv.syncing) {
-			return { text: "rev " + rev + " — syncing…", cls: "syncing" };
+			return { text: "rev " + rev + " — syncing…" + modeSuffix, cls: "syncing" };
 		}
-		return { text: "rev " + rev + " → in game", cls: "" };
+		return { text: "rev " + rev + " → in game" + modeSuffix, cls: "" };
 	}
 
 	/**
@@ -1445,11 +1923,19 @@
 		compileTabFiles: compileTabFiles,
 		compileForPreview: compileForPreview,
 		compilePreviewSet: compilePreviewSet,
+		compileAuthoredSet: compileAuthoredSet,
 		previewViewstate: previewViewstate,
 		previewDefId: previewDefId,
 		slugOf: slugOf,
 		nodeUuid: nodeUuid,
 		isPostType: isPostType,
+		isReferenceEffect: isReferenceEffect,
+		referenceTarget: referenceTarget,
+		findTabByName: findTabByName,
+		refIsCyclic: refIsCyclic,
+		resolveExportReference: resolveExportReference,
+		resolvePreviewReference: resolvePreviewReference,
+		MAX_PREVIEW_DEPTH: MAX_PREVIEW_DEPTH,
 		screenLayerOf: screenLayerOf,
 		liveKind: liveKind,
 		nodeRefFromDefId: nodeRefFromDefId,
