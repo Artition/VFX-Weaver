@@ -12,12 +12,12 @@ two-layer rules, caps and per-file parse isolation are described on
 |---|---|---|---|
 | `kind` | string | — | Must be `"spark"` to select the spark parser (block/item presets omit it) |
 | `count` | int | `200` | Total sparks emitted across the effect's whole `duration` (spread evenly, scaled by the effect weight), `0..10000` |
-| `speed` | float | `0.4` | Launch speed, blocks/tick (`0..16`) |
+| `speed` | float | `0.4` | Launch speed, blocks/tick (≥ 0, no upper limit) |
 | `spread` | float | `0.6` | Aim-cone jitter `0..1`; only meaningful with a two-slot aimed emitter (`aim >= 0.5`). A non-aimed emitter launches in a uniformly random direction |
 | `life` | int | `25` | Lifetime in ticks, clamped to `[1, 1200]` |
 | `gravity` | float | `0.4` | Downward acceleration per tick, in multiples of `0.04` blocks/tick² (`0..64`) |
 | `bounce` | float | `0.2` | Restitution `0..1` of the normal velocity on world contact |
-| `size` | float | `0.08` | Peak sprite size in blocks, before the size curve (`0.01..4`) |
+| `size` | float | `0.08` | Peak sprite size in blocks, before the size curve (≥ 0.01, no upper limit) |
 | `trail` | int | `0` | Tail length in ticks (`0` = off), clamped to `[0, 16]`; drawn as a stretched fading quad from the position that many ticks ago |
 | `glow` | bool | `true` | `true` = additive blending (glow), `false` = translucent |
 | `size_curve` | array | `0→0, 0.1→1, 1→0` | `{ "t": 0..1, "value": multiplier }` points, strictly ascending `t`; the value multiplies `size` (and is used as alpha). 2..32 points |

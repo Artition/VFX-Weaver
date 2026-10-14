@@ -79,12 +79,12 @@ public record VFXSparkSpec(
 
 	public VFXSparkSpec {
 		count = Math.max(0, Math.min(MAX_COUNT, count));
-		speed = clamp(speed, 0.0F, 16.0F);
+		speed = Math.max(speed, 0.0F);
 		spread = clamp(spread, 0.0F, 1.0F);
 		life = Math.max(1, Math.min(MAX_LIFE, life));
 		gravity = clamp(gravity, 0.0F, 64.0F);
 		bounce = clamp(bounce, 0.0F, 1.0F);
-		size = clamp(size, 0.01F, 4.0F);
+		size = Math.max(size, 0.01F);
 		trail = Math.max(0, Math.min(MAX_TRAIL, trail));
 		sizeTimes = validTimes(sizeTimes) ? sizeTimes : new float[] { 0.0F, 1.0F };
 		sizeValues = sizeValues != null && sizeValues.length == sizeTimes.length ? sizeValues : new float[] { 1.0F, 0.0F };

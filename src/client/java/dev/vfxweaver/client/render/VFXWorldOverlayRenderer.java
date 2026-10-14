@@ -459,15 +459,15 @@ public final class VFXWorldOverlayRenderer {
 		if (options == null) {
 			return;
 		}
-		float radius = Mth.clamp(effect.getParam("radius", 2.0F), 0.05F, 32.0F);
-		float height = Mth.clamp(effect.getParam("height", 3.0F), 0.5F, 32.0F);
-		float turns = Mth.clamp(effect.getParam("turns", 2.0F), 0.25F, 16.0F);
+		float radius = Math.max(effect.getParam("radius", 2.0F), 0.05F);
+		float height = Math.max(effect.getParam("height", 3.0F), 0.5F);
+		float turns = Math.max(effect.getParam("turns", 2.0F), 0.25F);
 		float spin = Mth.clamp(effect.getParam("spin", 0.0F), 0.0F, 1.0F);
-		float speed = Mth.clamp(effect.getParam("speed", 0.0F), 0.0F, 8.0F);
-		float velY = Mth.clamp(effect.getParam("vel_y", 0.0F), -4.0F, 4.0F);
+		float speed = Math.max(effect.getParam("speed", 0.0F), 0.0F);
+		float velY = effect.getParam("vel_y", 0.0F);
 		float spread = Mth.clamp(effect.getParam("spread", 0.15F), 0.0F, 1.0F);
-		float accel = Mth.clamp(effect.getParam("accel", 0.0F), 0.0F, 2.0F);
-		int lifetime = (int) Mth.clamp(effect.getParam("lifetime", 0.0F), 0.0F, 1200.0F);
+		float accel = Math.max(effect.getParam("accel", 0.0F), 0.0F);
+		int lifetime = (int) Math.max(effect.getParam("lifetime", 0.0F), 0.0F);
 		boolean aimed = effect.getParam("aim", 0.0F) >= 0.5F;
 
 		List<Vec3> anchors = effectPositions(effect, level);
@@ -650,7 +650,7 @@ public final class VFXWorldOverlayRenderer {
 		}
 		if (id.equals("dust") || id.equals("minecraft:dust")) {
 			int rgb = rgb(effect.getParam("color_r", 1.0F), effect.getParam("color_g", 1.0F), effect.getParam("color_b", 1.0F));
-			float size = Mth.clamp(effect.getParam("size", 1.0F), 0.05F, 4.0F);
+			float size = Math.max(effect.getParam("size", 1.0F), 0.05F);
 			return new DustParticleOptions(rgb, size);
 		}
 		Identifier pid = Identifier.tryParse(id);
@@ -725,8 +725,8 @@ public final class VFXWorldOverlayRenderer {
 		}
 		Vec3 a = anchors.get(0);
 		Vec3 b = anchors.size() > 1 ? anchors.get(1) : null;
-		float spacing = Mth.clamp(effect.getParam("spacing", 1.0F), 0.25F, 8.0F);
-		float scale = Mth.clamp(effect.getParam("scale", 1.0F), 0.1F, 4.0F);
+		float spacing = Math.max(effect.getParam("spacing", 1.0F), 0.25F);
+		float scale = Math.max(effect.getParam("scale", 1.0F), 0.1F);
 		boolean align = effect.getParam("align", 1.0F) >= 0.5F;
 		boolean physics = effect.getParam("physics", 0.0F) >= 0.5F;
 
@@ -1147,7 +1147,7 @@ public final class VFXWorldOverlayRenderer {
 				} else if (effect.getType() == VFXEffectType.BLOCK_OUTLINE) {
 					boolean through = effect.getParam("through_blocks", 0.0F) >= 0.5F;
 					boolean shell = effect.getParam("shell", 0.0F) >= 0.5F;
-					float width = Mth.clamp(effect.getParam("width", 0.05F), 0.0F, 1.0F);
+					float width = Math.max(effect.getParam("width", 0.05F), 0.0F);
 					float amount = shell ? width : width * 0.5F;
 					RenderType outlineType = shell ? OUTLINE_SHELL_OCCLUDED : OUTLINE_WALLS_OCCLUDED;
 					if (through) {
@@ -1285,7 +1285,7 @@ public final class VFXWorldOverlayRenderer {
 		float height = Math.max(effect.getParam("height", 48.0F), 1.0F);
 		float topFade = Mth.clamp(effect.getParam("top_fade", 0.4F), 0.0F, 1.0F);
 		float bottomFade = Mth.clamp(effect.getParam("bottom_fade", 0.0F), 0.0F, 1.0F);
-		float topScale = Mth.clamp(effect.getParam("top_scale", 1.0F), 0.1F, 8.0F);
+		float topScale = Math.max(effect.getParam("top_scale", 1.0F), 0.1F);
 		float softness = Mth.clamp(effect.getParam("softness", 0.6F), 0.0F, 4.0F);
 		int rgb = rgb(effect.getParam("red", 1.0F), effect.getParam("green", 0.95F), effect.getParam("blue", 0.75F));
 		// Beam axis: a unit direction plus a perpendicular (right, up) basis, computed once per beam.
@@ -1357,7 +1357,7 @@ public final class VFXWorldOverlayRenderer {
 		}
 		float radius = Math.max(effect.getParam("radius", 6.0F), 0.0F);
 		// A zero thickness means "no band at all" - drawing a hairline instead would be surprising.
-		float thickness = Mth.clamp(effect.getParam("thickness", 0.5F), 0.0F, 4.0F);
+		float thickness = Math.max(effect.getParam("thickness", 0.5F), 0.0F);
 		if (thickness <= 0.0F) {
 			return false;
 		}
@@ -1676,9 +1676,9 @@ public final class VFXWorldOverlayRenderer {
 		if (intensity <= 0.0F) {
 			return false;
 		}
-		float width = Mth.clamp(effect.getParam("width", 0.15F), 0.02F, 1.0F);
-		float dashLength = Mth.clamp(effect.getParam("dash_length", 0.6F), 0.1F, 8.0F);
-		float gap = Mth.clamp(effect.getParam("gap", 0.6F), 0.0F, 8.0F);
+		float width = Math.max(effect.getParam("width", 0.15F), 0.0F);
+		float dashLength = Math.max(effect.getParam("dash_length", 0.6F), 0.1F);
+		float gap = Math.max(effect.getParam("gap", 0.6F), 0.0F);
 		float speed = effect.getParam("speed", 2.0F);
 		float arc = effect.getParam("arc", 1.5F);
 		int rgb = rgb(effect.getParam("red", 0.25F), effect.getParam("green", 1.0F), effect.getParam("blue", 0.45F));

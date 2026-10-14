@@ -12,9 +12,9 @@ A line of **real block-model links** between two anchors (like `guide_line`, but
 
 | Field | Type | Default | Meaning |
 |---|---|---|---|
-| `spacing` | float | 1 | Distance between links, blocks (0.25..8); links tile the path end-to-end and stretch to span it exactly |
+| `spacing` | float | 1 | Distance between links, blocks (≥ 0.25, no upper limit); links tile the path end-to-end and stretch to span it exactly |
 | `arc` | float | 0 | Bows the path up (+) or down/hanging (−) at the midpoint, blocks (same as `guide_line`); ignored in physics mode |
-| `scale` | float | 1 | Link block size (0.1..4) |
+| `scale` | float | 1 | Link block size (≥ 0.1, no upper limit) |
 | `align` | float | 1 | 1 = each link's Y axis is rotated to the local path direction (chain follows the curve), 0 = upright blocks |
 | `physics` | float | 0 | 1 = verlet rope simulation: gravity sag, swept world collision with surface friction (links catch and settle on blocks — the contacted block's own friction decides how much they grip: stone 0.6/tick, ice 0.98/tick), the local player pushes links away, `sway` wind wobble. With two anchors both ends are pinned; with one anchor the chain hangs from it (`length` blocks) |
 | `length` | float | auto | Total chain length in blocks (physics mode). Single anchor: hanging length, default 6. Two anchors: unset (0) = the span distance; more than the span = deeper sag; less than the span = taut (links stretch) |

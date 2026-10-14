@@ -122,7 +122,7 @@ public final class VFXEffectSchema {
 			new String[] {"radius", "height", "dir_x", "dir_y", "dir_z", "end_at_x", "end_at_y", "end_at_z",
 				"top_scale", "softness", "top_fade", "bottom_fade", "red", "green", "blue", "through_blocks", "intensity"},
 			Map.of(
-				"top_scale", new float[] {0.1F, 8.0F},
+				"top_scale", new float[] {0.1F, Float.POSITIVE_INFINITY},
 				"top_fade", new float[] {0.0F, 1.0F},
 				"bottom_fade", new float[] {0.0F, 1.0F}));
 		registerNonPost(VFXEffectType.PULSE_RING,
@@ -139,12 +139,12 @@ public final class VFXEffectSchema {
 		registerNonPost(VFXEffectType.PARTICLES,
 			new String[] {"rate", "radius", "height", "turns", "spin", "speed", "aim", "spread", "accel",
 				"lifetime", "vel_y", "size", "color_r", "color_g", "color_b"},
-			Map.of("size", new float[] {0.05F, 4.0F}));
+			Map.of("size", new float[] {0.05F, Float.POSITIVE_INFINITY}));
 		registerNonPost(VFXEffectType.BLOCK_CHAIN,
 			new String[] {"spacing", "arc", "scale", "align", "physics", "length", "sway"},
 			Map.of(
-				"spacing", new float[] {0.25F, 8.0F},
-				"scale", new float[] {0.1F, 4.0F},
+				"spacing", new float[] {0.25F, Float.POSITIVE_INFINITY},
+				"scale", new float[] {0.1F, Float.POSITIVE_INFINITY},
 				"sway", new float[] {0.0F, 1.0F}));
 		registerNonPost(VFXEffectType.ENTITY_TINT,
 			new String[] {"color_r", "color_g", "color_b", "alpha", "texture", "through_blocks"},
@@ -154,7 +154,7 @@ public final class VFXEffectSchema {
 			Map.of());
 		registerNonPost(VFXEffectType.ENTITY_DISPLACE,
 			new String[] {"amplitude", "scale", "seed"},
-			Map.of("amplitude", new float[] {0.0F, 2.0F}, "scale", new float[] {0.5F, 32.0F}));
+			Map.of("amplitude", new float[] {0.0F, 2.0F}, "scale", new float[] {0.5F, Float.POSITIVE_INFINITY}));
 		registerNonPost(VFXEffectType.FOV_MODIFIER,
 			new String[] {"fov_delta"},
 			Map.of());

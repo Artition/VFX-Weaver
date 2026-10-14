@@ -242,7 +242,7 @@ public final class VFXEntityEffectRenderer {
 			return;
 		}
 		boolean through = effect.getParam("through_blocks", 0.0F) >= 0.5F;
-		float width = Mth.clamp(effect.getParam("width", 0.05F), 0.0F, 1.0F);
+		float width = Math.max(effect.getParam("width", 0.05F), 0.0F);
 		int color = argb(effect, alpha);
 		FxType fx = through ? OUTLINE_THROUGH : OUTLINE_OCCLUDED;
 		RenderType renderType = fx.forTexture(texture);
@@ -512,7 +512,7 @@ public final class VFXEntityEffectRenderer {
 		if (alpha <= 0.0F) {
 			return;
 		}
-		float width = Mth.clamp(effect.getParam("width", 0.05F), 0.0F, 1.0F);
+		float width = Math.max(effect.getParam("width", 0.05F), 0.0F);
 		int color = argb(effect, alpha);
 		// Always the occluded (LEQUAL) variant: the vanilla hand writes depth, which clips the
 		// inflated shell to the rim around the silhouette — an always-pass shell would cover the

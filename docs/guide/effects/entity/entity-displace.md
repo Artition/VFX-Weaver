@@ -13,7 +13,7 @@ Displaces the target entity's model vertices themselves (rendered with the vanil
 | Field | Type | Default | Meaning |
 |---|---|---|---|
 | `amplitude` | float | 0.1 (fades to 0) | Max displacement in blocks (0..2) |
-| `scale` | float | 4 | Field detail: higher = neighbours diverge more (0.5..32) |
+| `scale` | float | 4 | Field detail: higher = neighbours diverge more (≥ 0.5, no upper limit) |
 | `seed` | float | 0 | Random phase; step it (`expr: "floor(t*8)*0.1"`) for 8x/s snaps, animate for smooth morphing |
 
 

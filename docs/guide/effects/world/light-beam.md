@@ -16,7 +16,7 @@ A glowing shaft of soft light emitted from each position along a direction (stra
 | `height` | float | 48 | Column length along the direction, from the anchor (≥ 1, no upper limit) |
 | `dir_x` / `dir_y` / `dir_z` | float | 0 / 1 / 0 | Beam direction, normalised (the default points straight up). A zero vector falls back to up |
 | `end_at_x` / `end_at_y` / `end_at_z` | float | unset | A world point the **far end** of the beam must land on. When set, the anchor is derived (`end − axis × height`), so the beam finishes exactly there and `positions` is ignored |
-| `top_scale` | float | 1 | Top radius multiplier (0.1..8): 1 = cylinder, >1 = flared cone |
+| `top_scale` | float | 1 | Top radius multiplier (≥ 0.1, no upper limit): 1 = cylinder, >1 = flared cone |
 | `softness` | float | 0.6 | More concentric shells with lower alpha (0 = crisp, 2..4 = soft blurry column) |
 | `top_fade` | float | 0.4 | Alpha at the top relative to the base (0..1) |
 | `bottom_fade` | float | 0 | Alpha at the bottom relative to the base (0..1) |

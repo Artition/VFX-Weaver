@@ -28,7 +28,7 @@ Emits **vanilla particles** in animated shapes — no custom textures, everythin
 | `accel` | float | 0 | Acceleration along the aim direction, blocks/tick² — particles speed up in flight |
 | `lifetime` | float | 0 | Particle lifetime override in ticks (0 = particle default). Match it to the flight time so particles die at the target |
 | `vel_y` | float | 0 | Constant upward velocity (rising auras) |
-| `size` | float | 1 | `dust` particle size (0.05..4) |
+| `size` | float | 1 | `dust` particle size (≥ 0.05, no upper limit) |
 | `color_r/g/b` | float | 1 / 1 / 1 | `dust` colour (any RGB) |
 
 ```json
