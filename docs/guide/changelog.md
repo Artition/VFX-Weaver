@@ -5,8 +5,11 @@ documentation changed. A guide revision is not a mod version — the two numbers
 released mod versions are recorded on the **[mod Changelog](../CHANGELOG.md)** instead. Where a guide
 revision shipped with a release, the entry says so (for example `v47 — released as 2.0.0`).
 
-Current guide revision: **v80**. Mod version it documents: **2.4.0**. Which jar
+Current guide revision: **v81**. Mod version it documents: **2.4.0** (not yet released). Which jar
 to download is in the [download table](../index.md#download).
+
+### v81 — documents 2.4.0 (unreleased)
+- **`light_beam` radius/height and `pulse_ring` radius are unbounded above.** The renderer keeps the lower guards (`light_beam`: `radius >= 0.1`, `height >= 1`; `pulse_ring`: `radius >= 0`) but no longer caps the top end (previously `16`/`256` and `64`), and the editor schema no longer bounds them either. See [light_beam](effects/world/light-beam.md) and [pulse_ring](effects/world/pulse-ring.md). No datapack field, UBO, API or wire change.
 
 ### v80 — documents 2.4.0 (released as 2.4.0)
 - **The visual node editor's v1.1 "quick wins".** The [editor page](editor.md) now documents: an

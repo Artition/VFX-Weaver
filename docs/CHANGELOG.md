@@ -12,6 +12,11 @@ times this documentation has been revised. The authoritative record of guide rev
 the [download table](index.md#download). Add new entries at the top, in the same PR as the behaviour
 change.
 
+## unreleased
+
+### Added
+- **`light_beam` radius/height and `pulse_ring` radius no longer have an upper cap.** `light_beam` keeps its lower guards (`radius >= 0.1`, `height >= 1`) and `pulse_ring` keeps `radius >= 0` (degenerate/inverted geometry guard), but the `16`/`256` and `64` caps are gone: the geometry cost is constant (a fixed shell/slice count), so radius/height only scale positions. No datapack field renamed, no wire, UBO or API change, `PROTOCOL_VERSION` unchanged. Documented on [light_beam](guide/effects/world/light-beam.md) and [pulse_ring](guide/effects/world/pulse-ring.md).
+
 ## 2.4.0 - 2026-10-14
 
 ### Added

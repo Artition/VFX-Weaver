@@ -12,7 +12,7 @@ A glowing ring around each position. With `billboard:1` (default) the ring alway
 
 | Field | Type | Default | Meaning |
 |---|---|---|---|
-| `radius` | float | 0 -> 6 | Current ring radius, blocks (animate 0 -> max) |
+| `radius` | float | 0 -> 6 | Current ring radius in blocks (≥ 0, no upper limit; animate 0 upward) |
 | `thickness` | float | 0.5 | Ring band width, blocks (`0` = no band, the ring is not drawn) |
 | `billboard` | float | 1 | 1 = always faces the camera, 0 = fixed orientation by rot_* |
 | `rot_x` | float | 0 | Fixed ring-plane pitch (degrees, -360..360, when billboard:0) |

@@ -122,8 +122,6 @@ public final class VFXEffectSchema {
 			new String[] {"radius", "height", "dir_x", "dir_y", "dir_z", "end_at_x", "end_at_y", "end_at_z",
 				"top_scale", "softness", "top_fade", "bottom_fade", "red", "green", "blue", "through_blocks", "intensity"},
 			Map.of(
-				"radius", new float[] {0.1F, 16.0F},
-				"height", new float[] {1.0F, 256.0F},
 				"top_scale", new float[] {0.1F, 8.0F},
 				"top_fade", new float[] {0.0F, 1.0F},
 				"bottom_fade", new float[] {0.0F, 1.0F}));

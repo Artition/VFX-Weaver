@@ -1281,8 +1281,8 @@ public final class VFXWorldOverlayRenderer {
 		if (intensity <= 0.0F) {
 			return false;
 		}
-		float radius = Mth.clamp(effect.getParam("radius", 1.5F), 0.1F, 16.0F);
-		float height = Mth.clamp(effect.getParam("height", 48.0F), 1.0F, 256.0F);
+		float radius = Math.max(effect.getParam("radius", 1.5F), 0.1F);
+		float height = Math.max(effect.getParam("height", 48.0F), 1.0F);
 		float topFade = Mth.clamp(effect.getParam("top_fade", 0.4F), 0.0F, 1.0F);
 		float bottomFade = Mth.clamp(effect.getParam("bottom_fade", 0.0F), 0.0F, 1.0F);
 		float topScale = Mth.clamp(effect.getParam("top_scale", 1.0F), 0.1F, 8.0F);
@@ -1355,7 +1355,7 @@ public final class VFXWorldOverlayRenderer {
 		if (intensity <= 0.0F) {
 			return false;
 		}
-		float radius = Mth.clamp(effect.getParam("radius", 6.0F), 0.0F, 64.0F);
+		float radius = Math.max(effect.getParam("radius", 6.0F), 0.0F);
 		// A zero thickness means "no band at all" - drawing a hairline instead would be surprising.
 		float thickness = Mth.clamp(effect.getParam("thickness", 0.5F), 0.0F, 4.0F);
 		if (thickness <= 0.0F) {
