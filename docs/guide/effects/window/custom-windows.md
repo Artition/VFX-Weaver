@@ -268,8 +268,7 @@ registry, lifecycle manager, the game-window driver for the reserved id and the 
 gate). It is asserted by
 `scripts/check-window-platform.ps1`, `check-window-canvas.ps1`, `check-window-content.ps1`,
 `check-window-registry.ps1`, `check-window-control.ps1`, `check-window-fields.ps1`,
-`check-window-lifecycle.ps1` and `check-game-window.ps1`. **Not verified in game** - the owner tests
-the pixels, the passthrough, the focus behaviour and the game-window geometry.
+`check-window-lifecycle.ps1` and `check-game-window.ps1`. **Not verified in game** - the pixels, the passthrough, the focus behaviour and the game-window geometry.
 
 ## Showcase
 
