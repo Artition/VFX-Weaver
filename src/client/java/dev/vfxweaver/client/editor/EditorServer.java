@@ -375,8 +375,12 @@ public final class EditorServer {
 	}
 
 	/**
-	 * {@code POST /import}: read a datapack folder or zip into raw effect strings. The effect JSON is
-	 * never parsed here, so a corrupt entry is returned as-is rather than failing the import.
+	 * {@code POST /import}: read a datapack folder or zip into raw effect strings. The effect JSON
+	 * (and every curve/particle block) is never parsed here, so a corrupt entry is returned as-is
+	 * rather than failing the import. The primary namespace keeps the legacy {@code namespace} /
+	 * {@code effects} shape; its {@code curves} / {@code particles} ride beside it. When the pack
+	 * spans several namespaces a {@code namespaces} object carries every namespace's
+	 * {@code {effects, curves, particles}} (it is omitted for a single-namespace pack).
 	 *
 	 * @param exchange the {@code /import} exchange
 	 * @throws IOException when the response cannot be sent
@@ -395,14 +399,17 @@ public final class EditorServer {
 		try {
 			final long started = System.nanoTime();
 			final EditorPack.ImportedPack pack = EditorPack.read(Path.of(path));
-			final JsonObject effects = new JsonObject();
-			for (final Map.Entry<String, String> entry : pack.effectsJson().entrySet()) {
-				effects.addProperty(entry.getKey(), entry.getValue());
-			}
 			final JsonObject out = new JsonObject();
 			out.addProperty("ok", true);
 			out.addProperty("namespace", pack.namespace());
-			out.add("effects", effects);
+			out.add("effects", stringsObject(pack.effectsJson()));
+			out.add("curves", stringsObject(
+					pack.curvesByNamespace().getOrDefault(pack.namespace(), Map.of())));
+			out.add("particles", stringsObject(
+					pack.particlesByNamespace().getOrDefault(pack.namespace(), Map.of())));
+			if (namespaceCount(pack) > 1) {
+				out.add("namespaces", namespacesObject(pack));
+			}
 			out.add("sidecar", pack.sidecarJson() == null ? JsonNull.INSTANCE : parseOrString(pack.sidecarJson()));
 			// Import-timing probe (additive): how long the read+assemble took, so the web status
 			// can show where a slow import spends its time (server vs browser materialisation).
@@ -416,7 +423,11 @@ public final class EditorServer {
 	/**
 	 * {@code POST /export}: write the posted effects as a datapack, reusing {@link EditorPack}'s
 	 * validated writers. {@code world} resolves {@code <path>/datapacks/<namespace>}; {@code folder}
-	 * and {@code zip} treat {@code path} as the pack root / archive.
+	 * and {@code zip} treat {@code path} as the pack root / archive. Optional top-level
+	 * {@code curves} / {@code particles} objects ride into the primary namespace's
+	 * {@code vfx_curves} / {@code vfx_particles} directories; an optional {@code namespaces} object
+	 * ({@code ns -> {effects?, curves?, particles?}}) exports several namespaces in one pass and,
+	 * when present and non-empty, is authoritative over the top-level maps.
 	 *
 	 * @param exchange the {@code /export} exchange
 	 * @throws IOException when the response cannot be sent
@@ -432,6 +443,7 @@ public final class EditorServer {
 		final String namespace = string(body, "namespace");
 		final JsonElement effectsElement = body.get("effects");
 		if (destination == null || path == null || path.isBlank() || namespace == null
+				|| namespace.isBlank()
 				|| effectsElement == null || !effectsElement.isJsonObject()) {
 			respondActionError(exchange, EditorResult.BAD_REQUEST,
 					"destination, path, namespace and effects are required");
@@ -444,10 +456,11 @@ public final class EditorServer {
 		}
 		final Map<String, String> effects = effectsMap(effectsElement);
 		try {
+			final Map<String, EditorPack.NamespaceContent> namespaces = exportNamespaces(body, namespace, effects);
 			if ("zip".equals(destination)) {
-				EditorPack.writeZip(target, namespace, effects, sidecarString(body));
+				EditorPack.writeZipNamespaces(target, namespaces, sidecarString(body));
 			} else {
-				EditorPack.write(target, namespace, effects, sidecarString(body));
+				EditorPack.writeNamespaces(target, namespaces, sidecarString(body));
 			}
 			final JsonObject out = new JsonObject();
 			out.addProperty("ok", true);
@@ -461,6 +474,8 @@ public final class EditorServer {
 	/**
 	 * {@code POST /export/zip}: build the posted effects into a pack zip entirely in memory and stage
 	 * it for a one-shot browser download. The response is {@code {ok:true,id,filename,size}}.
+	 * Accepts the same optional {@code curves} / {@code particles} / {@code namespaces} blocks as
+	 * {@code POST /export}.
 	 *
 	 * @param exchange the {@code /export/zip} exchange
 	 * @throws IOException when the response cannot be sent
@@ -478,7 +493,9 @@ public final class EditorServer {
 			return;
 		}
 		try {
-			final byte[] zip = EditorPack.zipBytes(namespace, effectsMap(effectsElement), sidecarString(body));
+			final Map<String, EditorPack.NamespaceContent> namespaces =
+					exportNamespaces(body, namespace, effectsMap(effectsElement));
+			final byte[] zip = EditorPack.zipBytesNamespaces(namespaces, sidecarString(body));
 			final String filename = namespace + ".zip";
 			final String id = this.exports.stage(zip, filename);
 			final JsonObject out = new JsonObject();
@@ -751,6 +768,92 @@ public final class EditorServer {
 		} catch (final RuntimeException e) {
 			return null;
 		}
+	}
+
+	/** One name-to-verbatim-JSON map as a JSON object (values are carried as strings). */
+	private static JsonObject stringsObject(final Map<String, String> files) {
+		final JsonObject out = new JsonObject();
+		for (final Map.Entry<String, String> entry : files.entrySet()) {
+			out.addProperty(entry.getKey(), entry.getValue());
+		}
+		return out;
+	}
+
+	/** How many namespaces a pack spans (effects, curves and particles together). */
+	private static int namespaceCount(final EditorPack.ImportedPack pack) {
+		final java.util.LinkedHashSet<String> names = new java.util.LinkedHashSet<>();
+		names.addAll(pack.effectsByNamespace().keySet());
+		names.addAll(pack.curvesByNamespace().keySet());
+		names.addAll(pack.particlesByNamespace().keySet());
+		return names.size();
+	}
+
+	/** Every namespace's {@code {effects, curves, particles}} for a multi-namespace import. */
+	private static JsonObject namespacesObject(final EditorPack.ImportedPack pack) {
+		final java.util.LinkedHashSet<String> names = new java.util.LinkedHashSet<>();
+		names.addAll(pack.effectsByNamespace().keySet());
+		names.addAll(pack.curvesByNamespace().keySet());
+		names.addAll(pack.particlesByNamespace().keySet());
+		final JsonObject out = new JsonObject();
+		for (final String name : names) {
+			final JsonObject entry = new JsonObject();
+			entry.add("effects", stringsObject(pack.effectsByNamespace().getOrDefault(name, Map.of())));
+			entry.add("curves", stringsObject(pack.curvesByNamespace().getOrDefault(name, Map.of())));
+			entry.add("particles", stringsObject(pack.particlesByNamespace().getOrDefault(name, Map.of())));
+			out.add(name, entry);
+		}
+		return out;
+	}
+
+	/**
+	 * The namespaces one export writes, in order. A non-empty {@code namespaces} object in the
+	 * request is authoritative (each entry's {@code effects} / {@code curves} / {@code particles}
+	 * default to empty); otherwise the top-level maps form the single primary namespace.
+	 *
+	 * @param body      the export request body
+	 * @param namespace the primary namespace
+	 * @param effects   the top-level effects map
+	 * @return namespace to its files
+	 * @throws IllegalArgumentException when {@code namespaces} is present but not an object, or
+	 *         when a namespace entry is not an object
+	 */
+	private static Map<String, EditorPack.NamespaceContent> exportNamespaces(final JsonObject body,
+			final String namespace, final Map<String, String> effects) {
+		final JsonElement namespacesElement = body.get("namespaces");
+		if (namespacesElement != null && !namespacesElement.isJsonNull()
+				&& !namespacesElement.isJsonObject()) {
+			throw new IllegalArgumentException("namespaces must be an object");
+		}
+		if (namespacesElement != null && namespacesElement.isJsonObject()
+				&& namespacesElement.getAsJsonObject().size() > 0) {
+			final Map<String, EditorPack.NamespaceContent> out = new LinkedHashMap<>();
+			for (final Map.Entry<String, JsonElement> entry : namespacesElement.getAsJsonObject().entrySet()) {
+				if (entry.getValue() == null || !entry.getValue().isJsonObject()) {
+					throw new IllegalArgumentException(
+							"namespaces entry must be an object: " + entry.getKey());
+				}
+				final JsonObject nsBody = entry.getValue().getAsJsonObject();
+				out.put(entry.getKey(), new EditorPack.NamespaceContent(
+						filesMap(nsBody.get("effects")),
+						filesMap(nsBody.get("curves")),
+						filesMap(nsBody.get("particles"))));
+			}
+			if (!out.isEmpty()) {
+				return out;
+			}
+		}
+		final Map<String, EditorPack.NamespaceContent> single = new LinkedHashMap<>();
+		single.put(namespace, new EditorPack.NamespaceContent(
+				effects, filesMap(body.get("curves")), filesMap(body.get("particles"))));
+		return single;
+	}
+
+	/** An optional name-to-verbatim-JSON object, or an empty map when absent (never {@code null}). */
+	private static Map<String, String> filesMap(final @Nullable JsonElement element) {
+		if (element == null || !element.isJsonObject()) {
+			return Map.of();
+		}
+		return effectsMap(element);
 	}
 
 	/** The {@code effects} object as effect-name to JSON text (a primitive is taken verbatim). */
