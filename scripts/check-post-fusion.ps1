@@ -88,7 +88,7 @@ foreach ($entry in @(
 		$problems.Add("annotation missing or wrong: expected $($entry[0]) $($entry[1])/$($entry[2])")
 	}
 }
-foreach ($barrier in @('BLUR', 'BLOOM', 'VHS', 'MOTION_BLUR', 'AFTERIMAGE', 'STOP_MOTION', 'DOUBLE_VISION', 'SHOCKWAVE', 'DENT')) {
+foreach ($barrier in @('BLUR', 'BLOOM', 'VHS', 'MOTION_BLUR', 'AFTERIMAGE', 'STOP_MOTION', 'DOUBLE_VISION', 'SHOCKWAVE', 'DENT', 'INK')) {
 	if ($programs -match "annotate\(VFXEffectType\.$barrier,") {
 		$problems.Add("$barrier must stay BARRIER (multi-tap or non-fusible) but is annotated")
 	}

@@ -1,0 +1,13 @@
+{
+  "type": "ink",
+  "duration": 40,
+  "easing": "ease_in_out_cubic",
+  "persistent": false,
+  "loop": false,
+  "fade_ticks": 0,
+  "params": {
+    "edge_low": 0.06,
+    "edge_high": 0.18,
+    "amount": { "start": 1.0, "end": 0.0 }
+  }
+}
