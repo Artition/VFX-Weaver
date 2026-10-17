@@ -73,6 +73,7 @@ nav:
           - bloom: guide/effects/screen/bloom.md
           - film_grain: guide/effects/screen/film-grain.md
           - scanlines: guide/effects/screen/scanlines.md
+          - halftone: guide/effects/screen/halftone.md
           - depth_of_field: guide/effects/screen/depth-of-field.md
           - letterbox: guide/effects/screen/letterbox.md
           - invert: guide/effects/screen/invert.md

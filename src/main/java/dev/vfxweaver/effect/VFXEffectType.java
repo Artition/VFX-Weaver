@@ -39,6 +39,8 @@ public enum VFXEffectType {
 	FILM_GRAIN("film_grain"),
 	/** CRT-style horizontal scanlines that can drift over time. */
 	SCANLINES("scanlines"),
+	/** Print-style halftone dots whose size follows the local luminance. */
+	HALFTONE("halftone"),
 	/** Screen-space "tilt-shift" depth of field: a sharp focus band that blurs away from it. */
 	DEPTH_OF_FIELD("depth_of_field"),
 	/** Cinematic black bars at the top and bottom of the screen. */
@@ -171,6 +173,7 @@ public enum VFXEffectType {
 		case BLOOM -> "intensity".equals(parameter) ? 0.0F : Float.NaN;
 		case FILM_GRAIN -> "intensity".equals(parameter) ? 0.0F : Float.NaN;
 		case SCANLINES -> "intensity".equals(parameter) ? 0.0F : Float.NaN;
+		case HALFTONE -> "amount".equals(parameter) ? 0.0F : Float.NaN;
 		case DEPTH_OF_FIELD -> "intensity".equals(parameter) ? 0.0F : Float.NaN;
 		case LETTERBOX -> "height".equals(parameter) ? 0.0F : Float.NaN;
 		case INVERT -> "intensity".equals(parameter) ? 0.0F : Float.NaN;

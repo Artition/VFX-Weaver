@@ -55,6 +55,8 @@ final class PostParamSources {
 		params.put(VFXEffectType.FILM_GRAIN, new String[]{"intensity", "size", "time", "chroma"});
 		// order = VFXShaderPrograms.registerPost(SCANLINES); do not reorder
 		params.put(VFXEffectType.SCANLINES, new String[]{"intensity", "line_count", "speed", "time"});
+		// order = VFXShaderPrograms.registerPost(HALFTONE); do not reorder
+		params.put(VFXEffectType.HALFTONE, new String[]{"cell_size", "angle", "gain", "amount"});
 		// order = VFXShaderPrograms.registerPost(DEPTH_OF_FIELD); do not reorder
 		params.put(VFXEffectType.DEPTH_OF_FIELD, new String[]{"intensity", "focus_center", "focus_range"});
 		// order = VFXShaderPrograms.registerPost(LETTERBOX); do not reorder

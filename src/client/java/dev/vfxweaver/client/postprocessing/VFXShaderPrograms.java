@@ -253,6 +253,7 @@ public final class VFXShaderPrograms {
 		registerPost(VFXEffectType.BLOOM, new String[]{"intensity", "threshold", "radius"}, true, Set.of("radius"), 9);
 		registerPost(VFXEffectType.FILM_GRAIN, "intensity", "size", "time", "chroma");
 		registerPost(VFXEffectType.SCANLINES, "intensity", "line_count", "speed", "time");
+		registerPost(VFXEffectType.HALFTONE, "cell_size", "angle", "gain", "amount");
 		registerPost(VFXEffectType.DEPTH_OF_FIELD, new String[]{"intensity", "focus_center", "focus_range"}, true, Set.of("intensity"), 16);
 		registerPost(VFXEffectType.LETTERBOX, "height", "color_r", "color_g", "color_b");
 		registerPost(VFXEffectType.INVERT, "intensity");
