@@ -1,0 +1,17 @@
+{
+  "type": "comic",
+  "duration": 40,
+  "easing": "ease_in_out_cubic",
+  "persistent": false,
+  "loop": false,
+  "fade_ticks": 0,
+  "params": {
+    "paper_r": 1.0,
+    "paper_g": 1.0,
+    "paper_b": 1.0,
+    "ink_r": 0.0,
+    "ink_g": 0.0,
+    "ink_b": 0.0,
+    "amount": { "start": 1.0, "end": 0.0 }
+  }
+}
