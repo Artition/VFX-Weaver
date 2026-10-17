@@ -76,6 +76,7 @@ nav:
           - halftone: guide/effects/screen/halftone.md
           - ink: guide/effects/screen/ink.md
           - comic: guide/effects/screen/comic.md
+          - accent_glow: guide/effects/screen/accent-glow.md
           - depth_of_field: guide/effects/screen/depth-of-field.md
           - letterbox: guide/effects/screen/letterbox.md
           - invert: guide/effects/screen/invert.md

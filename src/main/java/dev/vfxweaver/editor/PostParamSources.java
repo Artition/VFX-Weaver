@@ -61,6 +61,8 @@ final class PostParamSources {
 		params.put(VFXEffectType.INK, new String[]{"edge_low", "edge_high", "amount"});
 		// order = VFXShaderPrograms.registerPost(COMIC); do not reorder
 		params.put(VFXEffectType.COMIC, new String[]{"paper_r", "paper_g", "paper_b", "ink_r", "ink_g", "ink_b", "amount"});
+		// order = VFXShaderPrograms.registerPost(ACCENT_GLOW); do not reorder
+		params.put(VFXEffectType.ACCENT_GLOW, new String[]{"accent_r", "accent_g", "accent_b", "strength", "amount"});
 		// order = VFXShaderPrograms.registerPost(DEPTH_OF_FIELD); do not reorder
 		params.put(VFXEffectType.DEPTH_OF_FIELD, new String[]{"intensity", "focus_center", "focus_range"});
 		// order = VFXShaderPrograms.registerPost(LETTERBOX); do not reorder

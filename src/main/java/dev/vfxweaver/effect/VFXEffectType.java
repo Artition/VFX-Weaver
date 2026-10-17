@@ -45,6 +45,8 @@ public enum VFXEffectType {
 	INK("ink"),
 	/** Duotone comic: black contour plus a clean two-tone with halftone dots in the mid tones. */
 	COMIC("comic"),
+	/** Dark accent glow on the highlights: accent two-tone, white core and halftone mid-tone dots. */
+	ACCENT_GLOW("accent_glow"),
 	/** Screen-space "tilt-shift" depth of field: a sharp focus band that blurs away from it. */
 	DEPTH_OF_FIELD("depth_of_field"),
 	/** Cinematic black bars at the top and bottom of the screen. */
@@ -180,6 +182,7 @@ public enum VFXEffectType {
 		case HALFTONE -> "amount".equals(parameter) ? 0.0F : Float.NaN;
 		case INK -> "amount".equals(parameter) ? 0.0F : Float.NaN;
 		case COMIC -> "amount".equals(parameter) ? 0.0F : Float.NaN;
+		case ACCENT_GLOW -> "amount".equals(parameter) ? 0.0F : Float.NaN;
 		case DEPTH_OF_FIELD -> "intensity".equals(parameter) ? 0.0F : Float.NaN;
 		case LETTERBOX -> "height".equals(parameter) ? 0.0F : Float.NaN;
 		case INVERT -> "intensity".equals(parameter) ? 0.0F : Float.NaN;

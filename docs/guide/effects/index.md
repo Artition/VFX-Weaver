@@ -101,6 +101,7 @@ point.
 - [halftone](screen/halftone.md) - print-style halftone dots
 - [ink](screen/ink.md) - Sobel comic-ink contour overlay
 - [comic](screen/comic.md) - duotone comic with halftone mid tones
+- [accent_glow](screen/accent-glow.md) - dark accent glow on the highlights
 - [depth_of_field](screen/depth-of-field.md) - sharp band with blur away from it
 - [letterbox](screen/letterbox.md) - cinematic bars
 - [invert](screen/invert.md) - invert colours
@@ -162,7 +163,7 @@ its JSON out of the jar into your own datapack under a new id.
 
 - **Post-processing:** `chromatic_aberration`, `color_grade`, `distortion`, `dent`, `gradient_map`,
   `posterize`, `blur`, `pixelate`, `hue_isolation`, `vignette`, `screen_flash`, `motion_blur`,
-  `bloom`, `film_grain`, `scanlines`, `halftone`, `ink`, `comic`, `depth_of_field`, `letterbox`, `invert`, `vortex`,
+  `bloom`, `film_grain`, `scanlines`, `halftone`, `ink`, `comic`, `accent_glow`, `depth_of_field`, `letterbox`, `invert`, `vortex`,
   `speed_lines`, `slice_shift`, `noise_warp`, `solarize`, `double_vision`, `eyelids`, `iris_wipe`,
   `digital_glitch`, `vhs`, `shockwave`, `afterimage`, `stop_motion`, `surface_pattern`,
   `graph_demo`, `graph_logic_demo`, `dent_field_demo`, `tint_field_demo`.
