@@ -38,7 +38,7 @@ use the `-neoforge` suffix and are installed with [NeoForge](https://neoforged.n
   `hue_isolation`, `vignette`, `screen_flash`, `motion_blur`, `bloom`, `film_grain`, `scanlines`,
   `depth_of_field`, `letterbox`, `invert`, `vortex`, `speed_lines`, `slice_shift`, `noise_warp`,
   `solarize`, `double_vision`, `eyelids`, `iris_wipe`, `digital_glitch`, `vhs`, `shockwave`,
-  `afterimage`, `stop_motion`, `surface_pattern`, `sky_pattern`, `screen_image`.
+  `afterimage`, `stop_motion`, `surface_pattern`, `sky_pattern`, `screen_image`, `halftone`, `ink`, `comic`, `accent_glow`.
 - **Camera effects** — simplex-noise camera shake (`camera_shake`), dutch angle with wobble
   (`camera_roll`), an FOV modifier (`fov_modifier`) and a vanilla-fog modifier (`fog_modifier`).
 - **World overlays** — `block_tint`, `block_outline`, `light_beam`, `pulse_ring`, `guide_line`,
@@ -46,6 +46,7 @@ use the `-neoforge` suffix and are installed with [NeoForge](https://neoforged.n
   links, optional rope physics), drawn as world-space geometry.
 - **Entity effects** — `entity_tint`, `entity_outline` and `entity_displace` applied to entities by
   UUID (second-pass model render, texture-aware).
+- **Audio effects** — `hum` (generated sine tone), `noise` (generated white noise), `volume_duck` (scales one vanilla sound category) and `heartbeat` (periodic low thump). Their params are ordinary animatable params (binds/keyframes work); the generated-PCM voices bypass the vanilla mixer volume sliders.
 - **Collections** — `collection` plays several child effects from one command with per-child delays.
 - **Datapack-defined effects** — declarative JSON (`data/<namespace>/vfx/<effect>.json`), animated
   params, keyframes, world/camera/player bindings, math expressions, value graphs, per-pixel fields,

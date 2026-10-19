@@ -42,7 +42,7 @@ panning, only distance). First source wins:
 5. otherwise the **local-player position** (interpolated snapshot), so a plain
    `/vfx play vfxweaver:noise` follows the viewer.
 
-`positions` and `region` work as on [Datapack format](../datapack/format.md#positions-and-entity-anchors).
+`positions` and `region` work as on [Datapack format](../../datapack/format.md#positions-and-entity-anchors).
 
 ## Example
 

@@ -32,7 +32,8 @@ Run a test client/server directly from the project:
 
 ## Features
 
-- **Post-processing effects** (ping-pong FBO, screen-space): `chromatic_aberration`, `color_grade`, `distortion`, `dent`, `gradient_map`, `posterize`, `blur`, `pixelate`, `hue_isolation`, `vignette`, `screen_flash`, `motion_blur`, `bloom`, `film_grain`, `scanlines`, `depth_of_field`, `letterbox`, `invert`, `vortex`, `speed_lines`.
+- **Post-processing effects** (ping-pong FBO, screen-space): `chromatic_aberration`, `color_grade`, `distortion`, `dent`, `gradient_map`, `posterize`, `blur`, `pixelate`, `hue_isolation`, `vignette`, `screen_flash`, `motion_blur`, `bloom`, `film_grain`, `scanlines`, `depth_of_field`, `letterbox`, `invert`, `vortex`, `speed_lines`, `halftone`, `ink`, `comic`, `accent_glow`.
+- **Audio effects** — `hum` (generated sine tone), `noise` (generated white noise), `volume_duck` (scales one vanilla sound category) and `heartbeat` (periodic low thump). Their params are ordinary animatable params (binds/keyframes work); the generated-PCM voices bypass the vanilla mixer volume sliders.
 - **Camera shake** — simplex-noise camera shake with a smooth envelope (`camera_shake`) and FOV modifier (`fov_modifier`).
 - **World block overlays** — `block_tint` and `block_outline` rendered as world-space geometry.
 - **Entity effects** — `entity_tint` and `entity_outline` applied to entities by UUID (second-pass model render, texture-aware).
