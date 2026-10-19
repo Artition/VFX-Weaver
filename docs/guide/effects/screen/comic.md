@@ -2,7 +2,7 @@
 
 `type: "comic"`
 
-Duotone comic: a clean two-tone split around the local luminance printed in paper/ink colours, with halftone dots in the mid tones and a Sobel contour overlay.
+Duotone comic: a clean two-tone split at mid grey printed in paper/ink colours, with halftone dots in the mid tones and a Sobel contour overlay.
 
 ## Fields
 

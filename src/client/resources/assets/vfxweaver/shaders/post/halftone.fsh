@@ -20,15 +20,10 @@ out vec4 fragColor;
 
 void main() {
     vec4 base = texture(InSampler, texCoord);
-    float aspect = max(OutSize.x, 1.0) / max(OutSize.y, 1.0);
     float lum0 = dot(base.rgb, vec3(0.2126, 0.7152, 0.0722));
-    float acc = 0.0;
-    for (int i = 0; i < 8; i++) {
-        float t = 6.2831853 * float(i) / 8.0;
-        vec2 off = vec2(cos(t) * 0.03 / aspect, sin(t) * 0.03);
-        acc += dot(texture(InSampler, texCoord + off).rgb, vec3(0.2126, 0.7152, 0.0722));
-    }
-    float tone = clamp((lum0 - acc * 0.125) * gain + 0.5, 0.0, 1.0);
+    // absolute tone: contrast around mid grey, no local reference, so no halos by construction.
+    // gain 2.5 is neutral (tone == luma); higher values add punch, 0 flattens to mid grey.
+    float tone = clamp(0.5 + (lum0 - 0.5) * gain * 0.4, 0.0, 1.0);
     float cell = max(cell_size, 1.0);
     float a = radians(angle);
     float ca = cos(a);

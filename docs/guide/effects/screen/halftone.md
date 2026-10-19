@@ -2,7 +2,7 @@
 
 `type: "halftone"`
 
-Print-style halftone dots whose size follows the local luminance.
+Print-style halftone dots whose size follows the pixel luminance.
 
 ## Fields
 
@@ -12,7 +12,7 @@ Print-style halftone dots whose size follows the local luminance.
 |---|---|---|---|
 | `cell_size` | float | 5 | Dot cell size in pixels |
 | `angle` | float | 45 | Screen angle in degrees |
-| `gain` | float | 2.5 | Local-contrast gain |
+| `gain` | float | 2.5 | Contrast around mid grey (2.5 = neutral) |
 | `amount` | float | 1 (fades to 0) | Dot pattern visibility |
 
 ## Example

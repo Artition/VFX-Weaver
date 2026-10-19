@@ -2,7 +2,7 @@
 
 `type: "accent_glow"`
 
-Dark accent glow on the highlights: pixels above the local luminance print in the accent colour, the hottest pixels print white, and 5 px halftone dots rotated 45 degrees fill the mid tones — everything else goes black.
+Dark accent glow on the highlights: pixels above mid grey print in the accent colour, the hottest pixels print white, and 5 px halftone dots rotated 45 degrees fill the mid tones — everything else goes black.
 
 ## Fields
 
