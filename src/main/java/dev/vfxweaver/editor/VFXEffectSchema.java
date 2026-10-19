@@ -165,6 +165,9 @@ public final class VFXEffectSchema {
 				"fog_g", new float[] {0.0F, 1.0F},
 				"fog_b", new float[] {0.0F, 1.0F},
 				"fog_color_amount", new float[] {0.0F, 1.0F}));
+		registerNonPost(VFXEffectType.HUM,
+			new String[] {"frequency", "volume"},
+			Map.of("volume", new float[] {0.0F, 1.0F}));
 		registerNonPost(VFXEffectType.WINDOW_CREATE,
 			new String[] {"pos_x", "pos_y", "size_w", "size_h", "opacity", "frames", "frame_time", "title_index"},
 			windowBounds());

@@ -108,6 +108,8 @@ nav:
           - entity_tint: guide/effects/entity/entity-tint.md
           - entity_outline: guide/effects/entity/entity-outline.md
           - entity_displace: guide/effects/entity/entity-displace.md
+      - Audio:
+          - hum: guide/effects/audio/hum.md
       - Camera and misc:
           - camera_shake: guide/effects/misc/camera-shake.md
           - camera_roll: guide/effects/misc/camera-roll.md

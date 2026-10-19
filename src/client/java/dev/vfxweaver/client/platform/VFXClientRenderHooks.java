@@ -2,6 +2,7 @@ package dev.vfxweaver.client.platform;
 
 import dev.vfxweaver.client.VFXClient;
 import dev.vfxweaver.client.VFXScoreboardCache;
+import dev.vfxweaver.client.audio.VFXVoiceManager;
 import dev.vfxweaver.client.editor.EditorPreviewController;
 import dev.vfxweaver.client.flashback.FlashbackCompat;
 import dev.vfxweaver.client.postprocessing.VFXPostProcessingManager;
@@ -114,6 +115,7 @@ public final class VFXClientRenderHooks {
 		VFXWorldOverlayRenderer.freeGpuResources();
 		VFXPostProcessingManager.get().freeGpuResources();
 		VFXWindowManager.get().closeAll();
+		VFXVoiceManager.get().stopAll();
 		// The editor bridge runs a JDK HttpServer whose dispatcher/selector threads are NOT
 		// daemon: leaving it running holds the JVM past shutdown and trips the client shutdown
 		// watchdog ("Client shutdown from post-main"). Stop it here unconditionally.

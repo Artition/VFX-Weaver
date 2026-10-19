@@ -1,5 +1,6 @@
 package dev.vfxweaver.client.effect;
 
+import dev.vfxweaver.client.audio.VFXVoiceManager;
 import dev.vfxweaver.effect.AnimatedValue;
 import dev.vfxweaver.effect.EasingFunction;
 import dev.vfxweaver.effect.EasingType;
@@ -216,6 +217,7 @@ public class VFXEffectManager {
 			effect.update(this.clock);
 		}
 		this.rebuildEntityEffectsIndex();
+		VFXVoiceManager.get().reconcile(this.active, this.clock);
 	}
 
 	/**
@@ -670,6 +672,7 @@ public class VFXEffectManager {
 	 */
 	public void stopAll() {
 		this.scheduled.clear();
+		VFXVoiceManager.get().stopAll();
 		this.active.removeIf(effect -> {
 			if (effect.getFadeTicks() > 0 && !effect.isFadingOut()) {
 				effect.beginFadeOut(this.clock);

@@ -1,0 +1,11 @@
+{
+  "type": "hum",
+  "duration": 100,
+  "persistent": false,
+  "loop": false,
+  "fade_ticks": 20,
+  "params": {
+    "frequency": 110.0,
+    "volume": 0.5
+  }
+}

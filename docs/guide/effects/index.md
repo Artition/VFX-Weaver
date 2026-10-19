@@ -142,6 +142,13 @@ definition field. The client redraws the entity in a second pass over the origin
 - [entity_outline](entity/entity-outline.md) - inverted-hull silhouette
 - [entity_displace](entity/entity-displace.md) - per-vertex displacement of the model
 
+### Audio
+
+Generated sound, no post pass and no geometry. Accepts `positions`/`region` (or entity
+anchors) for the voice position, like a world overlay.
+
+- [hum](audio/hum.md) - generated sine hum
+
 ### Camera and misc
 
 Camera-space effects act on the camera transform; they do not accept `screen_layer`.
@@ -170,6 +177,7 @@ its JSON out of the jar into your own datapack under a new id.
 - **World overlays:** `block_tint`, `block_outline`, `light_beam`, `pulse_ring`, `guide_line`,
   `particles`, `block_chain`.
 - **Entity effects:** `entity_tint`, `entity_outline`, `entity_displace`.
+- **Audio:** `hum`.
 - **Camera:** `camera_shake`, `camera_roll`, `fov_modifier`, `fog_modifier`.
 
 Built-in ids need their namespace (`vfxweaver:<name>`); there is no `minecraft:` fallback.

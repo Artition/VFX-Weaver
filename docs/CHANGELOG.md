@@ -12,6 +12,11 @@ times this documentation has been revised. The authoritative record of guide rev
 the [download table](index.md#download). Add new entries at the top, in the same PR as the behaviour
 change.
 
+## Unreleased
+
+### Added
+- **`hum`: a generated sine hum positioned in the world.** A new audio effect synthesises a mono sine tone per effect instance (`frequency` in Hz, default `440`; `volume` linear gain `0..1`, neutral `0.0` so `fade_ticks` fades it) straight into the OS mixer — no audio file in any pack, identical on every Minecraft line. The voice is positioned like a world overlay (move position, first static `positions` entry, first entity anchor, authored `pos_x/y/z`, else the local-player snapshot) with a linear distance falloff (full within 8 blocks, silent past 48); it follows the shared effect clock, so pause freezes it and a replay seek resyncs silently. Stopping one instance fades it out; `stopAll`/world exit/client shutdown closes the voices at once. Honest limits, stated on the page: the vanilla mixer is bypassed (volume sliders do not apply — use `volume`), and a machine with no audio device stays silent with a one-time warning. Additive: one new effect type and its params, no existing datapack field renamed, no UBO layout change, `PROTOCOL_VERSION` unchanged, no new dependency. Documented in the [guide](guide/effects/audio/hum.md). Asserted by `scripts/check-vfx-schema.ps1` and `scripts/check-builtins-parse.ps1`; audible output cannot be verified headless here. **Not verified in game**.
+
 ## 2.4.1 - 2026-10-14
 
 ### Added
