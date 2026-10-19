@@ -3,6 +3,7 @@ package dev.vfxweaver.command;
 import com.mojang.brigadier.StringReader;
 import com.mojang.brigadier.arguments.ArgumentType;
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
+import dev.vfxweaver.effect.VFXSoundChannel;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -31,7 +32,7 @@ public final class ParamMapArgument implements ArgumentType<Map<String, Float>> 
 			try {
 				reader.expect('[');
 				name = reader.readStringUntil(':');
-				value = reader.readFloat();
+				value = readChannelOrFloat(reader, name.trim());
 				reader.expect(']');
 			} catch (CommandSyntaxException e) {
 				if (!reader.canRead()) {
@@ -73,5 +74,24 @@ public final class ParamMapArgument implements ArgumentType<Map<String, Float>> 
 	@Override
 	public String toString() {
 		return "vfx_param_map()";
+	}
+
+	/**
+	 * Reads one param value: a float as before, or — only for the {@code volume_duck}
+	 * {@code channel} — a category name ({@code master} … {@code ui}, case-insensitive).
+	 * An unknown name is a NaN constant, which the voice manager turns into a warned-once
+	 * no-op; any other param keeps the strict float parse.
+	 */
+	private static float readChannelOrFloat(final StringReader reader, final String name) throws CommandSyntaxException {
+		final int valueStart = reader.getCursor();
+		try {
+			return reader.readFloat();
+		} catch (CommandSyntaxException floatError) {
+			if (!"channel".equals(name)) {
+				throw floatError;
+			}
+			reader.setCursor(valueStart);
+			return VFXSoundChannel.code(reader.readUnquotedString());
+		}
 	}
 }

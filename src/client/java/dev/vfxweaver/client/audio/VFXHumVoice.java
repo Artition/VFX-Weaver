@@ -12,26 +12,28 @@ import org.slf4j.LoggerFactory;
  * {@link SourceDataLine}, so a hum needs no audio file in any resource pack and works
  * identically on every supported Minecraft version.
  *
- * <p>The voice is driven by the shared effect clock (see {@link VFXVoiceManager}): each
- * {@link #tick} emits exactly the samples the clock advanced since the previous tick. A
- * paused game freezes the clock, so a paused game emits nothing and the line drains into
- * silence on its own — no pause handling here. A replay seek jumps the clock, so a jump
- * bigger than {@value #MAX_SAMPLES_PER_CALL} samples resyncs silently instead of bursting.
+ * <p>Sample timing runs on the voice's own steady clock (see {@link VFXVoiceClock}): each
+ * {@link #tick} emits what wall time owes since the previous tick, at any frame rate, while
+ * the shared effect clock still gates <i>whether</i> anything is emitted. A paused game freezes
+ * the effect clock, so a paused game emits nothing and the line drains into silence on its own
+ * — no pause handling here. A replay seek or a slow (unfocused-window) frame resyncs
+ * seamlessly: the phase integrates per emitted sample, and the gain ramps linearly from the
+ * previous chunk's end, so there are no bursts, jumps or boundary clicks.
  *
  * <p>All calls must run on the render thread (the manager calls from
- * {@code VFXEffectManager.update()}). The per-frame chunk (one game tick at most) is far
- * smaller than the line buffer, so {@code write} never blocks the frame.
+ * {@code VFXEffectManager.update()}). Chunks are sized to the line's free buffer space, so
+ * {@code write} never blocks the frame.
  */
 final class VFXHumVoice {
 	private static final Logger LOGGER = LoggerFactory.getLogger("vfxweaver/voice");
 	private static final float SAMPLE_RATE = 22050.0F;
 	private static final int SAMPLES_PER_TICK = (int) (SAMPLE_RATE / 20.0F);
 	private static final int MAX_SAMPLES_PER_CALL = SAMPLES_PER_TICK * 4;
-	private static final int BUFFER_BYTES = (int) (SAMPLE_RATE * 2 * 0.25F);
+	private static final int BUFFER_BYTES = (int) (SAMPLE_RATE * 2 * 0.5F);
 
 	private SourceDataLine line;
 	private boolean failed;
-	private float lastClock = Float.NaN;
+	private final VFXVoiceClock clock = new VFXVoiceClock(SAMPLE_RATE);
 	private double phase;
 	private float currentGain;
 
@@ -48,27 +50,24 @@ final class VFXHumVoice {
 		if (this.failed) {
 			return;
 		}
-		if (Float.isNaN(this.lastClock)) {
-			this.lastClock = clockTicks;
-			return;
-		}
-		float elapsed = clockTicks - this.lastClock;
-		this.lastClock = clockTicks;
-		int samples = (int) (elapsed * SAMPLES_PER_TICK);
-		if (samples <= 0 || samples > MAX_SAMPLES_PER_CALL) {
-			return;
-		}
 		float gain = Float.isFinite(targetGain) ? Math.max(0.0F, targetGain) : 0.0F;
 		float freq = Float.isFinite(frequency) ? Math.max(0.0F, frequency) : 0.0F;
 		if (gain <= 0.0F && this.currentGain <= 0.0F) {
+			this.clock.idle(clockTicks);
 			return;
 		}
 		if (freq <= 0.0F) {
 			this.phase = 0.0;
 			this.currentGain = 0.0F;
+			this.clock.idle(clockTicks);
 			return;
 		}
 		if (!this.ensureLine()) {
+			this.clock.idle(clockTicks);
+			return;
+		}
+		int samples = this.clock.claim(clockTicks, SAMPLES_PER_TICK, MAX_SAMPLES_PER_CALL, this.line.available() / 2);
+		if (samples <= 0) {
 			return;
 		}
 		byte[] out = new byte[samples * 2];
@@ -79,7 +78,10 @@ final class VFXHumVoice {
 				this.phase -= 2.0 * Math.PI;
 			}
 			float g = this.currentGain + (gain - this.currentGain) * (i + 1) / samples;
-			short s = (short) (Math.sin(this.phase) * g * Short.MAX_VALUE);
+			// Clamp before the cast: an above-1 gain (volume has no upper cap) must saturate,
+			// never wrap around the short range (that wrap reads as a harsh click).
+			float v = Math.min(1.0F, Math.max(-1.0F, (float) (Math.sin(this.phase) * g)));
+			short s = (short) (v * Short.MAX_VALUE);
 			out[i * 2] = (byte) s;
 			out[i * 2 + 1] = (byte) (s >> 8);
 		}
@@ -93,6 +95,7 @@ final class VFXHumVoice {
 	 * immediately.
 	 */
 	void close() {
+		this.clock.reset();
 		if (this.line != null) {
 			try {
 				this.line.stop();

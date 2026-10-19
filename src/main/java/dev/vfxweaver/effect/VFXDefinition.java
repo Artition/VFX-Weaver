@@ -569,6 +569,12 @@ public class VFXDefinition {
 			if (primitive.isString() && "sky_mode".equals(name)) {
 				return ParamSpec.constant(skyModeCode(primitive.getAsString()));
 			}
+			// channel sugar: the volume_duck category is authored by name (case-insensitive) or
+			// by ordinal. An unknown name is a NaN constant, which the voice manager turns into
+			// a warned-once no-op instead of failing the whole file on a typo.
+			if (primitive.isString() && "channel".equals(name)) {
+				return ParamSpec.constant(VFXSoundChannel.code(primitive.getAsString()));
+			}
 			throw new IllegalArgumentException("Parameter must be a number or an object: " + element);
 		}
 

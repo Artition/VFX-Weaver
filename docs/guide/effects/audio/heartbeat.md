@@ -8,8 +8,10 @@ follows the animated `rate`, `volume` and `pitch` every frame, and closes when t
 instance ends (or is stopped, faded out, or rebuilt by a replay seek).
 
 Each beat is a "lub-dub" pair: the beat phase advances `rate / 60` cycles per
-second and gates a decaying `pitch` sine, the second thump landing 0.16 of a beat
-later at 0.6 of the amplitude.
+second, and every wrap fires a lub thump plus a dub thump `0.27` s later at `0.6` of the
+amplitude. Each thump is a 5 ms attack from silence into an exponential decay
+(time constant ~80 ms) of the `pitch` sine, so beats start and end at zero — no clicks,
+even when the dub lands on the next lub or `rate` animates mid-beat.
 
 ## Fields
 
@@ -84,9 +86,12 @@ for a chase cue:
 
 ## Honest limits
 
-- **Paused game, frozen heartbeat.** The voice is driven by the shared effect clock, so pausing
-  (or a paused replay) stops new samples; the buffered remainder drains in a fraction of
-  a second. A replay seek resyncs silently instead of bursting.
+- **Paused game, frozen heartbeat.** Sample timing runs on the voice's own steady
+  clock, gated by the shared effect clock: pausing (or a paused replay) freezes the gate,
+  so no new samples are synthesised and the buffered remainder drains in under half a
+  second. An unfocused window no longer starves the voice — slow frames emit their
+  wall-clock debt instead of going silent. A replay seek resyncs seamlessly instead of
+  bursting.
 - **The vanilla mixer is bypassed.** The thump is synthesised into the OS mixer directly,
   so the game's volume sliders, mute and resource-pack sounds do not affect it — control
   loudness with the `volume` param. A machine with no audio device (or a headless JVM)

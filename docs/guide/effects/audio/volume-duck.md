@@ -16,12 +16,15 @@ weight, and hands the level back (restores the captured value) as soon as the du
 
 | Field | Type | Default | Meaning |
 |---|---|---|---|
-| `channel` | float | `0.0` | Which sound category to scale, as a `SoundSource` ordinal (see the table below). Rounded, then clamped into range |
+| `channel` | float or string | `0.0` | Which sound category to scale: a name (`master`, `music`, `records`, `weather`, `blocks`, `hostile`, `neutral`, `players`, `ambient`, `voice`, `ui`, case-insensitive) or a `SoundSource` ordinal `0..10` (see the table below). Rounded when numeric, then clamped into range |
 | `volume` | float | `1.0` | The target multiplier, `0..1`, applied at full fade weight. `0.2` plays the channel at a fifth of its level |
 
 Both are ordinary animatable params: `start`/`end`, `keyframes`, `expr`, graphs, `setParam`
 and `bind` all work. `volume`'s neutral is `1.0` (that is what the fade blends toward: no
-duck); `channel` has no neutral and is read as authored.
+duck); `channel` has no neutral and is read as authored. The name form also works in
+datapack JSON (`"channel": "music"`) and in commands (`/vfx play vfxweaver:volume_duck
+{[channel:music],[volume:0.2]}`); an unknown name warns once and the duck safely does
+nothing instead of ducking the wrong category.
 
 The category level each frame is `base × (1 - (1 - volume) × weight)`, where `base` is the
 level captured when the first duck touched that channel and `weight` is the effect's fade
@@ -87,6 +90,7 @@ Duck the hostile mobs instead for a stealth cue:
 - **Recapture per activation.** The pre-duck level is captured when the first duck touches
   a channel. Two ducks on different channels each capture and restore their own; two on
   the same channel share one capture, last-writer-wins.
-- **The ordinal table is vanilla's.** `channel` indexes `SoundSource.values()` in game
+- **The ordinal table is vanilla's.** A numeric `channel` indexes `SoundSource.values()` in game
   order; a future Minecraft reorder would shift the mapping (the names above are 26.1's).
+  Prefer names (`"channel": "music"`): they resolve through the enum whatever its order.
   `stopAll`, world exit and client shutdown restore every ducked channel at once.

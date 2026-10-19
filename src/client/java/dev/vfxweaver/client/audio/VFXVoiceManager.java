@@ -2,7 +2,9 @@ package dev.vfxweaver.client.audio;
 
 import dev.vfxweaver.effect.VFXActiveEffect;
 import dev.vfxweaver.effect.VFXEffectType;
+import dev.vfxweaver.effect.VFXSoundChannel;
 import dev.vfxweaver.effect.VFXWorldBindings;
+import dev.vfxweaver.util.VFXLog;
 import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.Iterator;
@@ -14,6 +16,8 @@ import net.minecraft.sounds.SoundSource;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.phys.Vec3;
 import org.jspecify.annotations.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * The lifecycle bridge between the {@code hum}/{@code noise}/{@code heartbeat} effects and their synthesised
@@ -43,6 +47,7 @@ import org.jspecify.annotations.Nullable;
  * calling thread, so every method here must run on the render thread.
  */
 public final class VFXVoiceManager {
+	private static final Logger LOGGER = LoggerFactory.getLogger("vfxweaver/voice");
 	private static final float DEFAULT_FREQUENCY = 440.0F;
 	private static final float FULL_VOLUME_DISTANCE = 8.0F;
 	private static final float SILENT_DISTANCE = 48.0F;
@@ -176,7 +181,10 @@ public final class VFXVoiceManager {
 		final Map<SoundSource, Float> scales = new EnumMap<>(SoundSource.class);
 		for (final VFXActiveEffect effect : active) {
 			if (effect.getType() == VFXEffectType.VOLUME_DUCK) {
-				scales.put(duckChannel(effect), duckScale(effect));
+				final SoundSource category = duckChannel(effect);
+				if (category != null) {
+					scales.put(category, duckScale(effect));
+				}
 			}
 		}
 		final Minecraft minecraft = Minecraft.getInstance();
@@ -206,11 +214,18 @@ public final class VFXVoiceManager {
 		this.duckBase.clear();
 	}
 
-	/** The {@code volume_duck} channel: the {@code channel} param rounded to a {@link SoundSource} ordinal. */
-	private static SoundSource duckChannel(final VFXActiveEffect effect) {
+	/**
+	 * The {@code volume_duck} channel: a {@link VFXSoundChannel} name (case-insensitive) or the
+	 * historical {@code 0..10} ordinal, rounded and clamped into range. A non-matching name
+	 * warns once and resolves to {@code null}, so the duck safely no-ops instead of ducking
+	 * the wrong category.
+	 */
+	private static @Nullable SoundSource duckChannel(final VFXActiveEffect effect) {
 		final float channel = effect.getParam("channel", 0.0F);
 		if (!Float.isFinite(channel)) {
-			return SoundSource.MASTER;
+			VFXLog.warnOnce(LOGGER, "voice:duck-channel",
+				"volume_duck has an unknown channel name; use master/music/records/weather/blocks/hostile/neutral/players/ambient/voice/ui or 0..10");
+			return null;
 		}
 		final SoundSource[] categories = SoundSource.values();
 		return categories[Math.min(categories.length - 1, Math.max(0, Math.round(channel)))];
