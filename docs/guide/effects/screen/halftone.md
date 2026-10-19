@@ -1,5 +1,7 @@
 # halftone
 
+<video autoplay loop muted playsinline width="100%"><source src="../../../../assets/media/halftone.mp4" type="video/mp4"></video>
+
 `type: "halftone"`
 
 Print-style halftone dots whose size follows the pixel luminance.

@@ -1,5 +1,7 @@
 # ink
 
+<video autoplay loop muted playsinline width="100%"><source src="../../../../assets/media/ink.mp4" type="video/mp4"></video>
+
 `type: "ink"`
 
 Sobel contour overlay: dark comic-ink outlines drawn where the local luminance changes.

@@ -1,5 +1,7 @@
 # accent_glow
 
+<video autoplay loop muted playsinline width="100%"><source src="../../../../assets/media/accent_glow.mp4" type="video/mp4"></video>
+
 `type: "accent_glow"`
 
 Dark accent glow on the highlights: pixels above mid grey print in the accent colour, the hottest pixels print white, and 5 px halftone dots rotated 45 degrees fill the mid tones — everything else goes black.

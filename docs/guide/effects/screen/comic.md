@@ -1,5 +1,7 @@
 # comic
 
+<video autoplay loop muted playsinline width="100%"><source src="../../../../assets/media/comic.mp4" type="video/mp4"></video>
+
 `type: "comic"`
 
 Duotone comic: a clean two-tone split at mid grey printed in paper/ink colours, with halftone dots in the mid tones and a Sobel contour overlay.
