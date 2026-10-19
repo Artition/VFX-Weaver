@@ -16,7 +16,8 @@ import org.slf4j.LoggerFactory;
  * second, and every wrap fires a lub trigger now plus a dub trigger a rate-dependent
  * gap later (see {@link #dubGap(double)}): ~0.28 s apart at rest, easing into even
  * half-beat spacing as the rate climbs — slow hearts beat in pairs with a mini-pause,
- * fast hearts beat evenly. Each thump has its own envelope — a fast linear attack then an exponential decay of a {@code pitch} sine — so the sound is a real
+ * fast hearts beat evenly, and the thump itself plays faster and brighter with rate,
+ * like tape. Each thump has its own envelope — a fast linear attack then an exponential decay of a {@code pitch} sine — so the sound is a real
  * heartbeat: two soft knocks, the second fainter, with silence between beats. Envelopes always
  * start at zero and overlap by addition, so beats never click: not at the wrap, not when a
  * dub lands on the next lub, not when {@code rate} animates. Both {@code rate} and
@@ -107,7 +108,10 @@ final class VFXHeartbeatVoice {
 		}
 		byte[] out = new byte[samples * 2];
 		double beatStep = bpm / 60.0 / SAMPLE_RATE;
-		double toneStep = 2.0 * Math.PI * pitch / SAMPLE_RATE;
+		// Tape-like tempo: a faster beat plays the thump itself faster and brighter,
+		// floored and capped so it never drops an octave or squeaks past 2x.
+		final double rateScale = Math.min(2.0, Math.max(0.5, bpm / 60.0));
+		double toneStep = 2.0 * Math.PI * pitch * rateScale / SAMPLE_RATE;
 		double sampleStep = 1.0 / SAMPLE_RATE;
 		// Tape-like tempo: faster hearts get tighter thumps, floored so tails never click.
 		final double decayTau = DECAY_TAU_S * Math.max(0.5, Math.min(1.0, 90.0 / bpm));
