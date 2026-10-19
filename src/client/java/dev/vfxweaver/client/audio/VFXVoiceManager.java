@@ -14,8 +14,9 @@ import net.minecraft.world.phys.Vec3;
 import org.jspecify.annotations.Nullable;
 
 /**
- * The lifecycle bridge between the {@code hum} effects and their synthesised voices: one
- * {@link VFXHumVoice} per active instance, reconciled against the live set every frame.
+ * The lifecycle bridge between the {@code hum}/{@code noise} effects and their synthesised
+ * voices: one {@link VFXHumVoice} or {@link VFXNoiseVoice} per active instance, reconciled
+ * against the live set every frame.
  *
  * <p><b>Open / close, driven by the active set.</b> {@link #reconcile(List, float)} is
  * called at the end of {@code VFXEffectManager.update()}, so a voice follows its effect
@@ -23,15 +24,16 @@ import org.jspecify.annotations.Nullable;
  * without each path having to know about voices. Unlike
  * {@code VFXWindowManager.reconcile}, a fading-out owner is kept: its falling
  * {@link VFXActiveEffect#getWeight()} ramps the gain to silence (the {@code volume}
- * neutral is {@code 0.0F}, so {@code fade_ticks} fades the hum), and the voice closes
+ * neutral is {@code 0.0F}, so {@code fade_ticks} fades the voice), and the voice closes
  * once {@code update()} removes the finished effect.
  *
- * <p><b>Per-frame drive.</b> Each bound voice is ticked with the shared effect clock, the
- * animated {@code frequency} and {@code volume} (scaled by the fade weight), positioned
- * at the effect's move position, first static position, first entity anchor, authored
- * {@code pos_x/y/z} triple, or — when none is authored — the local-player snapshot, with
- * a linear distance falloff from the camera. An effect whose entity anchor is untracked
- * this frame is silent.
+ * <p><b>Per-frame drive.</b> Each bound voice is ticked with the shared effect clock, its
+ * animated params ({@code frequency} for a hum; {@code brightness}/{@code jitter}/
+ * {@code jitter_rate}/{@code seed} for a noise) with {@code volume} scaled by the fade
+ * weight, positioned at the effect's move position, first static position, first entity
+ * anchor, authored {@code pos_x/y/z} triple, or — when none is authored — the
+ * local-player snapshot, with a linear distance falloff from the camera. An effect whose
+ * entity anchor is untracked this frame is silent.
  *
  * <p><b>Render thread only.</b> Synthesis writes into a {@code SourceDataLine} from the
  * calling thread, so every method here must run on the render thread.
@@ -43,7 +45,8 @@ public final class VFXVoiceManager {
 
 	private static final VFXVoiceManager INSTANCE = new VFXVoiceManager();
 
-	private final Map<Long, VFXHumVoice> voices = new HashMap<>();
+	private final Map<Long, VFXHumVoice> hums = new HashMap<>();
+	private final Map<Long, VFXNoiseVoice> noises = new HashMap<>();
 
 	private VFXVoiceManager() {
 	}
@@ -58,52 +61,83 @@ public final class VFXVoiceManager {
 	}
 
 	/**
-	 * Opens a voice for every active {@code hum} effect that has none yet, ticks every
-	 * bound voice with the current clock and parameters, and closes every voice whose
-	 * effect is no longer active. Must run on the render thread.
+	 * Opens a voice for every active {@code hum}/{@code noise} effect that has none yet,
+	 * ticks every bound voice with the current clock and parameters, and closes every voice
+	 * whose effect is no longer active. Must run on the render thread.
 	 *
 	 * @param active     the current active effects (an instance owns its voice while it is in the list)
 	 * @param clockTicks the shared effect clock, in ticks
 	 */
 	public void reconcile(final List<VFXActiveEffect> active, final float clockTicks) {
-		final Map<Long, VFXActiveEffect> owners = new HashMap<>();
+		final Map<Long, VFXActiveEffect> humOwners = new HashMap<>();
+		final Map<Long, VFXActiveEffect> noiseOwners = new HashMap<>();
 		for (final VFXActiveEffect effect : active) {
-			if (effect.getType() != VFXEffectType.HUM) {
-				continue;
+			if (effect.getType() == VFXEffectType.HUM) {
+				humOwners.putIfAbsent(effect.getInstanceId(), effect);
+			} else if (effect.getType() == VFXEffectType.NOISE) {
+				noiseOwners.putIfAbsent(effect.getInstanceId(), effect);
 			}
-			owners.putIfAbsent(effect.getInstanceId(), effect);
 		}
-		for (final Long id : owners.keySet()) {
-			this.voices.computeIfAbsent(id, ignored -> new VFXHumVoice());
+		for (final Long id : humOwners.keySet()) {
+			this.hums.computeIfAbsent(id, ignored -> new VFXHumVoice());
 		}
-		final Iterator<Map.Entry<Long, VFXHumVoice>> iterator = this.voices.entrySet().iterator();
-		while (iterator.hasNext()) {
-			final Map.Entry<Long, VFXHumVoice> entry = iterator.next();
-			final VFXActiveEffect effect = owners.get(entry.getKey());
+		final Iterator<Map.Entry<Long, VFXHumVoice>> hums = this.hums.entrySet().iterator();
+		while (hums.hasNext()) {
+			final Map.Entry<Long, VFXHumVoice> entry = hums.next();
+			final VFXActiveEffect effect = humOwners.get(entry.getKey());
 			if (effect == null) {
 				entry.getValue().close();
-				iterator.remove();
+				hums.remove();
 				continue;
 			}
 			entry.getValue().tick(clockTicks, frequency(effect), gain(effect));
+		}
+		for (final Long id : noiseOwners.keySet()) {
+			this.noises.computeIfAbsent(id, ignored -> new VFXNoiseVoice());
+		}
+		final Iterator<Map.Entry<Long, VFXNoiseVoice>> noises = this.noises.entrySet().iterator();
+		while (noises.hasNext()) {
+			final Map.Entry<Long, VFXNoiseVoice> entry = noises.next();
+			final VFXActiveEffect effect = noiseOwners.get(entry.getKey());
+			if (effect == null) {
+				entry.getValue().close();
+				noises.remove();
+				continue;
+			}
+			final NoiseParams params = noiseParams(effect);
+			entry.getValue().tick(clockTicks, gain(effect), params.brightness(),
+				params.jitter(), params.jitterRate(), params.seed());
 		}
 	}
 
 	/**
 	 * Closes and drops every voice, run on a client dispose and on {@code stopAll} (which
-	 * cuts immediately, mirroring the aux-window close) so no hum outlives the game session.
+	 * cuts immediately, mirroring the aux-window close) so no voice outlives the game session.
 	 * Must run on the render thread.
 	 */
 	public void stopAll() {
-		for (final VFXHumVoice voice : this.voices.values()) {
+		for (final VFXHumVoice voice : this.hums.values()) {
 			voice.close();
 		}
-		this.voices.clear();
+		this.hums.clear();
+		for (final VFXNoiseVoice voice : this.noises.values()) {
+			voice.close();
+		}
+		this.noises.clear();
 	}
 
 	private static float frequency(final VFXActiveEffect effect) {
 		final float frequency = effect.getParam("frequency", DEFAULT_FREQUENCY);
 		return Float.isFinite(frequency) ? Math.max(0.0F, frequency) : 0.0F;
+	}
+
+	/** The animated {@code noise} params, read through {@code getParam} so keyframes/expr/bind all work. */
+	private static NoiseParams noiseParams(final VFXActiveEffect effect) {
+		return new NoiseParams(effect.getParam("brightness", 0.5F), effect.getParam("jitter", 0.0F),
+			effect.getParam("jitter_rate", 1.0F), effect.getParam("seed", 0.0F));
+	}
+
+	private record NoiseParams(float brightness, float jitter, float jitterRate, float seed) {
 	}
 
 	private static float gain(final VFXActiveEffect effect) {
@@ -121,7 +155,7 @@ public final class VFXVoiceManager {
 	}
 
 	/**
-	 * The world point a hum is heard from: the runtime move position, the first static
+	 * The world point a voice is heard from: the runtime move position, the first static
 	 * position (block-centred), the first entity anchor's live position, the authored
 	 * {@code pos_x/y/z} triple, or the local-player snapshot when nothing is authored.
 	 * {@code null} only when the single anchor source is untracked (a dead, out-of-range

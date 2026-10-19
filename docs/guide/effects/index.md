@@ -148,6 +148,7 @@ Generated sound, no post pass and no geometry. Accepts `positions`/`region` (or 
 anchors) for the voice position, like a world overlay.
 
 - [hum](audio/hum.md) - generated sine hum
+- [noise](audio/noise.md) - generated white noise
 
 ### Camera and misc
 
@@ -177,7 +178,7 @@ its JSON out of the jar into your own datapack under a new id.
 - **World overlays:** `block_tint`, `block_outline`, `light_beam`, `pulse_ring`, `guide_line`,
   `particles`, `block_chain`.
 - **Entity effects:** `entity_tint`, `entity_outline`, `entity_displace`.
-- **Audio:** `hum`.
+- **Audio:** `hum`, `noise`.
 - **Camera:** `camera_shake`, `camera_roll`, `fov_modifier`, `fog_modifier`.
 
 Built-in ids need their namespace (`vfxweaver:<name>`); there is no `minecraft:` fallback.

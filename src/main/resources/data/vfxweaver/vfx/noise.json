@@ -1,0 +1,14 @@
+{
+  "type": "noise",
+  "duration": 100,
+  "persistent": false,
+  "loop": false,
+  "fade_ticks": 20,
+  "params": {
+    "volume": 0.5,
+    "brightness": 0.7,
+    "jitter": 0.05,
+    "jitter_rate": 1.0,
+    "seed": 1.0
+  }
+}

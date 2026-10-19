@@ -110,6 +110,7 @@ nav:
           - entity_displace: guide/effects/entity/entity-displace.md
       - Audio:
           - hum: guide/effects/audio/hum.md
+          - noise: guide/effects/audio/noise.md
       - Camera and misc:
           - camera_shake: guide/effects/misc/camera-shake.md
           - camera_roll: guide/effects/misc/camera-roll.md

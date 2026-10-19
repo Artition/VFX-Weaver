@@ -82,11 +82,11 @@ public record VFXStructuralDescriptor(boolean supportsMask, List<String> maskSha
 	public static VFXStructuralDescriptor of(final VFXEffectType type) {
 		Objects.requireNonNull(type, "type");
 		// A world-overlay effect (except the entity-target pair, which use entity_selector instead)
-		// anchors at the top-level positions/region. The hum audio effect is not world
-		// geometry, but its voice is positioned the same way, so it shares the flag.
+		// anchors at the top-level positions/region. The hum/noise audio effects are not world
+		// geometry, but their voices are positioned the same way, so they share the flag.
 		final boolean positions = (type.isWorldOverlay()
 			&& type != VFXEffectType.ENTITY_TINT && type != VFXEffectType.ENTITY_OUTLINE)
-			|| type == VFXEffectType.HUM;
+			|| type == VFXEffectType.HUM || type == VFXEffectType.NOISE;
 		final boolean entitySelector = type == VFXEffectType.ENTITY_TINT
 			|| type == VFXEffectType.ENTITY_OUTLINE || type == VFXEffectType.ENTITY_DISPLACE;
 		// Every effect type may carry a sound (the manager plays definition.getSound() for any type).

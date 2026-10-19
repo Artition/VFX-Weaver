@@ -7,7 +7,7 @@ import java.util.Set;
 /**
  * The built-in visual effect kinds this mod can render. Each kind maps to a fragment
  * shader (post-processing passes), to a camera/world behaviour, or to generated audio
- * ({@link #HUM}).
+ * ({@link #HUM}, {@link #NOISE}).
  */
 public enum VFXEffectType {
 	/** Red/cyan channel separation that grows towards the screen edges. */
@@ -62,6 +62,8 @@ public enum VFXEffectType {
 	FOG_MODIFIER("fog_modifier"),
 	/** A generated sine hum (frequency/volume params) positioned in the world, never a post pass. */
 	HUM("hum"),
+	/** A generated white noise (volume/brightness/jitter params) positioned in the world, never a post pass. */
+	NOISE("noise"),
 	/** Camera shake driven by simplex noise. */
 	CAMERA_SHAKE("camera_shake"),
 	/** Fixed camera roll around the view axis with an optional sinusoidal wobble. */
@@ -141,7 +143,7 @@ public enum VFXEffectType {
 	 * True for the effect types that render a fullscreen post-processing pass.
 	 */
 	public boolean isPostProcessing() {
-		return this != CAMERA_SHAKE && this != CAMERA_ROLL && this != BLOCK_OUTLINE && this != BLOCK_TINT && this != LIGHT_BEAM && this != PULSE_RING && this != GUIDE_LINE && this != PARTICLES && this != BLOCK_CHAIN && this != ENTITY_TINT && this != ENTITY_OUTLINE && this != ENTITY_DISPLACE && this != FOV_MODIFIER && this != FOG_MODIFIER && this != HUM && this != WINDOW_CREATE && this != WINDOW_CONTROL && this != COLLECTION;
+		return this != CAMERA_SHAKE && this != CAMERA_ROLL && this != BLOCK_OUTLINE && this != BLOCK_TINT && this != LIGHT_BEAM && this != PULSE_RING && this != GUIDE_LINE && this != PARTICLES && this != BLOCK_CHAIN && this != ENTITY_TINT && this != ENTITY_OUTLINE && this != ENTITY_DISPLACE && this != FOV_MODIFIER && this != FOG_MODIFIER && this != HUM && this != NOISE && this != WINDOW_CREATE && this != WINDOW_CONTROL && this != COLLECTION;
 	}
 
 	/**
@@ -197,7 +199,7 @@ public enum VFXEffectType {
 			case "fog_color_amount" -> Float.NaN;
 			default -> Float.NaN;
 		};
-		case HUM -> "volume".equals(parameter) ? 0.0F : Float.NaN;
+		case HUM, NOISE -> "volume".equals(parameter) ? 0.0F : Float.NaN;
 		case SLICE_SHIFT -> "shift".equals(parameter) ? 0.0F : Float.NaN;
 		case NOISE_WARP -> "amplitude".equals(parameter) ? 0.0F : Float.NaN;
 		case SOLARIZE -> "intensity".equals(parameter) ? 0.0F : Float.NaN;
