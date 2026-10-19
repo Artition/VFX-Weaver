@@ -144,11 +144,13 @@ definition field. The client redraws the entity in a second pass over the origin
 
 ### Audio
 
-Generated sound, no post pass and no geometry. Accepts `positions`/`region` (or entity
-anchors) for the voice position, like a world overlay.
+Generated sound, no post pass and no geometry. `hum`/`noise` accept `positions`/`region`
+(or entity anchors) for the voice position, like a world overlay; `volume_duck` is global
+and ignores them.
 
 - [hum](audio/hum.md) - generated sine hum
 - [noise](audio/noise.md) - generated white noise
+- [volume_duck](audio/volume-duck.md) - vanilla category volume duck
 
 ### Camera and misc
 
@@ -178,7 +180,7 @@ its JSON out of the jar into your own datapack under a new id.
 - **World overlays:** `block_tint`, `block_outline`, `light_beam`, `pulse_ring`, `guide_line`,
   `particles`, `block_chain`.
 - **Entity effects:** `entity_tint`, `entity_outline`, `entity_displace`.
-- **Audio:** `hum`, `noise`.
+- **Audio:** `hum`, `noise`, `volume_duck`.
 - **Camera:** `camera_shake`, `camera_roll`, `fov_modifier`, `fog_modifier`.
 
 Built-in ids need their namespace (`vfxweaver:<name>`); there is no `minecraft:` fallback.

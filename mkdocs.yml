@@ -111,6 +111,7 @@ nav:
       - Audio:
           - hum: guide/effects/audio/hum.md
           - noise: guide/effects/audio/noise.md
+          - volume_duck: guide/effects/audio/volume-duck.md
       - Camera and misc:
           - camera_shake: guide/effects/misc/camera-shake.md
           - camera_roll: guide/effects/misc/camera-roll.md

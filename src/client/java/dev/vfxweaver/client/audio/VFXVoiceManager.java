@@ -3,19 +3,22 @@ package dev.vfxweaver.client.audio;
 import dev.vfxweaver.effect.VFXActiveEffect;
 import dev.vfxweaver.effect.VFXEffectType;
 import dev.vfxweaver.effect.VFXWorldBindings;
+import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
+import net.minecraft.sounds.SoundSource;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.phys.Vec3;
 import org.jspecify.annotations.Nullable;
 
 /**
  * The lifecycle bridge between the {@code hum}/{@code noise} effects and their synthesised
- * voices: one {@link VFXHumVoice} or {@link VFXNoiseVoice} per active instance, reconciled
+ * voices, plus the {@code volume_duck} effect and the vanilla sound categories it scales:
+ * one {@link VFXHumVoice} or {@link VFXNoiseVoice} per active instance, reconciled
  * against the live set every frame.
  *
  * <p><b>Open / close, driven by the active set.</b> {@link #reconcile(List, float)} is
@@ -47,6 +50,12 @@ public final class VFXVoiceManager {
 
 	private final Map<Long, VFXHumVoice> hums = new HashMap<>();
 	private final Map<Long, VFXNoiseVoice> noises = new HashMap<>();
+	/**
+	 * The pre-duck category levels, one entry per currently ducked channel. Empty while no
+	 * {@code volume_duck} is active; every entry is restored (then dropped) once its channel
+	 * is no longer ducked, so user slider moves on untouched channels are never stomped.
+	 */
+	private final Map<SoundSource, Float> duckBase = new EnumMap<>(SoundSource.class);
 
 	private VFXVoiceManager() {
 	}
@@ -62,8 +71,9 @@ public final class VFXVoiceManager {
 
 	/**
 	 * Opens a voice for every active {@code hum}/{@code noise} effect that has none yet,
-	 * ticks every bound voice with the current clock and parameters, and closes every voice
-	 * whose effect is no longer active. Must run on the render thread.
+	 * ticks every bound voice with the current clock and parameters, closes every voice whose
+	 * effect is no longer active, and applies every active {@code volume_duck} to its vanilla
+	 * sound category. Must run on the render thread.
 	 *
 	 * @param active     the current active effects (an instance owns its voice while it is in the list)
 	 * @param clockTicks the shared effect clock, in ticks
@@ -108,11 +118,13 @@ public final class VFXVoiceManager {
 			entry.getValue().tick(clockTicks, gain(effect), params.brightness(),
 				params.jitter(), params.jitterRate(), params.seed());
 		}
+		this.reconcileDuck(active);
 	}
 
 	/**
-	 * Closes and drops every voice, run on a client dispose and on {@code stopAll} (which
-	 * cuts immediately, mirroring the aux-window close) so no voice outlives the game session.
+	 * Closes and drops every voice and restores every ducked vanilla category, run on a client
+	 * dispose and on {@code stopAll} (which cuts immediately, mirroring the aux-window close)
+	 * so no voice outlives the game session and no category stays ducked after one.
 	 * Must run on the render thread.
 	 */
 	public void stopAll() {
@@ -124,6 +136,69 @@ public final class VFXVoiceManager {
 			voice.close();
 		}
 		this.noises.clear();
+		this.restoreDuckedVolumes();
+	}
+
+	/**
+	 * Scales every {@code volume_duck} effect's category to its pre-duck level times the
+	 * effect's fade-aware scale ({@code 1 - (1 - volume) * weight}, so {@code fade_ticks}
+	 * fades the duck in and out). Several ducks on one channel resolve last-writer-wins in
+	 * active-list order. A channel whose duck is gone is restored at once, so a single stop,
+	 * a replay seek, {@code stopAll} and a world exit (the render hook stops everything when
+	 * the level unloads) all hand the sliders back. Only ducked channels are ever written.
+	 *
+	 * @param active the current active effects (an instance ducks its channel while it is in the list)
+	 */
+	private void reconcileDuck(final List<VFXActiveEffect> active) {
+		final Map<SoundSource, Float> scales = new EnumMap<>(SoundSource.class);
+		for (final VFXActiveEffect effect : active) {
+			if (effect.getType() == VFXEffectType.VOLUME_DUCK) {
+				scales.put(duckChannel(effect), duckScale(effect));
+			}
+		}
+		final Minecraft minecraft = Minecraft.getInstance();
+		final Iterator<Map.Entry<SoundSource, Float>> bases = this.duckBase.entrySet().iterator();
+		while (bases.hasNext()) {
+			final Map.Entry<SoundSource, Float> base = bases.next();
+			if (!scales.containsKey(base.getKey())) {
+				minecraft.options.getSoundSourceOptionInstance(base.getKey()).set(base.getValue().doubleValue());
+				bases.remove();
+			}
+		}
+		for (final Map.Entry<SoundSource, Float> scale : scales.entrySet()) {
+			this.duckBase.computeIfAbsent(scale.getKey(),
+				category -> minecraft.options.getSoundSourceVolume(category));
+			final float base = this.duckBase.get(scale.getKey());
+			minecraft.options.getSoundSourceOptionInstance(scale.getKey())
+				.set((double) (base * scale.getValue()));
+		}
+	}
+
+	/** Restores every ducked category to its pre-duck level and forgets the snapshot. */
+	private void restoreDuckedVolumes() {
+		final Minecraft minecraft = Minecraft.getInstance();
+		for (final Map.Entry<SoundSource, Float> base : this.duckBase.entrySet()) {
+			minecraft.options.getSoundSourceOptionInstance(base.getKey()).set(base.getValue().doubleValue());
+		}
+		this.duckBase.clear();
+	}
+
+	/** The {@code volume_duck} channel: the {@code channel} param rounded to a {@link SoundSource} ordinal. */
+	private static SoundSource duckChannel(final VFXActiveEffect effect) {
+		final float channel = effect.getParam("channel", 0.0F);
+		if (!Float.isFinite(channel)) {
+			return SoundSource.MASTER;
+		}
+		final SoundSource[] categories = SoundSource.values();
+		return categories[Math.min(categories.length - 1, Math.max(0, Math.round(channel)))];
+	}
+
+	/** The {@code volume_duck} multiplier: {@code volume} blended toward 1 (no duck) by the fade weight. */
+	private static float duckScale(final VFXActiveEffect effect) {
+		float volume = effect.getParam("volume", 1.0F);
+		volume = Float.isFinite(volume) ? Math.min(1.0F, Math.max(0.0F, volume)) : 1.0F;
+		final float weight = Math.min(1.0F, Math.max(0.0F, effect.getWeight()));
+		return 1.0F - (1.0F - volume) * weight;
 	}
 
 	private static float frequency(final VFXActiveEffect effect) {
