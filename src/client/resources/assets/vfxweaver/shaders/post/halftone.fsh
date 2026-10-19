@@ -25,7 +25,7 @@ void main() {
     float acc = 0.0;
     for (int i = 0; i < 8; i++) {
         float t = 6.2831853 * float(i) / 8.0;
-        vec2 off = vec2(cos(t) * 0.045 / aspect, sin(t) * 0.045);
+        vec2 off = vec2(cos(t) * 0.03 / aspect, sin(t) * 0.03);
         acc += dot(texture(InSampler, texCoord + off).rgb, vec3(0.2126, 0.7152, 0.0722));
     }
     float tone = clamp((lum0 - acc * 0.125) * gain + 0.5, 0.0, 1.0);

@@ -33,12 +33,12 @@ void main() {
     float acc = 0.0;
     for (int i = 0; i < 8; i++) {
         float t = 6.2831853 * float(i) / 8.0;
-        vec2 off = vec2(cos(t) * 0.045 / aspect, sin(t) * 0.045);
+        vec2 off = vec2(cos(t) * 0.03 / aspect, sin(t) * 0.03);
         acc += vfx_luma(texCoord + off);
     }
     float avg = acc * 0.125;
     // clean two-tone split around the local mean
-    float two = step(avg + 0.004, luma);
+    float two = smoothstep(avg - 0.015, avg + 0.015, luma);
     // Sobel contour (ink tap step)
     vec2 px = 1.5 / max(OutSize, vec2(1.0));
     float tl = vfx_luma(texCoord + vec2(-px.x, -px.y));

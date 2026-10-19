@@ -31,12 +31,12 @@ void main() {
     float acc = 0.0;
     for (int i = 0; i < 8; i++) {
         float t = 6.2831853 * float(i) / 8.0;
-        vec2 off = vec2(cos(t) * 0.045 / aspect, sin(t) * 0.045);
+        vec2 off = vec2(cos(t) * 0.03 / aspect, sin(t) * 0.03);
         acc += vfx_luma(texCoord + off);
     }
     float avg = acc * 0.125;
     // highlight split around the local mean, plus a hot core
-    float two = step(avg + 0.004, luma);
+    float two = smoothstep(avg - 0.015, avg + 0.015, luma);
     float core = step(avg + 0.18, luma);
     // halftone dots in the mid tones: 5px cells rotated 45 degrees
     float tone = clamp((luma - avg) * 5.0 + 0.5, 0.0, 1.0);

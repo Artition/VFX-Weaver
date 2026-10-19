@@ -12,7 +12,7 @@ Print-style halftone dots whose size follows the local luminance.
 |---|---|---|---|
 | `cell_size` | float | 5 | Dot cell size in pixels |
 | `angle` | float | 45 | Screen angle in degrees |
-| `gain` | float | 5 | Local-contrast gain |
+| `gain` | float | 2.5 | Local-contrast gain |
 | `amount` | float | 1 (fades to 0) | Dot pattern visibility |
 
 ## Example
@@ -21,7 +21,7 @@ Print-style halftone dots whose size follows the local luminance.
 {
 	"type": "halftone",
 	"duration": 60,
-	"params": { "cell_size": 5, "angle": 45, "gain": 5, "amount": 1 }
+	"params": { "cell_size": 5, "angle": 45, "gain": 2.5, "amount": 1 }
 }
 ```
 
@@ -48,7 +48,7 @@ Its datapack definition:
 	"params": {
 		"cell_size": 5.0,
 		"angle": 45.0,
-		"gain": 5.0,
+		"gain": 2.5,
 		"amount": {
 			"start": 1.0,
 			"end": 0.0
