@@ -11,7 +11,7 @@ Each beat is a "lub-dub" pair: the beat phase advances `rate / 60` cycles per
 second, and every wrap fires a lub thump plus a dub thump at `0.6` of the amplitude,
 ~0.28 s later at rest and easing into even half-beat spacing as `rate` climbs —
 slow hearts beat in pairs, fast hearts beat evenly. Each thump is a 5 ms attack from silence into an exponential decay
-(time constant ~80 ms) of the `pitch` sine, so beats start and end at zero — no clicks,
+(time constant ~80 ms at rest, tightening to ~40 ms at high rates so fast beats stay crisp) of the `pitch` sine, so beats start and end at zero — no clicks,
 even when the dub lands on the next lub or `rate` animates mid-beat.
 
 ## Fields
