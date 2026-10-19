@@ -13,9 +13,10 @@ import org.slf4j.LoggerFactory;
  * pack and works identically on every supported Minecraft version.
  *
  * <p>Each beat is a "lub-dub" pair: the beat phase advances {@code rate / 60} cycles per
- * second, and every wrap fires a lub trigger now plus a dub trigger {@value #DUB_DELAY_S}s
- * later at {@value #DUB_AMPLITUDE} of the amplitude. Each thump has its own envelope — a fast
- * linear attack then an exponential decay of a {@code pitch} sine — so the sound is a real
+ * second, and every wrap fires a lub trigger now plus a dub trigger a rate-dependent
+ * gap later (see {@link #dubGap(double)}): ~0.28 s apart at rest, easing into even
+ * half-beat spacing as the rate climbs — slow hearts beat in pairs with a mini-pause,
+ * fast hearts beat evenly. Each thump has its own envelope — a fast linear attack then an exponential decay of a {@code pitch} sine — so the sound is a real
  * heartbeat: two soft knocks, the second fainter, with silence between beats. Envelopes always
  * start at zero and overlap by addition, so beats never click: not at the wrap, not when a
  * dub lands on the next lub, not when {@code rate} animates. Both {@code rate} and
@@ -40,8 +41,9 @@ final class VFXHeartbeatVoice {
 	private static final int SAMPLES_PER_TICK = (int) (SAMPLE_RATE / 20.0F);
 	private static final int MAX_SAMPLES_PER_CALL = SAMPLES_PER_TICK * 4;
 	private static final int BUFFER_BYTES = (int) (SAMPLE_RATE * 2 * 0.5F);
-	/** The second ("dub") thump lands this many seconds after the lub, at {@link #DUB_AMPLITUDE}. */
-	private static final double DUB_DELAY_S = 0.27;
+	private static double dubGap(final double bpm) {
+		return Math.min(0.28, 30.0 / Math.max(bpm, 1.0));
+	}
 	private static final double DUB_AMPLITUDE = 0.6;
 	/** Thump attack: linear ramp from zero, fast enough to knock, slow enough to never click. */
 	private static final double ATTACK_S = 0.005;
@@ -112,7 +114,7 @@ final class VFXHeartbeatVoice {
 			if (this.beatPhase >= 1.0) {
 				this.beatPhase -= 1.0;
 				this.fire(1.0F, 0.0);
-				this.fire((float) DUB_AMPLITUDE, -DUB_DELAY_S);
+				this.fire((float) DUB_AMPLITUDE, -dubGap(bpm));
 			}
 			this.advanceTriggers(sampleStep);
 			this.tonePhase += toneStep;
