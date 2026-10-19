@@ -31,7 +31,7 @@ void main() {
     // absolute mid-tone for the dots: same scale as the split above
     float tone = clamp(luma, 0.0, 1.0);
     float a = radians(45.0);
-    vec2 cellpx = texCoord * OutSize;
+    vec2 cellpx = (texCoord - 0.5) * OutSize;
     vec2 rp = vec2(cos(a) * cellpx.x - sin(a) * cellpx.y, sin(a) * cellpx.x + cos(a) * cellpx.y) / 5.0;
     float band = smoothstep(0.15, 0.35, tone) * (1.0 - smoothstep(0.65, 0.85, tone));
     float dots = step(length(fract(rp) - 0.5), sqrt(1.0 - tone) * 0.62);

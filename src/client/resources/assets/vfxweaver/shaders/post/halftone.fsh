@@ -28,7 +28,7 @@ void main() {
     float a = radians(angle);
     float ca = cos(a);
     float sa = sin(a);
-    vec2 px = texCoord * OutSize;
+    vec2 px = (texCoord - 0.5) * OutSize;
     vec2 tp = vec2(ca * px.x - sa * px.y, sa * px.x + ca * px.y) / cell;
     float dd = length(fract(tp) - 0.5);
     float m = step(dd, sqrt(1.0 - tone) * 0.62);

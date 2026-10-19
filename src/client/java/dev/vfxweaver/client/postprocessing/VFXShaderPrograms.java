@@ -255,8 +255,8 @@ public final class VFXShaderPrograms {
 		registerPost(VFXEffectType.SCANLINES, "intensity", "line_count", "speed", "time");
 		registerPost(VFXEffectType.HALFTONE, "cell_size", "angle", "gain", "amount");
 		registerPost(VFXEffectType.INK, "edge_low", "edge_high", "amount");
-		registerPost(VFXEffectType.COMIC, "paper_r", "paper_g", "paper_b", "ink_r", "ink_g", "ink_b", "amount");
-		registerPost(VFXEffectType.ACCENT_GLOW, "accent_r", "accent_g", "accent_b", "strength", "amount");
+		registerPost(VFXEffectType.COMIC, "paper_r", "paper_g", "paper_b", "ink_r", "ink_g", "ink_b", "amount", "mid");
+		registerPost(VFXEffectType.ACCENT_GLOW, "accent_r", "accent_g", "accent_b", "strength", "amount", "mid", "core");
 		registerPost(VFXEffectType.DEPTH_OF_FIELD, new String[]{"intensity", "focus_center", "focus_range"}, true, Set.of("intensity"), 16);
 		registerPost(VFXEffectType.LETTERBOX, "height", "color_r", "color_g", "color_b");
 		registerPost(VFXEffectType.INVERT, "intensity");

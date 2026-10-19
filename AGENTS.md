@@ -14,6 +14,9 @@ renderer clamps become lower-bound-only `Math.max(v, floor)`, schema entries dro
 (fixed shell/slice counts — size only scales positions), so "safety" is not a justification.
 Large values may raise overdraw — note it in the guide, never hard-clamp it.
 
+Grid/pattern effects anchor at screen centre: scale and rotate dot/cell grids around
+`(0.5, 0.5)` in UV, never grow them from a corner.
+
 ## Workflow
 
 - Conventional Commits (`feat/fix/docs/...`), GitHub Flow, PR must build + update the guide in the same PR.
