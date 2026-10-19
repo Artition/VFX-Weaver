@@ -13,6 +13,7 @@ Duotone comic: a clean two-tone split at mid grey printed in paper/ink colours, 
 | `paper_r/g/b` | float | 1 / 1 / 1 | Light-tone (paper) colour |
 | `ink_r/g/b` | float | 0 / 0 / 0 | Dark-tone (ink) colour, also used for the dots and contour |
 | `amount` | float | 1 (fades to 0) | Comic look visibility |
+| `mid` | float | 0.5 | Two-tone split point in luma |
 
 ## Example
 

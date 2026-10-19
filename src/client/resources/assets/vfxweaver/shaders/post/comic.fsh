@@ -17,6 +17,7 @@ layout(std140) uniform Config {
     float ink_g;
     float ink_b;
     float amount;
+    float mid;
 };
 
 out vec4 fragColor;
@@ -30,7 +31,7 @@ void main() {
     float luma = dot(base.rgb, vec3(0.2126, 0.7152, 0.0722));
     // absolute two-tone split at mid grey: no local reference, so no halos by construction.
     // the ink contour below still draws precise edges.
-    float two = smoothstep(0.485, 0.515, luma);
+    float two = smoothstep(mid - 0.015, mid + 0.015, luma);
     // Sobel contour (ink tap step)
     vec2 px = 1.5 / max(OutSize, vec2(1.0));
     float tl = vfx_luma(texCoord + vec2(-px.x, -px.y));

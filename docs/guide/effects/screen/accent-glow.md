@@ -13,6 +13,8 @@ Dark accent glow on the highlights: pixels above mid grey print in the accent co
 | `accent_r/g/b` | float | 0.35 / 0.9 / 1.0 | Accent (glow) colour |
 | `strength` | float | 1 | Glow brightness multiplier |
 | `amount` | float | 1 (fades to 0) | Glow look visibility |
+| `mid` | float | 0.5 | Highlight split point in luma |
+| `core` | float | 0.68 | Hot-core threshold in luma |
 
 ## Example
 
