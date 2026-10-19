@@ -16,9 +16,9 @@ import net.minecraft.world.phys.Vec3;
 import org.jspecify.annotations.Nullable;
 
 /**
- * The lifecycle bridge between the {@code hum}/{@code noise} effects and their synthesised
+ * The lifecycle bridge between the {@code hum}/{@code noise}/{@code heartbeat} effects and their synthesised
  * voices, plus the {@code volume_duck} effect and the vanilla sound categories it scales:
- * one {@link VFXHumVoice} or {@link VFXNoiseVoice} per active instance, reconciled
+ * one {@link VFXHumVoice}, {@link VFXNoiseVoice} or {@link VFXHeartbeatVoice} per active instance, reconciled
  * against the live set every frame.
  *
  * <p><b>Open / close, driven by the active set.</b> {@link #reconcile(List, float)} is
@@ -32,7 +32,8 @@ import org.jspecify.annotations.Nullable;
  *
  * <p><b>Per-frame drive.</b> Each bound voice is ticked with the shared effect clock, its
  * animated params ({@code frequency} for a hum; {@code brightness}/{@code jitter}/
- * {@code jitter_rate}/{@code seed} for a noise) with {@code volume} scaled by the fade
+ * {@code jitter_rate}/{@code seed} for a noise; {@code rate}/{@code pitch} for a
+ * heartbeat) with {@code volume} scaled by the fade
  * weight, positioned at the effect's move position, first static position, first entity
  * anchor, authored {@code pos_x/y/z} triple, or — when none is authored — the
  * local-player snapshot, with a linear distance falloff from the camera. An effect whose
@@ -50,6 +51,7 @@ public final class VFXVoiceManager {
 
 	private final Map<Long, VFXHumVoice> hums = new HashMap<>();
 	private final Map<Long, VFXNoiseVoice> noises = new HashMap<>();
+	private final Map<Long, VFXHeartbeatVoice> heartbeats = new HashMap<>();
 	/**
 	 * The pre-duck category levels, one entry per currently ducked channel. Empty while no
 	 * {@code volume_duck} is active; every entry is restored (then dropped) once its channel
@@ -70,7 +72,7 @@ public final class VFXVoiceManager {
 	}
 
 	/**
-	 * Opens a voice for every active {@code hum}/{@code noise} effect that has none yet,
+	 * Opens a voice for every active {@code hum}/{@code noise}/{@code heartbeat} effect that has none yet,
 	 * ticks every bound voice with the current clock and parameters, closes every voice whose
 	 * effect is no longer active, and applies every active {@code volume_duck} to its vanilla
 	 * sound category. Must run on the render thread.
@@ -81,11 +83,14 @@ public final class VFXVoiceManager {
 	public void reconcile(final List<VFXActiveEffect> active, final float clockTicks) {
 		final Map<Long, VFXActiveEffect> humOwners = new HashMap<>();
 		final Map<Long, VFXActiveEffect> noiseOwners = new HashMap<>();
+		final Map<Long, VFXActiveEffect> heartbeatOwners = new HashMap<>();
 		for (final VFXActiveEffect effect : active) {
 			if (effect.getType() == VFXEffectType.HUM) {
 				humOwners.putIfAbsent(effect.getInstanceId(), effect);
 			} else if (effect.getType() == VFXEffectType.NOISE) {
 				noiseOwners.putIfAbsent(effect.getInstanceId(), effect);
+			} else if (effect.getType() == VFXEffectType.HEARTBEAT) {
+				heartbeatOwners.putIfAbsent(effect.getInstanceId(), effect);
 			}
 		}
 		for (final Long id : humOwners.keySet()) {
@@ -118,6 +123,20 @@ public final class VFXVoiceManager {
 			entry.getValue().tick(clockTicks, gain(effect), params.brightness(),
 				params.jitter(), params.jitterRate(), params.seed());
 		}
+		for (final Long id : heartbeatOwners.keySet()) {
+			this.heartbeats.computeIfAbsent(id, ignored -> new VFXHeartbeatVoice());
+		}
+		final Iterator<Map.Entry<Long, VFXHeartbeatVoice>> heartbeats = this.heartbeats.entrySet().iterator();
+		while (heartbeats.hasNext()) {
+			final Map.Entry<Long, VFXHeartbeatVoice> entry = heartbeats.next();
+			final VFXActiveEffect effect = heartbeatOwners.get(entry.getKey());
+			if (effect == null) {
+				entry.getValue().close();
+				heartbeats.remove();
+				continue;
+			}
+			entry.getValue().tick(clockTicks, gain(effect), heartbeatRate(effect), heartbeatPitch(effect));
+		}
 		this.reconcileDuck(active);
 	}
 
@@ -136,6 +155,10 @@ public final class VFXVoiceManager {
 			voice.close();
 		}
 		this.noises.clear();
+		for (final VFXHeartbeatVoice voice : this.heartbeats.values()) {
+			voice.close();
+		}
+		this.heartbeats.clear();
 		this.restoreDuckedVolumes();
 	}
 
@@ -213,6 +236,17 @@ public final class VFXVoiceManager {
 	}
 
 	private record NoiseParams(float brightness, float jitter, float jitterRate, float seed) {
+	}
+
+	/** The animated {@code heartbeat} params, read through {@code getParam} so keyframes/expr/bind all work. */
+	private static float heartbeatRate(final VFXActiveEffect effect) {
+		final float rate = effect.getParam("rate", 60.0F);
+		return Float.isFinite(rate) ? Math.max(0.0F, rate) : 0.0F;
+	}
+
+	private static float heartbeatPitch(final VFXActiveEffect effect) {
+		final float pitch = effect.getParam("pitch", 55.0F);
+		return Float.isFinite(pitch) ? Math.max(0.0F, pitch) : 0.0F;
 	}
 
 	private static float gain(final VFXActiveEffect effect) {

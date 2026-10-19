@@ -1,0 +1,12 @@
+{
+  "type": "heartbeat",
+  "duration": 100,
+  "persistent": false,
+  "loop": false,
+  "fade_ticks": 20,
+  "params": {
+    "rate": 60.0,
+    "volume": 0.5,
+    "pitch": 55.0
+  }
+}

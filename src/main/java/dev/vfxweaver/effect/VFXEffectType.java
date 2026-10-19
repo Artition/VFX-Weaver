@@ -7,7 +7,7 @@ import java.util.Set;
 /**
  * The built-in visual effect kinds this mod can render. Each kind maps to a fragment
  * shader (post-processing passes), to a camera/world behaviour, or to generated audio
- * ({@link #HUM}, {@link #NOISE}) or a vanilla sound-category duck ({@link #VOLUME_DUCK}).
+ * ({@link #HUM}, {@link #NOISE}, {@link #HEARTBEAT}) or a vanilla sound-category duck ({@link #VOLUME_DUCK}).
  */
 public enum VFXEffectType {
 	/** Red/cyan channel separation that grows towards the screen edges. */
@@ -66,6 +66,8 @@ public enum VFXEffectType {
 	NOISE("noise"),
 	/** Scales vanilla sound-category levels (channel/volume params) down while active, never a post pass. */
 	VOLUME_DUCK("volume_duck"),
+	/** A periodic low thump (rate/volume/pitch params) positioned in the world, never a post pass. */
+	HEARTBEAT("heartbeat"),
 	/** Camera shake driven by simplex noise. */
 	CAMERA_SHAKE("camera_shake"),
 	/** Fixed camera roll around the view axis with an optional sinusoidal wobble. */
@@ -145,7 +147,7 @@ public enum VFXEffectType {
 	 * True for the effect types that render a fullscreen post-processing pass.
 	 */
 	public boolean isPostProcessing() {
-		return this != CAMERA_SHAKE && this != CAMERA_ROLL && this != BLOCK_OUTLINE && this != BLOCK_TINT && this != LIGHT_BEAM && this != PULSE_RING && this != GUIDE_LINE && this != PARTICLES && this != BLOCK_CHAIN && this != ENTITY_TINT && this != ENTITY_OUTLINE && this != ENTITY_DISPLACE && this != FOV_MODIFIER && this != FOG_MODIFIER && this != HUM && this != NOISE && this != VOLUME_DUCK && this != WINDOW_CREATE && this != WINDOW_CONTROL && this != COLLECTION;
+		return this != CAMERA_SHAKE && this != CAMERA_ROLL && this != BLOCK_OUTLINE && this != BLOCK_TINT && this != LIGHT_BEAM && this != PULSE_RING && this != GUIDE_LINE && this != PARTICLES && this != BLOCK_CHAIN && this != ENTITY_TINT && this != ENTITY_OUTLINE && this != ENTITY_DISPLACE && this != FOV_MODIFIER && this != FOG_MODIFIER && this != HUM && this != NOISE && this != VOLUME_DUCK && this != HEARTBEAT && this != WINDOW_CREATE && this != WINDOW_CONTROL && this != COLLECTION;
 	}
 
 	/**
@@ -201,7 +203,7 @@ public enum VFXEffectType {
 			case "fog_color_amount" -> Float.NaN;
 			default -> Float.NaN;
 		};
-		case HUM, NOISE -> "volume".equals(parameter) ? 0.0F : Float.NaN;
+		case HUM, NOISE, HEARTBEAT -> "volume".equals(parameter) ? 0.0F : Float.NaN;
 		// A duck at full weight scales its channel by `volume`, so the fade blends toward 1 (no duck).
 		case VOLUME_DUCK -> "volume".equals(parameter) ? 1.0F : Float.NaN;
 		case SLICE_SHIFT -> "shift".equals(parameter) ? 0.0F : Float.NaN;

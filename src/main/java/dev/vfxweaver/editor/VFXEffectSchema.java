@@ -174,6 +174,9 @@ public final class VFXEffectSchema {
 		registerNonPost(VFXEffectType.VOLUME_DUCK,
 			new String[] {"channel", "volume"},
 			Map.of("volume", new float[] {0.0F, 1.0F}));
+		registerNonPost(VFXEffectType.HEARTBEAT,
+			new String[] {"rate", "volume", "pitch"},
+			Map.of("volume", new float[] {0.0F, 1.0F}));
 		registerNonPost(VFXEffectType.WINDOW_CREATE,
 			new String[] {"pos_x", "pos_y", "size_w", "size_h", "opacity", "frames", "frame_time", "title_index"},
 			windowBounds());
