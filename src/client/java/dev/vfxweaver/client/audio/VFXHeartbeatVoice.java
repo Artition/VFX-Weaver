@@ -109,6 +109,8 @@ final class VFXHeartbeatVoice {
 		double beatStep = bpm / 60.0 / SAMPLE_RATE;
 		double toneStep = 2.0 * Math.PI * pitch / SAMPLE_RATE;
 		double sampleStep = 1.0 / SAMPLE_RATE;
+		// Tape-like tempo: faster hearts get tighter thumps, floored so tails never click.
+		final double decayTau = DECAY_TAU_S * Math.max(0.5, Math.min(1.0, 90.0 / bpm));
 		for (int i = 0; i < samples; i++) {
 			this.beatPhase += beatStep;
 			if (this.beatPhase >= 1.0) {
@@ -124,7 +126,7 @@ final class VFXHeartbeatVoice {
 			float g = this.currentGain + (gain - this.currentGain) * (i + 1) / samples;
 			// Clamp before the cast: overlapping lub+dub tails can sum past 1 at high rates,
 			// and that must saturate, never wrap around the short range (a harsh click).
-			float v = Math.min(1.0F, Math.max(-1.0F, (float) (Math.sin(this.tonePhase) * this.envelope() * g)));
+			float v = Math.min(1.0F, Math.max(-1.0F, (float) (Math.sin(this.tonePhase) * this.envelope(decayTau) * g)));
 			short s = (short) (v * Short.MAX_VALUE);
 			out[i * 2] = (byte) s;
 			out[i * 2 + 1] = (byte) (s >> 8);
@@ -155,7 +157,7 @@ final class VFXHeartbeatVoice {
 	}
 
 	/** The summed thump envelopes: each a 5ms attack from zero times an exponential decay. */
-	private double envelope() {
+	private double envelope(final double tau) {
 		double envelope = 0.0;
 		for (int i = 0; i < MAX_TRIGGERS; i++) {
 			final float amp = this.triggerAmp[i];
@@ -164,7 +166,7 @@ final class VFXHeartbeatVoice {
 				continue;
 			}
 			final double attack = Math.min(1.0, age / ATTACK_S);
-			envelope += amp * attack * Math.exp(-age / DECAY_TAU_S);
+			envelope += amp * attack * Math.exp(-age / tau);
 		}
 		return envelope;
 	}
