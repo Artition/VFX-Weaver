@@ -28,6 +28,15 @@ $forbidden = @(
 
 $types = "float|double|int|uint|bool|void|vec2|vec3|vec4|ivec2|ivec3|ivec4|bvec2|bvec3|bvec4|mat2|mat3|mat4|uvec2|uvec3|uvec4|sampler2D|sampler3D|samplerCube"
 
+# Keywords of Java (and friends) that do not exist in GLSL. A stray `final float x = ...`
+# is a syntax error, the pipeline fails to load and the screen goes black.
+$javaOnly = @(
+	"final", "var", "new", "package", "import", "interface", "extends", "implements",
+	"instanceof", "super", "null", "native", "synchronized", "transient", "goto", "assert",
+	"throws", "boolean", "byte", "short", "long", "char", "record", "sealed", "yield", "permits"
+) | Sort-Object -Unique
+$javaPattern = "(?<![.\w])($($javaOnly -join '|'))(?![.\w])"
+
 # `<type> <name>` starting a declaration or a parameter; the name is the capture group.
 $pattern = "(?:^|[^\w.])(?:$types)\s+($($forbidden -join '|'))\b"
 
@@ -45,6 +54,11 @@ foreach ($file in $files) {
 			$name = $m.Groups[1].Value
 			$rel = Resolve-Path -LiteralPath $file.FullName -Relative
 			$problems.Add("${rel}:${line}: declaration uses forbidden GLSL identifier '$name'")
+		}
+		foreach ($m in [regex]::Matches($rawLine, $javaPattern)) {
+			$name = $m.Groups[1].Value
+			$rel = Resolve-Path -LiteralPath $file.FullName -Relative
+			$problems.Add("${rel}:${line}: uses '$name', which is not a GLSL keyword")
 		}
 	}
 }

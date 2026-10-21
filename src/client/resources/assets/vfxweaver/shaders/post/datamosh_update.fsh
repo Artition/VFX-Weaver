@@ -103,7 +103,7 @@ void main() {
     bool allOne = true;
     bool allZero = true;
     for (int i = 0; i < 9; i++) {
-        final float a = texelFetch(HistSampler, q[i], 0).a;
+        float a = texelFetch(HistSampler, q[i], 0).a;
         allOne = allOne && a >= 0.999;
         allZero = allZero && a <= 0.001;
     }
