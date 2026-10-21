@@ -2,9 +2,9 @@
 
 `type: "datamosh"`
 
-Data-mosh corruption: the frame is decoded against a reference that never arrives, so the
-decoder paints the old screen, dragged along the movement, and every block that changed comes
-apart in colour.
+Data-mosh corruption: the frame is drawn from the previous frame, warped by the movement, so
+the picture melts into a trail and the colour planes drift apart - what a video shows when the
+key frames are gone and the decoder keeps painting the P-frames.
 
 ## Fields
 
@@ -13,46 +13,46 @@ apart in colour.
 | Field | Type | Default | Meaning |
 |---|---|---|---|
 | `amount` | float | 1 (fades to 0) | How much of the melt is mixed over the live frame (0..1) |
-| `residual` | float | 0.06 | How fast the reference refreshes - the lower it is, the older the picture the decoder paints (0..1) |
-| `smear` | float | 4 | How many frames of movement the drag covers |
-| `chroma` | float | 0.85 | How strongly the wrong blocks are put out of hue (0..1) |
+| `residual` | float | 0.06 | How much of the live picture still lands in the reconstruction (0..1) |
+| `smear` | float | 2 | How much the movement is stretched: 1 follows it exactly, 2 over-compensates and the picture tears away |
+| `chroma` | float | 0.1 | How far the colour planes drift apart along the movement (0.1 = the 4:2:0 look) |
+| `iframe` | float | 3 | How often the decoder gets a key frame and the picture snaps back, in seconds (0 = never) |
 
 ## How it works
 
 The effect is a **feedback effect**: it keeps the picture it produced last frame in the frame's
 history buffer, and that history is the reference the decoder gets instead of a key frame.
 
-- **The key frame never arrives.** The history barely refreshes: only `residual` of the live
-  picture (6 %) leaks into it per frame, so it holds the screen as it was roughly half a
-  second ago. That is the picture the decoder paints.
-- **The movement** is estimated the way a codec searches its reference frame for the matching
-  block: one Lucas-Kanade step between the live picture and the reference gives the velocity
-  of the content. It is measured **once per 8 px macroblock**, so the whole block gets one
-  motion vector and the picture moves in whole pieces instead of crawling pixel by pixel -
-  that is what keeps it from flickering. This estimate is also the only thing that moves the
-  frame: with nothing moving in the scene it is zero and the picture stays whole.
-- **The decoder paints the old picture, dragged** along that movement, `smear` frames deep.
-  The drag is snapped to a 4 px lattice, the way a codec snaps its vectors, so the picture
-  comes apart in whole steps. Because the drag covers a few frames while the reference is half
-  a second old, the old content lands in the **wrong place** - that misalignment is the tear.
-- **Every block is decoded**, and the ones that no longer match get their **chroma plane
-  wrong**: the hue is rotated and the saturation overstated, in proportion to how wrong the
-  block is. There is no threshold - the whole frame is decoded, and the parts that changed come
-  apart hardest. The luma is never touched, so the picture stays readable and never turns into
-  grey mush.
-- The **composite pass** mixes the melted picture over the live frame by `amount`, fading the
-  melt in over the first half second so a restart never flashes the history of the previous run.
+- **The picture is the previous frame, warped.** The update pass takes the history and pulls
+  every pixel from where the movement says it came from. Because the next frame does the same
+  to that result, the content is dragged again and again: the picture melts into a trail, the
+  way a decoder paints P-frames against a reference that never arrives.
+- **The movement** is measured the way a codec reads its vectors: the velocity is looked up at
+  the centre of the **16 px macroblock**, so a whole block moves as one piece. It is estimated
+  from the picture itself (one Lucas-Kanade step between the live frame and the history), so
+  the effect only follows what actually moves - with nothing moving in the scene the picture
+  stays whole.
+- **The glitch threshold.** A movement below half a pixel leaves the pixel where it is, so the
+  still parts of the picture do not crawl and the effect does not flicker.
+- **The chroma smear.** The red, green and blue planes are read at slightly different offsets
+  along the movement (`chroma` = 0.1 gives 1.00 / 1.05 / 1.10), the way a 4:2:0 stream
+  smears colour when it is decoded against the wrong reference.
+- **The I-frame.** Every `iframe` seconds the decoder gets a key frame and the picture snaps
+  back to the real screen for a tick, then the melt starts building again. Set `iframe` to 0
+  to never reset it.
+- `residual` is the little bit of the live picture that still lands, the way a P-frame adds
+  its residual to the reference. It is what keeps the reference from dissolving.
 
-Only the lower guards exist: `residual` and `chroma` are clamped to 0..1 and `smear` cannot go
-negative. None of them has an upper cap.
+Only the lower guards exist: `residual` and `chroma` are clamped to 0..1, `smear` and `iframe`
+cannot go negative. None of them has an upper cap.
 
 ## Honest limits
 
 - The melt lives in the same **history buffer** as `afterimage`: when both run at the same
   time they chain (the datamosh melts the afterimage's trail and the other way round), and the
   trail of the last run of either one is still in the buffer when the other starts.
-- The reference is the screen's own picture from half a second ago, so the frame tears where
-  *it* moves - it is not a cut-in from another shot.
+- The reference is the screen's own picture, so the melt is the screen's own past - it is not a
+  cut-in from another shot.
 - The movement estimate needs some structure in the picture: in flat areas (sky, a plain
   wall) there is no gradient to measure, so nothing is dragged there.
 
@@ -62,12 +62,12 @@ negative. None of them has an upper cap.
 {
 	"type": "datamosh",
 	"duration": 60,
-	"params": { "amount": 1.0, "residual": 0.03, "chroma": 1.0 }
+	"params": { "amount": 1.0, "smear": 3.0, "iframe": 2.0 }
 }
 ```
 
 ```
-/vfx play vfxweaver:datamosh {[residual:0.03],[smear:8]}
+/vfx play vfxweaver:datamosh {[smear:4],[chroma:0.2]}
 ```
 
 ## Code
@@ -85,8 +85,9 @@ Its built-in datapack definition:
 	"params": {
 		"amount": { "start": 1.0, "end": 0.0 },
 		"residual": 0.06,
-		"smear": 4.0,
-		"chroma": 0.85
+		"smear": 2.0,
+		"chroma": 0.1,
+		"iframe": 3.0
 	}
 }
 ```

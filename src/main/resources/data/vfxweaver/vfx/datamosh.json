@@ -8,7 +8,8 @@
   "params": {
     "amount": { "start": 1.0, "end": 0.0 },
     "residual": 0.06,
-    "smear": 4.0,
-    "chroma": 0.85
+    "smear": 2.0,
+    "chroma": 0.1,
+    "iframe": 3.0
   }
 }

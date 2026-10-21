@@ -14,6 +14,7 @@ layout(std140) uniform Config {
     float residual;
     float smear;
     float chroma;
+    float iframe;
     float time;
 };
 
@@ -23,68 +24,53 @@ float lum(vec3 c) {
     return dot(c, vec3(0.2126, 0.7152, 0.0722));
 }
 
-// The reference rgb -> hsv, so the chroma plane can be rotated without touching the luma.
-vec3 rgb2hsv(vec3 c) {
-    vec4 K = vec4(0.0, -1.0 / 3.0, 2.0 / 3.0, -1.0);
-    vec4 p = mix(vec4(c.bg, K.wz), vec4(c.gb, K.xy), step(c.b, c.g));
-    vec4 q = mix(vec4(p.xyw, c.r), vec4(c.r, p.yzx), step(p.x, c.r));
-    float d = q.x - min(q.w, q.y);
-    float e = 1.0e-10;
-    return vec3(abs(q.z + (q.w - q.y) / (6.0 * d + e)), d / (q.x + e), q.x);
-}
-
-vec3 hsv2rgb(vec3 c) {
-    vec3 p = abs(fract(c.xxx + vec3(0.0, 2.0 / 3.0, 1.0 / 3.0)) * 6.0 - 3.0);
-    return c.z * mix(vec3(1.0), clamp(p - 1.0, 0.0, 1.0), c.y);
-}
-
 void main() {
     vec3 live = texture(InSampler, texCoord).rgb;
     vec2 texel = 1.0 / OutSize;
 
-    // The decoder works on a macroblock: one motion vector for the whole block, so the
-    // picture moves in whole pieces instead of crawling pixel by pixel.
-    vec2 centre = (floor(texCoord * OutSize / 8.0) + 0.5) * 8.0 / OutSize;
+    // The I-frame: once per interval the decoder gets a key frame and the picture snaps
+    // back to the real screen. Without it the melt would only ever grow.
+    if (iframe > 0.0 && mod(time, iframe * 20.0) < 1.0) {
+        fragColor = vec4(live, 1.0);
+        return;
+    }
 
-    // The reference: the history. It barely refreshes, so it holds the screen as it was
-    // half a second ago - the key frame that never arrives.
-    vec3 ref = texture(HistSampler, centre).rgb;
-
-    // The movement, one Lucas-Kanade step at the block centre.
-    float ix = (lum(texture(InSampler, centre + vec2(texel.x, 0.0)).rgb)
-        - lum(texture(InSampler, centre - vec2(texel.x, 0.0)).rgb)) * 0.5;
-    float iy = (lum(texture(InSampler, centre + vec2(0.0, texel.y)).rgb)
-        - lum(texture(InSampler, centre - vec2(0.0, texel.y)).rgb)) * 0.5;
-    float dt = lum(texture(InSampler, centre).rgb) - lum(ref);
+    // The motion vector, read at the macroblock centre the way a codec reads its vectors:
+    // the whole 16 px block moves as one piece.
+    vec2 blockUV = (floor(texCoord * OutSize / 16.0) + 0.5) * 16.0 / OutSize;
+    float ix = (lum(texture(InSampler, blockUV + vec2(texel.x, 0.0)).rgb)
+        - lum(texture(InSampler, blockUV - vec2(texel.x, 0.0)).rgb)) * 0.5;
+    float iy = (lum(texture(InSampler, blockUV + vec2(0.0, texel.y)).rgb)
+        - lum(texture(InSampler, blockUV - vec2(0.0, texel.y)).rgb)) * 0.5;
+    float dt = lum(texture(InSampler, blockUV).rgb) - lum(texture(HistSampler, blockUV).rgb);
     float denom = ix * ix + iy * iy + 1.0e-4;
     // The estimate covers the whole lag of the reference (about 1 / residual frames), so it
-    // is scaled back to the movement of a single frame before it is smeared out.
+    // is scaled back to the movement of a single frame before it is applied.
     vec2 vel = -vec2(ix, iy) * (ix * dt + iy * dt) / denom * clamp(residual, 0.02, 1.0);
+    vec2 motion = vel * max(smear, 0.0);
 
-    // The drag, snapped to a 4 px lattice the way a codec snaps its vectors, so the picture
-    // comes apart in whole steps and the blocks hold still between them.
-    vec2 drag = vel * max(smear, 0.0);
-    drag = floor(drag / 4.0 + 0.5) * 4.0;
-    drag *= min(1.0, 0.25 * min(OutSize.x, OutSize.y) / max(length(drag), 1.0e-4));
+    // The glitch threshold: below half a pixel the pixel is stuck where it is, so the still
+    // parts of the picture do not crawl.
+    if (length(motion) < 0.5) {
+        motion = vec2(0.0);
+    }
 
-    // The decoder paints the old picture, dragged along the movement.
-    vec3 dragged = texture(HistSampler, texCoord - drag * texel).rgb;
+    // The warped previous frame. The colour planes drift apart along the motion, the way
+    // they do in a 4:2:0 stream that was decoded against the wrong reference.
+    vec2 uv0 = texCoord - motion * texel;
+    vec2 uv1 = texCoord - motion * (1.0 + 0.5 * chroma) * texel;
+    vec2 uv2 = texCoord - motion * (1.0 + chroma) * texel;
+    vec3 moshed;
+    if (any(lessThan(uv0, vec2(0.0))) || any(greaterThan(uv0, vec2(1.0)))) {
+        moshed = live;
+    } else {
+        vec3 c0 = texture(HistSampler, uv0).rgb;
+        vec3 c1 = texture(HistSampler, uv1).rgb;
+        vec3 c2 = texture(HistSampler, uv2).rgb;
+        moshed = vec3(c0.r, c1.g, c2.b);
+    }
 
-    // How wrong this block is: the old picture no longer matches what is on screen. It is
-    // measured once per block, so the corruption does not shimmer from pixel to pixel.
-    float damage = clamp(abs(lum(texture(InSampler, centre).rgb) - lum(ref)) * 0.5, 0.0, 1.0);
-
-    // The chroma plane of a mismatched block is wrong: the decoder rotates the hue and
-    // overstates the saturation. The luma is untouched, so the picture stays readable and
-    // never turns into grey mush.
-    vec3 hsv = rgb2hsv(dragged);
-    hsv.x = fract(hsv.x + damage * chroma * 2.0);
-    hsv.y = clamp(hsv.y + damage * chroma * 0.6, 0.0, 1.0);
-    vec3 melted = hsv2rgb(hsv);
-
-    // The little bit of the live picture that still lands, the way a P-frame adds its
-    // residual to the reference. It is what keeps the reference from dissolving.
-    melted = mix(melted, live, clamp(residual, 0.0, 1.0));
-
-    fragColor = vec4(melted, 1.0);
+    // A little of the live picture still lands, the way a P-frame adds its residual to the
+    // reference. It is what keeps the reference from dissolving.
+    fragColor = vec4(mix(moshed, live, clamp(residual, 0.0, 1.0)), 1.0);
 }
