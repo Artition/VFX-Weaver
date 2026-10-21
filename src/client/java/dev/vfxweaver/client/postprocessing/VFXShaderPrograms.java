@@ -272,6 +272,17 @@ public final class VFXShaderPrograms {
 		// datamosh samples its neighbours (a slid/knocked uv plus an RGB split), so it is a
 		// multi-tap pass: it stays an unannotated BARRIER and never joins a fused run.
 		registerPost(VFXEffectType.DATAMOSH, "amount", "time");
+		// torn_edge samples its neighbours (a local-mean ring, a Sobel contour and the tear
+		// noise), so it is a multi-tap pass: it stays an unannotated BARRIER and never joins a
+		// fused run.
+		registerPost(VFXEffectType.TORN_EDGE, "amount", "time", "speed", "center_x", "center_y", "ragged", "glow");
+		// spectral samples its neighbours (a local-mean ring, a Sobel contour and the seven
+		// smear taps), so it is a multi-tap pass: it stays an unannotated BARRIER and never
+		// joins a fused run.
+		registerPost(VFXEffectType.SPECTRAL, "amount", "mode", "time", "center_x", "center_y");
+		// hex_grid samples its neighbours (a local-mean ring and a Sobel contour), so it is a
+		// multi-tap pass: it stays an unannotated BARRIER and never joins a fused run.
+		registerPost(VFXEffectType.HEX_GRID, "amount", "time", "cell_size", "width", "speed");
 		registerPost(VFXEffectType.SHOCKWAVE, "center_x", "center_y", "radius", "width", "amplitude", "sharpness");
 		registerFeedbackEffects();
 		registerPost(VFXEffectType.NOISE_WARP, "scale", "amplitude", "contrast", "coherence", "speed", "drift_x", "drift_y", "seed", "time");

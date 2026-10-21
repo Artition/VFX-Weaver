@@ -110,6 +110,12 @@ public enum VFXEffectType {
 	VHS("vhs"),
 	/** Data-mosh corruption: the frame breaks into sliding blocks with an RGB split and data blocks. */
 	DATAMOSH("datamosh"),
+	/** A ragged tear splits the frame in two: the halves sit at different brightness under a glowing line. */
+	TORN_EDGE("torn_edge"),
+	/** Rainbow prism look over the frame: a prism duotone, a chromatic smear and a spectral ring. */
+	SPECTRAL("spectral"),
+	/** A triangular grid over the frame, its lines coloured by the screen position. */
+	HEX_GRID("hex_grid"),
 	/** A single refraction ring ripples outward from a point. */
 	SHOCKWAVE("shockwave"),
 	/** Feedback echo: trails linger in a decaying history buffer. */
@@ -224,6 +230,9 @@ public enum VFXEffectType {
 		case DIGITAL_GLITCH -> "intensity".equals(parameter) ? 0.0F : Float.NaN;
 		case VHS -> "intensity".equals(parameter) ? 0.0F : Float.NaN;
 		case DATAMOSH -> "amount".equals(parameter) ? 0.0F : Float.NaN;
+		case TORN_EDGE -> "amount".equals(parameter) ? 0.0F : Float.NaN;
+		case SPECTRAL -> "amount".equals(parameter) ? 0.0F : Float.NaN;
+		case HEX_GRID -> "amount".equals(parameter) ? 0.0F : Float.NaN;
 		case SHOCKWAVE -> {
 			if ("amplitude".equals(parameter)) {
 				yield 0.0F;

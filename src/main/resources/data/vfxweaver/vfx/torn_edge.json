@@ -1,0 +1,16 @@
+{
+  "type": "torn_edge",
+  "duration": 40,
+  "easing": "ease_in_out_cubic",
+  "persistent": false,
+  "loop": false,
+  "fade_ticks": 0,
+  "params": {
+    "amount": { "start": 1.0, "end": 0.0 },
+    "speed": 20.0,
+    "center_x": 0.5,
+    "center_y": 0.5,
+    "ragged": 0.02,
+    "glow": 0.0035
+  }
+}

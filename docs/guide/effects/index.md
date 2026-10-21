@@ -116,6 +116,9 @@ point.
 - [digital_glitch](screen/digital-glitch.md) - banded tearing with RGB split
 - [vhs](screen/vhs.md) - worn VHS playback
 - [datamosh](screen/datamosh.md) - sliding data-mosh blocks with an RGB split
+- [torn_edge](screen/torn-edge.md) - a ragged tear with a glowing line down it
+- [spectral](screen/spectral.md) - rainbow prism duotone, chromatic smear and spectral ring
+- [hex_grid](screen/hex-grid.md) - a triangular grid coloured by screen position
 - [shockwave](screen/shockwave.md) - expanding refraction ring
 - [afterimage](screen/afterimage.md) - feedback echo trails
 - [stop_motion](screen/stop-motion.md) - hold the picture at a low frame rate
@@ -177,7 +180,7 @@ its JSON out of the jar into your own datapack under a new id.
   `posterize`, `blur`, `pixelate`, `hue_isolation`, `vignette`, `screen_flash`, `motion_blur`,
   `bloom`, `film_grain`, `scanlines`, `halftone`, `ink`, `comic`, `accent_glow`, `depth_of_field`, `letterbox`, `invert`, `vortex`,
   `speed_lines`, `slice_shift`, `noise_warp`, `solarize`, `double_vision`, `eyelids`, `iris_wipe`,
-  `digital_glitch`, `vhs`, `datamosh`, `shockwave`, `afterimage`, `stop_motion`, `surface_pattern`,
+  `digital_glitch`, `vhs`, `datamosh`, `torn_edge`, `spectral`, `hex_grid`, `shockwave`, `afterimage`, `stop_motion`, `surface_pattern`,
   `graph_demo`, `graph_logic_demo`, `dent_field_demo`, `tint_field_demo`.
 - **World overlays:** `block_tint`, `block_outline`, `light_beam`, `pulse_ring`, `guide_line`,
   `particles`, `block_chain`.
