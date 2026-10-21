@@ -88,7 +88,7 @@ final class PostParamSources {
 		// order = VFXShaderPrograms.registerPost(VHS); do not reorder
 		params.put(VFXEffectType.VHS, new String[]{"tracking", "band_height", "band_speed", "bleed", "wobble", "intensity", "time"});
 		// order = VFXShaderPrograms.registerFeedbackEffects(DATAMOSH); do not reorder
-		params.put(VFXEffectType.DATAMOSH, new String[]{"amount", "residual", "smear", "chroma", "iframe", "time"});
+		params.put(VFXEffectType.DATAMOSH, new String[]{"amount", "smear", "chroma", "iframe", "time"});
 		// order = VFXShaderPrograms.registerPost(TORN_EDGE); do not reorder
 		params.put(VFXEffectType.TORN_EDGE, new String[]{"amount", "time", "speed", "center_x", "center_y", "ragged", "glow", "mid"});
 		// order = VFXShaderPrograms.registerPost(SPECTRAL); do not reorder

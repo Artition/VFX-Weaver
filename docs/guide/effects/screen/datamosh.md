@@ -2,9 +2,8 @@
 
 `type: "datamosh"`
 
-Data-mosh corruption: the frame is drawn from the previous frame, warped by the movement, so
-the picture melts into a trail and the colour planes drift apart - what a video shows when the
-key frames are gone and the decoder keeps painting the P-frames.
+Data-mosh corruption: the frame is drawn from the previous frame, carried over pixel by pixel
+along the movement - the picture breaks into pieces of old content instead of being smeared.
 
 ## Fields
 
@@ -13,48 +12,64 @@ key frames are gone and the decoder keeps painting the P-frames.
 | Field | Type | Default | Meaning |
 |---|---|---|---|
 | `amount` | float | 1 (fades to 0) | How much of the melt is mixed over the live frame (0..1) |
-| `residual` | float | 0.06 | How much of the live picture still lands in the reconstruction (0..1) |
-| `smear` | float | 2 | How much the movement is stretched: 1 follows it exactly, 2 over-compensates and the picture tears away |
-| `chroma` | float | 0.1 | How far the colour planes drift apart along the movement (0.1 = the 4:2:0 look) |
-| `iframe` | float | 3 | How often the decoder gets a key frame and the picture snaps back, in seconds (0 = never) |
+| `smear` | float | 1 | The vector multiplier: 1 = the movement as measured, 2 = twice as far |
+| `chroma` | float | 0.5 | How far the colour plane is pulled away from the luma along the movement |
+| `iframe` | float | 3 | How often a piece returns to the real picture, in seconds (0 = never) |
 
 ## How it works
 
 The effect is a **feedback effect**: it keeps the picture it produced last frame in the frame's
 history buffer, and that history is the reference the decoder gets instead of a key frame.
 
-- **The picture is the previous frame, warped.** The update pass takes the history and pulls
-  every pixel from where the movement says it came from. Because the next frame does the same
-  to that result, the content is dragged again and again: the picture melts into a trail, the
-  way a decoder paints P-frames against a reference that never arrives.
-- **The movement** is measured the way a codec reads its vectors: the velocity is looked up at
-  the centre of the **16 px macroblock**, so a whole block moves as one piece. It is estimated
-  from the picture itself (one Lucas-Kanade step between the live frame and the history), so
-  the effect only follows what actually moves - with nothing moving in the scene the picture
-  stays whole.
-- **The glitch threshold.** A movement below half a pixel leaves the pixel where it is, so the
-  still parts of the picture do not crawl and the effect does not flicker.
-- **The chroma smear.** The red, green and blue planes are read at slightly different offsets
-  along the movement (`chroma` = 0.1 gives 1.00 / 1.05 / 1.10), the way a 4:2:0 stream
-  smears colour when it is decoded against the wrong reference.
-- **The I-frame.** Every `iframe` seconds the decoder gets a key frame and the picture snaps
-  back to the real screen for a tick, then the melt starts building again. Set `iframe` to 0
-  to never reset it.
-- `residual` is the little bit of the live picture that still lands, the way a P-frame adds
-  its residual to the reference. It is what keeps the reference from dissolving.
+- **The history carries two things.** The colour channels hold the melt - the picture the
+  decoder painted so far. The **alpha channel holds the luma of the previous live frame**, so
+  one sampler gives both the stale reference and the frame the movement is measured against.
+  Without that, the movement would be measured against the already broken output, which would
+  drag it back towards the live picture - a motion blur, not a datamosh.
+- **The movement** is measured the way a codec measures it: for every piece, a greedy search
+  (8, 4, 2 and 1 pixel) finds the integer vector that best matches the live picture against
+  the previous live picture, over 9 points inside the piece. A penalty for a non-zero vector
+  gives exactly zero where nothing moves, so a still picture does not crawl.
+- **The pieces are not a grid.** A static hash quadtree splits the screen into pieces of 8 to
+  64 px, so neighbouring pieces differ in size and the layout never changes. Where the
+  vectors of two neighbours differ, cracks and doubled pixels appear along the seam.
+- **The decoder carries the pixels over as they are.** The melt is read point sampled (no
+  filter, no interpolation, no leftover of the live frame), so a moving object drags sharp
+  pixels of the old background with it and the new content never lands in the frame. That is
+  the broken decoder.
+- **The colour leaves the shape.** The luma is taken at the measured vector, the colour at
+  `1 + chroma` times that vector, the way a 4:2:0 stream smears colour when it is decoded
+  against the wrong reference. There is no random noise in it - every colour is the picture's
+  own.
+- **Every piece refreshes on its own.** Each `iframe` seconds a piece returns to the real
+  picture for a tick, at a phase of its own, so there is no global flash. Set `iframe` to 0
+  to never refresh.
 
-Only the lower guards exist: `residual` and `chroma` are clamped to 0..1, `smear` and `iframe`
-cannot go negative. None of them has an upper cap.
+Only the lower guards exist: `chroma` cannot go negative, `smear` and `iframe` cannot go
+negative either. None of them has an upper cap.
 
 ## Honest limits
 
 - The melt lives in the same **history buffer** as `afterimage`: when both run at the same
-  time they chain (the datamosh melts the afterimage's trail and the other way round), and the
-  trail of the last run of either one is still in the buffer when the other starts.
+  time they chain, and each of them overwrites the alpha the other one needs - run one or the
+  other, not both.
 - The reference is the screen's own picture, so the melt is the screen's own past - it is not a
   cut-in from another shot.
-- The movement estimate needs some structure in the picture: in flat areas (sky, a plain
-  wall) there is no gradient to measure, so nothing is dragged there.
+- A clean camera pan does not break much, exactly like in a real codec: the breakage shows on
+  the parallax, on the edges of objects, on mobs and at the edges of the screen, where the
+  clamp pulls the streaks out.
+- The movement search costs about 165 texture reads per pixel. That is fine on a discrete GPU
+  and may cost frames on a weak one.
+
+## How to check it
+
+- Stand still: the picture is the game, nothing crawls, nothing flickers.
+- A mob walks past a wall: sharp pixels of the old background trail behind it, with no
+  in-between colours (zoom in on a screenshot).
+- Turn the camera: the layers at different depths drift apart, the edges of the screen pull
+  into streaks, and cracks show along the piece seams.
+- Every `iframe` seconds the pieces return to the real picture one by one, without a global
+  flash.
 
 ## Example
 
@@ -62,12 +77,12 @@ cannot go negative. None of them has an upper cap.
 {
 	"type": "datamosh",
 	"duration": 60,
-	"params": { "amount": 1.0, "smear": 3.0, "iframe": 2.0 }
+	"params": { "amount": 1.0, "smear": 1.0, "chroma": 0.5 }
 }
 ```
 
 ```
-/vfx play vfxweaver:datamosh {[smear:4],[chroma:0.2]}
+/vfx play vfxweaver:datamosh {[smear:2],[iframe:1.5]}
 ```
 
 ## Code
@@ -84,9 +99,8 @@ Its built-in datapack definition:
 	"fade_ticks": 0,
 	"params": {
 		"amount": { "start": 1.0, "end": 0.0 },
-		"residual": 0.06,
-		"smear": 2.0,
-		"chroma": 0.1,
+		"smear": 1.0,
+		"chroma": 0.5,
 		"iframe": 3.0
 	}
 }

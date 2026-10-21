@@ -11,7 +11,6 @@ layout(std140) uniform SamplerInfo {
 };
 
 layout(std140) uniform Config {
-    float residual;
     float smear;
     float chroma;
     float iframe;
@@ -20,57 +19,129 @@ layout(std140) uniform Config {
 
 out vec4 fragColor;
 
+// The search penalty for a non-zero vector, per pixel of shift. It gives exactly zero
+// vector where nothing moves, so a still picture does not crawl.
+const float BIAS = 0.003;
+const ivec2 DIR[4] = ivec2[4](ivec2(1, 0), ivec2(-1, 0), ivec2(0, 1), ivec2(0, -1));
+
 float lum(vec3 c) {
     return dot(c, vec3(0.2126, 0.7152, 0.0722));
 }
 
-void main() {
-    vec3 live = texture(InSampler, texCoord).rgb;
-    vec2 texel = 1.0 / OutSize;
+uint pcg(uint v) {
+    uint s = v * 747796405u + 2891336453u;
+    uint w = ((s >> ((s >> 28u) + 4u)) ^ s) * 277803737u;
+    return (w >> 22u) ^ w;
+}
 
-    // The I-frame: once per interval the decoder gets a key frame and the picture snaps
-    // back to the real screen. Without it the melt would only ever grow.
-    if (iframe > 0.0 && mod(time, iframe * 20.0) < 1.0) {
-        fragColor = vec4(live, 1.0);
+float hash01(ivec2 org, int size) {
+    uint h = pcg(uint(org.x) + pcg(uint(org.y) + pcg(uint(size))));
+    return float(h) * (1.0 / 4294967296.0);
+}
+
+// The static hash quadtree: pieces of 8..64 px, different sizes next to each other.
+void tileOf(ivec2 p, out ivec2 org, out int size) {
+    size = 64;
+    org = (p / 64) * 64;
+    for (int i = 0; i < 3; i++) {
+        if (hash01(org, size) > 0.6) {
+            break;
+        }
+        size >>= 1;
+        org = (p / size) * size;
+    }
+}
+
+// The sum of absolute differences between the live picture and the previous live picture
+// (carried in the alpha of the history), displaced by the candidate vector.
+float cost(ivec2 m, float l[9], ivec2 q[9], ivec2 sz) {
+    float s = 0.0;
+    for (int i = 0; i < 9; i++) {
+        ivec2 r = clamp(q[i] - m, ivec2(0), sz - 1);
+        s += abs(l[i] - texelFetch(HistSampler, r, 0).a);
+    }
+    return s + BIAS * float(abs(m.x) + abs(m.y));
+}
+
+void main() {
+    ivec2 sz = textureSize(HistSampler, 0);
+    ivec2 p = clamp(ivec2(floor(texCoord * OutSize)), ivec2(0), sz - 1);
+
+    vec3 live = texture(InSampler, texCoord).rgb;
+    float liveLum = lum(live);
+
+    ivec2 org;
+    int size;
+    tileOf(p, org, size);
+
+    // The start of the effect, and the per-piece refresh: the piece shows the real picture.
+    // Every piece has its own phase, so there is no global flash.
+    bool refresh = time < 1.0;
+    if (!refresh && iframe > 0.0) {
+        float period = iframe * 20.0;
+        refresh = fract(time / period + hash01(org.yx, size)) < 1.0 / period;
+    }
+    if (refresh) {
+        fragColor = vec4(live, liveLum);
         return;
     }
 
-    // The motion vector, read at the macroblock centre the way a codec reads its vectors:
-    // the whole 16 px block moves as one piece.
-    vec2 blockUV = (floor(texCoord * OutSize / 16.0) + 0.5) * 16.0 / OutSize;
-    float ix = (lum(texture(InSampler, blockUV + vec2(texel.x, 0.0)).rgb)
-        - lum(texture(InSampler, blockUV - vec2(texel.x, 0.0)).rgb)) * 0.5;
-    float iy = (lum(texture(InSampler, blockUV + vec2(0.0, texel.y)).rgb)
-        - lum(texture(InSampler, blockUV - vec2(0.0, texel.y)).rgb)) * 0.5;
-    float dt = lum(texture(InSampler, blockUV).rgb) - lum(texture(HistSampler, blockUV).rgb);
-    float denom = ix * ix + iy * iy + 1.0e-4;
-    // The estimate covers the whole lag of the reference (about 1 / residual frames), so it
-    // is scaled back to the movement of a single frame before it is applied.
-    vec2 vel = -vec2(ix, iy) * (ix * dt + iy * dt) / denom * clamp(residual, 0.02, 1.0);
-    vec2 motion = vel * max(smear, 0.0);
-
-    // The glitch threshold: below half a pixel the pixel is stuck where it is, so the still
-    // parts of the picture do not crawl.
-    if (length(motion) < 0.5) {
-        motion = vec2(0.0);
+    // The 3x3 points inside the piece: the luma of the live picture.
+    float l[9];
+    ivec2 q[9];
+    for (int j = 0; j < 3; j++) {
+        for (int i = 0; i < 3; i++) {
+            ivec2 pnt = clamp(org + (size * (ivec2(i, j) * 2 + 1)) / 6, ivec2(0), sz - 1);
+            q[j * 3 + i] = pnt;
+            l[j * 3 + i] = lum(texture(InSampler, (vec2(pnt) + 0.5) / vec2(sz)).rgb);
+        }
     }
 
-    // The warped previous frame. The colour planes drift apart along the motion, the way
-    // they do in a 4:2:0 stream that was decoded against the wrong reference.
-    vec2 uv0 = texCoord - motion * texel;
-    vec2 uv1 = texCoord - motion * (1.0 + 0.5 * chroma) * texel;
-    vec2 uv2 = texCoord - motion * (1.0 + chroma) * texel;
-    vec3 moshed;
-    if (any(lessThan(uv0, vec2(0.0))) || any(greaterThan(uv0, vec2(1.0)))) {
-        moshed = live;
-    } else {
-        vec3 c0 = texture(HistSampler, uv0).rgb;
-        vec3 c1 = texture(HistSampler, uv1).rgb;
-        vec3 c2 = texture(HistSampler, uv2).rgb;
-        moshed = vec3(c0.r, c1.g, c2.b);
+    // The history carries the previous live picture in its alpha. If the render target does
+    // not keep it, the estimate would be garbage - stand still instead of tearing.
+    bool alphaUsable = true;
+    bool allOne = true;
+    bool allZero = true;
+    for (int i = 0; i < 9; i++) {
+        final float a = texelFetch(HistSampler, q[i], 0).a;
+        allOne = allOne && a >= 0.999;
+        allZero = allZero && a <= 0.001;
+    }
+    if (allOne || allZero) {
+        bool liveConstant = true;
+        for (int i = 1; i < 9; i++) {
+            liveConstant = liveConstant && abs(l[i] - l[0]) < 0.002;
+        }
+        alphaUsable = liveConstant;
     }
 
-    // A little of the live picture still lands, the way a P-frame adds its residual to the
-    // reference. It is what keeps the reference from dissolving.
-    fragColor = vec4(mix(moshed, live, clamp(residual, 0.0, 1.0)), 1.0);
+    // The vector: live(t-1) -> live(t), a greedy search over 8, 4, 2 and 1 pixel.
+    ivec2 best = ivec2(0);
+    if (alphaUsable) {
+        float bestC = cost(best, l, q, sz);
+        for (int s = 8; s >= 1; s >>= 1) {
+            for (int k = 0; k < 4; k++) {
+                ivec2 cand = best + DIR[k] * s;
+                float c = cost(cand, l, q, sz);
+                if (c < bestC) {
+                    bestC = c;
+                    best = cand;
+                }
+            }
+        }
+    }
+
+    ivec2 m = ivec2(round(vec2(best) * max(smear, 0.0)));
+    ivec2 mc = ivec2(round(vec2(m) * (1.0 + max(chroma, 0.0))));
+
+    // The stale reference, shifted by the vector. Point sampled, no filter, no residual:
+    // the pixels are carried over as they are, which is what a broken decoder does.
+    vec3 a = texelFetch(HistSampler, clamp(p - m, ivec2(0), sz - 1), 0).rgb;
+    vec3 b = texelFetch(HistSampler, clamp(p - mc, ivec2(0), sz - 1), 0).rgb;
+    vec3 moshed = clamp(vec3(lum(a)) + (b - lum(b)), 0.0, 1.0);
+
+    fragColor = vec4(moshed, liveLum);
+
+    // DEBUG (uncomment to check the alpha and the vectors):
+    // fragColor = vec4(vec2(best) / 32.0 + 0.5, 0.5, liveLum);
 }
