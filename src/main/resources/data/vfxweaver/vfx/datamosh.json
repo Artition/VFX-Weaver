@@ -7,9 +7,9 @@
   "fade_ticks": 0,
   "params": {
     "amount": { "start": 1.0, "end": 0.0 },
-    "block_size": 16.0,
-    "strength": 0.35,
-    "smear": 96.0,
-    "residual": 0.12
+    "residual": 0.08,
+    "flow": 24.0,
+    "break_level": 0.35,
+    "chroma": 0.85
   }
 }
