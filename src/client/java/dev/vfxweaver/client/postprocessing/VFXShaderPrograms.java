@@ -269,6 +269,9 @@ public final class VFXShaderPrograms {
 		registerPost(VFXEffectType.IRIS_WIPE, "radius", "softness", "center_x", "center_y", "zoom");
 		registerPost(VFXEffectType.DIGITAL_GLITCH, new String[]{"block", "displacement", "rate", "chroma", "seed", "chance", "intensity", "time"}, true, Set.of(), 4);
 		registerPost(VFXEffectType.VHS, new String[]{"tracking", "band_height", "band_speed", "bleed", "wobble", "intensity", "time"}, true, Set.of(), 4);
+		// datamosh samples its neighbours (a slid/knocked uv plus an RGB split), so it is a
+		// multi-tap pass: it stays an unannotated BARRIER and never joins a fused run.
+		registerPost(VFXEffectType.DATAMOSH, "amount", "time");
 		registerPost(VFXEffectType.SHOCKWAVE, "center_x", "center_y", "radius", "width", "amplitude", "sharpness");
 		registerFeedbackEffects();
 		registerPost(VFXEffectType.NOISE_WARP, "scale", "amplitude", "contrast", "coherence", "speed", "drift_x", "drift_y", "seed", "time");

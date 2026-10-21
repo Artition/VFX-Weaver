@@ -115,6 +115,7 @@ point.
 - [iris_wipe](screen/iris-wipe.md) - circular iris transition
 - [digital_glitch](screen/digital-glitch.md) - banded tearing with RGB split
 - [vhs](screen/vhs.md) - worn VHS playback
+- [datamosh](screen/datamosh.md) - sliding data-mosh blocks with an RGB split
 - [shockwave](screen/shockwave.md) - expanding refraction ring
 - [afterimage](screen/afterimage.md) - feedback echo trails
 - [stop_motion](screen/stop-motion.md) - hold the picture at a low frame rate
@@ -176,7 +177,7 @@ its JSON out of the jar into your own datapack under a new id.
   `posterize`, `blur`, `pixelate`, `hue_isolation`, `vignette`, `screen_flash`, `motion_blur`,
   `bloom`, `film_grain`, `scanlines`, `halftone`, `ink`, `comic`, `accent_glow`, `depth_of_field`, `letterbox`, `invert`, `vortex`,
   `speed_lines`, `slice_shift`, `noise_warp`, `solarize`, `double_vision`, `eyelids`, `iris_wipe`,
-  `digital_glitch`, `vhs`, `shockwave`, `afterimage`, `stop_motion`, `surface_pattern`,
+  `digital_glitch`, `vhs`, `datamosh`, `shockwave`, `afterimage`, `stop_motion`, `surface_pattern`,
   `graph_demo`, `graph_logic_demo`, `dent_field_demo`, `tint_field_demo`.
 - **World overlays:** `block_tint`, `block_outline`, `light_beam`, `pulse_ring`, `guide_line`,
   `particles`, `block_chain`.

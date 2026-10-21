@@ -90,6 +90,7 @@ nav:
           - iris_wipe: guide/effects/screen/iris-wipe.md
           - digital_glitch: guide/effects/screen/digital-glitch.md
           - vhs: guide/effects/screen/vhs.md
+          - datamosh: guide/effects/screen/datamosh.md
           - shockwave: guide/effects/screen/shockwave.md
           - afterimage: guide/effects/screen/afterimage.md
           - stop_motion: guide/effects/screen/stop-motion.md

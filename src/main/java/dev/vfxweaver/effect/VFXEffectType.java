@@ -108,6 +108,8 @@ public enum VFXEffectType {
 	DIGITAL_GLITCH("digital_glitch"),
 	/** Worn VHS playback: wobble, a crawling tracking band and colour bleed. */
 	VHS("vhs"),
+	/** Data-mosh corruption: the frame breaks into sliding blocks with an RGB split and data blocks. */
+	DATAMOSH("datamosh"),
 	/** A single refraction ring ripples outward from a point. */
 	SHOCKWAVE("shockwave"),
 	/** Feedback echo: trails linger in a decaying history buffer. */
@@ -221,6 +223,7 @@ public enum VFXEffectType {
 		case IRIS_WIPE -> "radius".equals(parameter) ? 1.4F : Float.NaN;
 		case DIGITAL_GLITCH -> "intensity".equals(parameter) ? 0.0F : Float.NaN;
 		case VHS -> "intensity".equals(parameter) ? 0.0F : Float.NaN;
+		case DATAMOSH -> "amount".equals(parameter) ? 0.0F : Float.NaN;
 		case SHOCKWAVE -> {
 			if ("amplitude".equals(parameter)) {
 				yield 0.0F;

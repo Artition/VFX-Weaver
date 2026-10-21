@@ -87,6 +87,8 @@ final class PostParamSources {
 		params.put(VFXEffectType.DIGITAL_GLITCH, new String[]{"block", "displacement", "rate", "chroma", "seed", "chance", "intensity", "time"});
 		// order = VFXShaderPrograms.registerPost(VHS); do not reorder
 		params.put(VFXEffectType.VHS, new String[]{"tracking", "band_height", "band_speed", "bleed", "wobble", "intensity", "time"});
+		// order = VFXShaderPrograms.registerPost(DATAMOSH); do not reorder
+		params.put(VFXEffectType.DATAMOSH, new String[]{"amount", "time"});
 		// order = VFXShaderPrograms.registerPost(SHOCKWAVE); do not reorder
 		params.put(VFXEffectType.SHOCKWAVE, new String[]{"center_x", "center_y", "radius", "width", "amplitude", "sharpness"});
 		// order = VFXShaderPrograms.registerFeedbackEffects(AFTERIMAGE); do not reorder
