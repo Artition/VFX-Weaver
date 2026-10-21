@@ -10,16 +10,19 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * One looping heartbeat voice: a bundled recording of a single lub-dub, played back at a
- * rate-driven speed, so a faster heart is a faster recording with a shorter gap between
- * beats - like tape. The recording ships inside the jar, so no resource pack is needed and
- * the sound is identical on every Minecraft line.
+ * One looping heartbeat voice: a bundled recording of a single lub-dub, time-stretched to
+ * the effect's tempo, so a faster heart is a faster recording on the same pitch - the
+ * recording compresses into the beat instead of being replayed faster. The recording ships
+ * inside the jar, so no resource pack is needed and the sound is identical on every
+ * Minecraft line.
  *
- * <p>The beat phase advances {@code rate / 60} cycles per second; every wrap restarts the
- * recording. Its playback speed is {@code rate / 60} times the {@code pitch} param (a
- * multiplier, 1 = as recorded), so at 60 bpm the recording plays at its original speed and
- * at 120 bpm it plays twice as fast, with the lub-dub inside it compressed the same way -
- * the internal mini-pause shrinks with the tempo instead of being re-timed separately.
+ * <p>The beat phase advances {@code rate / 60} cycles per second and every wrap restarts
+ * the recording. The stretch factor is {@code rate / 60}, so the recording always fits its
+ * beat: at 60 bpm it plays as recorded (0.85 s in a 1 s beat) and at 140 bpm it is
+ * compressed to about 0.36 s in a 0.43 s beat, with the pause inside the lub-dub closing
+ * up in the same proportion. The stretch is an overlap-add time compression, so the pitch
+ * does not move with the tempo; the {@code pitch} param is a separate tone multiplier
+ * that does shift the pitch (and the length with it).
  *
  * <p>Sample timing runs on the voice's own steady clock (see {@link VFXVoiceClock}): each
  * {@link #tick} emits what wall time owes since the previous tick, at any frame rate, while
@@ -44,6 +47,9 @@ final class VFXHeartbeatVoice {
 	private static final int INTERRUPT_FADE = 110;
 	/** Fade applied to the start of every playback (5 ms). */
 	private static final int ATTACK_FADE = 110;
+	/** Synthesis hop of the time-scale (11.6 ms) and the grain length (twice the hop). */
+	private static final int GRAIN_HOP = 256;
+	private static final int GRAIN = GRAIN_HOP * 2;
 
 	/** The recording, decoded once and shared by every voice. Null when it cannot be read. */
 	private static float[] sample;
@@ -53,11 +59,15 @@ final class VFXHeartbeatVoice {
 	private boolean failed;
 	private final VFXVoiceClock clock = new VFXVoiceClock(SAMPLE_RATE);
 	private double beatPhase;
-	/** Playback position in sample frames. */
-	private double position;
-	private boolean playing;
-	/** Speed of the recording relative to its original rate. */
-	private double speed = 1.0;
+	/** The recording stretched to the current tempo; the one being played. */
+	private float[] playing;
+	/** The recording stretched for the next beat, prepared ahead of the switch. */
+	private float[] prepared;
+	/** The stretch the prepared buffer was made for. */
+	private double preparedStretch;
+	private double preparedPitch;
+	private int position;
+	private boolean playingNow;
 	private int attack;
 	private int interrupt;
 	private float currentGain;
@@ -70,7 +80,7 @@ final class VFXHeartbeatVoice {
 	 * @param clockTicks  the shared effect clock, in ticks
 	 * @param targetGain  the linear gain for this frame (already weighted and attenuated)
 	 * @param rateBpm     the beat rate in beats per minute
-	 * @param pitchScale  playback-speed multiplier, 1 = as recorded
+	 * @param pitchScale  tone multiplier, 1 = the recorded pitch
 	 */
 	void tick(final float clockTicks, final float targetGain, final float rateBpm, final float pitchScale) {
 		if (this.failed) {
@@ -104,9 +114,9 @@ final class VFXHeartbeatVoice {
 		}
 		byte[] out = new byte[samples * 2];
 		double beatStep = rate / 60.0 / SAMPLE_RATE;
-		// Tape-like tempo: the recording itself plays faster as the rate climbs, so the
-		// lub-dub inside it compresses together with the gap between beats.
-		this.speed = rate / 60.0 * pitch;
+		// The tempo compresses the recording in time (pitch kept); `pitch` shifts the tone.
+		final double stretch = rate / 60.0;
+		this.prepare(recording, stretch, pitch);
 		for (int i = 0; i < samples; i++) {
 			this.beatPhase += beatStep;
 			if (this.beatPhase >= 1.0) {
@@ -114,14 +124,12 @@ final class VFXHeartbeatVoice {
 				this.restart();
 			}
 			float v = 0.0F;
-			if (this.playing) {
-				final int index = (int) this.position;
-				if (index + 1 >= recording.length) {
-					this.playing = false;
+			if (this.playingNow && this.playing != null) {
+				if (this.position >= this.playing.length) {
+					this.playingNow = false;
 				} else {
-					final float frac = (float) (this.position - index);
-					v = recording[index] * (1.0F - frac) + recording[index + 1] * frac;
-					this.position += this.speed;
+					v = this.playing[this.position];
+					this.position++;
 				}
 			}
 			if (this.attack > 0) {
@@ -144,20 +152,40 @@ final class VFXHeartbeatVoice {
 		this.line.write(out, 0, out.length);
 	}
 
+	/**
+	 * Prepares the recording for the next beat: the recording is time-compressed by the
+	 * stretch factor (overlap-add, so the pitch stays), then resampled by the tone
+	 * multiplier. The work happens once per beat, not per sample.
+	 */
+	private void prepare(final float[] recording, final double stretch, final double pitch) {
+		if (this.prepared != null && this.preparedStretch == stretch && this.preparedPitch == pitch) {
+			return;
+		}
+		this.preparedStretch = stretch;
+		this.preparedPitch = pitch;
+		this.prepared = resample(scale(recording, stretch), pitch);
+	}
+
 	/** Starts the recording from its first sample, cutting whatever was playing softly. */
 	private void restart() {
-		if (this.playing) {
+		if (this.playingNow) {
 			this.interrupt = INTERRUPT_FADE;
 		}
-		this.position = 0.0;
-		this.playing = true;
+		if (this.prepared != null) {
+			this.playing = this.prepared;
+			this.prepared = null;
+		}
+		this.position = 0;
+		this.playingNow = true;
 		this.attack = ATTACK_FADE;
 	}
 
 	private void reset() {
 		this.beatPhase = 0.0;
-		this.position = 0.0;
-		this.playing = false;
+		this.position = 0;
+		this.playingNow = false;
+		this.playing = null;
+		this.prepared = null;
 		this.attack = 0;
 		this.interrupt = 0;
 		this.currentGain = 0.0F;
@@ -260,21 +288,85 @@ final class VFXHeartbeatVoice {
 					}
 					mono[i] = sum / channels;
 				}
-				return resample(mono, rate);
+				return resample(mono, rate / SAMPLE_RATE);
 			}
 			offset = body + size + (size & 1);
 		}
 		return null;
 	}
 
-	/** Linear resample to the mix rate, so the recording plays at its original pitch. */
-	private static float[] resample(final float[] input, final int rate) {
-		if (rate == (int) SAMPLE_RATE) {
+	/**
+	 * Time-scales the recording with a wave-form-similarity overlap-add: the output is
+	 * shorter (or longer) while the tone stays where it was, so a faster heart is a
+	 * faster recording on the same pitch. Each grain is placed at a synthesis hop and the
+	 * source position is searched around the nominal one for the offset that best
+	 * continues what was already written, so the waveform stays continuous.
+	 */
+	private static float[] scale(final float[] input, final double factor) {
+		if (Math.abs(factor - 1.0) < 0.001) {
 			return input;
 		}
-		final float[] output = new float[Math.max(1, (int) (input.length * SAMPLE_RATE / rate))];
-		for (int i = 0; i < output.length; i++) {
-			final double source = i * (double) rate / SAMPLE_RATE;
+		final int outHop = GRAIN_HOP;
+		final int srcHop = Math.max(1, (int) Math.round(GRAIN_HOP * factor));
+		final int grains = (input.length + srcHop - 1) / srcHop;
+		final int outLength = Math.max(1, grains * outHop);
+		final float[] out = new float[outLength];
+		final float[] weight = new float[outLength];
+		final int search = Math.min(srcHop, 256);
+		final int correlation = outHop / 2;
+		for (int g = 0; g < grains; g++) {
+			final int nominal = g * srcHop;
+			final int outStart = g * outHop;
+			int best = nominal;
+			if (g > 0) {
+				// The tail of the output so far is the template the next grain continues.
+				final int tailStart = outStart - outHop;
+				double bestScore = Double.NEGATIVE_INFINITY;
+				for (int delta = -search; delta <= search; delta++) {
+					final int start = nominal + delta;
+					if (start < 0 || start + correlation > input.length || tailStart + correlation > outLength) {
+						continue;
+					}
+					double score = 0.0;
+					for (int i = 0; i < correlation; i++) {
+						score += input[start + i] * out[tailStart + i];
+					}
+					// Prefer the smallest shift, so the material stays intact.
+					score -= Math.abs(delta) * 1.0e-4 * Math.abs(score);
+					if (score > bestScore) {
+						bestScore = score;
+						best = start;
+					}
+				}
+			}
+			for (int i = 0; i < GRAIN; i++) {
+				final int src = best + i;
+				final int dst = outStart + i;
+				if (src < 0 || src >= input.length || dst >= outLength) {
+					continue;
+				}
+				final double w = 0.5 - 0.5 * Math.cos(2.0 * Math.PI * i / GRAIN);
+				out[dst] += input[src] * (float) w;
+				weight[dst] += (float) w;
+			}
+		}
+		for (int i = 0; i < outLength; i++) {
+			if (weight[i] > 1.0e-4F) {
+				out[i] /= weight[i];
+			}
+		}
+		return out;
+	}
+
+	/** Resamples to {@link #SAMPLE_RATE} (used for the source rate) or by a tone factor. */
+	private static float[] resample(final float[] input, final double factor) {
+		if (Math.abs(factor - 1.0) < 0.001) {
+			return input;
+		}
+		final int outLength = Math.max(1, (int) Math.round(input.length / factor));
+		final float[] output = new float[outLength];
+		for (int i = 0; i < outLength; i++) {
+			final double source = i * factor;
 			final int index = (int) source;
 			if (index + 1 >= input.length) {
 				output[i] = input[input.length - 1];

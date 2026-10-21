@@ -9,12 +9,13 @@ effect instance: it opens when the instance starts, follows the animated
 `rate`, `volume` and `pitch` every frame, and closes when the instance ends
 (or is stopped, faded out, or rebuilt by a replay seek).
 
-Each beat restarts the recording, and the recording plays at
-`rate / 60 × pitch` of its original speed. So a slower heart is a slower,
-lower recording with a longer pause after it, and a faster heart is a
-faster, higher recording whose lub-dub closes up — like tape running at
-another speed. The pause between beats is whatever the recording leaves
-free; it is not re-timed separately.
+Each beat restarts the recording, and the recording is **time-scaled** to the
+tempo: at 60 bpm it plays as recorded (0.85 s in a 1 s beat), at 140 bpm it
+is compressed to about 0.36 s in a 0.43 s beat, with the pause inside the
+lub-dub closing up in the same proportion. The scaling keeps the **tone** where
+it was - a fast heart is a fast recording on the same pitch, not a higher
+one. The pause between beats is whatever the recording leaves free; it is not
+re-timed separately.
 
 ## Fields
 
@@ -26,7 +27,7 @@ free; it is not re-timed separately.
 |---|---|---|---|
 | `rate` | float | `60.0` | Beat rate in beats per minute. No upper cap; `0` or an unresolvable value is silence |
 | `volume` | float | `0.0` | Linear gain, `0..1`. Fades with the effect weight, so `fade_ticks` fades the thump in and out |
-| `pitch` | float | `1.0` | Playback-speed multiplier, `1` = as recorded. `2` plays it twice as fast (and an octave up) |
+| `pitch` | float | `1.0` | Tone multiplier, `1` = the recorded pitch. `2` makes it an octave up (and twice as long) |
 
 All are ordinary animatable params: `start`/`end`, `keyframes`, `expr`, graphs, `setParam`
 and `bind` all work. `volume`'s neutral is `0.0` (that is what the fade blends toward);
