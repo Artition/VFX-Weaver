@@ -259,8 +259,9 @@ public final class VFXVoiceManager {
 		return Float.isFinite(rate) ? Math.max(0.0F, rate) : 0.0F;
 	}
 
+	/** The {@code pitch} param is a playback-speed multiplier for the bundled recording, 1 = as recorded. */
 	private static float heartbeatPitch(final VFXActiveEffect effect) {
-		final float pitch = effect.getParam("pitch", 55.0F);
+		final float pitch = effect.getParam("pitch", 1.0F);
 		return Float.isFinite(pitch) ? Math.max(0.0F, pitch) : 0.0F;
 	}
 

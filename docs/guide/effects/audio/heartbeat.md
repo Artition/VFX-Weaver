@@ -2,17 +2,19 @@
 
 `type: "heartbeat"`
 
-Plays a **periodic low thump** for the effect's lifetime — no audio file in any
-resource pack. One voice per effect instance: it opens when the instance starts,
-follows the animated `rate`, `volume` and `pitch` every frame, and closes when the
-instance ends (or is stopped, faded out, or rebuilt by a replay seek).
+Plays a **periodic heartbeat** for the effect's lifetime. The sound is a
+recording of one lub-dub that ships inside the mod (no resource pack, no
+synthesised tone), played back at a speed the tempo drives. One voice per
+effect instance: it opens when the instance starts, follows the animated
+`rate`, `volume` and `pitch` every frame, and closes when the instance ends
+(or is stopped, faded out, or rebuilt by a replay seek).
 
-Each beat is a "lub-dub" pair: the beat phase advances `rate / 60` cycles per
-second, and every wrap fires a lub thump plus a dub thump at `0.6` of the amplitude,
-~0.28 s later at rest and easing into even half-beat spacing as `rate` climbs —
-slow hearts beat in pairs, fast hearts beat evenly. Each thump is a 5 ms attack from silence into an exponential decay
-(time constant ~80 ms at rest, tightening to ~40 ms at high rates so fast beats stay crisp) of the `pitch` sine, so beats start and end at zero — no clicks,
-even when the dub lands on the next lub or `rate` animates mid-beat.
+Each beat restarts the recording, and the recording plays at
+`rate / 60 × pitch` of its original speed. So a slower heart is a slower,
+lower recording with a longer pause after it, and a faster heart is a
+faster, higher recording whose lub-dub closes up — like tape running at
+another speed. The pause between beats is whatever the recording leaves
+free; it is not re-timed separately.
 
 ## Fields
 
@@ -24,11 +26,11 @@ even when the dub lands on the next lub or `rate` animates mid-beat.
 |---|---|---|---|
 | `rate` | float | `60.0` | Beat rate in beats per minute. No upper cap; `0` or an unresolvable value is silence |
 | `volume` | float | `0.0` | Linear gain, `0..1`. Fades with the effect weight, so `fade_ticks` fades the thump in and out |
-| `pitch` | float | `55.0` | Thump tone frequency in Hz. No upper limit; `0` or an unresolvable value is silence |
+| `pitch` | float | `1.0` | Playback-speed multiplier, `1` = as recorded. `2` plays it twice as fast (and an octave up) |
 
 All are ordinary animatable params: `start`/`end`, `keyframes`, `expr`, graphs, `setParam`
 and `bind` all work. `volume`'s neutral is `0.0` (that is what the fade blends toward);
-`rate` and `pitch` have no neutral and are read as authored. The beat phase integrates
+`rate` blends toward `60` and `pitch` toward `1`. The beat phase integrates
 per sample, so an animated `rate` glides instead of jumping.
 
 The voice gain each frame is `volume × weight × distance`, where `weight` is the
@@ -59,7 +61,7 @@ panning, only distance). First source wins:
 	"params": {
 		"rate": 60.0,
 		"volume": 0.5,
-		"pitch": 55.0
+		"pitch": 1.0
 	}
 }
 ```
@@ -76,7 +78,7 @@ for a chase cue:
 	"params": {
 		"rate": { "keyframes": [{ "time": 0, "value": 60.0 }, { "time": 200, "value": 140.0 }] },
 		"volume": 0.4,
-		"pitch": 55.0
+		"pitch": 1.0
 	}
 }
 ```
@@ -93,7 +95,7 @@ for a chase cue:
   second. An unfocused window no longer starves the voice — slow frames emit their
   wall-clock debt instead of going silent. A replay seek resyncs seamlessly instead of
   bursting.
-- **The vanilla mixer is bypassed.** The thump is synthesised into the OS mixer directly,
+- **The vanilla mixer is bypassed.** The recording is played into the OS mixer directly,
   so the game's volume sliders, mute and resource-pack sounds do not affect it — control
   loudness with the `volume` param. A machine with no audio device (or a headless JVM)
   stays silent and logs once instead of failing.

@@ -7,6 +7,6 @@
   "params": {
     "rate": 60.0,
     "volume": 0.5,
-    "pitch": 55.0
+    "pitch": 1.0
   }
 }

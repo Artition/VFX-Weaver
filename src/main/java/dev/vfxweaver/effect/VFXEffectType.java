@@ -203,7 +203,14 @@ public enum VFXEffectType {
 			case "fog_color_amount" -> Float.NaN;
 			default -> Float.NaN;
 		};
-		case HUM, NOISE, HEARTBEAT -> "volume".equals(parameter) ? 0.0F : Float.NaN;
+		case HUM, NOISE -> "volume".equals(parameter) ? 0.0F : Float.NaN;
+		// The heartbeat's neutrals: silence, the recorded tempo and the recorded playback speed.
+		case HEARTBEAT -> switch (parameter) {
+			case "volume" -> 0.0F;
+			case "rate" -> 60.0F;
+			case "pitch" -> 1.0F;
+			default -> Float.NaN;
+		};
 		// A duck at full weight scales its channel by `volume`, so the fade blends toward 1 (no duck).
 		case VOLUME_DUCK -> "volume".equals(parameter) ? 1.0F : Float.NaN;
 		case SLICE_SHIFT -> "shift".equals(parameter) ? 0.0F : Float.NaN;
