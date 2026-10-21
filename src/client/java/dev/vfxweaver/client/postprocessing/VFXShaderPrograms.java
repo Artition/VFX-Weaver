@@ -743,7 +743,7 @@ public final class VFXShaderPrograms {
 		// history buffer (the old picture, dragged along the movement the estimate finds, with
 		// the pixels that moved broken into colour), the composite pass mixes that history over
 		// the live frame by `amount`.
-		RenderPipeline datamoshUpdate = feedbackPipeline("datamosh_update", "residual", "smear", "break_level", "chroma", "time");
+		RenderPipeline datamoshUpdate = feedbackPipeline("datamosh_update", "residual", "smear", "chroma", "time");
 		RenderPipeline datamoshComposite = feedbackPipeline("datamosh_composite", "amount", "time");
 
 		PROGRAMS.put(VFXEffectType.AFTERIMAGE, List.of(
@@ -751,7 +751,7 @@ public final class VFXShaderPrograms {
 			new ProgramInfo(composite, new String[]{"decay", "blend", "drift", "desat", "intensity"}, align16(5 * 4), PassRole.FEEDBACK_COMPOSITE)
 		));
 		PROGRAMS.put(VFXEffectType.DATAMOSH, List.of(
-			new ProgramInfo(datamoshUpdate, new String[]{"residual", "smear", "break_level", "chroma", "time"}, align16(5 * 4), PassRole.FEEDBACK_UPDATE),
+			new ProgramInfo(datamoshUpdate, new String[]{"residual", "smear", "chroma", "time"}, align16(4 * 4), PassRole.FEEDBACK_UPDATE),
 			new ProgramInfo(datamoshComposite, new String[]{"amount", "time"}, align16(2 * 4), PassRole.FEEDBACK_COMPOSITE)
 		));
 		PROGRAMS.put(VFXEffectType.STOP_MOTION, List.of(
