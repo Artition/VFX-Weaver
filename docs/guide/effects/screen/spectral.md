@@ -14,14 +14,16 @@ Rainbow prism look over the frame: the prism colour ramp sweeps around the scree
 | `mode` | float | 0 | 0 = prism duotone, 1 = chromatic smear, 2 = spectral ring |
 | `center_x` | float | 0.5 | The point the prism sweeps around, screen-width fractions |
 | `center_y` | float | 0.5 | The point the prism sweeps around, screen-height fractions |
+| `mid` | float | 0.5 | The brightness split: a pixel brighter than this is the "lit" half |
+| `core` | float | 0.68 | The highlight threshold: a pixel brighter than this goes white |
 
 `mode` picks one of the three variants of the prism family:
 
 | Mode | Look |
 |---|---|
-| 0 | **Prism duotone.** The frame is split into a dark and a bright half by the local mean of an 8-tap ring (radius 0.045, x divided by the aspect, `step(avg + 0.004, luma)`); the bright half is painted with the prism colour, the hottest pixels (`step(avg + 0.18, luma)`) go white and the Sobel contour (tap step 1.5 px) is drawn in near-black. |
-| 1 | **Chromatic smear.** Seven taps are taken along the outward direction from `center_x`/`center_y`, spread by `0.0035 + 0.004 * distance`; every tap's Sobel edge (`smoothstep(0.05, 0.16)`) is painted with its own prism stop, so a contour fans out into a rainbow streak. |
-| 2 | **Spectral ring.** The luminance picks a band (`floor(clamp((luma - mean) * 2.4 + 0.5) * 6.999)`), the distance from the centre picks a ring (`floor(distance * 9 - time * 6)`), and the two together pick one of the seven spectral stops; the highlights go white and the contour is cut out in near-black. |
+| 0 | **Prism duotone.** The frame is split into a dark and a bright half by its own brightness (`mid`); the bright half is painted with the prism colour and the highlights (`core`) go white. |
+| 1 | **Chromatic smear.** Seven taps are taken along the outward direction from `center_x`/`center_y`, spread by `0.0035 + 0.004 * distance`; every tap's edge (`smoothstep(0.02, 0.30)`) is painted with its own prism stop, so a contour fans out into a rainbow streak. The ramp is wide on purpose, so it stays a smear and not a drawn outline. |
+| 2 | **Spectral ring.** The luminance picks a band (`floor(luma * 6.999)`), the distance from the centre picks a ring (`floor(distance * 9 - time * 6)`), and the two together pick one of the seven spectral stops; the highlights go white. |
 
 The prism colour itself is a seven-stop ramp - red `(1.0, 0.07, 0.1)`, orange `(1.0, 0.42,
 0.03)`, yellow `(1.0, 0.88, 0.06)`, green `(0.1, 0.95, 0.28)`, blue `(0.06, 0.48, 1.0)`,
@@ -31,6 +33,10 @@ second). In mode 0 the ramp drifts continuously; in mode 2 the rings scroll inwa
 second.
 
 `mode` is an enum and is clamped to 0..2; `center_x`/`center_y` have no upper limit.
+
+The brightness split is **absolute**, not measured against the local neighbourhood: a local
+mean would put a hard outline around every brightness step in the picture (the halo the
+`halftone` and `comic` effects lost for the same reason).
 
 ## Example
 
@@ -62,7 +68,9 @@ Its built-in datapack definition:
 		"amount": { "start": 1.0, "end": 0.0 },
 		"mode": 0.0,
 		"center_x": 0.5,
-		"center_y": 0.5
+		"center_y": 0.5,
+		"mid": 0.5,
+		"core": 0.68
 	}
 }
 ```

@@ -145,6 +145,7 @@ foreach ($call in @(Get-Calls $programs 'feedbackPipeline')) {
 	$names = New-Object System.Collections.Generic.List[string]
 	for ($i = 1; $i -lt $lits.Count; $i++) { $names.Add($lits[$i]) }
 	if ($shader.StartsWith('afterimage')) { Add-Params 'AFTERIMAGE' $names }
+	elseif ($shader.StartsWith('datamosh')) { Add-Params 'DATAMOSH' $names }
 	elseif ($shader.StartsWith('stop_motion')) { Add-Params 'STOP_MOTION' $names }
 }
 # registerScreenImagePost: SCREEN_IMAGE, empty Config names (written positionally).

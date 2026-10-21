@@ -17,6 +17,7 @@ layout(std140) uniform Config {
     float center_y;
     float ragged;
     float glow;
+    float mid;
 };
 
 out vec4 fragColor;
@@ -48,11 +49,6 @@ float lum(vec3 c) {
     return dot(c, vec3(0.2126, 0.7152, 0.0722));
 }
 
-// The reference sample helper: it clamps the uv so a tap never reaches outside the frame.
-vec3 px(vec2 uv) {
-    return texture(InSampler, clamp(uv, vec2(0.001), vec2(0.999))).rgb;
-}
-
 void main() {
     vec3 base = texture(InSampler, texCoord).rgb;
     // `time` is in ticks; the reference clock runs at 20 Hz in seconds.
@@ -61,21 +57,10 @@ void main() {
     float beat = floor(t * max(speed, 0.0));
     float aspect = OutSize.x / max(OutSize.y, 1.0);
 
-    // The reference duotone base: the local mean of an 8-tap ring (radius 0.045, x divided
-    // by the aspect), the Sobel contour and the bright/dark split (step(avg + 0.004, luma)).
-    float l = lum(px(texCoord));
-    float avg = 0.0;
-    for (int i = 0; i < 8; i++) {
-        float ring = float(i) * 0.785398;
-        avg += lum(px(texCoord + vec2(cos(ring) / aspect, sin(ring)) * 0.045));
-    }
-    avg /= 8.0;
-    float two = step(avg + 0.004, l);
-
-    vec2 sobel = 1.5 / max(OutSize, vec2(1.0));
-    float gx = lum(px(texCoord + vec2(sobel.x, 0.0))) - lum(px(texCoord - vec2(sobel.x, 0.0)));
-    float gy = lum(px(texCoord + vec2(0.0, sobel.y))) - lum(px(texCoord - vec2(0.0, sobel.y)));
-    float ink = smoothstep(0.06, 0.18, length(vec2(gx, gy)));
+    // The brightness split is absolute, not local: a pixel brighter than `mid` is lit. A local
+    // mean would put a hard outline around every brightness step, which is the halo the
+    // halftone/comic effects lost for the same reason.
+    float lit = step(mid, lum(base));
 
     // The tear: a fresh random angle every beat, a ragged noise offset across the tear and
     // the two sides at opposite brightness.
@@ -85,13 +70,12 @@ void main() {
     float along = dot(d, vec2(-nrm.y, nrm.x));
     float side = dot(d, nrm) + (vnoise2(vec2(along * 38.0, beat)) - 0.5) * ragged;
     float a = step(0.0, side);
-    float lit = mix(two, 1.0 - two, a);
+    float bright = mix(lit, 1.0 - lit, a);
 
     vec3 black = vec3(0.012, 0.006, 0.006);
     vec3 ember = vec3(1.0, 0.33, 0.06);
     vec3 white = vec3(1.0, 0.93, 0.82);
-    vec3 frame = mix(black, ember, lit);
-    frame = mix(frame, a > 0.5 ? black : ember, ink * lit);
+    vec3 frame = mix(black, ember, bright);
     // The glowing line along the tear: an exponential falloff of 0.0035 UV, scaled by 1.6.
     frame = mix(frame, white, clamp(exp(-abs(side) / max(glow, 0.0005)) * 1.6, 0.0, 1.0));
 

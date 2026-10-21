@@ -108,7 +108,7 @@ public enum VFXEffectType {
 	DIGITAL_GLITCH("digital_glitch"),
 	/** Worn VHS playback: wobble, a crawling tracking band and colour bleed. */
 	VHS("vhs"),
-	/** Data-mosh corruption: the frame breaks into sliding blocks with an RGB split and data blocks. */
+	/** Data-mosh corruption: broken macroblocks drag stale picture out of the frame's own history. */
 	DATAMOSH("datamosh"),
 	/** A ragged tear splits the frame in two: the halves sit at different brightness under a glowing line. */
 	TORN_EDGE("torn_edge"),

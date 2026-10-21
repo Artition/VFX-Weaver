@@ -87,14 +87,14 @@ final class PostParamSources {
 		params.put(VFXEffectType.DIGITAL_GLITCH, new String[]{"block", "displacement", "rate", "chroma", "seed", "chance", "intensity", "time"});
 		// order = VFXShaderPrograms.registerPost(VHS); do not reorder
 		params.put(VFXEffectType.VHS, new String[]{"tracking", "band_height", "band_speed", "bleed", "wobble", "intensity", "time"});
-		// order = VFXShaderPrograms.registerPost(DATAMOSH); do not reorder
-		params.put(VFXEffectType.DATAMOSH, new String[]{"amount", "time"});
+		// order = VFXShaderPrograms.registerFeedbackEffects(DATAMOSH); do not reorder
+		params.put(VFXEffectType.DATAMOSH, new String[]{"amount", "block_size", "strength", "smear", "residual", "time"});
 		// order = VFXShaderPrograms.registerPost(TORN_EDGE); do not reorder
-		params.put(VFXEffectType.TORN_EDGE, new String[]{"amount", "time", "speed", "center_x", "center_y", "ragged", "glow"});
+		params.put(VFXEffectType.TORN_EDGE, new String[]{"amount", "time", "speed", "center_x", "center_y", "ragged", "glow", "mid"});
 		// order = VFXShaderPrograms.registerPost(SPECTRAL); do not reorder
-		params.put(VFXEffectType.SPECTRAL, new String[]{"amount", "mode", "time", "center_x", "center_y"});
+		params.put(VFXEffectType.SPECTRAL, new String[]{"amount", "mode", "time", "center_x", "center_y", "mid", "core"});
 		// order = VFXShaderPrograms.registerPost(HEX_GRID); do not reorder
-		params.put(VFXEffectType.HEX_GRID, new String[]{"amount", "time", "cell_size", "width", "speed"});
+		params.put(VFXEffectType.HEX_GRID, new String[]{"amount", "time", "cell_size", "width", "speed", "core"});
 		// order = VFXShaderPrograms.registerPost(SHOCKWAVE); do not reorder
 		params.put(VFXEffectType.SHOCKWAVE, new String[]{"center_x", "center_y", "radius", "width", "amplitude", "sharpness"});
 		// order = VFXShaderPrograms.registerFeedbackEffects(AFTERIMAGE); do not reorder

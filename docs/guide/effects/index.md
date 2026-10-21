@@ -115,7 +115,7 @@ point.
 - [iris_wipe](screen/iris-wipe.md) - circular iris transition
 - [digital_glitch](screen/digital-glitch.md) - banded tearing with RGB split
 - [vhs](screen/vhs.md) - worn VHS playback
-- [datamosh](screen/datamosh.md) - sliding data-mosh blocks with an RGB split
+- [datamosh](screen/datamosh.md) - the frame melts into its own history, macroblock by macroblock
 - [torn_edge](screen/torn-edge.md) - a ragged tear with a glowing line down it
 - [spectral](screen/spectral.md) - rainbow prism duotone, chromatic smear and spectral ring
 - [hex_grid](screen/hex-grid.md) - a triangular grid coloured by screen position

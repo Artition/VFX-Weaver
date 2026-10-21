@@ -9,6 +9,7 @@
     "amount": { "start": 1.0, "end": 0.0 },
     "cell_size": 46.0,
     "width": 0.035,
-    "speed": 0.5
+    "speed": 0.5,
+    "core": 0.68
   }
 }

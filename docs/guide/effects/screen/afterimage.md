@@ -18,6 +18,9 @@ Feedback echo: movement leaves smearing trails that linger and dissolve on a fix
 | `desat` | float | 0.35 | Saturation loss in the echo layer |
 | `intensity` | float | 1 (fades to 0) | Strength of the echo over the live frame |
 
+The echo lives in the frame's history buffer, the same one the
+[datamosh](datamosh.md) melt uses: when both run at the same time they chain.
+
 ## Example
 
 ```json

@@ -269,20 +269,15 @@ public final class VFXShaderPrograms {
 		registerPost(VFXEffectType.IRIS_WIPE, "radius", "softness", "center_x", "center_y", "zoom");
 		registerPost(VFXEffectType.DIGITAL_GLITCH, new String[]{"block", "displacement", "rate", "chroma", "seed", "chance", "intensity", "time"}, true, Set.of(), 4);
 		registerPost(VFXEffectType.VHS, new String[]{"tracking", "band_height", "band_speed", "bleed", "wobble", "intensity", "time"}, true, Set.of(), 4);
-		// datamosh samples its neighbours (a slid/knocked uv plus an RGB split), so it is a
-		// multi-tap pass: it stays an unannotated BARRIER and never joins a fused run.
-		registerPost(VFXEffectType.DATAMOSH, "amount", "time");
-		// torn_edge samples its neighbours (a local-mean ring, a Sobel contour and the tear
-		// noise), so it is a multi-tap pass: it stays an unannotated BARRIER and never joins a
-		// fused run.
-		registerPost(VFXEffectType.TORN_EDGE, "amount", "time", "speed", "center_x", "center_y", "ragged", "glow");
-		// spectral samples its neighbours (a local-mean ring, a Sobel contour and the seven
-		// smear taps), so it is a multi-tap pass: it stays an unannotated BARRIER and never
-		// joins a fused run.
-		registerPost(VFXEffectType.SPECTRAL, "amount", "mode", "time", "center_x", "center_y");
-		// hex_grid samples its neighbours (a local-mean ring and a Sobel contour), so it is a
-		// multi-tap pass: it stays an unannotated BARRIER and never joins a fused run.
-		registerPost(VFXEffectType.HEX_GRID, "amount", "time", "cell_size", "width", "speed");
+		// torn_edge samples its neighbours (the tear noise ring), so it is a multi-tap pass: it
+		// stays an unannotated BARRIER and never joins a fused run.
+		registerPost(VFXEffectType.TORN_EDGE, "amount", "time", "speed", "center_x", "center_y", "ragged", "glow", "mid");
+		// spectral samples its neighbours (the seven smear taps in mode 1), so it is a multi-tap
+		// pass: it stays an unannotated BARRIER and never joins a fused run.
+		registerPost(VFXEffectType.SPECTRAL, "amount", "mode", "time", "center_x", "center_y", "mid", "core");
+		// hex_grid reads the picture once (no neighbours), so it is a pointwise pass; it stays an
+		// unannotated BARRIER and never joins a fused run.
+		registerPost(VFXEffectType.HEX_GRID, "amount", "time", "cell_size", "width", "speed", "core");
 		registerPost(VFXEffectType.SHOCKWAVE, "center_x", "center_y", "radius", "width", "amplitude", "sharpness");
 		registerFeedbackEffects();
 		registerPost(VFXEffectType.NOISE_WARP, "scale", "amplitude", "contrast", "coherence", "speed", "drift_x", "drift_y", "seed", "time");
@@ -735,19 +730,28 @@ public final class VFXShaderPrograms {
 	}
 
 	/**
-	 * Builds the feedback pipelines: {@code afterimage} (update + composite) and
-	 * {@code stop_motion}. Each pass samples the live frame ({@code InSampler}) and the relevant
-	 * history target ({@code HistSampler}); the save/swap semantics live in
-	 * {@code VFXPostProcessingManager}.
+	 * Builds the feedback pipelines: {@code afterimage} (update + composite), {@code datamosh}
+	 * (update + composite) and {@code stop_motion}. Each pass samples the live frame
+	 * ({@code InSampler}) and the relevant history target ({@code HistSampler}); the
+	 * save/swap semantics live in {@code VFXPostProcessingManager}.
 	 */
 	private static void registerFeedbackEffects() {
 		RenderPipeline update = feedbackPipeline("afterimage_update", "decay", "blend", "drift");
 		RenderPipeline composite = feedbackPipeline("afterimage_composite", "decay", "blend", "drift", "desat", "intensity");
 		RenderPipeline stopMotion = feedbackPipeline("stop_motion", "fps", "hold");
+		// The datamosh is a feedback effect: the update pass writes the melted picture into the
+		// history buffer (a broken block is a rigid copy of the history, dragged by a motion
+		// vector), the composite pass mixes that history over the live frame by `amount`.
+		RenderPipeline datamoshUpdate = feedbackPipeline("datamosh_update", "block_size", "strength", "smear", "residual", "time");
+		RenderPipeline datamoshComposite = feedbackPipeline("datamosh_composite", "amount", "time");
 
 		PROGRAMS.put(VFXEffectType.AFTERIMAGE, List.of(
 			new ProgramInfo(update, new String[]{"decay", "blend", "drift"}, align16(4 * 4), PassRole.FEEDBACK_UPDATE),
 			new ProgramInfo(composite, new String[]{"decay", "blend", "drift", "desat", "intensity"}, align16(5 * 4), PassRole.FEEDBACK_COMPOSITE)
+		));
+		PROGRAMS.put(VFXEffectType.DATAMOSH, List.of(
+			new ProgramInfo(datamoshUpdate, new String[]{"block_size", "strength", "smear", "residual", "time"}, align16(5 * 4), PassRole.FEEDBACK_UPDATE),
+			new ProgramInfo(datamoshComposite, new String[]{"amount", "time"}, align16(2 * 4), PassRole.FEEDBACK_COMPOSITE)
 		));
 		PROGRAMS.put(VFXEffectType.STOP_MOTION, List.of(
 			new ProgramInfo(stopMotion, new String[]{"fps", "hold"}, align16(2 * 4), PassRole.STOP_MOTION)

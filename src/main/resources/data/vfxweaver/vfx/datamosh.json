@@ -6,6 +6,10 @@
   "loop": false,
   "fade_ticks": 0,
   "params": {
-    "amount": { "start": 1.0, "end": 0.0 }
+    "amount": { "start": 1.0, "end": 0.0 },
+    "block_size": 16.0,
+    "strength": 0.35,
+    "smear": 96.0,
+    "residual": 0.12
   }
 }

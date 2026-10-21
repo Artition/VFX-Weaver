@@ -17,21 +17,23 @@ glowing line runs along the tear.
 | `center_y` | float | 0.5 | The point the tear runs through, screen-height fractions |
 | `ragged` | float | 0.02 | How far the ragged edge wanders, screen-height fractions |
 | `glow` | float | 0.0035 | Width of the glowing line, screen-height fractions |
+| `mid` | float | 0.5 | The brightness split: a pixel brighter than this is the "lit" half |
 
 The tear is a straight line through `center_x`/`center_y` whose angle is re-rolled every beat
 (20 per second by default, `speed`), so the whole frame cuts itself at a new angle each beat.
 The edge is not straight: a value-noise ripple of `ragged` (0.02 of the screen height, sampled
 at 38 cycles across the tear) makes it wander.
 
-Each side of the tear is drawn at the opposite brightness: a pixel brighter than the local mean
-of an 8-tap ring (radius 0.045, x divided by the aspect) is bright on one side and dark on the
-other, so the picture reads as two halves at different exposure. The Sobel contour of the frame
-(tap step 1.5 px, `smoothstep(0.06, 0.18)`) is drawn in black on one side and in the ember
-colour on the other, and the tear itself is a white line: an exponential falloff of `glow`
-(0.0035 of the screen height) around the cut, scaled by 1.6.
+Each side of the tear is drawn at the opposite brightness: a pixel brighter than `mid` is bright
+on one side and dark on the other, so the picture reads as two halves at different exposure. The
+split is **absolute**, not measured against the local neighbourhood: a local mean would put a
+hard outline around every brightness step in the picture (the halo the `halftone` and `comic`
+effects lost for the same reason). The tear itself is a white line: an exponential falloff of
+`glow` (0.0035 of the screen height) around the cut, scaled by 1.6.
 
 Only the lower guards exist: `speed` cannot be negative, `glow` is floored at 0.0005 so the
-falloff never divides by zero. `ragged`, `glow` and `center_x`/`center_y` have no upper limit.
+falloff never divides by zero. `ragged`, `glow`, `mid` and `center_x`/`center_y` have no upper
+limit.
 
 ## Example
 
@@ -39,7 +41,7 @@ falloff never divides by zero. `ragged`, `glow` and `center_x`/`center_y` have n
 {
 	"type": "torn_edge",
 	"duration": 60,
-	"params": { "amount": 1.0, "ragged": 0.04 }
+	"params": { "amount": 1.0, "ragged": 0.04, "mid": 0.4 }
 }
 ```
 
@@ -65,7 +67,8 @@ Its built-in datapack definition:
 		"center_x": 0.5,
 		"center_y": 0.5,
 		"ragged": 0.02,
-		"glow": 0.0035
+		"glow": 0.0035,
+		"mid": 0.5
 	}
 }
 ```
