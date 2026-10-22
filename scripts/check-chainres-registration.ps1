@@ -26,11 +26,11 @@ $dof = [System.IO.File]::ReadAllText((Join-Path $shadersDir "depth_of_field.fsh"
 
 # the record carries the three new components, in order, after the fusion pair (the screen_image flag
 # was appended after them)
-if ($programs -notmatch 'VFXFusionClass fusionClass, int prefixEvals, boolean scalable, Set<String> pixelParams, int taps, boolean screenImage\)\s*\{') {
+if ($programs -notmatch 'VFXFusionClass fusionClass, int prefixEvals, boolean scalable, Set<String> pixelParams, int taps, boolean screenImage, boolean motionInput\)\s*\{') {
 	$problems.Add("ProgramInfo does not carry (scalable, pixelParams, taps) after the fusion pair")
 }
 # a convenience constructor defaults them, so existing registrations stay non-scalable
-if ($programs -notmatch 'this\([^;]*VFXFusionClass\.BARRIER, 1, false, Set\.of\(\), 0, false\);') {
+if ($programs -notmatch 'this\([^;]*VFXFusionClass\.BARRIER, 1, false, Set\.of\(\), 0, false, false\);') {
 	$problems.Add("no convenience constructor defaults the resolution policy")
 }
 # a scalable program may never be fusible (spec 3)

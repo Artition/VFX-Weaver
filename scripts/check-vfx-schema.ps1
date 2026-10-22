@@ -148,6 +148,14 @@ foreach ($call in @(Get-Calls $programs 'feedbackPipeline')) {
 	elseif ($shader.StartsWith('datamosh')) { Add-Params 'DATAMOSH' $names }
 	elseif ($shader.StartsWith('stop_motion')) { Add-Params 'STOP_MOTION' $names }
 }
+# The datamosh update pass has its own builder (it also samples the motion field).
+foreach ($call in @(Get-Calls $programs 'feedbackMotionPipeline')) {
+	$lits = @(Get-Strings $call)
+	if ($lits.Count -lt 1) { continue }
+	$names = New-Object System.Collections.Generic.List[string]
+	for ($i = 1; $i -lt $lits.Count; $i++) { $names.Add($lits[$i]) }
+	Add-Params 'DATAMOSH' $names
+}
 # registerScreenImagePost: SCREEN_IMAGE, empty Config names (written positionally).
 if ($programs -match 'PROGRAMS\.put\(VFXEffectType\.SCREEN_IMAGE') { Add-Params 'SCREEN_IMAGE' @() }
 

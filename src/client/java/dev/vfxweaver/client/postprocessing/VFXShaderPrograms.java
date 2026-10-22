@@ -49,7 +49,7 @@ public final class VFXShaderPrograms {
 	 * held copy via the reserved {@code hold} parameter (see VFXPostProcessingManager).
 	 */
 	public enum PassRole {
-		NORMAL, FEEDBACK_UPDATE, FEEDBACK_COMPOSITE, STOP_MOTION
+		NORMAL, FEEDBACK_MOTION, FEEDBACK_UPDATE, FEEDBACK_COMPOSITE, STOP_MOTION
 	}
 
 	/**
@@ -88,7 +88,7 @@ public final class VFXShaderPrograms {
 	 * @param taps           the per-pass fetch count the chain-resolution run threshold sums
 	 * @param screenImage    true when the pass samples the {@code screen_image} picture sampler
 	 */
-	public record ProgramInfo(RenderPipeline pipeline, String[] configParams, int configUboSize, PassRole role, boolean usesDepth, @Nullable String fieldInput, boolean mask, boolean depthConfig, boolean depthHasCamPos, VFXFusionClass fusionClass, int prefixEvals, boolean scalable, Set<String> pixelParams, int taps, boolean screenImage) {
+	public record ProgramInfo(RenderPipeline pipeline, String[] configParams, int configUboSize, PassRole role, boolean usesDepth, @Nullable String fieldInput, boolean mask, boolean depthConfig, boolean depthHasCamPos, VFXFusionClass fusionClass, int prefixEvals, boolean scalable, Set<String> pixelParams, int taps, boolean screenImage, boolean motionInput) {
 		public ProgramInfo {
 			fusionClass = scalableClass(fusionClass, scalable);
 		}
@@ -98,20 +98,20 @@ public final class VFXShaderPrograms {
 		 * pixel parameters and no taps.
 		 */
 		public ProgramInfo(final RenderPipeline pipeline, final String[] configParams, final int configUboSize, final PassRole role, final boolean usesDepth, final @Nullable String fieldInput, final boolean mask, final boolean depthConfig, final boolean depthHasCamPos, final VFXFusionClass fusionClass, final int prefixEvals) {
-			this(pipeline, configParams, configUboSize, role, usesDepth, fieldInput, mask, depthConfig, depthHasCamPos, fusionClass, prefixEvals, false, Set.of(), 0, false);
+			this(pipeline, configParams, configUboSize, role, usesDepth, fieldInput, mask, depthConfig, depthHasCamPos, fusionClass, prefixEvals, false, Set.of(), 0, false, false);
 		}
 
 		/** The 8-component form for every depth pass whose Config has no {@code cam_pos} prefix. */
 		public ProgramInfo(final RenderPipeline pipeline, final String[] configParams, final int configUboSize, final PassRole role, final boolean usesDepth, final @Nullable String fieldInput, final boolean mask, final boolean depthConfig) {
-			this(pipeline, configParams, configUboSize, role, usesDepth, fieldInput, mask, depthConfig, false, VFXFusionClass.BARRIER, 1, false, Set.of(), 0, false);
+			this(pipeline, configParams, configUboSize, role, usesDepth, fieldInput, mask, depthConfig, false, VFXFusionClass.BARRIER, 1, false, Set.of(), 0, false, false);
 		}
 
 		public ProgramInfo(final RenderPipeline pipeline, final String[] configParams, final int configUboSize, final PassRole role) {
-			this(pipeline, configParams, configUboSize, role, false, null, false, false, false, VFXFusionClass.BARRIER, 1, false, Set.of(), 0, false);
+			this(pipeline, configParams, configUboSize, role, false, null, false, false, false, VFXFusionClass.BARRIER, 1, false, Set.of(), 0, false, false);
 		}
 
 		public ProgramInfo(final RenderPipeline pipeline, final String[] configParams, final int configUboSize) {
-			this(pipeline, configParams, configUboSize, PassRole.NORMAL, false, null, false, false, false, VFXFusionClass.BARRIER, 1, false, Set.of(), 0, false);
+			this(pipeline, configParams, configUboSize, PassRole.NORMAL, false, null, false, false, false, VFXFusionClass.BARRIER, 1, false, Set.of(), 0, false, false);
 		}
 
 		/**
@@ -148,6 +148,10 @@ public final class VFXShaderPrograms {
 	/*	// 26.2 moved sampler/uniform declarations to explicit bind-group layouts.
 	private static final BindGroupLayout HIST_SAMPLER_LAYOUT = BindGroupLayout.builder()
 		.withSampler("HistSampler")
+		.build();
+	// The datamosh update pass's motion field (one texel per 8x8 cell).
+	private static final BindGroupLayout MOTION_SAMPLER_LAYOUT = BindGroupLayout.builder()
+		.withSampler("MotionSampler")
 		.build();
 	private static final BindGroupLayout SAMPLER_INFO_LAYOUT = BindGroupLayout.builder()
 		.withUniform("SamplerInfo", UniformType.UNIFORM_BUFFER)
@@ -457,7 +461,8 @@ public final class VFXShaderPrograms {
 		final List<ProgramInfo> annotated = new java.util.ArrayList<>(programs.size());
 		for (final ProgramInfo info : programs) {
 			annotated.add(new ProgramInfo(info.pipeline(), info.configParams(), info.configUboSize(), info.role(),
-				info.usesDepth(), info.fieldInput(), info.mask(), info.depthConfig(), info.depthHasCamPos(), fusionClass, prefixEvals));
+				info.usesDepth(), info.fieldInput(), info.mask(), info.depthConfig(), info.depthHasCamPos(), fusionClass, prefixEvals,
+				info.scalable(), info.pixelParams(), info.taps(), info.screenImage(), info.motionInput()));
 		}
 		PROGRAMS.put(type, List.copyOf(annotated));
 	}
@@ -726,7 +731,7 @@ public final class VFXShaderPrograms {
 		// Config: vec4 rect, vec4 frame_uv, float opacity, float flags = 10 floats (40 bytes -> 48).
 		PROGRAMS.put(VFXEffectType.SCREEN_IMAGE, List.of(new ProgramInfo(
 			pipeline, new String[0], align16(40), PassRole.NORMAL,
-			false, null, false, false, false, VFXFusionClass.BARRIER, 1, false, Set.of(), 0, true)));
+			false, null, false, false, false, VFXFusionClass.BARRIER, 1, false, Set.of(), 0, true, false)));
 	}
 
 	/**
@@ -739,11 +744,13 @@ public final class VFXShaderPrograms {
 		RenderPipeline update = feedbackPipeline("afterimage_update", "decay", "blend", "drift");
 		RenderPipeline composite = feedbackPipeline("afterimage_composite", "decay", "blend", "drift", "desat", "intensity");
 		RenderPipeline stopMotion = feedbackPipeline("stop_motion", "fps", "hold");
-		// The datamosh is a feedback effect: the update pass writes the melted picture into the
-		// history buffer (the old picture, dragged along the movement the estimate finds, with
-		// the pixels that moved broken into colour), the composite pass mixes that history over
-		// the live frame by `amount`.
-		RenderPipeline datamoshUpdate = feedbackPipeline("datamosh_update", "smear", "chroma", "iframe", "time");
+		// The datamosh is a feedback effect in three passes: the motion pass searches the
+		// movement once per 8x8 cell (at 1/8 resolution), the update pass writes the melted
+		// picture into the history buffer (the old picture, dragged along that movement, with
+		// the pixels that moved broken into colour), and the composite pass mixes that history
+		// over the live frame by `amount`.
+		RenderPipeline datamoshMotion = feedbackPipeline("datamosh_motion", "time");
+		RenderPipeline datamoshUpdate = feedbackMotionPipeline("datamosh_update", "smear", "chroma", "iframe", "time");
 		RenderPipeline datamoshComposite = feedbackPipeline("datamosh_composite", "amount", "time");
 
 		PROGRAMS.put(VFXEffectType.AFTERIMAGE, List.of(
@@ -751,7 +758,8 @@ public final class VFXShaderPrograms {
 			new ProgramInfo(composite, new String[]{"decay", "blend", "drift", "desat", "intensity"}, align16(5 * 4), PassRole.FEEDBACK_COMPOSITE)
 		));
 		PROGRAMS.put(VFXEffectType.DATAMOSH, List.of(
-			new ProgramInfo(datamoshUpdate, new String[]{"smear", "chroma", "iframe", "time"}, align16(4 * 4), PassRole.FEEDBACK_UPDATE),
+			new ProgramInfo(datamoshMotion, new String[]{"time"}, align16(1 * 4), PassRole.FEEDBACK_MOTION),
+			new ProgramInfo(datamoshUpdate, new String[]{"smear", "chroma", "iframe", "time"}, align16(4 * 4), PassRole.FEEDBACK_UPDATE, false, null, false, false, false, VFXFusionClass.BARRIER, 1, false, Set.of(), 0, false, true),
 			new ProgramInfo(datamoshComposite, new String[]{"amount", "time"}, align16(2 * 4), PassRole.FEEDBACK_COMPOSITE)
 		));
 		PROGRAMS.put(VFXEffectType.STOP_MOTION, List.of(
@@ -774,6 +782,32 @@ public final class VFXShaderPrograms {
 			.withBindGroupLayout(HIST_SAMPLER_LAYOUT)
 			.withBindGroupLayout(SAMPLER_INFO_CONFIG_LAYOUT);
 			*///?}
+		return RenderPipelines.register(builder.build());
+	}
+
+	/**
+	 * The datamosh update pass: the feedback shape plus the motion field, which the motion pass
+	 * writes at 1/8 resolution (one texel per 8x8 cell). The motion search is the expensive part
+	 * of the effect, and every pixel of a cell needs the same vector, so it is searched once per
+	 * cell instead of once per pixel.
+	 */
+	private static RenderPipeline feedbackMotionPipeline(final String shader, final String... configParams) {
+		RenderPipeline.Builder builder = RenderPipeline.builder(RenderPipelines.POST_PROCESSING_SNIPPET)
+			.withLocation(Identifier.fromNamespaceAndPath("vfxweaver", "post/" + shader))
+			.withVertexShader("core/screenquad")
+			.withFragmentShader(Identifier.fromNamespaceAndPath("vfxweaver", "post/" + shader))
+			//? if <26.2 {
+			.withSampler("InSampler")
+			.withSampler("HistSampler")
+			.withSampler("MotionSampler")
+			.withUniform("SamplerInfo", UniformType.UNIFORM_BUFFER)
+			.withUniform("Config", UniformType.UNIFORM_BUFFER);
+		//?} else {
+		/*.withBindGroupLayout(BindGroupLayouts.IN_SAMPLER)
+			.withBindGroupLayout(HIST_SAMPLER_LAYOUT)
+			.withBindGroupLayout(MOTION_SAMPLER_LAYOUT)
+			.withBindGroupLayout(SAMPLER_INFO_CONFIG_LAYOUT);
+		*///?}
 		return RenderPipelines.register(builder.build());
 	}
 
@@ -844,7 +878,7 @@ public final class VFXShaderPrograms {
 				.build();
 			RenderPipelines.register(pipeline);
 			String[] configParams = params.get(i);
-			programs.add(new ProgramInfo(pipeline, configParams, align16(configParams.length * 4), PassRole.NORMAL, false, null, false, false, false, VFXFusionClass.BARRIER, 1, scalable, pixelParams, taps, false));
+			programs.add(new ProgramInfo(pipeline, configParams, align16(configParams.length * 4), PassRole.NORMAL, false, null, false, false, false, VFXFusionClass.BARRIER, 1, scalable, pixelParams, taps, false, false));
 		}
 		PROGRAMS.put(type, List.copyOf(programs));
 	}

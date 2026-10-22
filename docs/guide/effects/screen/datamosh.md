@@ -30,6 +30,10 @@ history buffer, and that history is the reference the decoder gets instead of a 
   (8, 4, 2 and 1 pixel) finds the integer vector that best matches the live picture against
   the previous live picture, over 9 points inside the piece. A penalty for a non-zero vector
   gives exactly zero where nothing moves, so a still picture does not crawl.
+- **The search runs once per cell, not once per pixel.** Every pixel of a piece needs the same
+  vector, so the search is done in a separate pass at 1/8 resolution (one texel per 8x8 cell) and
+  the result is read back by the update pass. The picture is the same, but the search costs
+  about 2.5 texture reads per pixel instead of 174.
 - **The pieces are not a grid.** A static hash quadtree splits the screen into pieces of 8 to
   64 px, so neighbouring pieces differ in size and the layout never changes. Where the
   vectors of two neighbours differ, cracks and doubled pixels appear along the seam.
@@ -54,7 +58,8 @@ negative either. None of them has an upper cap.
 - The reference is the screen's own picture, so the melt is the screen's own past - it is not a cut-in from another shot.
 - A clean camera pan does not break much, exactly like in a real codec: the breakage shows on the parallax, on the edges of objects, on mobs and at the edges of the screen, where the clamp pulls the streaks out.
 - The movement estimate needs some structure in the picture: in flat areas (sky, a plain wall) there is no gradient to measure, so nothing is dragged there.
-- The movement search costs about 174 texture reads per pixel. That is fine on a discrete GPU and may cost frames on a weak one; `smear` does not change the cost.
+- The movement search runs at 1/8 resolution (one texel per 8x8 cell), which is about 2.5 texture reads per pixel for the search plus 4 for the update itself - roughly 6.5 in total, against 174 when the search ran per pixel. `smear` does not change the cost.
+- The motion field is one texel per 8x8 cell, so the movement can only change every 8 px. A slower movement than that is not resolved; the picture still tears, but in 8 px steps.
 
 ## How to check it
 

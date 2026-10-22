@@ -103,6 +103,8 @@ public final class VFXPostProcessingManager {
 	private final Set<String> poisonedScaledRuns = new HashSet<>();
 	/** Double-buffered history for the feedback effects (afterimage). */
 	private final TextureTarget[] history = new TextureTarget[2];
+	/** Small target for the datamosh motion pass: one texel per 8x8 cell. */
+	private TextureTarget motionTarget;
 	private @Nullable TextureTarget stopMotionHold;
 	/** Last quantised hold slot per stop_motion effect (effect id -> slot). */
 	private final Map<Identifier, Integer> stopMotionSlots = new HashMap<>();
@@ -151,6 +153,10 @@ public final class VFXPostProcessingManager {
 		if (this.stopMotionHold != null) {
 			this.stopMotionHold.destroyBuffers();
 			this.stopMotionHold = null;
+		}
+		if (this.motionTarget != null) {
+			this.motionTarget.destroyBuffers();
+			this.motionTarget = null;
 		}
 		for (TextureTarget target : this.coverageTargets.values()) {
 			target.destroyBuffers();
@@ -310,10 +316,14 @@ public final class VFXPostProcessingManager {
 		}
 
 		boolean anyScalable = false;
+		boolean anyDatamosh = false;
 		for (final VFXFusionPlanner.StageRef stage : stageRefs) {
 			anyScalable |= stage.info().scalable();
+			if (stage.info().role() == VFXShaderPrograms.PassRole.FEEDBACK_MOTION) {
+				anyDatamosh = true;
+			}
 		}
-		this.ensureTargets(width, height, anyScalable);
+		this.ensureTargets(width, height, anyScalable, anyDatamosh);
 		this.ensureMaskTargets(width, height, maskEffects);
 		//? if <26.1 {
 /*		if (this.projectionMatrixBuffer == null) {
@@ -497,7 +507,13 @@ public final class VFXPostProcessingManager {
 						continue;
 					}
 					VFXShaderPrograms.PassRole role = run.role();
-					if (role == VFXShaderPrograms.PassRole.FEEDBACK_UPDATE) {
+					if (role == VFXShaderPrograms.PassRole.FEEDBACK_MOTION) {
+						// Motion pass: read the live frame and the previous history, write the vector
+						// field. It does not touch the history, so no swapHistory() afterwards.
+						RenderTarget histPrev = this.historyDirty ? read : this.history[0];
+						run.pass().execute(encoder, samplerCache, read, this.motionTarget, run.effect(), histPrev, null, null, null, null, 1.0F);
+						// read stays the live frame for the update/composite passes.
+					} else if (role == VFXShaderPrograms.PassRole.FEEDBACK_UPDATE) {
 						// History update: read the live frame + the previous history, write the next.
 						RenderTarget histPrev = this.historyDirty ? read : this.history[0];
 						run.pass().execute(encoder, samplerCache, read, this.history[1], run.effect(), histPrev, null, null, null, null, 1.0F);
@@ -1039,7 +1055,7 @@ public final class VFXPostProcessingManager {
 	}
 	//?}
 
-	private void ensureTargets(final int width, final int height, final boolean anyScalable) {
+	private void ensureTargets(final int width, final int height, final boolean anyScalable, final boolean anyDatamosh) {
 		if (width != this.lastWidth || height != this.lastHeight) {
 			for (int i = 0; i < this.pingPong.length; i++) {
 				if (this.pingPong[i] != null) {
@@ -1053,6 +1069,10 @@ public final class VFXPostProcessingManager {
 				}
 				this.history[i] = createTarget("vfxweaver history " + i, width, height, false);
 			}
+			if (this.motionTarget != null) {
+				this.motionTarget.destroyBuffers();
+				this.motionTarget = null;
+			}
 			if (this.stopMotionHold != null) {
 				this.stopMotionHold.destroyBuffers();
 			}
@@ -1062,6 +1082,14 @@ public final class VFXPostProcessingManager {
 			this.destroyHalfTargets();
 			this.lastWidth = width;
 			this.lastHeight = height;
+		}
+		// The motion target is allocated at 1/8 resolution: one texel per 8x8 cell. It is created
+		// when a datamosh first needs it and kept until the next resize (a few hundred kB), so
+		// the screen layers that do not run the datamosh never churn the allocation.
+		if (anyDatamosh && this.motionTarget == null) {
+			final int motionW = Math.max(1, (width + 7) / 8);
+			final int motionH = Math.max(1, (height + 7) / 8);
+			this.motionTarget = createTarget("vfxweaver datamosh motion", motionW, motionH, false);
 		}
 		// The half pair exists only while the chain-resolution switch is on and some active pass is
 		// scalable; it is released on resize (above) and as soon as the scale returns to 1.0 or no
@@ -1183,7 +1211,11 @@ public final class VFXPostProcessingManager {
 	 * One post-processing step: samples {@code InSampler} from the input target and writes the
 	 * result into the output target, driven by the effect's animated parameters.
 	 */
-	private static final class VFXPass {
+	/**
+	 * One compiled post pass. It is an inner class so the datamosh's update pass can reach the
+	 * manager's motion target without a parameter on every {@code execute} call.
+	 */
+	private final class VFXPass {
 		private final RenderPipeline pipeline;
 		private final String[] configParams;
 		private final VFXShaderPrograms.PassRole role;
@@ -1200,6 +1232,8 @@ public final class VFXPostProcessingManager {
 		private final boolean depthHasCamPos;
 		/** True for the {@code screen_image} pass: it writes the picture rect/frame UBO and binds {@code ImageSampler}. */
 		private final boolean screenImage;
+		/** True for the datamosh update pass: it binds the motion target as {@code MotionSampler}. */
+		private final boolean motionInput;
 		/** The texel-unit parameter names divided by the run scale (chain-resolution, spec §5). */
 		private final Set<String> pixelParams;
 		/** The depth pass's resolved anchor (the shape centre / effect world position / player), reused every frame. */
@@ -1233,6 +1267,7 @@ public final class VFXPostProcessingManager {
 			this.depthConfig = info.depthConfig();
 			this.depthHasCamPos = info.depthHasCamPos();
 			this.screenImage = info.screenImage();
+			this.motionInput = info.motionInput();
 			this.pixelParams = info.pixelParams();
 		}
 
@@ -1431,6 +1466,10 @@ public final class VFXPostProcessingManager {
 				}
 				if (history != null) {
 					renderPass.bindTexture("HistSampler", history.getColorTextureView(), samplerCache.getClampToEdge(FilterMode.LINEAR));
+				}
+				if (this.motionInput && VFXPostProcessingManager.this.motionTarget != null) {
+					renderPass.bindTexture("MotionSampler", VFXPostProcessingManager.this.motionTarget.getColorTextureView(),
+						samplerCache.getClampToEdge(FilterMode.NEAREST));
 				}
 				if (this.mask && coverage != null) {
 					// The precomputed coverage; the consumer does no shape/depth work.
