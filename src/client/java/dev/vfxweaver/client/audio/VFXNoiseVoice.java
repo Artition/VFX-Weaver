@@ -59,6 +59,8 @@ final class VFXNoiseVoice {
 	private volatile float targetSeed;
 	/** True when the effect ended: the sound fades out and the line is released. */
 	private volatile boolean closing;
+	/** True when the last block was silent because the game was paused. */
+	private boolean wasPaused;
 
 	/**
 	 * Publishes the parameters for the next block. Called from the render thread.
@@ -99,14 +101,20 @@ final class VFXNoiseVoice {
 		if (!this.ensureLine()) {
 			return false;
 		}
+		if (this.closing && this.currentGain <= 0.0F) {
+			// The fade is over: the line drains on its own and the voice is dropped once it
+			// is empty. Writing more silence would keep the line from ever draining.
+			return !this.drained();
+		}
 		final int free = this.line.available() / 2;
 		final int count = Math.min(samples, free);
 		if (count <= 0) {
 			return true;
 		}
-		// The line had played everything it was given: the stream restarts from silence and
-		// has to fade in, or the first sample clicks.
-		final boolean resumed = this.line.available() >= BUFFER_BYTES;
+		// The stream restarts from silence after a pause or an underrun: it has to fade in,
+		// or the first sample clicks.
+		final boolean resumed = (!paused && this.wasPaused) || this.line.available() >= BUFFER_BYTES;
+		this.wasPaused = paused;
 		final float gain = Float.isFinite(this.targetGain) ? Math.max(0.0F, this.targetGain) : 0.0F;
 		final float bright = Float.isFinite(this.targetBrightness)
 			? Math.min(1.0F, Math.max(0.0F, this.targetBrightness)) : 0.5F;
@@ -167,7 +175,9 @@ final class VFXNoiseVoice {
 
 	/** The samples the line is missing to stay ahead of its playhead. */
 	int deficit() {
-		if (this.line == null) {
+		if (this.line == null || this.closing) {
+			// A closing voice is fading out: it must not be topped up, or the line never
+			// drains and the voice is never released.
 			return 0;
 		}
 		final int queued = (BUFFER_BYTES - this.line.available()) / 2;

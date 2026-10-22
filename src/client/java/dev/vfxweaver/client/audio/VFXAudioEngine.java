@@ -118,32 +118,6 @@ final class VFXAudioEngine {
 	}
 
 	/**
-	 * Stops a voice: the sound fades out (the heartbeat plays its beat out) and the line is
-	 * released once it has drained.
-	 *
-	 * @param type the effect type of the voice to stop
-	 * @param id   the effect instance id
-	 */
-	void stop(final dev.vfxweaver.effect.VFXEffectType type, final long id) {
-		if (type == dev.vfxweaver.effect.VFXEffectType.HUM) {
-			final VFXHumVoice voice = this.hums.get(id);
-			if (voice != null) {
-				voice.beginClose();
-			}
-		} else if (type == dev.vfxweaver.effect.VFXEffectType.NOISE) {
-			final VFXNoiseVoice voice = this.noises.get(id);
-			if (voice != null) {
-				voice.beginClose();
-			}
-		} else if (type == dev.vfxweaver.effect.VFXEffectType.HEARTBEAT) {
-			final VFXHeartbeatVoice voice = this.heartbeats.get(id);
-			if (voice != null) {
-				voice.beginClose();
-			}
-		}
-	}
-
-	/**
 	 * Marks the voices whose effect is gone: each one fades out (the heartbeat plays its beat
 	 * out) and the audio thread releases its line once it has drained.
 	 *
@@ -154,17 +128,28 @@ final class VFXAudioEngine {
 	void stopMissing(final Set<Long> humIds, final Set<Long> noiseIds, final Set<Long> heartbeatIds) {
 		for (final Long id : this.hums.keySet()) {
 			if (!humIds.contains(id)) {
-				this.hums.get(id).beginClose();
+				// The lookup can race the audio thread removing the entry: the map is
+				// weakly consistent, so the id may be gone already.
+				final VFXHumVoice voice = this.hums.get(id);
+				if (voice != null) {
+					voice.beginClose();
+				}
 			}
 		}
 		for (final Long id : this.noises.keySet()) {
 			if (!noiseIds.contains(id)) {
-				this.noises.get(id).beginClose();
+				final VFXNoiseVoice voice = this.noises.get(id);
+				if (voice != null) {
+					voice.beginClose();
+				}
 			}
 		}
 		for (final Long id : this.heartbeats.keySet()) {
 			if (!heartbeatIds.contains(id)) {
-				this.heartbeats.get(id).beginClose();
+				final VFXHeartbeatVoice voice = this.heartbeats.get(id);
+				if (voice != null) {
+					voice.beginClose();
+				}
 			}
 		}
 	}
@@ -205,17 +190,14 @@ final class VFXAudioEngine {
 			// The wall-clock debt: the samples the sound owes since the last block.
 			this.owed += (now - this.anchorNanos) / 1_000_000_000.0 * VFXHumVoice.SAMPLE_RATE;
 			this.anchorNanos = now;
-			// A line that fell behind (a stall in this thread) is topped up again, so the
-			// lead is always there.
-			this.owed += this.deficit();
 			// The backlog is capped: a line that cannot take the audio (a full buffer) must
 			// not make the engine generate faster and faster.
 			this.owed = Math.min(this.owed, VFXHumVoice.SAMPLE_RATE * 2.0);
-			final int samples = (int) Math.min(this.owed, BLOCK_SAMPLES * 8);
-			this.owed -= samples;
+			final int wall = (int) Math.min(this.owed, BLOCK_SAMPLES * 8);
+			this.owed -= wall;
 			final boolean paused = this.paused(now);
-			if (samples > 0) {
-				this.render(samples, paused);
+			if (wall > 0) {
+				this.render(wall, paused);
 			}
 			final long sleep = BLOCK_NANOS - (System.nanoTime() - this.anchorNanos);
 			if (sleep > 0) {
@@ -225,41 +207,33 @@ final class VFXAudioEngine {
 		this.release();
 	}
 
-	/** Renders one block into every voice and drops the ones that are done. */
-	private void render(final int samples, final boolean paused) {
+	/**
+	 * Renders one block into every voice and drops the ones that are done. Each voice gets
+	 * the wall-clock share plus the samples its own line is missing, so a line that fell
+	 * behind is topped up again and the others are not over-filled.
+	 */
+	private void render(final int wall, final boolean paused) {
 		for (final Map.Entry<Long, VFXHumVoice> entry : this.hums.entrySet()) {
-			if (!entry.getValue().render(samples, paused)) {
-				entry.getValue().close();
+			final VFXHumVoice voice = entry.getValue();
+			if (!voice.render(wall + voice.deficit(), paused)) {
+				voice.close();
 				this.hums.remove(entry.getKey());
 			}
 		}
 		for (final Map.Entry<Long, VFXNoiseVoice> entry : this.noises.entrySet()) {
-			if (!entry.getValue().render(samples, paused)) {
-				entry.getValue().close();
+			final VFXNoiseVoice voice = entry.getValue();
+			if (!voice.render(wall + voice.deficit(), paused)) {
+				voice.close();
 				this.noises.remove(entry.getKey());
 			}
 		}
 		for (final Map.Entry<Long, VFXHeartbeatVoice> entry : this.heartbeats.entrySet()) {
-			if (!entry.getValue().render(samples, paused)) {
-				entry.getValue().close();
+			final VFXHeartbeatVoice voice = entry.getValue();
+			if (!voice.render(wall + voice.deficit(), paused)) {
+				voice.close();
 				this.heartbeats.remove(entry.getKey());
 			}
 		}
-	}
-
-	/** The samples the lines are missing to stay ahead of their playheads. */
-	private int deficit() {
-		int total = 0;
-		for (final VFXHumVoice voice : this.hums.values()) {
-			total += voice.deficit();
-		}
-		for (final VFXNoiseVoice voice : this.noises.values()) {
-			total += voice.deficit();
-		}
-		for (final VFXHeartbeatVoice voice : this.heartbeats.values()) {
-			total += voice.deficit();
-		}
-		return total;
 	}
 
 	/** True while the effect clock is frozen: the game is paused and the voices go quiet. */
@@ -269,6 +243,12 @@ final class VFXAudioEngine {
 			return true;
 		}
 		if (Float.isNaN(this.lastClock) || clock > this.lastClock) {
+			this.lastClock = clock;
+			this.clockMovedNanos = now;
+			return false;
+		}
+		if (clock < this.lastClock) {
+			// The clock jumped backwards (a replay scrub): that is a seek, not a pause.
 			this.lastClock = clock;
 			this.clockMovedNanos = now;
 			return false;

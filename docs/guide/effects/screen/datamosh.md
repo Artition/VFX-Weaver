@@ -50,16 +50,11 @@ negative either. None of them has an upper cap.
 
 ## Honest limits
 
-- The melt lives in the same **history buffer** as `afterimage`: when both run at the same
-  time they chain, and each of them overwrites the alpha the other one needs - run one or the
-  other, not both.
-- The reference is the screen's own picture, so the melt is the screen's own past - it is not a
-  cut-in from another shot.
-- A clean camera pan does not break much, exactly like in a real codec: the breakage shows on
-  the parallax, on the edges of objects, on mobs and at the edges of the screen, where the
-  clamp pulls the streaks out.
-- The movement search costs about 165 texture reads per pixel. That is fine on a discrete GPU
-  and may cost frames on a weak one.
+- The melt lives in the same **history buffer** as `afterimage`: when both run at the same time they chain, and each of them overwrites the alpha the other one needs - run one or the other, not both. With `afterimage` active the datamosh's motion estimate can go stale (the alpha it reads no longer carries the previous live picture), so the picture keeps dragging instead of tearing; the melt still runs, it just stops following the movement.
+- The reference is the screen's own picture, so the melt is the screen's own past - it is not a cut-in from another shot.
+- A clean camera pan does not break much, exactly like in a real codec: the breakage shows on the parallax, on the edges of objects, on mobs and at the edges of the screen, where the clamp pulls the streaks out.
+- The movement estimate needs some structure in the picture: in flat areas (sky, a plain wall) there is no gradient to measure, so nothing is dragged there.
+- The movement search costs about 174 texture reads per pixel. That is fine on a discrete GPU and may cost frames on a weak one; `smear` does not change the cost.
 
 ## How to check it
 

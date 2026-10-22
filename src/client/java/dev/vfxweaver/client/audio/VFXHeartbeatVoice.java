@@ -77,6 +77,8 @@ final class VFXHeartbeatVoice {
 	private volatile float targetPitch;
 	/** True when the effect ended: the sound stops repeating, the beat in flight plays out. */
 	private volatile boolean closing;
+	/** True when the last block was silent because the game was paused. */
+	private boolean wasPaused;
 
 	/**
 	 * Publishes the parameters for the next block. Called from the render thread.
@@ -122,9 +124,10 @@ final class VFXHeartbeatVoice {
 		if (count <= 0) {
 			return true;
 		}
-		// The line had played everything it was given: the stream restarts from silence and
-		// has to fade in, or the first sample clicks.
-		final boolean resumed = this.line.available() >= BUFFER_BYTES;
+		// The stream restarts from silence after a pause or an underrun: it has to fade in,
+		// or the first sample clicks.
+		final boolean resumed = (!paused && this.wasPaused) || this.line.available() >= BUFFER_BYTES;
+		this.wasPaused = paused;
 		final float gain = Float.isFinite(this.targetGain) ? Math.max(0.0F, this.targetGain) : 0.0F;
 		final float rate = Float.isFinite(this.targetRate) ? Math.max(0.0F, this.targetRate) : 0.0F;
 		final float pitch = Float.isFinite(this.targetPitch) ? Math.max(0.0F, this.targetPitch) : 0.0F;
@@ -157,10 +160,6 @@ final class VFXHeartbeatVoice {
 					this.attack--;
 					v *= 1.0F - (float) this.attack / ATTACK_FADE;
 				}
-				if (this.interrupt > 0) {
-					this.interrupt--;
-					v *= (float) this.interrupt / INTERRUPT_FADE;
-				}
 				// The last samples of the recording fade out, so the beat ends without a click.
 				if (this.playing != null) {
 					final int left = this.playing.length - this.position;
@@ -191,7 +190,8 @@ final class VFXHeartbeatVoice {
 
 	/** The samples the line is missing to stay ahead of its playhead. */
 	int deficit() {
-		if (this.line == null) {
+		if (this.line == null || this.closing) {
+			// A closing voice is playing its last beat out: it must not be topped up.
 			return 0;
 		}
 		final int queued = (BUFFER_BYTES - this.line.available()) / 2;
@@ -212,11 +212,11 @@ final class VFXHeartbeatVoice {
 		this.prepared = resample(scale(recording, stretch), pitch);
 	}
 
-	/** Starts the recording from its first sample, cutting whatever was playing softly. */
+	/**
+	 * Starts the recording from its first sample. The new beat fades in over the attack
+	 * window, so a beat that replaces a still-sounding one does not click.
+	 */
 	private void restart() {
-		if (this.playingNow) {
-			this.interrupt = INTERRUPT_FADE;
-		}
 		if (this.prepared != null) {
 			this.playing = this.prepared;
 			this.prepared = null;
