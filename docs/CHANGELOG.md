@@ -3,7 +3,7 @@
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 **This page is the authoritative record of released mod versions.** The newest entry is the current
-mod version (`2.4.1`, read from `mod_version` in the build). Each `##` heading names a release; where
+mod version (`2.5.0`, read from `mod_version` in the build). Each `##` heading names a release; where
 a release shipped with a guide revision the heading shows both numbers (`v1.2.0 / Guide v32`), and a
 heading titled only `Guide vN` is a guide change that shipped without a mod version bump. The two
 numbers are independent: the **mod version** is what you download, the **guide revision** is how many
@@ -12,7 +12,7 @@ times this documentation has been revised. The authoritative record of guide rev
 the [download table](index.md#download). Add new entries at the top, in the same PR as the behaviour
 change.
 
-## Unreleased
+## 2.5.0 - 2026-10-22
 
 ### Added
 - **`hex_grid`: a triangular grid coloured by the screen position.** A new screen effect draws a triangular lattice over the frame - three line directions (two at 60 degrees, one vertical) on a `cell_size` cell (46 px by default) anchored at the screen centre - and paints the lines with the prism ramp picked by the position (`prism7(x * 0.6 + y * 0.4 + time * speed)`, drifting at 0.5 per second): the lines at 28 % of that colour over near-black `(0.01, 0.008, 0.02)`, and the highlights of the picture (brighter than `core`, 0.68 by default - absolute, not local, so no outline appears at a brightness step) in white; `amount` cross-fades the whole look (default `1.0`, neutral `0.0` so `fade_ticks` fades it) and no param has an upper cap - only the lower guards that avoid degenerate maths (`cell_size >= 1` px, `width >= 0.0001`). Additive: one new effect type and its params, no existing datapack field renamed, no UBO layout change, `PROTOCOL_VERSION` unchanged. Documented in the [guide](guide/effects/screen/hex-grid.md). Asserted by `scripts/check-vfx-schema.ps1`, `scripts/check-shader-identifiers.ps1` and `scripts/check-builtins-parse.ps1`; the GLSL/pixels cannot be verified headless here. **Not verified in game**.

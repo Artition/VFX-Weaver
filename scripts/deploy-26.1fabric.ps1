@@ -2,8 +2,10 @@
 # Usage: powershell -ExecutionPolicy Bypass -File scripts/deploy-26.1fabric.ps1
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
-$jar = Join-Path $root "versions\26.1.2\build\libs\vfxweaver-2.4.1+26.1.2.jar"
+$jar = Join-Path $root "versions\26.1.2\build\libs\vfxweaver-2.5.0+26.1.2.jar"
 $mods = Join-Path $env:APPDATA "PrismLauncher\instances\26.1fabric\minecraft\mods"
 & "$root\gradlew.bat" ":26.1.2:build" -x test
-Copy-Item $jar (Join-Path $mods "vfxweaver-2.4.1+26.1.2.jar") -Force
-Write-Host "deployed -> $mods\vfxweaver-2.4.1+26.1.2.jar"
+# The old jar has to go: two versions of the same mod in one instance is a duplicate-mod crash.
+Get-ChildItem $mods -Filter "vfxweaver-*.jar" | Where-Object { $_.Name -ne "vfxweaver-2.5.0+26.1.2.jar" } | Remove-Item -Force
+Copy-Item $jar (Join-Path $mods "vfxweaver-2.5.0+26.1.2.jar") -Force
+Write-Host "deployed -> $mods\vfxweaver-2.5.0+26.1.2.jar"
