@@ -18,7 +18,7 @@ when the instance ends (or is stopped, faded out, or rebuilt by a replay seek).
 | `volume` | float | `0.0` | Linear gain, `0..1`. Fades with the effect weight, so `fade_ticks` fades the noise in and out |
 | `brightness` | float | `0.5` | Crisp/soft blend, `0..1`. `1` is raw white noise, `0` its lowpassed (mellow) copy |
 | `jitter` | float | `0.0` | Random-walk step size for the playback-rate and volume wander. `0` is steady noise |
-| `jitter_rate` | float | `1.0` | Wander speed multiplier: how fast the walk drifts per frame |
+| `jitter_rate` | float | `1.0` | Wander speed multiplier: how fast the walk drifts per audio block (5 ms, so the wander does not depend on the frame rate) |
 | `seed` | float | `0.0` | Walk seed. Changing it reseeds and restarts the texture, so a value replays the same wander |
 
 All are ordinary animatable params: `start`/`end`, `keyframes`, `expr`, graphs, `setParam`
