@@ -208,6 +208,9 @@ final class VFXAudioEngine {
 			// A line that fell behind (a stall in this thread) is topped up again, so the
 			// lead is always there.
 			this.owed += this.deficit();
+			// The backlog is capped: a line that cannot take the audio (a full buffer) must
+			// not make the engine generate faster and faster.
+			this.owed = Math.min(this.owed, VFXHumVoice.SAMPLE_RATE * 2.0);
 			final int samples = (int) Math.min(this.owed, BLOCK_SAMPLES * 8);
 			this.owed -= samples;
 			final boolean paused = this.paused(now);
