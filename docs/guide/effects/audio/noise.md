@@ -84,12 +84,14 @@ Five seconds of bright radio static that fades in and out over one second each. 
 
 ## Honest limits
 
-- **Paused game, frozen noise.** Sample timing runs on the voice's own steady
-  clock, gated by the shared effect clock: pausing (or a paused replay) freezes the gate,
-  so no new samples are synthesised and the buffered remainder drains in under half a
-  second. An unfocused window no longer starves the voice — slow frames emit their
-  wall-clock debt instead of going silent. A replay seek resyncs seamlessly instead of
-  bursting.
+- **The frame rate does not reach the sound.** The voices are synthesised on a dedicated
+  audio thread, in fixed 5 ms blocks from that thread's own wall clock, and every line stays
+  about 60 ms ahead of its playhead. A slow frame, a lost frame or an unfocused window
+  therefore cannot starve the line or stretch a ramp - the sound is the same at 30 fps and at
+  200 fps. A paused game (or a paused replay) is the one thing that stops it: the shared effect
+  clock freezes, the thread notices within a quarter of a second and renders silence until it
+  moves again. A replay seek resyncs silently instead of bursting.
+
 - **The vanilla mixer is bypassed.** The noise is synthesised into the OS mixer directly,
   so the game's volume sliders, mute and resource-pack sounds do not affect it — control
   loudness with the `volume` param. A machine with no audio device (or a headless JVM)

@@ -6,10 +6,11 @@ import dev.vfxweaver.effect.VFXSoundChannel;
 import dev.vfxweaver.effect.VFXWorldBindings;
 import dev.vfxweaver.util.VFXLog;
 import java.util.EnumMap;
-import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
 import net.minecraft.sounds.SoundSource;
@@ -21,9 +22,17 @@ import org.slf4j.LoggerFactory;
 
 /**
  * The lifecycle bridge between the {@code hum}/{@code noise}/{@code heartbeat} effects and their synthesised
- * voices, plus the {@code volume_duck} effect and the vanilla sound categories it scales:
- * one {@link VFXHumVoice}, {@link VFXNoiseVoice} or {@link VFXHeartbeatVoice} per active instance, reconciled
- * against the live set every frame.
+ * voices, plus the {@code volume_duck} effect and the vanilla sound categories it scales.
+ *
+ * <p><b>The audio thread does the sound.</b> The voices live on the {@link VFXAudioEngine}'s
+ * own thread, in fixed blocks, so the frame rate never reaches the sound. This manager runs
+ * on the render thread and only <i>publishes</i> the parameters: the animated params
+ * ({@code frequency} for a hum; {@code brightness}/{@code jitter}/{@code jitter_rate}/
+ * {@code seed} for a noise; {@code rate}/{@code pitch} for a heartbeat) with {@code volume}
+ * scaled by the fade weight, positioned at the effect's move position, first static
+ * position, first entity anchor, authored {@code pos_x/y/z} triple, or — when none is
+ * authored — the local-player snapshot, with a linear distance falloff from the camera. An
+ * effect whose entity anchor is untracked this frame is silent.
  *
  * <p><b>Open / close, driven by the active set.</b> {@link #reconcile(List, float)} is
  * called at the end of {@code VFXEffectManager.update()}, so a voice follows its effect
@@ -39,17 +48,8 @@ import org.slf4j.LoggerFactory;
  * <i>repeating</i> - the beat that is sounding plays to its end, so the effect's duration
  * decides when the sound stops rather than cutting it in the middle.
  *
- * <p><b>Per-frame drive.</b> Each bound voice is ticked with the shared effect clock, its
- * animated params ({@code frequency} for a hum; {@code brightness}/{@code jitter}/
- * {@code jitter_rate}/{@code seed} for a noise; {@code rate}/{@code pitch} for a
- * heartbeat) with {@code volume} scaled by the fade
- * weight, positioned at the effect's move position, first static position, first entity
- * anchor, authored {@code pos_x/y/z} triple, or — when none is authored — the
- * local-player snapshot, with a linear distance falloff from the camera. An effect whose
- * entity anchor is untracked this frame is silent.
- *
- * <p><b>Render thread only.</b> Synthesis writes into a {@code SourceDataLine} from the
- * calling thread, so every method here must run on the render thread.
+ * <p><b>Render thread only.</b> Every method here runs on the render thread; the audio
+ * thread owns the voice state.
  */
 public final class VFXVoiceManager {
 	private static final Logger LOGGER = LoggerFactory.getLogger("vfxweaver/voice");
@@ -59,9 +59,8 @@ public final class VFXVoiceManager {
 
 	private static final VFXVoiceManager INSTANCE = new VFXVoiceManager();
 
-	private final Map<Long, VFXHumVoice> hums = new HashMap<>();
-	private final Map<Long, VFXNoiseVoice> noises = new HashMap<>();
-	private final Map<Long, VFXHeartbeatVoice> heartbeats = new HashMap<>();
+	/** The audio thread: it owns the voices and their lines, this manager only publishes. */
+	private final VFXAudioEngine engine = new VFXAudioEngine();
 	/**
 	 * The pre-duck category levels, one entry per currently ducked channel. Empty while no
 	 * {@code volume_duck} is active; every entry is restored (then dropped) once its channel
@@ -91,100 +90,49 @@ public final class VFXVoiceManager {
 	 * @param clockTicks the shared effect clock, in ticks
 	 */
 	public void reconcile(final List<VFXActiveEffect> active, final float clockTicks) {
-		final Map<Long, VFXActiveEffect> humOwners = new HashMap<>();
-		final Map<Long, VFXActiveEffect> noiseOwners = new HashMap<>();
-		final Map<Long, VFXActiveEffect> heartbeatOwners = new HashMap<>();
+		final VFXAudioEngine engine = this.engine;
+		engine.setClock(clockTicks);
+		final Set<Long> humIds = new HashSet<>();
+		final Set<Long> noiseIds = new HashSet<>();
+		final Set<Long> heartbeatIds = new HashSet<>();
 		for (final VFXActiveEffect effect : active) {
 			if (effect.getType() == VFXEffectType.HUM) {
-				humOwners.putIfAbsent(effect.getInstanceId(), effect);
+				humIds.add(effect.getInstanceId());
+				engine.hum(effect.getInstanceId(), frequency(effect), gain(effect));
 			} else if (effect.getType() == VFXEffectType.NOISE) {
-				noiseOwners.putIfAbsent(effect.getInstanceId(), effect);
+				noiseIds.add(effect.getInstanceId());
+				final NoiseParams params = noiseParams(effect);
+				engine.noise(effect.getInstanceId(), gain(effect), params.brightness(),
+					params.jitter(), params.jitterRate(), params.seed());
 			} else if (effect.getType() == VFXEffectType.HEARTBEAT) {
-				heartbeatOwners.putIfAbsent(effect.getInstanceId(), effect);
+				heartbeatIds.add(effect.getInstanceId());
+				engine.heartbeat(effect.getInstanceId(), gain(effect), heartbeatRate(effect),
+					heartbeatPitch(effect));
 			}
 		}
-		for (final Long id : humOwners.keySet()) {
-			this.hums.computeIfAbsent(id, ignored -> new VFXHumVoice());
-		}
-		final Iterator<Map.Entry<Long, VFXHumVoice>> hums = this.hums.entrySet().iterator();
-		while (hums.hasNext()) {
-			final Map.Entry<Long, VFXHumVoice> entry = hums.next();
-			final VFXActiveEffect effect = humOwners.get(entry.getKey());
-			if (effect == null) {
-				// The effect ended: the sound fades out and the line is released once it has
-				// drained, so the stop is a fade and not a cut.
-				entry.getValue().tickClosing(clockTicks);
-				if (entry.getValue().isDrained()) {
-					entry.getValue().close();
-					hums.remove();
-				}
-				continue;
-			}
-			entry.getValue().tick(clockTicks, frequency(effect), gain(effect));
-		}
-		for (final Long id : noiseOwners.keySet()) {
-			this.noises.computeIfAbsent(id, ignored -> new VFXNoiseVoice());
-		}
-		final Iterator<Map.Entry<Long, VFXNoiseVoice>> noises = this.noises.entrySet().iterator();
-		while (noises.hasNext()) {
-			final Map.Entry<Long, VFXNoiseVoice> entry = noises.next();
-			final VFXActiveEffect effect = noiseOwners.get(entry.getKey());
-			if (effect == null) {
-				// The effect ended: the sound fades out and the line is released once it has
-				// drained, so the stop is a fade and not a cut.
-				entry.getValue().tickClosing(clockTicks);
-				if (entry.getValue().isDrained()) {
-					entry.getValue().close();
-					noises.remove();
-				}
-				continue;
-			}
-			final NoiseParams params = noiseParams(effect);
-			entry.getValue().tick(clockTicks, gain(effect), params.brightness(),
-				params.jitter(), params.jitterRate(), params.seed());
-		}
-		for (final Long id : heartbeatOwners.keySet()) {
-			this.heartbeats.computeIfAbsent(id, ignored -> new VFXHeartbeatVoice());
-		}
-		final Iterator<Map.Entry<Long, VFXHeartbeatVoice>> heartbeats = this.heartbeats.entrySet().iterator();
-		while (heartbeats.hasNext()) {
-			final Map.Entry<Long, VFXHeartbeatVoice> entry = heartbeats.next();
-			final VFXActiveEffect effect = heartbeatOwners.get(entry.getKey());
-			if (effect == null) {
-				// The effect ended: the sound stops repeating, but the beat that is playing
-				// now plays to its end - the duration decides when the sound stops, not a cut.
-				entry.getValue().beginClose();
-				entry.getValue().tickClosing(clockTicks);
-				if (entry.getValue().isFinished()) {
-					entry.getValue().close();
-					heartbeats.remove();
-				}
-				continue;
-			}
-			entry.getValue().tick(clockTicks, gain(effect), heartbeatRate(effect), heartbeatPitch(effect));
-		}
+		// The voices whose effect is gone stop: the sound fades out, the heartbeat plays its
+		// beat out, and the audio thread releases the line once it has drained.
+		engine.stopMissing(humIds, noiseIds, heartbeatIds);
 		this.reconcileDuck(active);
 	}
 
 	/**
-	 * Closes and drops every voice and restores every ducked vanilla category, run on a client
-	 * dispose and on {@code stopAll} (which cuts immediately, mirroring the aux-window close)
-	 * so no voice outlives the game session and no category stays ducked after one.
-	 * Must run on the render thread.
+	 * Stops every voice and restores every ducked vanilla category, run on {@code stopAll}
+	 * (a world exit, {@code /vfx stopall}) so no voice outlives the effect and no category
+	 * stays ducked after one. The voices fade out on the audio thread; the line is released
+	 * there once it has drained. Must run on the render thread.
 	 */
 	public void stopAll() {
-		for (final VFXHumVoice voice : this.hums.values()) {
-			voice.close();
-		}
-		this.hums.clear();
-		for (final VFXNoiseVoice voice : this.noises.values()) {
-			voice.close();
-		}
-		this.noises.clear();
-		for (final VFXHeartbeatVoice voice : this.heartbeats.values()) {
-			voice.close();
-		}
-		this.heartbeats.clear();
+		this.engine.stopAll();
+		this.restoreDuckedVolumes();
+	}
+
+	/**
+	 * Stops the audio thread and releases every line. Run on the client shutdown, where the
+	 * game is going away and no fade matters any more. Must run on the render thread.
+	 */
+	public void shutdown() {
+		this.engine.shutdown();
 		this.restoreDuckedVolumes();
 	}
 

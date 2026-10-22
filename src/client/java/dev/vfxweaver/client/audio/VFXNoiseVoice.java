@@ -16,36 +16,33 @@ import org.slf4j.LoggerFactory;
  * <p>Each sample starts from white noise (a fresh uniform draw per hold step). The
  * {@code brightness} param blends toward a softened copy: {@code 1} is crisp white noise,
  * {@code 0} is the one-pole lowpassed version. The {@code jitter}/{@code jitter_rate}
- * params drive a per-tick random walk: the playback-rate wander (how fast new white draws
- * replace the held sample, mean-reverted to 1x) and a gentler volume wander. A changed
- * {@code seed} reseeds the walk, so the texture is reproducible per authored value.
+ * params drive a random walk: the playback-rate wander (how fast new white draws replace the
+ * held sample, mean-reverted to 1x) and a gentler volume wander. A changed {@code seed}
+ * reseeds the walk, so the texture is reproducible per authored value.
  *
- * <p>Sample timing runs on the voice's own steady clock (see {@link VFXVoiceClock}): each
- * {@link #tick} emits what wall time owes since the previous tick, at any frame rate, while
- * the shared effect clock still gates <i>whether</i> anything is emitted. A paused game freezes
- * the effect clock, so a paused game emits nothing and the line drains on its own. A replay
- * seek or a slow (unfocused-window) frame resyncs seamlessly: the held sample, the softened
- * copy and the walks persist across the resync, and the gain ramps linearly from the previous
- * chunk's end, so there are no bursts, jumps or boundary clicks.
+ * <p>The voice is driven by the {@link VFXAudioEngine} on the audio thread, in fixed blocks,
+ * so the frame rate does not reach the sound. The render thread only publishes the
+ * parameters ({@link #setParams}); the texture, the walks, the gain ramp and the line belong
+ * to the audio thread.
  *
- * <p>All calls must run on the render thread (the manager calls from
- * {@code VFXEffectManager.update()}). Chunks are sized to the line's free buffer space, so
- * {@code write} never blocks the frame.
+ * <p>The gain ramps from the previous block's end to the published one, so a change (a fade,
+ * a distance step) is a ramp and not a step - a step reads as a click. A voice that resumes
+ * after the line ran dry fades in over 5 ms, and a voice whose effect ended fades out and
+ * releases its line once it has drained.
  */
 final class VFXNoiseVoice {
 	private static final Logger LOGGER = LoggerFactory.getLogger("vfxweaver/voice");
 	private static final float SAMPLE_RATE = 22050.0F;
-	private static final int SAMPLES_PER_TICK = (int) (SAMPLE_RATE / 20.0F);
-	private static final int MAX_SAMPLES_PER_CALL = SAMPLES_PER_TICK * 4;
 	private static final int BUFFER_BYTES = (int) (SAMPLE_RATE * 2 * 0.5F);
+	/** The fade-in after the line ran dry, in samples (5 ms). */
+	private static final int RESUME_FADE = 110;
+	/** How far ahead of its playhead the line stays, so a stall cannot starve it. */
+	private static final int TARGET_AHEAD = (int) (SAMPLE_RATE * 0.06F);
 	/** One-pole softening toward the mellow copy {@code brightness} blends from. */
 	private static final float SOFT_COEFF = 0.15F;
-	/** The fade-in after a silence gap, in samples (5 ms). */
-	private static final int RESUME_FADE = 110;
 
 	private SourceDataLine line;
 	private boolean failed;
-	private final VFXVoiceClock clock = new VFXVoiceClock(SAMPLE_RATE);
 	private long seed = Long.MIN_VALUE;
 	private final Random random = new Random();
 	private float pitchWalk = 1.0F;
@@ -54,45 +51,66 @@ final class VFXNoiseVoice {
 	private float white;
 	private float soft;
 	private float currentGain;
-	/** True when the last tick wrote nothing into a line that had run dry. */
-	private boolean gap;
-	/** The last brightness, so the closing fade keeps the texture it was playing. */
-	private float lastBrightness = 0.5F;
+	/** The parameters the render thread publishes; the audio thread reads them. */
+	private volatile float targetGain;
+	private volatile float targetBrightness = 0.5F;
+	private volatile float targetJitter;
+	private volatile float targetJitterRate;
+	private volatile float targetSeed;
+	/** True when the effect ended: the sound fades out and the line is released. */
+	private volatile boolean closing;
 
 	/**
-	 * Emits the samples for the clock interval ending now. A zero gain with a settled line
-	 * emits nothing.
+	 * Publishes the parameters for the next block. Called from the render thread.
 	 *
-	 * @param clockTicks  the shared effect clock, in ticks
-	 * @param targetGain  the linear gain for this frame (already weighted and attenuated)
-	 * @param brightness  the crisp/soft blend, {@code 1} white, {@code 0} lowpassed
-	 * @param jitter      the random-walk step size for the rate/volume wander
-	 * @param jitterRate  the wander speed multiplier
-	 * @param seed        the walk seed; a change reseeds and restarts the texture
+	 * @param gain       the linear gain for this frame (already weighted and attenuated)
+	 * @param brightness the crisp/soft blend, {@code 1} white, {@code 0} lowpassed
+	 * @param jitter     the random-walk step size for the rate/volume wander
+	 * @param jitterRate the wander speed multiplier
+	 * @param seed       the walk seed; a change reseeds and restarts the texture
 	 */
-	void tick(final float clockTicks, final float targetGain, final float brightness,
-			final float jitter, final float jitterRate, final float seedParam) {
+	void setParams(final float gain, final float brightness, final float jitter,
+			final float jitterRate, final float seed) {
+		this.targetGain = gain;
+		this.targetBrightness = brightness;
+		this.targetJitter = jitter;
+		this.targetJitterRate = jitterRate;
+		this.targetSeed = seed;
+		// The effect is alive again, so the sound plays again.
+		this.closing = false;
+	}
+
+	/** Starts the graceful close: the sound fades out and the line is released once it drained. */
+	void beginClose() {
+		this.closing = true;
+	}
+
+	/**
+	 * Renders one block into the line.
+	 *
+	 * @param samples the block length in samples
+	 * @param paused  true while the effect clock is frozen: silence, but the line keeps its lead
+	 * @return false when the voice is done and can be dropped
+	 */
+	boolean render(final int samples, final boolean paused) {
 		if (this.failed) {
-			return;
-		}
-		float gain = Float.isFinite(targetGain) ? Math.max(0.0F, targetGain) : 0.0F;
-		if (gain <= 0.0F && this.currentGain <= 0.0F) {
-			this.clock.idle(clockTicks);
-			this.gap = true;
-			return;
+			return false;
 		}
 		if (!this.ensureLine()) {
-			this.clock.idle(clockTicks);
-			return;
+			return false;
 		}
-		int samples = this.clock.claim(clockTicks, SAMPLES_PER_TICK, MAX_SAMPLES_PER_CALL, this.line.available() / 2);
-		if (samples <= 0) {
-			// Nothing written: if the line had run dry, the stream restarts from silence and
-			// has to fade in, or the first sample clicks.
-			this.gap = this.line.available() * 2 >= BUFFER_BYTES;
-			return;
+		final int free = this.line.available() / 2;
+		final int count = Math.min(samples, free);
+		if (count <= 0) {
+			return true;
 		}
-		final long bits = Float.isFinite(seedParam) ? (long) seedParam : 0L;
+		// The line had played everything it was given: the stream restarts from silence and
+		// has to fade in, or the first sample clicks.
+		final boolean resumed = this.line.available() >= BUFFER_BYTES;
+		final float gain = Float.isFinite(this.targetGain) ? Math.max(0.0F, this.targetGain) : 0.0F;
+		final float bright = Float.isFinite(this.targetBrightness)
+			? Math.min(1.0F, Math.max(0.0F, this.targetBrightness)) : 0.5F;
+		final long bits = Float.isFinite(this.targetSeed) ? (long) this.targetSeed : 0L;
 		if (bits != this.seed) {
 			this.seed = bits;
 			this.random.setSeed(bits);
@@ -102,10 +120,8 @@ final class VFXNoiseVoice {
 			this.white = 0.0F;
 			this.soft = 0.0F;
 		}
-		final float bright = Float.isFinite(brightness) ? Math.min(1.0F, Math.max(0.0F, brightness)) : 0.5F;
-		this.lastBrightness = bright;
-		final float step = Math.max(0.0F, Float.isFinite(jitter) ? jitter : 0.0F)
-			* Math.max(0.0F, Float.isFinite(jitterRate) ? jitterRate : 0.0F);
+		final float step = Math.max(0.0F, Float.isFinite(this.targetJitter) ? this.targetJitter : 0.0F)
+			* Math.max(0.0F, Float.isFinite(this.targetJitterRate) ? this.targetJitterRate : 0.0F);
 		if (step > 0.0F) {
 			this.pitchWalk += (this.random.nextFloat() * 2.0F - 1.0F) * step;
 			this.pitchWalk = Math.min(4.0F, Math.max(0.25F, this.pitchWalk));
@@ -115,18 +131,24 @@ final class VFXNoiseVoice {
 			this.volWalk += (1.0F - this.volWalk) * 0.02F;
 		}
 		final float frameGain = gain * this.volWalk;
-		byte[] out = new byte[samples * 2];
-		for (int i = 0; i < samples; i++) {
-			this.holdPhase += this.pitchWalk;
-			while (this.holdPhase >= 1.0) {
-				this.holdPhase -= 1.0;
-				this.white = this.random.nextFloat() * 2.0F - 1.0F;
+		final boolean closing = this.closing;
+		byte[] out = new byte[count * 2];
+		for (int i = 0; i < count; i++) {
+			float v = 0.0F;
+			if (!paused) {
+				this.holdPhase += this.pitchWalk;
+				while (this.holdPhase >= 1.0) {
+					this.holdPhase -= 1.0;
+					this.white = this.random.nextFloat() * 2.0F - 1.0F;
+				}
+				this.soft += (this.white - this.soft) * SOFT_COEFF;
+				final float s = this.soft + (this.white - this.soft) * bright;
+				final float g = closing
+					? this.currentGain * (1.0F - (float) (i + 1) / count)
+					: this.currentGain + (frameGain - this.currentGain) * (i + 1) / count;
+				v = s * g;
 			}
-			this.soft += (this.white - this.soft) * SOFT_COEFF;
-			float s = this.soft + (this.white - this.soft) * bright;
-			float g = this.currentGain + (frameGain - this.currentGain) * (i + 1) / samples;
-			float v = s * g;
-			if (this.gap && i < RESUME_FADE) {
+			if (resumed && i < RESUME_FADE) {
 				v *= (float) i / RESUME_FADE;
 			}
 			// Clamp before the cast: an above-1 gain (volume/wander have no upper cap) must
@@ -136,59 +158,29 @@ final class VFXNoiseVoice {
 			out[i * 2] = (byte) pcm;
 			out[i * 2 + 1] = (byte) (pcm >> 8);
 		}
-		this.gap = false;
-		this.currentGain = frameGain;
+		if (!paused) {
+			this.currentGain = closing ? 0.0F : frameGain;
+		}
 		this.line.write(out, 0, out.length);
+		return !closing || !this.drained();
 	}
 
-	/**
-	 * Fades the voice out after its effect ended. The line is released once it has played
-	 * everything, so the stop is a fade and not a cut.
-	 *
-	 * @param clockTicks the shared effect clock, in ticks
-	 */
-	void tickClosing(final float clockTicks) {
-		if (this.failed || this.line == null) {
-			this.clock.idle(clockTicks);
-			return;
+	/** The samples the line is missing to stay ahead of its playhead. */
+	int deficit() {
+		if (this.line == null) {
+			return 0;
 		}
-		if (this.currentGain <= 0.0F) {
-			this.clock.idle(clockTicks);
-			return;
-		}
-		int samples = this.clock.claim(clockTicks, SAMPLES_PER_TICK, MAX_SAMPLES_PER_CALL, this.line.available() / 2);
-		if (samples <= 0) {
-			return;
-		}
-		byte[] out = new byte[samples * 2];
-		for (int i = 0; i < samples; i++) {
-			this.holdPhase += this.pitchWalk;
-			while (this.holdPhase >= 1.0) {
-				this.holdPhase -= 1.0;
-				this.white = this.random.nextFloat() * 2.0F - 1.0F;
-			}
-			this.soft += (this.white - this.soft) * SOFT_COEFF;
-			float g = this.currentGain * (1.0F - (float) (i + 1) / samples);
-			float v = Math.min(1.0F, Math.max(-1.0F, (this.soft + (this.white - this.soft) * this.lastBrightness) * g));
-			short pcm = (short) (v * Short.MAX_VALUE);
-			out[i * 2] = (byte) pcm;
-			out[i * 2 + 1] = (byte) (pcm >> 8);
-		}
-		this.currentGain = 0.0F;
-		this.line.write(out, 0, out.length);
+		final int queued = (BUFFER_BYTES - this.line.available()) / 2;
+		return Math.max(0, TARGET_AHEAD - queued);
 	}
 
-	/** True when the line has played everything it was given and can be released. */
-	boolean isDrained() {
+	/** True when the line has played everything it was given. */
+	private boolean drained() {
 		return this.line == null || this.line.available() >= BUFFER_BYTES;
 	}
 
-	/**
-	 * Releases the line. The graceful path is {@link #tickClosing(float)} followed by this
-	 * once the line has drained; the abrupt one is a {@code stopAll}, which cuts at once.
-	 */
+	/** Releases the line. The graceful path is the closing fade followed by this. */
 	void close() {
-		this.clock.reset();
 		if (this.line != null) {
 			try {
 				this.line.stop();
@@ -221,4 +213,5 @@ final class VFXNoiseVoice {
 			return false;
 		}
 	}
+
 }

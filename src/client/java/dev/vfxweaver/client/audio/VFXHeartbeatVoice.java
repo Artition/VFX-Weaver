@@ -24,24 +24,19 @@ import org.slf4j.LoggerFactory;
  * does not move with the tempo; the {@code pitch} param is a separate tone multiplier
  * that does shift the pitch (and the length with it).
  *
- * <p>Sample timing runs on the voice's own steady clock (see {@link VFXVoiceClock}): each
- * {@link #tick} emits what wall time owes since the previous tick, at any frame rate, while
- * the shared effect clock still gates <i>whether</i> anything is emitted. A paused game
- * freezes the effect clock, so a paused game emits nothing and the line drains on its own. A
- * replay seek or a slow (unfocused-window) frame resyncs seamlessly: the playback position
- * and the gain ramp persist across chunks.
+ * <p>The voice is driven by the {@link VFXAudioEngine} on the audio thread, in fixed blocks,
+ * so the frame rate does not reach the sound - the time-scale work happens there too, not
+ * in the frame. The render thread only publishes the parameters ({@link #setParams}).
  *
- * <p>All calls must run on the render thread (the manager calls from
- * {@code VFXEffectManager.update()}). Chunks are sized to the line's free buffer space, so
- * {@code write} never blocks the frame.
+ * <p>When the effect ends, the sound stops <i>repeating</i>: the recording that is playing
+ * plays to its end and the voice is released after it. The effect's duration decides when
+ * the sound stops, not a cut in the middle of a beat.
  */
 final class VFXHeartbeatVoice {
 	private static final Logger LOGGER = LoggerFactory.getLogger("vfxweaver/voice");
 	/** The bundled recording: one lub-dub, mono 16-bit PCM inside the jar. */
 	private static final String SAMPLE_RESOURCE = "/assets/vfxweaver/sounds/heartbeat.wav";
 	private static final float SAMPLE_RATE = 22050.0F;
-	private static final int SAMPLES_PER_TICK = (int) (SAMPLE_RATE / 20.0F);
-	private static final int MAX_SAMPLES_PER_CALL = SAMPLES_PER_TICK * 4;
 	private static final int BUFFER_BYTES = (int) (SAMPLE_RATE * 2 * 0.5F);
 	/** Fade applied to a playback that is cut short, so a restart never clicks (5 ms). */
 	private static final int INTERRUPT_FADE = 110;
@@ -49,8 +44,10 @@ final class VFXHeartbeatVoice {
 	private static final int ATTACK_FADE = 110;
 	/** Fade applied to the last samples of a playback, so the beat ends without a click (5 ms). */
 	private static final int TAIL_FADE = 110;
-	/** Fade applied after a silence gap, when the stream resumes from silence (5 ms). */
+	/** Fade applied after the line ran dry, when the stream resumes from silence (5 ms). */
 	private static final int RESUME_FADE = 110;
+	/** How far ahead of its playhead the line stays, so a stall cannot starve it. */
+	private static final int TARGET_AHEAD = (int) (SAMPLE_RATE * 0.06F);
 	/** Synthesis hop of the time-scale (11.6 ms) and the grain length (twice the hop). */
 	private static final int GRAIN_HOP = 256;
 	private static final int GRAIN = GRAIN_HOP * 2;
@@ -61,7 +58,6 @@ final class VFXHeartbeatVoice {
 
 	private SourceDataLine line;
 	private boolean failed;
-	private final VFXVoiceClock clock = new VFXVoiceClock(SAMPLE_RATE);
 	private double beatPhase;
 	/** The recording stretched to the current tempo; the one being played. */
 	private float[] playing;
@@ -75,173 +71,131 @@ final class VFXHeartbeatVoice {
 	private int attack;
 	private int interrupt;
 	private float currentGain;
+	/** The parameters the render thread publishes; the audio thread reads them. */
+	private volatile float targetGain;
+	private volatile float targetRate;
+	private volatile float targetPitch;
 	/** True when the effect ended: the sound stops repeating, the beat in flight plays out. */
-	private boolean closing;
-	/** True when the last tick wrote nothing into a line that had run dry. */
-	private boolean gap;
+	private volatile boolean closing;
 
 	/**
-	 * Emits the samples for the clock interval ending now. A non-positive rate or pitch is
-	 * silence (the phase resets, so no DC offset leaks); a zero gain with a settled line
-	 * emits nothing.
+	 * Publishes the parameters for the next block. Called from the render thread.
 	 *
-	 * @param clockTicks  the shared effect clock, in ticks
-	 * @param targetGain  the linear gain for this frame (already weighted and attenuated)
-	 * @param rateBpm     the beat rate in beats per minute
-	 * @param pitchScale  tone multiplier, 1 = the recorded pitch
+	 * @param gain    the linear gain for this frame (already weighted and attenuated)
+	 * @param rateBpm the beat rate in beats per minute
+	 * @param pitch   tone multiplier, 1 = the recorded pitch
 	 */
-	void tick(final float clockTicks, final float targetGain, final float rateBpm, final float pitchScale) {
-		if (this.failed) {
-			return;
-		}
+	void setParams(final float gain, final float rateBpm, final float pitch) {
+		this.targetGain = gain;
+		this.targetRate = rateBpm;
+		this.targetPitch = pitch;
 		// The effect is alive again, so the sound repeats again.
 		this.closing = false;
-		float gain = Float.isFinite(targetGain) ? Math.max(0.0F, targetGain) : 0.0F;
-		float rate = Float.isFinite(rateBpm) ? Math.max(0.0F, rateBpm) : 0.0F;
-		float pitch = Float.isFinite(pitchScale) ? Math.max(0.0F, pitchScale) : 0.0F;
-		if (gain <= 0.0F && this.currentGain <= 0.0F) {
-			this.clock.idle(clockTicks);
-			this.gap = true;
-			return;
-		}
-		if (rate <= 0.0F || pitch <= 0.0F) {
-			this.reset();
-			this.clock.idle(clockTicks);
-			this.gap = true;
-			return;
-		}
-		final float[] recording = loadSample();
-		if (recording == null) {
-			this.failed = true;
-			this.clock.idle(clockTicks);
-			return;
-		}
-		if (!this.ensureLine()) {
-			this.clock.idle(clockTicks);
-			return;
-		}
-		int samples = this.clock.claim(clockTicks, SAMPLES_PER_TICK, MAX_SAMPLES_PER_CALL, this.line.available() / 2);
-		if (samples <= 0) {
-			// Nothing written: if the line had run dry, the stream restarts from silence and
-			// has to fade in, or the first sample clicks.
-			this.gap = this.line.available() * 2 >= BUFFER_BYTES;
-			return;
-		}
-		byte[] out = new byte[samples * 2];
-		double beatStep = rate / 60.0 / SAMPLE_RATE;
-		// The tempo compresses the recording in time (pitch kept); `pitch` shifts the tone.
-		final double stretch = rate / 60.0;
-		this.prepare(recording, stretch, pitch);
-		for (int i = 0; i < samples; i++) {
-			this.beatPhase += beatStep;
-			if (this.beatPhase >= 1.0) {
-				this.beatPhase -= 1.0;
-				this.restart();
-			}
-			float v = 0.0F;
-			if (this.playingNow && this.playing != null) {
-				if (this.position >= this.playing.length) {
-					this.playingNow = false;
-				} else {
-					v = this.playing[this.position];
-					this.position++;
-				}
-			}
-			if (this.attack > 0) {
-				this.attack--;
-				v *= 1.0F - (float) this.attack / ATTACK_FADE;
-			}
-			if (this.interrupt > 0) {
-				this.interrupt--;
-				v *= (float) this.interrupt / INTERRUPT_FADE;
-			}
-			// The last samples of the recording fade out, so the beat ends without a click.
-			if (this.playing != null) {
-				final int left = this.playing.length - this.position;
-				if (left < TAIL_FADE) {
-					v *= (float) Math.max(left, 0) / TAIL_FADE;
-				}
-			}
-			float g = this.currentGain + (gain - this.currentGain) * (i + 1) / samples;
-			if (this.gap && i < RESUME_FADE) {
-				v *= (float) i / RESUME_FADE;
-			}
-			// Clamp before the cast: a cut playback can still overshoot, and that must
-			// saturate, never wrap around the short range (a harsh click).
-			float s = Math.min(1.0F, Math.max(-1.0F, v * g));
-			short pcm = (short) (s * Short.MAX_VALUE);
-			out[i * 2] = (byte) pcm;
-			out[i * 2 + 1] = (byte) (pcm >> 8);
-		}
-		this.gap = false;
-		this.currentGain = gain;
-		this.line.write(out, 0, out.length);
 	}
 
-	/**
-	 * Stops the repetition: the recording that is playing now plays to its end and no new
-	 * beat starts. The effect's duration decides when the sound stops repeating, not when it
-	 * is cut.
-	 */
+	/** Starts the graceful close: the sound stops repeating, the beat in flight plays out. */
 	void beginClose() {
 		this.closing = true;
 	}
 
 	/**
-	 * Plays the recording that is sounding now to its end, at the gain it had. No new beat
-	 * starts, so the sound ends when the recording does.
+	 * Renders one block into the line.
 	 *
-	 * @param clockTicks the shared effect clock, in ticks
+	 * @param samples the block length in samples
+	 * @param paused  true while the effect clock is frozen: silence, but the line keeps its lead
+	 * @return false when the voice is done and can be dropped
 	 */
-	void tickClosing(final float clockTicks) {
+	boolean render(final int samples, final boolean paused) {
 		if (this.failed) {
-			return;
+			return false;
 		}
-		if (!this.playingNow || this.playing == null) {
-			// Nothing is sounding: the voice is done.
-			this.clock.idle(clockTicks);
-			return;
+		final float[] recording = loadSample();
+		if (recording == null) {
+			this.failed = true;
+			return false;
 		}
 		if (!this.ensureLine()) {
-			this.clock.idle(clockTicks);
-			return;
+			return false;
 		}
-		int samples = this.clock.claim(clockTicks, SAMPLES_PER_TICK, MAX_SAMPLES_PER_CALL, this.line.available() / 2);
-		if (samples <= 0) {
-			return;
+		final int free = this.line.available() / 2;
+		final int count = Math.min(samples, free);
+		if (count <= 0) {
+			return true;
 		}
-		byte[] out = new byte[samples * 2];
-		for (int i = 0; i < samples; i++) {
+		// The line had played everything it was given: the stream restarts from silence and
+		// has to fade in, or the first sample clicks.
+		final boolean resumed = this.line.available() >= BUFFER_BYTES;
+		final float gain = Float.isFinite(this.targetGain) ? Math.max(0.0F, this.targetGain) : 0.0F;
+		final float rate = Float.isFinite(this.targetRate) ? Math.max(0.0F, this.targetRate) : 0.0F;
+		final float pitch = Float.isFinite(this.targetPitch) ? Math.max(0.0F, this.targetPitch) : 0.0F;
+		final boolean closing = this.closing;
+		byte[] out = new byte[count * 2];
+		final double beatStep = rate / 60.0 / SAMPLE_RATE;
+		if (!closing && !paused && rate > 0.0F && pitch > 0.0F) {
+			// The tempo compresses the recording in time (pitch kept); `pitch` shifts the tone.
+			this.prepare(recording, rate / 60.0, pitch);
+		}
+		for (int i = 0; i < count; i++) {
 			float v = 0.0F;
-			if (this.position >= this.playing.length) {
-				this.playingNow = false;
-			} else {
-				v = this.playing[this.position];
-				this.position++;
+			if (!paused) {
+				if (!closing) {
+					this.beatPhase += beatStep;
+					if (this.beatPhase >= 1.0) {
+						this.beatPhase -= 1.0;
+						this.restart();
+					}
+				}
+				if (this.playingNow && this.playing != null) {
+					if (this.position >= this.playing.length) {
+						this.playingNow = false;
+					} else {
+						v = this.playing[this.position];
+						this.position++;
+					}
+				}
+				if (this.attack > 0) {
+					this.attack--;
+					v *= 1.0F - (float) this.attack / ATTACK_FADE;
+				}
+				if (this.interrupt > 0) {
+					this.interrupt--;
+					v *= (float) this.interrupt / INTERRUPT_FADE;
+				}
+				// The last samples of the recording fade out, so the beat ends without a click.
+				if (this.playing != null) {
+					final int left = this.playing.length - this.position;
+					if (left < TAIL_FADE) {
+						v *= (float) Math.max(left, 0) / TAIL_FADE;
+					}
+				}
 			}
-			if (this.attack > 0) {
-				this.attack--;
-				v *= 1.0F - (float) this.attack / ATTACK_FADE;
+			// A closing voice plays at the gain it had; a live one ramps to the new one.
+			final float g = closing ? this.currentGain
+				: this.currentGain + (gain - this.currentGain) * (i + 1) / count;
+			if (resumed && i < RESUME_FADE) {
+				v *= (float) i / RESUME_FADE;
 			}
-			if (this.interrupt > 0) {
-				this.interrupt--;
-				v *= (float) this.interrupt / INTERRUPT_FADE;
-			}
-			final int left = this.playing.length - this.position;
-			if (left < TAIL_FADE) {
-				v *= (float) Math.max(left, 0) / TAIL_FADE;
-			}
-			float s = Math.min(1.0F, Math.max(-1.0F, v * this.currentGain));
-			short pcm = (short) (s * Short.MAX_VALUE);
+			// Clamp before the cast: a cut playback can still overshoot, and that must
+			// saturate, never wrap around the short range (a harsh click).
+			final float s = Math.min(1.0F, Math.max(-1.0F, v * g));
+			final short pcm = (short) (s * Short.MAX_VALUE);
 			out[i * 2] = (byte) pcm;
 			out[i * 2 + 1] = (byte) (pcm >> 8);
 		}
+		if (!paused && !closing) {
+			this.currentGain = gain;
+		}
 		this.line.write(out, 0, out.length);
+		return !closing || this.playingNow;
 	}
 
-	/** True when the recording has played out and the voice can be released. */
-	boolean isFinished() {
-		return this.closing && !this.playingNow;
+	/** The samples the line is missing to stay ahead of its playhead. */
+	int deficit() {
+		if (this.line == null) {
+			return 0;
+		}
+		final int queued = (BUFFER_BYTES - this.line.available()) / 2;
+		return Math.max(0, TARGET_AHEAD - queued);
 	}
 
 	/**
@@ -272,24 +226,11 @@ final class VFXHeartbeatVoice {
 		this.attack = ATTACK_FADE;
 	}
 
-	private void reset() {
-		this.beatPhase = 0.0;
-		this.position = 0;
-		this.playingNow = false;
-		this.playing = null;
-		this.prepared = null;
-		this.attack = 0;
-		this.interrupt = 0;
-		this.currentGain = 0.0F;
-	}
-
 	/**
-	 * Releases the line. Abrupt by design (mirrors {@code VFXWindowManager.closeAll}): a
-	 * faded-out effect is already silent when it is removed, and a {@code stopAll} cuts
-	 * immediately.
+	 * Releases the line. The graceful path is the closing playback followed by this; the
+	 * abrupt one is a {@code stopAll}, which cuts at once.
 	 */
 	void close() {
-		this.clock.reset();
 		if (this.line != null) {
 			try {
 				this.line.stop();
@@ -301,7 +242,7 @@ final class VFXHeartbeatVoice {
 			}
 			this.line = null;
 		}
-		this.reset();
+		this.currentGain = 0.0F;
 	}
 
 	private boolean ensureLine() {
@@ -322,6 +263,7 @@ final class VFXHeartbeatVoice {
 			return false;
 		}
 	}
+
 
 	/**
 	 * Decodes the bundled recording once, into mono floats at {@link #SAMPLE_RATE}. The WAV is
@@ -472,7 +414,7 @@ final class VFXHeartbeatVoice {
 
 	private static int readInt(final byte[] bytes, final int offset) {
 		return (bytes[offset] & 0xFF) | ((bytes[offset + 1] & 0xFF) << 8)
-				| ((bytes[offset + 2] & 0xFF) << 16) | ((bytes[offset + 3] & 0xFF) << 24);
+			| ((bytes[offset + 2] & 0xFF) << 16) | ((bytes[offset + 3] & 0xFF) << 24);
 	}
 
 	private static int readShort(final byte[] bytes, final int offset) {

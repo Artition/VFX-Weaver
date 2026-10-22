@@ -116,6 +116,7 @@ public final class VFXClientRenderHooks {
 		VFXPostProcessingManager.get().freeGpuResources();
 		VFXWindowManager.get().closeAll();
 		VFXVoiceManager.get().stopAll();
+		VFXVoiceManager.get().shutdown();
 		// The editor bridge runs a JDK HttpServer whose dispatcher/selector threads are NOT
 		// daemon: leaving it running holds the JVM past shutdown and trips the client shutdown
 		// watchdog ("Client shutdown from post-main"). Stop it here unconditionally.
