@@ -47,6 +47,10 @@ final class VFXHeartbeatVoice {
 	private static final int INTERRUPT_FADE = 110;
 	/** Fade applied to the start of every playback (5 ms). */
 	private static final int ATTACK_FADE = 110;
+	/** Fade applied to the last samples of a playback, so the beat ends without a click (5 ms). */
+	private static final int TAIL_FADE = 110;
+	/** Fade applied after a silence gap, when the stream resumes from silence (5 ms). */
+	private static final int RESUME_FADE = 110;
 	/** Synthesis hop of the time-scale (11.6 ms) and the grain length (twice the hop). */
 	private static final int GRAIN_HOP = 256;
 	private static final int GRAIN = GRAIN_HOP * 2;
@@ -71,6 +75,10 @@ final class VFXHeartbeatVoice {
 	private int attack;
 	private int interrupt;
 	private float currentGain;
+	/** True when the effect ended: the sound stops repeating, the beat in flight plays out. */
+	private boolean closing;
+	/** True when the last tick wrote nothing into a line that had run dry. */
+	private boolean gap;
 
 	/**
 	 * Emits the samples for the clock interval ending now. A non-positive rate or pitch is
@@ -86,16 +94,20 @@ final class VFXHeartbeatVoice {
 		if (this.failed) {
 			return;
 		}
+		// The effect is alive again, so the sound repeats again.
+		this.closing = false;
 		float gain = Float.isFinite(targetGain) ? Math.max(0.0F, targetGain) : 0.0F;
 		float rate = Float.isFinite(rateBpm) ? Math.max(0.0F, rateBpm) : 0.0F;
 		float pitch = Float.isFinite(pitchScale) ? Math.max(0.0F, pitchScale) : 0.0F;
 		if (gain <= 0.0F && this.currentGain <= 0.0F) {
 			this.clock.idle(clockTicks);
+			this.gap = true;
 			return;
 		}
 		if (rate <= 0.0F || pitch <= 0.0F) {
 			this.reset();
 			this.clock.idle(clockTicks);
+			this.gap = true;
 			return;
 		}
 		final float[] recording = loadSample();
@@ -110,6 +122,9 @@ final class VFXHeartbeatVoice {
 		}
 		int samples = this.clock.claim(clockTicks, SAMPLES_PER_TICK, MAX_SAMPLES_PER_CALL, this.line.available() / 2);
 		if (samples <= 0) {
+			// Nothing written: if the line had run dry, the stream restarts from silence and
+			// has to fade in, or the first sample clicks.
+			this.gap = this.line.available() * 2 >= BUFFER_BYTES;
 			return;
 		}
 		byte[] out = new byte[samples * 2];
@@ -140,7 +155,17 @@ final class VFXHeartbeatVoice {
 				this.interrupt--;
 				v *= (float) this.interrupt / INTERRUPT_FADE;
 			}
+			// The last samples of the recording fade out, so the beat ends without a click.
+			if (this.playing != null) {
+				final int left = this.playing.length - this.position;
+				if (left < TAIL_FADE) {
+					v *= (float) Math.max(left, 0) / TAIL_FADE;
+				}
+			}
 			float g = this.currentGain + (gain - this.currentGain) * (i + 1) / samples;
+			if (this.gap && i < RESUME_FADE) {
+				v *= (float) i / RESUME_FADE;
+			}
 			// Clamp before the cast: a cut playback can still overshoot, and that must
 			// saturate, never wrap around the short range (a harsh click).
 			float s = Math.min(1.0F, Math.max(-1.0F, v * g));
@@ -148,8 +173,75 @@ final class VFXHeartbeatVoice {
 			out[i * 2] = (byte) pcm;
 			out[i * 2 + 1] = (byte) (pcm >> 8);
 		}
+		this.gap = false;
 		this.currentGain = gain;
 		this.line.write(out, 0, out.length);
+	}
+
+	/**
+	 * Stops the repetition: the recording that is playing now plays to its end and no new
+	 * beat starts. The effect's duration decides when the sound stops repeating, not when it
+	 * is cut.
+	 */
+	void beginClose() {
+		this.closing = true;
+	}
+
+	/**
+	 * Plays the recording that is sounding now to its end, at the gain it had. No new beat
+	 * starts, so the sound ends when the recording does.
+	 *
+	 * @param clockTicks the shared effect clock, in ticks
+	 */
+	void tickClosing(final float clockTicks) {
+		if (this.failed) {
+			return;
+		}
+		if (!this.playingNow || this.playing == null) {
+			// Nothing is sounding: the voice is done.
+			this.clock.idle(clockTicks);
+			return;
+		}
+		if (!this.ensureLine()) {
+			this.clock.idle(clockTicks);
+			return;
+		}
+		int samples = this.clock.claim(clockTicks, SAMPLES_PER_TICK, MAX_SAMPLES_PER_CALL, this.line.available() / 2);
+		if (samples <= 0) {
+			return;
+		}
+		byte[] out = new byte[samples * 2];
+		for (int i = 0; i < samples; i++) {
+			float v = 0.0F;
+			if (this.position >= this.playing.length) {
+				this.playingNow = false;
+			} else {
+				v = this.playing[this.position];
+				this.position++;
+			}
+			if (this.attack > 0) {
+				this.attack--;
+				v *= 1.0F - (float) this.attack / ATTACK_FADE;
+			}
+			if (this.interrupt > 0) {
+				this.interrupt--;
+				v *= (float) this.interrupt / INTERRUPT_FADE;
+			}
+			final int left = this.playing.length - this.position;
+			if (left < TAIL_FADE) {
+				v *= (float) Math.max(left, 0) / TAIL_FADE;
+			}
+			float s = Math.min(1.0F, Math.max(-1.0F, v * this.currentGain));
+			short pcm = (short) (s * Short.MAX_VALUE);
+			out[i * 2] = (byte) pcm;
+			out[i * 2 + 1] = (byte) (pcm >> 8);
+		}
+		this.line.write(out, 0, out.length);
+	}
+
+	/** True when the recording has played out and the voice can be released. */
+	boolean isFinished() {
+		return this.closing && !this.playingNow;
 	}
 
 	/**

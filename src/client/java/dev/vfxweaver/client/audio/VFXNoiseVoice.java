@@ -40,6 +40,8 @@ final class VFXNoiseVoice {
 	private static final int BUFFER_BYTES = (int) (SAMPLE_RATE * 2 * 0.5F);
 	/** One-pole softening toward the mellow copy {@code brightness} blends from. */
 	private static final float SOFT_COEFF = 0.15F;
+	/** The fade-in after a silence gap, in samples (5 ms). */
+	private static final int RESUME_FADE = 110;
 
 	private SourceDataLine line;
 	private boolean failed;
@@ -52,6 +54,10 @@ final class VFXNoiseVoice {
 	private float white;
 	private float soft;
 	private float currentGain;
+	/** True when the last tick wrote nothing into a line that had run dry. */
+	private boolean gap;
+	/** The last brightness, so the closing fade keeps the texture it was playing. */
+	private float lastBrightness = 0.5F;
 
 	/**
 	 * Emits the samples for the clock interval ending now. A zero gain with a settled line
@@ -72,6 +78,7 @@ final class VFXNoiseVoice {
 		float gain = Float.isFinite(targetGain) ? Math.max(0.0F, targetGain) : 0.0F;
 		if (gain <= 0.0F && this.currentGain <= 0.0F) {
 			this.clock.idle(clockTicks);
+			this.gap = true;
 			return;
 		}
 		if (!this.ensureLine()) {
@@ -80,6 +87,9 @@ final class VFXNoiseVoice {
 		}
 		int samples = this.clock.claim(clockTicks, SAMPLES_PER_TICK, MAX_SAMPLES_PER_CALL, this.line.available() / 2);
 		if (samples <= 0) {
+			// Nothing written: if the line had run dry, the stream restarts from silence and
+			// has to fade in, or the first sample clicks.
+			this.gap = this.line.available() * 2 >= BUFFER_BYTES;
 			return;
 		}
 		final long bits = Float.isFinite(seedParam) ? (long) seedParam : 0L;
@@ -93,6 +103,7 @@ final class VFXNoiseVoice {
 			this.soft = 0.0F;
 		}
 		final float bright = Float.isFinite(brightness) ? Math.min(1.0F, Math.max(0.0F, brightness)) : 0.5F;
+		this.lastBrightness = bright;
 		final float step = Math.max(0.0F, Float.isFinite(jitter) ? jitter : 0.0F)
 			* Math.max(0.0F, Float.isFinite(jitterRate) ? jitterRate : 0.0F);
 		if (step > 0.0F) {
@@ -114,21 +125,67 @@ final class VFXNoiseVoice {
 			this.soft += (this.white - this.soft) * SOFT_COEFF;
 			float s = this.soft + (this.white - this.soft) * bright;
 			float g = this.currentGain + (frameGain - this.currentGain) * (i + 1) / samples;
+			float v = s * g;
+			if (this.gap && i < RESUME_FADE) {
+				v *= (float) i / RESUME_FADE;
+			}
 			// Clamp before the cast: an above-1 gain (volume/wander have no upper cap) must
 			// saturate, never wrap around the short range (that wrap reads as a harsh click).
-			float v = Math.min(1.0F, Math.max(-1.0F, s * g));
+			v = Math.min(1.0F, Math.max(-1.0F, v));
 			short pcm = (short) (v * Short.MAX_VALUE);
 			out[i * 2] = (byte) pcm;
 			out[i * 2 + 1] = (byte) (pcm >> 8);
 		}
+		this.gap = false;
 		this.currentGain = frameGain;
 		this.line.write(out, 0, out.length);
 	}
 
 	/**
-	 * Releases the line. Abrupt by design (mirrors {@code VFXWindowManager.closeAll}): a
-	 * faded-out effect is already silent when it is removed, and a {@code stopAll} cuts
-	 * immediately.
+	 * Fades the voice out after its effect ended. The line is released once it has played
+	 * everything, so the stop is a fade and not a cut.
+	 *
+	 * @param clockTicks the shared effect clock, in ticks
+	 */
+	void tickClosing(final float clockTicks) {
+		if (this.failed || this.line == null) {
+			this.clock.idle(clockTicks);
+			return;
+		}
+		if (this.currentGain <= 0.0F) {
+			this.clock.idle(clockTicks);
+			return;
+		}
+		int samples = this.clock.claim(clockTicks, SAMPLES_PER_TICK, MAX_SAMPLES_PER_CALL, this.line.available() / 2);
+		if (samples <= 0) {
+			return;
+		}
+		byte[] out = new byte[samples * 2];
+		for (int i = 0; i < samples; i++) {
+			this.holdPhase += this.pitchWalk;
+			while (this.holdPhase >= 1.0) {
+				this.holdPhase -= 1.0;
+				this.white = this.random.nextFloat() * 2.0F - 1.0F;
+			}
+			this.soft += (this.white - this.soft) * SOFT_COEFF;
+			float g = this.currentGain * (1.0F - (float) (i + 1) / samples);
+			float v = Math.min(1.0F, Math.max(-1.0F, (this.soft + (this.white - this.soft) * this.lastBrightness) * g));
+			short pcm = (short) (v * Short.MAX_VALUE);
+			out[i * 2] = (byte) pcm;
+			out[i * 2 + 1] = (byte) (pcm >> 8);
+		}
+		this.currentGain = 0.0F;
+		this.line.write(out, 0, out.length);
+	}
+
+	/** True when the line has played everything it was given and can be released. */
+	boolean isDrained() {
+		return this.line == null || this.line.available() >= BUFFER_BYTES;
+	}
+
+	/**
+	 * Releases the line. The graceful path is {@link #tickClosing(float)} followed by this
+	 * once the line has drained; the abrupt one is a {@code stopAll}, which cuts at once.
 	 */
 	void close() {
 		this.clock.reset();

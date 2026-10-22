@@ -9,6 +9,12 @@ effect instance: it opens when the instance starts, follows the animated
 `rate`, `volume` and `pitch` every frame, and closes when the instance ends
 (or is stopped, faded out, or rebuilt by a replay seek).
 
+**The duration decides when the sound stops, not a cut.** When the instance
+ends, the thump stops *repeating* right there - and the beat that is sounding
+at that moment plays to its end instead of being cut in the middle. The same
+goes for a fade-out: the voice fades with the effect weight, and the last beat
+is not chopped.
+
 Each beat restarts the recording, and the recording is **time-scaled** to the
 tempo: at 60 bpm it plays as recorded (0.85 s in a 1 s beat), at 140 bpm it
 is compressed to about 0.36 s in a 0.43 s beat, with the pause inside the
@@ -100,6 +106,6 @@ for a chase cue:
   so the game's volume sliders, mute and resource-pack sounds do not affect it — control
   loudness with the `volume` param. A machine with no audio device (or a headless JVM)
   stays silent and logs once instead of failing.
-- **`stopAll` cuts immediately.** Stopping one instance fades it out over `fade_ticks`;
-  stopping everything (world exit, `/vfx stopall`, client shutdown) closes the voices at
-  once, like the aux windows.
+- **`stopAll` cuts immediately.** Stopping one instance fades it out over `fade_ticks` and
+  the last beat plays out; stopping everything (world exit, `/vfx stopall`, client shutdown)
+  closes the voices at once, like the aux windows.

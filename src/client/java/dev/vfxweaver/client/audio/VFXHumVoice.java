@@ -30,17 +30,23 @@ final class VFXHumVoice {
 	private static final int SAMPLES_PER_TICK = (int) (SAMPLE_RATE / 20.0F);
 	private static final int MAX_SAMPLES_PER_CALL = SAMPLES_PER_TICK * 4;
 	private static final int BUFFER_BYTES = (int) (SAMPLE_RATE * 2 * 0.5F);
+	/** The fade-in after a silence gap, in samples (5 ms). */
+	private static final int RESUME_FADE = 110;
 
 	private SourceDataLine line;
 	private boolean failed;
 	private final VFXVoiceClock clock = new VFXVoiceClock(SAMPLE_RATE);
 	private double phase;
 	private float currentGain;
+	/** The frequency of the last tone, so a fade-out keeps the pitch it was playing. */
+	private float lastFrequency;
+	/** True when the last tick wrote nothing into a line that had run dry. */
+	private boolean gap;
 
 	/**
-	 * Emits the samples for the clock interval ending now. A non-positive frequency is
-	 * silence (the phase resets, so no DC offset leaks); a zero gain with a settled line
-	 * emits nothing.
+	 * Emits the samples for the clock interval ending now. A non-positive frequency fades the
+	 * sound out over the chunk (the tone keeps its pitch, the gain ramps to zero); a zero gain
+	 * with a settled line emits nothing.
 	 *
 	 * @param clockTicks  the shared effect clock, in ticks
 	 * @param frequency   the sine frequency in Hz
@@ -54,13 +60,15 @@ final class VFXHumVoice {
 		float freq = Float.isFinite(frequency) ? Math.max(0.0F, frequency) : 0.0F;
 		if (gain <= 0.0F && this.currentGain <= 0.0F) {
 			this.clock.idle(clockTicks);
+			this.gap = true;
 			return;
 		}
-		if (freq <= 0.0F) {
-			this.phase = 0.0;
-			this.currentGain = 0.0F;
-			this.clock.idle(clockTicks);
-			return;
+		if (freq > 0.0F) {
+			this.lastFrequency = freq;
+		} else {
+			// No tone: keep the last one, the gain ramp fades the sound out instead of
+			// stopping it dead.
+			freq = this.lastFrequency;
 		}
 		if (!this.ensureLine()) {
 			this.clock.idle(clockTicks);
@@ -68,6 +76,9 @@ final class VFXHumVoice {
 		}
 		int samples = this.clock.claim(clockTicks, SAMPLES_PER_TICK, MAX_SAMPLES_PER_CALL, this.line.available() / 2);
 		if (samples <= 0) {
+			// Nothing written: if the line had run dry, the stream restarts from silence and
+			// has to fade in, or the first sample clicks.
+			this.gap = this.line.available() * 2 >= BUFFER_BYTES;
 			return;
 		}
 		byte[] out = new byte[samples * 2];
@@ -78,21 +89,66 @@ final class VFXHumVoice {
 				this.phase -= 2.0 * Math.PI;
 			}
 			float g = this.currentGain + (gain - this.currentGain) * (i + 1) / samples;
+			float v = (float) (Math.sin(this.phase) * g);
+			if (this.gap && i < RESUME_FADE) {
+				v *= (float) i / RESUME_FADE;
+			}
 			// Clamp before the cast: an above-1 gain (volume has no upper cap) must saturate,
 			// never wrap around the short range (that wrap reads as a harsh click).
-			float v = Math.min(1.0F, Math.max(-1.0F, (float) (Math.sin(this.phase) * g)));
+			v = Math.min(1.0F, Math.max(-1.0F, v));
 			short s = (short) (v * Short.MAX_VALUE);
 			out[i * 2] = (byte) s;
 			out[i * 2 + 1] = (byte) (s >> 8);
 		}
+		this.gap = false;
 		this.currentGain = gain;
 		this.line.write(out, 0, out.length);
 	}
 
 	/**
-	 * Releases the line. Abrupt by design (mirrors {@code VFXWindowManager.closeAll}): a
-	 * faded-out effect is already silent when it is removed, and a {@code stopAll} cuts
-	 * immediately.
+	 * Fades the voice out after its effect ended. The line is released once it has played
+	 * everything, so the stop is a fade and not a cut.
+	 *
+	 * @param clockTicks the shared effect clock, in ticks
+	 */
+	void tickClosing(final float clockTicks) {
+		if (this.failed || this.line == null) {
+			this.clock.idle(clockTicks);
+			return;
+		}
+		if (this.currentGain <= 0.0F) {
+			this.clock.idle(clockTicks);
+			return;
+		}
+		int samples = this.clock.claim(clockTicks, SAMPLES_PER_TICK, MAX_SAMPLES_PER_CALL, this.line.available() / 2);
+		if (samples <= 0) {
+			return;
+		}
+		byte[] out = new byte[samples * 2];
+		double step = 2.0 * Math.PI * this.lastFrequency / SAMPLE_RATE;
+		for (int i = 0; i < samples; i++) {
+			this.phase += step;
+			if (this.phase > 2.0 * Math.PI) {
+				this.phase -= 2.0 * Math.PI;
+			}
+			float g = this.currentGain * (1.0F - (float) (i + 1) / samples);
+			float v = Math.min(1.0F, Math.max(-1.0F, (float) (Math.sin(this.phase) * g)));
+			short s = (short) (v * Short.MAX_VALUE);
+			out[i * 2] = (byte) s;
+			out[i * 2 + 1] = (byte) (s >> 8);
+		}
+		this.currentGain = 0.0F;
+		this.line.write(out, 0, out.length);
+	}
+
+	/** True when the line has played everything it was given and can be released. */
+	boolean isDrained() {
+		return this.line == null || this.line.available() >= BUFFER_BYTES;
+	}
+
+	/**
+	 * Releases the line. The graceful path is {@link #tickClosing(float)} followed by this
+	 * once the line has drained; the abrupt one is a {@code stopAll}, which cuts at once.
 	 */
 	void close() {
 		this.clock.reset();

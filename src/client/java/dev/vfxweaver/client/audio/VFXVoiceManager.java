@@ -34,6 +34,11 @@ import org.slf4j.LoggerFactory;
  * neutral is {@code 0.0F}, so {@code fade_ticks} fades the voice), and the voice closes
  * once {@code update()} removes the finished effect.
  *
+ * <p><b>Graceful close.</b> A voice whose effect is gone is not cut: the hum and the noise
+ * fade out and their line is released once it has drained, and the heartbeat stops
+ * <i>repeating</i> - the beat that is sounding plays to its end, so the effect's duration
+ * decides when the sound stops rather than cutting it in the middle.
+ *
  * <p><b>Per-frame drive.</b> Each bound voice is ticked with the shared effect clock, its
  * animated params ({@code frequency} for a hum; {@code brightness}/{@code jitter}/
  * {@code jitter_rate}/{@code seed} for a noise; {@code rate}/{@code pitch} for a
@@ -106,8 +111,13 @@ public final class VFXVoiceManager {
 			final Map.Entry<Long, VFXHumVoice> entry = hums.next();
 			final VFXActiveEffect effect = humOwners.get(entry.getKey());
 			if (effect == null) {
-				entry.getValue().close();
-				hums.remove();
+				// The effect ended: the sound fades out and the line is released once it has
+				// drained, so the stop is a fade and not a cut.
+				entry.getValue().tickClosing(clockTicks);
+				if (entry.getValue().isDrained()) {
+					entry.getValue().close();
+					hums.remove();
+				}
 				continue;
 			}
 			entry.getValue().tick(clockTicks, frequency(effect), gain(effect));
@@ -120,8 +130,13 @@ public final class VFXVoiceManager {
 			final Map.Entry<Long, VFXNoiseVoice> entry = noises.next();
 			final VFXActiveEffect effect = noiseOwners.get(entry.getKey());
 			if (effect == null) {
-				entry.getValue().close();
-				noises.remove();
+				// The effect ended: the sound fades out and the line is released once it has
+				// drained, so the stop is a fade and not a cut.
+				entry.getValue().tickClosing(clockTicks);
+				if (entry.getValue().isDrained()) {
+					entry.getValue().close();
+					noises.remove();
+				}
 				continue;
 			}
 			final NoiseParams params = noiseParams(effect);
@@ -136,8 +151,14 @@ public final class VFXVoiceManager {
 			final Map.Entry<Long, VFXHeartbeatVoice> entry = heartbeats.next();
 			final VFXActiveEffect effect = heartbeatOwners.get(entry.getKey());
 			if (effect == null) {
-				entry.getValue().close();
-				heartbeats.remove();
+				// The effect ended: the sound stops repeating, but the beat that is playing
+				// now plays to its end - the duration decides when the sound stops, not a cut.
+				entry.getValue().beginClose();
+				entry.getValue().tickClosing(clockTicks);
+				if (entry.getValue().isFinished()) {
+					entry.getValue().close();
+					heartbeats.remove();
+				}
 				continue;
 			}
 			entry.getValue().tick(clockTicks, gain(effect), heartbeatRate(effect), heartbeatPitch(effect));
