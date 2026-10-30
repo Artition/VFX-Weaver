@@ -5,11 +5,17 @@ This file records what the page says, what is still missing, and the exact shots
 
 ## What the listing currently says
 
-- **Title:** `VFXWeaver — Cinematic Effects` (was `VFXWeaver API`; the word "API" reads as "a dependency
-  you will get installed for you" and players skim past it. The slug stays `vfxweaver-api`, so older
-  links keep working.)
-- **Summary:** cinematic screen effects, camera shake, overlays and sound, plus the browser editor, one
-  sentence, keyword-led (`screen effects`, `camera shake`, `node editor`, `datapack`, `client-side`).
+- **Title:** `VFXWeaver`. It was `VFXWeaver API` (the word "API" reads as "a dependency you will get
+  installed for you", and players skim past it), and briefly `VFXWeaver — Cinematic Effects`. The
+  tagline went because Modrinth's search indexes the title and the summary, the summary already
+  carries `cinematic` and `effects`, so the subtitle added no query coverage - it only made the name
+  longer in every list and in Modrinth's own cards. The slug stays `vfxweaver-api`, so older links
+  keep working.
+- **Summary:** cinematic screen effects, camera shake, overlays and a browser node editor, one
+  sentence, keyword-led (`cinematic`, `screen effects`, `post-processing`, `camera shake`, `node
+  editor`, `client-side`, `datapacks`). It briefly lost `post-processing` when the page was rewritten
+  and the `post processing` query fell out of the top ten with it; the word is back and so is the
+  position.
 - **Body:** the showcase video first, then *Try it in two minutes* (ten copy-paste commands with what
   each one looks like), *Build your own in the browser* (`/vfxeditor` was not mentioned at all before),
   the effect inventory by group, datapacks, the Java API, requirements, and links.
@@ -76,5 +82,19 @@ Upload through the gallery in the web UI (YouTube links go there too; the API is
 - The listing body must stay honest: no effect is claimed to work on a version it does not support,
   and the performance note (half-resolution chain by default, fusion on) is worth keeping visible when
   the page grows.
-- Search finds the page by `vfx` and `post processing` but not by `screen effects`, `cinematic` or
-  `shader effects`; the summary and the first screen of the body are where those words have to be.
+- **Where the page ranks** (checked 2026-10-30, mod projects only):
+
+  | query | position | results |
+  |---|---|---|
+  | `vfx` | 3 | 11 |
+  | `post processing` / `post-processing` | 3 | 9 |
+  | `camera shake` | 8 | 17 |
+  | `screen effects` | 9 | 21 |
+  | `cinematic effects` | 1 | 6 |
+  | `cinematic`, `effects`, `shader`, `visual effects` | not in the top 20 | 75-1020 |
+
+  The pattern is that the page wins queries with a few dozen results and is invisible on the broad
+  ones, which is what a specific name and a specific summary can do. The broad words live in the
+  summary (title and summary are what Modrinth indexes; the body is not), so a further rename buys
+  nothing - reach has to come from outside search: the gallery, videos, and other projects that
+  depend on this one.
