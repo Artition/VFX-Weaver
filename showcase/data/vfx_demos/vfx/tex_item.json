@@ -1,0 +1,35 @@
+{
+	"type": "surface_pattern",
+	"duration": 200,
+	"persistent": true,
+	"loop": true,
+	"fade_ticks": 10,
+	"params": {
+		"screen_layer": 0,
+		"tile_scale": 1.5,
+		"color_r": 1.0,
+		"color_g": 0.35,
+		"color_b": 0.15,
+		"opacity": 0.95,
+		"fade_radius": 64.0,
+		"rotation": {
+			"keyframes": [
+				{ "time": 0, "value": 0 },
+				{ "time": 200, "value": 180, "easing": "linear" }
+			]
+		}
+	},
+	"inputs": {
+		"frame": { "from": "frame_t" }
+	},
+	"surface": { "faces": ["up"] },
+	"pattern": {
+		"texture": { "id": "minecraft:item/ender_eye", "source": "item", "channel": "alpha", "aspect": "stretch" }
+	},
+	"graph": {
+		"nodes": [
+			{ "id": "t", "kind": "time", "inputs": { "speed": 8.0 } },
+			{ "id": "frame_t", "kind": "math", "op": "floor", "inputs": { "a": { "from": "t" } } }
+		]
+	}
+}

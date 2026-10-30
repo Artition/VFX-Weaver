@@ -1,0 +1,1 @@
+{"type":"heartbeat","duration":200,"easing":"ease_in_out_cubic","persistent":true,"loop":true,"fade_ticks":12,"params":{"rate":{"keyframes":[{"time":0,"value":60.0},{"time":100,"value":120.0},{"time":200,"value":60.0}]},"volume":0.5,"pitch":1.0}}

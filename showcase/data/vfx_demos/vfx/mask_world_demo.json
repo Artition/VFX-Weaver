@@ -1,0 +1,19 @@
+{
+  "type": "color_grade",
+  "duration": 800,
+  "loop": true,
+  "persistent": true,
+  "fade_ticks": 20,
+  "params": { "screen_layer": 1, "saturation": 0.0, "contrast": 1.0, "brightness": 1.0, "tint_r": 0.2, "tint_g": 0.4, "tint_b": 1.0 },
+  "mask": {
+    "invert": false,
+    "a": {
+      "shape": "sphere",
+      "space": "world",
+      "volume": "surface",
+      "center": { "bind": "entity", "selector": "@e[type=minecraft:villager,limit=1]", "point": "center" },
+      "radius": 4.0,
+      "softness": 0.5
+    }
+  }
+}

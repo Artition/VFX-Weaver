@@ -1,0 +1,1 @@
+{"type":"entity_displace","duration":160,"easing":"ease_in_out_cubic","persistent":true,"loop":true,"fade_ticks":12,"entity_selector":"@e[tag=vfx_showcase,limit=1]","params":{"amplitude":{"keyframes":[{"time":0,"value":0.0},{"time":80,"value":0.12},{"time":160,"value":0.0}]},"scale":4.0,"seed":0.0}}

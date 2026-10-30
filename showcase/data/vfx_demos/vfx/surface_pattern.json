@@ -1,0 +1,33 @@
+{
+  "type": "surface_pattern",
+  "duration": 200,
+  "persistent": true,
+  "loop": true,
+  "fade_ticks": 12,
+  "params": {
+    "screen_layer": 0,
+    "tile_scale": 3.0,
+    "color_r": 0.35,
+    "color_g": 0.85,
+    "color_b": 1.0,
+    "opacity": 0.8,
+    "fade_radius": 32.0,
+    "normal_mask": 0.6,
+    "distort": 0.0,
+    "rotation": {
+      "keyframes": [
+        { "time": 0, "value": 0.0 },
+        { "time": 200, "value": 360.0, "easing": "linear" }
+      ]
+    }
+  },
+  "pattern": {
+    "figure": "ellipse",
+    "fill": "stroke",
+    "radius_x": 0.42,
+    "radius_y": 0.42,
+    "stroke_width": 0.03,
+    "softness": 0.03,
+    "repeat": [1, 1]
+  }
+}

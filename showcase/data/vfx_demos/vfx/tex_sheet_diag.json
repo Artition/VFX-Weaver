@@ -1,0 +1,34 @@
+{
+	"type": "surface_pattern",
+	"duration": 400,
+	"persistent": true,
+	"loop": true,
+	"fade_ticks": 10,
+	"params": {
+		"screen_layer": 0,
+		"tile_scale": 6.0,
+		"opacity": 1.0,
+		"fade_radius": 96.0
+	},
+	"inputs": {
+		"frame": { "from": "frame_t" }
+	},
+	"surface": { "faces": ["up"] },
+	"pattern": {
+		"texture": {
+			"id": "vfx_demos:textures/vfx/sheet16",
+			"source": "standalone",
+			"sheet": [4, 4],
+			"channel": "alpha",
+			"aspect": "stretch"
+		}
+	},
+	"graph": {
+		"nodes": [
+			{ "id": "t", "kind": "time", "inputs": { "speed": 1.0 } },
+			{ "id": "slow", "kind": "math", "op": "multiply", "inputs": { "a": { "from": "t" }, "b": 0.05 } },
+			{ "id": "idx", "kind": "math", "op": "floor", "inputs": { "a": { "from": "slow" } } },
+			{ "id": "frame_t", "kind": "math", "op": "mod", "inputs": { "a": { "from": "idx" }, "b": 16.0 } }
+		]
+	}
+}

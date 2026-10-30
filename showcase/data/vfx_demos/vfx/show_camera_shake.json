@@ -1,0 +1,1 @@
+{"type":"camera_shake","duration":160,"easing":"ease_in_out_cubic","persistent":true,"loop":true,"fade_ticks":12,"params":{"amplitude_x":0.05,"amplitude_y":{"keyframes":[{"time":0,"value":0.02},{"time":80,"value":0.07},{"time":160,"value":0.02}]},"amplitude_z":0.02,"yaw":0.4,"pitch":0.3,"roll":0.2,"frequency":5.0,"hand":0.3}}

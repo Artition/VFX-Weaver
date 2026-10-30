@@ -1,0 +1,25 @@
+{
+	"type": "surface_pattern",
+	"duration": 200,
+	"persistent": true,
+	"loop": true,
+	"fade_ticks": 10,
+	"params": {
+		"screen_layer": 0,
+		"tile_scale": 3.0,
+		"color_r": 0.4,
+		"color_g": 0.9,
+		"color_b": 1.0,
+		"texture_tint": 0.75,
+		"opacity": 0.95,
+		"fade_radius": 96.0
+	},
+	"surface": { "faces": ["up"] },
+	"pattern": {
+		"figure": "circle",
+		"radius": 0.5,
+		"fill": "solid",
+		"softness": 0.08,
+		"texture": { "id": "minecraft:block/stone", "source": "block", "channel": "luminance" }
+	}
+}

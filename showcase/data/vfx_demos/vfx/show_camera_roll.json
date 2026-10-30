@@ -1,0 +1,1 @@
+{"type":"camera_roll","duration":160,"easing":"ease_in_out_cubic","persistent":true,"loop":true,"fade_ticks":12,"params":{"angle":{"keyframes":[{"time":0,"value":-10.0},{"time":80,"value":10.0},{"time":160,"value":-10.0}]},"wobble":0.0,"wobble_speed":0.2}}

@@ -1,0 +1,26 @@
+{
+	"type": "surface_pattern",
+	"duration": 200,
+	"persistent": true,
+	"loop": true,
+	"fade_ticks": 10,
+	"params": {
+		"screen_layer": 0,
+		"tile_scale": 3.0,
+		"color_r": 1.0,
+		"color_g": 0.7,
+		"color_b": 0.3,
+		"opacity": 0.95,
+		"fade_radius": 96.0,
+		"distort": 0.0
+	},
+	"surface": { "faces": ["up"] },
+	"pattern": {
+		"figure": "ellipse",
+		"radius_x": 0.5,
+		"radius_y": 0.5,
+		"fill": "solid",
+		"softness": 0.01,
+		"texture": { "id": "minecraft:block/nether_portal", "source": "block", "channel": "alpha" }
+	}
+}

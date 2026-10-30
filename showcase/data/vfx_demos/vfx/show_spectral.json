@@ -1,0 +1,1 @@
+{"type":"spectral","duration":200,"easing":"ease_in_out_cubic","persistent":true,"loop":true,"fade_ticks":12,"params":{"amount":{"keyframes":[{"time":0,"value":0.15},{"time":50,"value":1.0},{"time":150,"value":1.0},{"time":200,"value":0.15}]},"mode":0.0,"center_x":0.5,"center_y":0.5,"mid":0.5,"core":0.68}}

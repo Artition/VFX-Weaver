@@ -1,0 +1,1 @@
+{"type":"eyelids","duration":200,"easing":"ease_in_out_cubic","persistent":true,"loop":true,"fade_ticks":12,"params":{"openness":{"keyframes":[{"time":0,"value":1.0},{"time":100,"value":0.25},{"time":200,"value":1.0}]},"softness":0.2,"curve":0.4}}

@@ -1,0 +1,30 @@
+{
+  "type": "surface_pattern",
+  "duration": 200,
+  "persistent": true,
+  "loop": true,
+  "fade_ticks": 10,
+  "params": {
+    "screen_layer": 0,
+    "tile_scale": 4.0,
+    "color_r": 1.0,
+    "color_g": 0.75,
+    "color_b": 0.2,
+    "opacity": 0.9,
+    "fade_radius": 48.0,
+    "distort": 0.0,
+    "pos_x": { "bind": "player_x" },
+    "pos_y": { "bind": "player_y" },
+    "pos_z": { "bind": "player_z" }
+  },
+  "pattern": {
+    "figure": "ellipse",
+    "fill": "stroke",
+    "radius_x": 0.5,
+    "radius_y": 0.5,
+    "stroke_width": 0.12,
+    "softness": 0.02,
+    "repeat": [1, 1]
+  },
+  "surface": { "faces": ["up", "north", "south", "east", "west"], "stitch": false }
+}

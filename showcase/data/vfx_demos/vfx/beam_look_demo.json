@@ -1,0 +1,1 @@
+{"type":"light_beam","duration":200,"loop":true,"persistent":true,"fade_ticks":12,"positions":[{"entity":"@s","point":"eyes"}],"params":{"radius":0.8,"height":40,"softness":0.8,"top_fade":0.6,"bottom_fade":0.2,"dir_x":{"bind":"look_x"},"dir_y":{"bind":"look_y"},"dir_z":{"bind":"look_z"}}}

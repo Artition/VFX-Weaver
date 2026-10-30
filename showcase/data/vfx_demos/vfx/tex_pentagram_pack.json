@@ -1,0 +1,22 @@
+{
+	"type": "surface_pattern",
+	"duration": 200,
+	"persistent": true,
+	"loop": true,
+	"fade_ticks": 10,
+	"params": {
+		"screen_layer": 0,
+		"tile_scale": 4.0,
+		"opacity": 0.95,
+		"fade_radius": 96.0
+	},
+	"surface": { "faces": ["up"] },
+	"pattern": {
+		"texture": {
+			"id": "vfx_demos:textures/vfx/pentagram",
+			"source": "standalone",
+			"channel": "alpha",
+			"aspect": "preserve"
+		}
+	}
+}

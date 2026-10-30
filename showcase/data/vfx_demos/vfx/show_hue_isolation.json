@@ -1,0 +1,1 @@
+{"type":"hue_isolation","duration":200,"easing":"ease_in_out_cubic","persistent":true,"loop":true,"fade_ticks":12,"params":{"hue":{"keyframes":[{"time":0,"value":0.0},{"time":100,"value":0.4},{"time":200,"value":0.0}]},"tolerance":0.25,"intensity":0.9}}

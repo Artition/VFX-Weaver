@@ -1,0 +1,1 @@
+{"type":"distortion","duration":160,"easing":"ease_in_out_cubic","persistent":true,"loop":true,"fade_ticks":12,"params":{"amount":{"keyframes":[{"time":0,"value":-0.04},{"time":80,"value":0.1},{"time":160,"value":-0.04}]},"radius":0.9}}

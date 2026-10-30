@@ -1,0 +1,20 @@
+{
+	"type": "particles",
+	"duration": 40,
+	"particle": "vfx_demos:smoulder",
+	"shape": "sphere",
+	"params": {
+		"radius": 0.5,
+		"count": 24,
+		"speed": 0.04,
+		"spread": 0.05,
+		"life": 120,
+		"gravity": 0.02,
+		"bounce": 0.0,
+		"size": 0.16,
+		"trail": 2,
+		"pos_x": { "bind": "player_x" },
+		"pos_y": { "bind": "player_y" },
+		"pos_z": { "bind": "player_z" }
+	}
+}

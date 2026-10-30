@@ -1,0 +1,37 @@
+{
+  "type": "blur",
+  "duration": 400,
+  "loop": true,
+  "persistent": true,
+  "fade_ticks": 20,
+  "params": {
+    "radius": 2.0
+  },
+  "graph": {
+    "version": 1,
+    "nodes": [
+      { "id": "phase", "kind": "time", "inputs": { "speed": 0.25 } },
+      {
+        "id": "pulse",
+        "kind": "curve",
+        "inputs": {
+          "points": [
+            { "time": 0, "value": 0.0 },
+            { "time": 50, "value": 8.0 },
+            { "time": 100, "value": 0.0 }
+          ]
+        }
+      }
+    ],
+    "edges": [
+      { "from": "phase", "to": "pulse", "input": "time" }
+    ],
+    "meta": {
+      "phase": { "pos": [40, 60] },
+      "pulse": { "pos": [200, 60] }
+    }
+  },
+  "inputs": {
+    "radius": { "from": "pulse" }
+  }
+}

@@ -1,0 +1,1 @@
+{"type":"color_grade","duration":400,"loop":true,"persistent":true,"fade_ticks":16,"params":{"screen_layer":0,"saturation":1.0,"contrast":1.0,"brightness":1.3,"tint_r":1.0,"tint_g":0.2,"tint_b":0.2},"mask":{"invert":false,"a":{"shape":"circle","space":"dome","center":[0.0,-20.0],"radius":0.12,"softness":0.03}}}

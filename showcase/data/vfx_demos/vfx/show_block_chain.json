@@ -1,0 +1,1 @@
+{"type":"block_chain","duration":160,"easing":"ease_in_out_cubic","persistent":true,"loop":true,"fade_ticks":12,"block":"minecraft:iron_chain","positions":[[1994,105,2001],[2006,100,2001]],"params":{"spacing":1.0,"scale":1.0,"align":1.0,"physics":0.0,"arc":{"keyframes":[{"time":0,"value":-1.2},{"time":80,"value":1.2},{"time":160,"value":-1.2}]},"sway":0.2}}

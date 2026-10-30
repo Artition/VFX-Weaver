@@ -12,6 +12,11 @@ times this documentation has been revised. The authoritative record of guide rev
 the [download table](index.md#download). Add new entries at the top, in the same PR as the behaviour
 change.
 
+## Unreleased
+
+### Changed
+- **The showcase datapack covers the 2.5.0 effects, and its source lives in the repository.** The published pack (`vfx-demos-showcase.zip`, linked from the [guide](guide/showcase-datapack.md)) was built before this release, so it had no demo for `datamosh`, `torn_edge`, `spectral`, `hex_grid`, `heartbeat`, `hum`, `noise` or `volume_duck` - eight of the effects a reader is most likely to try first. The pack now ships all eight as `show_*` definitions in the same looping, recordable shape as the rest (82 definitions in total), and the recording cheat sheet inside the zip lists them. The pack is no longer a binary with no source: it is the `showcase/` directory of the repository, packed by `scripts/build-showcase-pack.py` with forward-slash entry names and fixed timestamps, so an unchanged pack repacks byte-identically. `scripts/check-showcase-pack-parse.ps1` parses every definition in the pack through `VFXDefinition.parse`, the same guard the built-ins get. Additive: no definition is renamed, no effect parameter changes, and the mod itself is untouched.
+
 ## 2.5.0 - 2026-10-22
 
 ### Added

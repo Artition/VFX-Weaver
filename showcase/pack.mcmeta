@@ -1,0 +1,8 @@
+{
+	"pack": {
+		"description": "VFX Weaver test/demo effects (datapack-authored, edit + /reload)",
+		"pack_format": 107,
+		"min_format": [107, 1],
+		"max_format": 107
+	}
+}

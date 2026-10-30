@@ -1,0 +1,1 @@
+{"type":"chromatic_aberration","duration":120,"easing":"ease_in_out_cubic","persistent":true,"loop":true,"fade_ticks":10,"params":{"intensity":{"keyframes":[{"time":0,"value":0.05},{"time":60,"value":1.8},{"time":120,"value":0.05}]},"radius":10.0}}

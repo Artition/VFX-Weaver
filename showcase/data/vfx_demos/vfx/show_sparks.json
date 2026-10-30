@@ -1,0 +1,1 @@
+{"type":"particles","duration":160,"easing":"ease_in_out_cubic","persistent":true,"loop":true,"fade_ticks":12,"particle":"spark","shape":"sphere","positions":[[2000,101,2000]],"params":{"radius":{"keyframes":[{"time":0,"value":0.6},{"time":80,"value":1.6},{"time":160,"value":0.6}]},"count":500}}

@@ -1,0 +1,1 @@
+{"type":"dent","duration":160,"easing":"ease_in_out_cubic","persistent":true,"loop":true,"fade_ticks":12,"params":{"strength":{"keyframes":[{"time":0,"value":0.0},{"time":80,"value":0.45},{"time":160,"value":0.0}]},"radius":0.3,"center_x":{"keyframes":[{"time":0,"value":0.35},{"time":80,"value":0.65},{"time":160,"value":0.35}]},"center_y":0.5,"line_mode":0.0}}

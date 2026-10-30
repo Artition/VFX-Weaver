@@ -1,0 +1,12 @@
+{
+  "type": "color_grade",
+  "duration": 600,
+  "loop": true,
+  "persistent": true,
+  "fade_ticks": 20,
+  "params": { "screen_layer": 1, "saturation": 0.4, "contrast": 1.0, "brightness": 1.0, "tint_r": 1.0, "tint_g": 0.7, "tint_b": 0.3 },
+  "mask": {
+    "invert": false,
+    "a": { "shape": "vfxweaver:ringed_volume", "center": [0.0, 64.0, 0.0], "params": [12.0, 0.0] }
+  }
+}

@@ -1,0 +1,20 @@
+{
+	"type": "surface_pattern",
+	"duration": 200,
+	"persistent": true,
+	"loop": true,
+	"fade_ticks": 10,
+	"params": {
+		"screen_layer": 0,
+		"tile_scale": 3.0,
+		"opacity": 0.95,
+		"fade_radius": 64.0
+	},
+	"surface": { "faces": ["up"] },
+	"pattern": {
+		"figure": "circle",
+		"radius": 0.5,
+		"softness": 0.02,
+		"texture": { "id": "minecraft:block/no_such_sprite_xyz", "source": "block", "channel": "alpha" }
+	}
+}

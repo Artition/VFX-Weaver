@@ -1,0 +1,1 @@
+{"type":"hum","duration":200,"easing":"ease_in_out_cubic","persistent":true,"loop":true,"fade_ticks":12,"params":{"frequency":110.0,"volume":{"keyframes":[{"time":0,"value":0.0},{"time":40,"value":0.35},{"time":160,"value":0.35},{"time":200,"value":0.0}]}}}

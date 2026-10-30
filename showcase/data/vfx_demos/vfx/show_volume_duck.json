@@ -1,0 +1,1 @@
+{"type":"volume_duck","duration":200,"easing":"ease_in_out_cubic","persistent":true,"loop":true,"fade_ticks":12,"params":{"channel":1.0,"volume":{"keyframes":[{"time":0,"value":1.0},{"time":40,"value":0.15},{"time":160,"value":0.15},{"time":200,"value":1.0}]}}}

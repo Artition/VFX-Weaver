@@ -1,0 +1,1 @@
+{"type":"datamosh","duration":200,"easing":"ease_in_out_cubic","persistent":true,"loop":true,"fade_ticks":12,"params":{"amount":{"keyframes":[{"time":0,"value":0.15},{"time":40,"value":0.95},{"time":160,"value":0.95},{"time":200,"value":0.15}]},"smear":1.0,"chroma":0.5,"iframe":3.0}}

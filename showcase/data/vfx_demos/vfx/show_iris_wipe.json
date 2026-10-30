@@ -1,0 +1,1 @@
+{"type":"iris_wipe","duration":160,"easing":"ease_in_out_cubic","persistent":true,"loop":true,"fade_ticks":12,"params":{"radius":{"keyframes":[{"time":0,"value":1.4},{"time":80,"value":0.35},{"time":160,"value":1.4}]},"softness":0.06,"center_x":0.5,"center_y":0.5,"zoom":0.0}}

@@ -1,0 +1,1 @@
+{"type":"solarize","duration":160,"easing":"ease_in_out_cubic","persistent":true,"loop":true,"fade_ticks":12,"params":{"threshold":{"keyframes":[{"time":0,"value":0.3},{"time":80,"value":0.7},{"time":160,"value":0.3}]},"softness":0.1,"intensity":{"keyframes":[{"time":0,"value":0.2},{"time":80,"value":0.9},{"time":160,"value":0.2}]}}}

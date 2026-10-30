@@ -2,7 +2,10 @@
 
 The datapack used to record the clips on these pages. It contains one definition per built-in
 effect - each looping, gently animated and tuned to be readable on camera - plus a small stage
-and helper functions for building it.
+and helper functions for building it. The pack is built from the [`showcase/`](https://github.com/Artition/VFX-Weaver/tree/visual-editor/showcase)
+directory of the repository, so the JSON in the zip is the JSON you can read and edit there;
+`scripts/build-showcase-pack.py` repacks it and `scripts/check-showcase-pack-parse.ps1` parses every
+definition in it.
 
 ## Install
 
@@ -93,3 +96,11 @@ effect pages were recorded from these definitions.
 | `show_vhs` | `/vfx play vfx_demos:show_vhs` |
 | `show_vignette` | `/vfx play vfx_demos:show_vignette` |
 | `show_vortex` | `/vfx play vfx_demos:show_vortex` |
+| `show_datamosh` | `/vfx play vfx_demos:show_datamosh` |
+| `show_hex_grid` | `/vfx play vfx_demos:show_hex_grid` |
+| `show_spectral` | `/vfx play vfx_demos:show_spectral` |
+| `show_torn_edge` | `/vfx play vfx_demos:show_torn_edge` |
+| `show_heartbeat` | `/vfx play vfx_demos:show_heartbeat` |
+| `show_hum` | `/vfx play vfx_demos:show_hum` |
+| `show_noise` | `/vfx play vfx_demos:show_noise` |
+| `show_volume_duck` | `/vfx play vfx_demos:show_volume_duck` |

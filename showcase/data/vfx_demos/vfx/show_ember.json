@@ -1,0 +1,1 @@
+{"type":"particles","duration":160,"easing":"ease_in_out_cubic","persistent":true,"loop":true,"fade_ticks":12,"particle":"vfxweaver:ember","shape":"sphere","positions":[[2000,100.5,2000]],"params":{"radius":{"keyframes":[{"time":0,"value":0.4},{"time":80,"value":0.9},{"time":160,"value":0.4}]},"count":40,"speed":0.06}}

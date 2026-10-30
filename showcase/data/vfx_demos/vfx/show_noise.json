@@ -1,0 +1,1 @@
+{"type":"noise","duration":200,"easing":"ease_in_out_cubic","persistent":true,"loop":true,"fade_ticks":12,"params":{"volume":{"keyframes":[{"time":0,"value":0.0},{"time":30,"value":0.35},{"time":170,"value":0.35},{"time":200,"value":0.0}]},"brightness":0.7,"jitter":0.05,"jitter_rate":1.0,"seed":1.0}}

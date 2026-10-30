@@ -1,0 +1,1 @@
+{"type":"motion_blur","duration":160,"easing":"ease_in_out_cubic","persistent":true,"loop":true,"fade_ticks":12,"params":{"intensity":{"keyframes":[{"time":0,"value":0.0},{"time":80,"value":0.4},{"time":160,"value":0.0}]},"yaw_delta":{"bind":"camera_yaw_delta","range":1.0},"pitch_delta":{"bind":"camera_pitch_delta","range":1.0}}}

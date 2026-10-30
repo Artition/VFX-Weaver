@@ -1,0 +1,1 @@
+{"type":"film_grain","duration":160,"easing":"ease_in_out_cubic","persistent":true,"loop":true,"fade_ticks":12,"params":{"intensity":{"keyframes":[{"time":0,"value":0.0},{"time":80,"value":0.06},{"time":160,"value":0.0}]},"size":3.0}}

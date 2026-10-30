@@ -1,0 +1,20 @@
+{
+	"type": "block_chain",
+	"duration": 200,
+	"easing": "ease_in_out_cubic",
+	"persistent": false,
+	"loop": false,
+	"fade_ticks": 10,
+	"block": "minecraft:iron_chain",
+	"params": {
+		"spacing": 1.0,
+		"scale": 1.0,
+		"align": 1.0,
+		"physics": 1.0,
+		"length": 6.0,
+		"sway": 0.4,
+		"pos_x": { "bind": "player_x" },
+		"pos_y": { "bind": "player_y" },
+		"pos_z": { "bind": "player_z" }
+	}
+}

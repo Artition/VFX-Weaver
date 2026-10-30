@@ -1,0 +1,27 @@
+{
+  "type": "surface_pattern",
+  "duration": 200,
+  "persistent": true,
+  "loop": true,
+  "fade_ticks": 10,
+  "params": {
+    "screen_layer": 0,
+    "tile_scale": 2.0,
+    "color_r": 0.3,
+    "color_g": 0.9,
+    "color_b": 1.0,
+    "opacity": 0.7,
+    "fade_radius": 64.0,
+    "distort": 0.0
+  },
+  "pattern": {
+    "figure": "polygon",
+    "sides": 3,
+    "fill": "stroke",
+    "rotation": 0.0,
+    "stroke_width": 0.08,
+    "softness": 0.02,
+    "repeat": [1, 1]
+  },
+  "surface": { "faces": ["x"], "min": -320, "max": 320 }
+}

@@ -1,0 +1,1 @@
+{"type":"color_grade","duration":200,"easing":"ease_in_out_cubic","persistent":true,"loop":true,"fade_ticks":16,"params":{"screen_layer":0,"saturation":{"keyframes":[{"time":0,"value":1.0},{"time":100,"value":1.4},{"time":200,"value":1.0}]},"contrast":1.0,"brightness":1.0,"tint_r":0.05,"tint_g":0.95,"tint_b":0.35},"mask":{"invert":false,"a":{"shape":"sky"}}}

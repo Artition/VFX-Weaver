@@ -1,0 +1,26 @@
+{
+	"type": "surface_pattern",
+	"duration": 200,
+	"persistent": true,
+	"loop": true,
+	"fade_ticks": 10,
+	"params": {
+		"screen_layer": 0,
+		"opacity": 0.95,
+		"fade_radius": 64.0,
+		"rotation": {
+			"keyframes": [
+				{ "time": 0, "value": 0 },
+				{ "time": 200, "value": 360, "easing": "linear" }
+			]
+		},
+		"tile_scale": { "start": 1.5, "end": 4.0, "easing": "ease_in_out" }
+	},
+	"surface": { "faces": ["up"] },
+	"pattern": {
+		"figure": "circle",
+		"radius": 0.5,
+		"softness": 0.02,
+		"texture": { "id": "minecraft:block/nether_portal", "source": "block", "channel": "alpha" }
+	}
+}

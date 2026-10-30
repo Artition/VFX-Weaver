@@ -1,0 +1,1 @@
+{"type":"hex_grid","duration":200,"easing":"ease_in_out_cubic","persistent":true,"loop":true,"fade_ticks":12,"params":{"amount":{"keyframes":[{"time":0,"value":0.15},{"time":60,"value":0.9},{"time":200,"value":0.15}]},"cell_size":46.0,"width":0.035,"speed":0.5,"core":0.68}}

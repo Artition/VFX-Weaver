@@ -1,0 +1,1 @@
+{"type":"sky_pattern","duration":-1,"persistent":true,"loop":true,"fade_ticks":12,"anchor":"sun","params":{"screen_layer":0,"sky_mode":"patch","tile_scale":0.55,"opacity":0.9,"color_r":1.0,"color_g":0.85,"color_b":0.35},"pattern":{"figure":"circle","fill":"stroke","radius":0.42,"stroke_width":0.05,"softness":0.02,"repeat":[1,1]}}

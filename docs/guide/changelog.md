@@ -5,8 +5,11 @@ documentation changed. A guide revision is not a mod version — the two numbers
 released mod versions are recorded on the **[mod Changelog](../CHANGELOG.md)** instead. Where a guide
 revision shipped with a release, the entry says so (for example `v47 — released as 2.0.0`).
 
-Current guide revision: **v84**. Mod version it documents: **2.5.0**. Which jar
+Current guide revision: **v85**. Mod version it documents: **2.5.0**. Which jar
 to download is in the [download table](../index.md#download).
+
+### v85 — documents 2.5.0 (released as 2.5.0)
+- **The [showcase datapack](showcase-datapack.md) now covers every 2.5.0 effect.** The eight new demos (`show_datamosh`, `show_torn_edge`, `show_spectral`, `show_hex_grid`, `show_heartbeat`, `show_hum`, `show_noise`, `show_volume_duck`) are listed on the page and in the pack's own cheat sheet, and the page now says where the pack's source lives.
 
 ### v84 — documents 2.5.0 (released as 2.5.0)
 - **New screen effects: `torn_edge`, `spectral` and `hex_grid`, and a rewritten `datamosh`.** `torn_edge` cuts the frame along a line whose angle is re-rolled every beat and draws the two sides at opposite brightness under a glowing tear (see [torn_edge](effects/screen/torn-edge.md)); `spectral` paints the frame through a seven-stop prism ramp in three variants - the prism duotone, the chromatic smear and the spectral ring (see [spectral](effects/screen/spectral.md)); `hex_grid` draws a triangular lattice whose lines take their colour from the screen position (see [hex_grid](effects/screen/hex-grid.md)). `datamosh` was rebuilt as a real datamosh: the frame is decoded against a reference that never arrives, the movement is searched once per 8x8 cell, and the pixels that moved are carried over as they are (see [datamosh](effects/screen/datamosh.md)).
