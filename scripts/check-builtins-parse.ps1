@@ -36,8 +36,16 @@ if (-not (Test-Path (Join-Path $mainClasses "dev\vfxweaver\effect\VFXDefinition.
 	Write-Error "built-in parse sweep: build :26.1.2 first (missing $mainClasses)."
 	exit 1
 }
-$mcJar = Get-ChildItem (Join-Path $env:USERPROFILE ".gradle\caches\fabric-loom\minecraftMaven\net\minecraft\minecraft-merged-deobf\26.1.2") -Filter "*.jar" -ErrorAction SilentlyContinue | Select-Object -First 1
-if (-not $mcJar) {
+# 26.x splits the game into a common and a client artifact, and Loom keeps them in the repository's
+# own cache instead of the merged-deobf jar the pre-26 lines use; take every 26.1.2 jar from there,
+# and fall back to the old path for an older Loom.
+$mcJars = @(Get-ChildItem (Join-Path $repoRoot ".gradle\loom-cache\minecraftMaven\net\minecraft") -Recurse -Filter "*.jar" -ErrorAction SilentlyContinue |
+	Where-Object { $_.FullName -match '\\26\.1\.2\\' })
+if ($mcJars.Count -eq 0) {
+	$merged = Get-ChildItem (Join-Path $env:USERPROFILE ".gradle\caches\fabric-loom\minecraftMaven\net\minecraft\minecraft-merged-deobf\26.1.2") -Filter "*.jar" -ErrorAction SilentlyContinue | Select-Object -First 1
+	if ($merged) { $mcJars = @($merged) }
+}
+if ($mcJars.Count -eq 0) {
 	Write-Error "built-in parse sweep: minecraft merged-deobf 26.1.2 jar not found."
 	exit 1
 }
@@ -50,7 +58,15 @@ $checkDir = Join-Path $env:TEMP "vfxweaver-builtins-check"
 New-Item -ItemType Directory -Force -Path $checkDir | Out-Null
 $sweepSrc = Join-Path $checkDir "ParseSweep.java"
 $cpFile = Join-Path $checkDir "cp.txt"
-$cp = "versions/26.1.2/build/classes/java/main;$($checkDir.Replace('\', '/'));$($mcJar.FullName.Replace('\', '/'));$jars"
+# The jars live under the repository path, which contains non-ASCII characters here; a Java @argfile
+# is read in the platform charset, so a Cyrillic path reaches java mangled and the game classes are
+# silently missing. Copy them into the ASCII temp dir and put those copies on the classpath.
+$mcClasspath = ($mcJars | ForEach-Object {
+	$copy = Join-Path $checkDir ('mc-' + $_.Name)
+	if (-not (Test-Path $copy)) { Copy-Item $_.FullName $copy -Force }
+	$copy.Replace('\', '/')
+}) -join ';'
+$cp = "versions/26.1.2/build/classes/java/main;$($checkDir.Replace('\', '/'));$mcClasspath;$jars"
 [System.IO.File]::WriteAllText($cpFile, "-cp `"$cp`"", [System.Text.UTF8Encoding]::new($false))
 
 $sweepJava = @'
