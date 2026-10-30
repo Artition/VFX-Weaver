@@ -1,0 +1,4545 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="A client-side VFX library/API for Minecraft on Fabric and NeoForge: screen post-processing, camera shake, world overlays, entity effects, datapack-defined effects, network triggers and a public Java API.">
+      
+      
+      
+        <link rel="canonical" href="https://artition.github.io/VFX-Weaver/2.5.0/design/2026-10-06-visual-node-editor-design/">
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Visual Node Editor — дизайн - VFX Weaver</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#visual-node-editor" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="VFX Weaver" class="md-header__button md-logo" aria-label="VFX Weaver" data-md-component="logo">
+      
+  <img src="../../assets/images/logo.png" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            VFX Weaver
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Visual Node Editor — дизайн
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m14.3 16-.7-2h-3.2l-.7 2H7.8L11 7h2l3.2 9zM20 8.69V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12zm-9.15 3.96h2.3L12 9z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_2" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to system preference"  type="radio" name="__palette" id="__palette_2">
+    
+      <label class="md-header__button md-icon" title="Switch to system preference" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/Artition/VFX-Weaver" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    Artition/VFX-Weaver
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="VFX Weaver" class="md-nav__button md-logo" aria-label="VFX Weaver" data-md-component="logo">
+      
+  <img src="../../assets/images/logo.png" alt="logo">
+
+    </a>
+    VFX Weaver
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/Artition/VFX-Weaver" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    Artition/VFX-Weaver
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting started
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/showcase-datapack/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Showcase datapack
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/first-datapack/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Your first datapack
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/editor/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Visual node editor
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Effects
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Effects
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/effects/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_6_2" id="__nav_6_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Screen post-processing
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_6_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Screen post-processing
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/effects/screen/chromatic-aberration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    chromatic_aberration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/effects/screen/color-grade/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    color_grade
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/effects/screen/distortion/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    distortion
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/effects/screen/dent/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    dent
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/effects/screen/gradient-map/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    gradient_map
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/effects/screen/posterize/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    posterize
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/effects/screen/blur/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    blur
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/effects/screen/pixelate/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    pixelate
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/effects/screen/hue-isolation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    hue_isolation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/effects/screen/vignette/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    vignette
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/effects/screen/screen-flash/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    screen_flash
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/effects/screen/motion-blur/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    motion_blur
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/effects/screen/bloom/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    bloom
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/effects/screen/film-grain/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    film_grain
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/effects/screen/scanlines/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    scanlines
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/effects/screen/halftone/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    halftone
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/effects/screen/ink/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ink
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/effects/screen/comic/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    comic
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/effects/screen/accent-glow/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    accent_glow
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/effects/screen/depth-of-field/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    depth_of_field
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/effects/screen/letterbox/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    letterbox
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/effects/screen/invert/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    invert
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/effects/screen/vortex/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    vortex
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/effects/screen/speed-lines/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    speed_lines
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/effects/screen/slice-shift/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    slice_shift
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/effects/screen/noise-warp/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    noise_warp
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/effects/screen/solarize/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    solarize
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/effects/screen/double-vision/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    double_vision
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/effects/screen/eyelids/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    eyelids
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/effects/screen/iris-wipe/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    iris_wipe
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/effects/screen/digital-glitch/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    digital_glitch
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/effects/screen/vhs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    vhs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/effects/screen/datamosh/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    datamosh
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/effects/screen/torn-edge/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    torn_edge
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/effects/screen/spectral/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    spectral
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/effects/screen/hex-grid/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    hex_grid
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/effects/screen/shockwave/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    shockwave
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/effects/screen/afterimage/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    afterimage
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/effects/screen/stop-motion/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    stop_motion
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/effects/screen/surface-pattern/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    surface_pattern
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/effects/screen/sky-pattern/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sky_pattern
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/effects/screen/screen-image/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    screen_image
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_6_3" id="__nav_6_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    World overlays
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_6_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    World overlays
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/effects/world/block-tint/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    block_tint
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/effects/world/block-outline/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    block_outline
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/effects/world/light-beam/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    light_beam
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/effects/world/pulse-ring/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    pulse_ring
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/effects/world/guide-line/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    guide_line
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/effects/world/particles/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    particles
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/effects/world/block-chain/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    block_chain
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_6_4" id="__nav_6_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Entity effects
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_6_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Entity effects
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/effects/entity/entity-tint/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    entity_tint
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/effects/entity/entity-outline/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    entity_outline
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/effects/entity/entity-displace/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    entity_displace
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_6_5" id="__nav_6_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Audio
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_6_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Audio
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/effects/audio/hum/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    hum
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/effects/audio/noise/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    noise
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/effects/audio/heartbeat/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    heartbeat
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/effects/audio/volume-duck/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    volume_duck
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6_6" id="__nav_6_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Camera and misc
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_6_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Camera and misc
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/effects/misc/camera-shake/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    camera_shake
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/effects/misc/camera-roll/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    camera_roll
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/effects/misc/fov-modifier/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    fov_modifier
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/effects/misc/fog-modifier/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    fog_modifier
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6_7" >
+        
+          
+          <label class="md-nav__link" for="__nav_6_7" id="__nav_6_7_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Desktop windows
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_6_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Desktop windows
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/effects/window/custom-windows/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    window_create / window_control
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6_8" >
+        
+          
+          <label class="md-nav__link" for="__nav_6_8" id="__nav_6_8_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Collections
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_6_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Collections
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/effects/collection/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    collection
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/commands/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Commands
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/recipes/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Triggering effects
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_9" >
+        
+          
+          <label class="md-nav__link" for="__nav_9" id="__nav_9_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Datapack
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_9_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_9">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Datapack
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/datapack/format/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Format
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/datapack/params/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Animating a param
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/datapack/expr/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Expressions (expr)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/datapack/graph/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Value graphs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/datapack/fields/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Per-pixel fields
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/datapack/masks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Masks
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_9_7" >
+        
+          
+          <label class="md-nav__link" for="__nav_9_7" id="__nav_9_7_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Custom particles
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_9_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_9_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Custom particles
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/datapack/particles/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Block and item particles
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/datapack/sparks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Spark presets
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guide/changelog/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Guide changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../API/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Java API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../ARCHITECTURE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../CHANGELOG/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Контекст и цель
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Ограничения (нельзя нарушать)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Объём
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="3. Объём">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#v1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v1 (вертикальный срез)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#v1_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Позже (после v1)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Принятые решения
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Архитектура
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. Компоненты
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="6. Компоненты">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#61-java-client" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.1 Локальный мост (Java, client)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#62-web-ui-litegraph" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.2 Web-UI (LiteGraph)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#63-vfxeffectschema-sharedmain" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.3 Интроспекция — VFXEffectSchema (shared/main)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#64" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.4 Игровая интеграция
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#65" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.5 Экспорт/импорт
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#66-sidecar-vfxprojjson" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.6 Sidecar .vfxproj.json
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#7" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7. Протокол моста
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#8" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8. Безопасность
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#9" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9. План верификации
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#10" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        10. Порядок реализации
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#11" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        11. Открытые вопросы
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#12" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        12. Риски
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#13-post-v1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        13. Post-v1: дизайн заложен заранее
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="13. Post-v1: дизайн заложен заранее">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#131-mask" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        13.1 Маски (mask)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#132-per-pixel-field" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        13.2 Per-pixel поля (field)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#133-collection" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        13.3 Очереди / коллекции (collection)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#134-ui" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        13.4 Не-пост типы в UI
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#135-subgraph-" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        13.5 Subgraph-макросы
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#136-qol-v2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        13.6 QoL редактора (v2)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#1361-ux-" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        13.6.1 UX-ориентир: Блендер
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#137-v2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        13.7 Мост и экспорт (v2)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#14-durable-conventions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        14. Правила для будущих планов (durable conventions)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#15-redesign-v11" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        15. Redesign v1.1 (по итогам консультации + теста в игре)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="15. Redesign v1.1 (по итогам консультации + теста в игре)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#151" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        15.1 Слот + фолдинг (инспектор = свёрнутый граф)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#152-" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        15.2 Вкладка = композиция (эффект-ноды цепочкой)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#153" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        15.3 Тайминг (правая панель, контекст по выделению)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#154" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        15.4 Таймлайн / кривые
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#155" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        15.5 Превью / транспорт
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#156-app-shell" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        15.6 App-shell / «Файл» / экспорт
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#157-undo" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        15.7 Undo и инварианты компилятора
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#158-paramspec" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        15.8 Маппинг слотов → ParamSpec
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#159" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        15.9 Порядок внедрения (по консультации)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#16-preview-v2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        16. Preview v2 (по консультации + фактам движка)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="16. Preview v2 (по консультации + фактам движка)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#161-diff-ns" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        16.1 Регистрация (diff, приватный ns)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#162-viewstate-" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        16.2 ViewState = инстанс-операции (без перекомпиляции)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#163-b" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        16.3 Время (Вариант B — аддитивно)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#164-" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        16.4 Контроллер-планировщик
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#165-seed-phase-stable-re-issue" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        16.5 Seed (phase-stable re-issue)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#166" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        16.6 Протокол моста
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#167" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        16.7 Инварианты
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#168" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        16.8 Что НЕ делать
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#169" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        16.9 Приоритеты
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="visual-node-editor">Visual Node Editor — дизайн<a class="headerlink" href="#visual-node-editor" title="Permanent link">&para;</a></h1>
+<p>Дата: 2026-10-06. Статус: утверждён (brainstorming), готов к плану реализации.
+Ветка: <code>visual-editor</code>.</p>
+<h2 id="1">1. Контекст и цель<a class="headerlink" href="#1" title="Permanent link">&para;</a></h2>
+<p>VFXweaver — клиентский VFX-мод для Minecraft (Fabric + NeoForge, 6 сборочных нод:
+<code>26.2</code>, <code>26.1.2</code>, <code>1.21.11</code> и их <code>-neoforge</code>-варианты). Эффекты описываются датапаком:
+<code>data/&lt;namespace&gt;/vfx/&lt;name&gt;.json</code>.</p>
+<p>Цель: встроить в VFXweaver <strong>визуальный редактор эффектов на нодах</strong> (UX как в Blender /
+DaVinci Fusion / Scratch). Редактор:</p>
+<ul>
+<li>не привязан к конкретным эффектам — <strong>парсит</strong> их из VFXweaver, поэтому новые эффекты и
+  параметры, добавленные в VFXweaver, автоматически становятся доступны;</li>
+<li>поддерживает бинды, выражения (<code>expr</code>), очереди (collections), ключи и все формы параметров;</li>
+<li>компилирует проект в обычный VFXweaver-датапак и <strong>проигрывает результат в живом клиенте</strong>;</li>
+<li>экспортируется в мир или в папку/zip (для серверов, куда датапак иначе не положить).</li>
+</ul>
+<p>Редактор — <strong>встроенная фича самого VFXweaver</strong> (тот же modid, общая сборка Stonecutter), а не
+отдельный мод.</p>
+<h2 id="2">2. Ограничения (нельзя нарушать)<a class="headerlink" href="#2" title="Permanent link">&para;</a></h2>
+<ol>
+<li><strong>Конечный пользователь ничего не доустанавливает.</strong> Никаких Node/Tauri/Electron. UI — локальный
+   веб из jar, работает офлайн, браузер у пользователя уже есть.</li>
+<li><strong>Никаких новых Java-зависимостей.</strong> Только JDK (включая <code>com.sun.net.httpserver</code>) и уже
+   имеющиеся библиотеки мода.</li>
+<li><strong><code>src/main</code> никогда не ссылается на <code>src/client</code>.</strong> Весь код редактора (HTTP-сервер, SSE,
+   статика, мост) — в <code>src/client/java</code> и <code>src/client/resources</code>. Иначе dedicated server падает
+   <code>NoClassDefFoundError</code>.</li>
+<li><strong>Не трогать и не переупорядочивать <code>VFXShaderPrograms.registerPost(...)</code></strong> — порядок имён параметров
+   = порядок полей std140 <code>Config</code> в GLSL. Сдвиг молча ломает значения. Схема — параллельный
+   источник, а не замена <code>configParams</code>.</li>
+<li><strong>Датапак-формат обратно совместим</strong>: только аддитивные изменения, поля не переименовывать и не
+   удалять. Метаданные редактора (позиции эффект-нод/очередей, viewport) — <strong>не</strong> в формате эффекта.</li>
+<li><strong>Сетевой протокол</strong> (если когда-либо тронем) требует бампа <code>VFXTriggerPayload.PROTOCOL_VERSION</code>.
+   В рамках v1 сетевой протокол не меняется вовсе.</li>
+<li><strong>Не детектить версию MC в рантайме</strong> для экспорта — формат <code>pack.mcmeta</code> берётся из
+   compile-time константы ноды (Stonecutter).</li>
+<li><strong>Определение готовности:</strong> собираются <strong>все шесть нод</strong>; визуальный результат подтверждается
+   запуском игры (Gradle-сборка не доказывает, что шейдер скомпилировался).</li>
+</ol>
+<h2 id="3">3. Объём<a class="headerlink" href="#3" title="Permanent link">&para;</a></h2>
+<h3 id="v1">v1 (вертикальный срез)<a class="headerlink" href="#v1" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Создать / открыть проект (датапак) → вкладки-эффекты (несколько эффектов в одном датапаке).</li>
+<li>Эффект-нода <strong>пост-эффекта</strong> (тип из схемы, сокеты = параметры) + value-ноды.</li>
+<li>Таймлайн с ключами, транспорт (play/pause/stop/loop), плейхед, scrub.</li>
+<li>Live-play в самой игре.</li>
+<li>Инспектор: слайдеры/поля/цвета/enum, bind, expr, keyframes.</li>
+<li>Undo/redo.</li>
+<li>Экспорт (в мир или папка/zip) и импорт всего датапака.</li>
+<li>Интроспекция: <code>VFXEffectSchema</code> + check-скрипт для <strong>всех</strong> типов.</li>
+</ul>
+<h3 id="v1_1">Позже (после v1)<a class="headerlink" href="#v1_1" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Маски (<code>mask</code>) и per-pixel поля (<code>field</code>).</li>
+<li>Collection-очереди (нода-очередь) как полноценный редактор.</li>
+<li>Не-пост типы (world / entity / camera / window / screen_image / surface / sky) в UI.</li>
+<li>Subgraph-ноды (макросы).</li>
+<li>Мультивыделение, копипаст блоков, группы/комментарии.</li>
+</ul>
+<h2 id="4">4. Принятые решения<a class="headerlink" href="#4" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Вопрос</th>
+<th>Решение</th>
+<th>Почему</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Хост редактора</td>
+<td>Локальный веб, который отдаёт сам мод (<code>127.0.0.1</code>, статика в jar)</td>
+<td>Без хостинга и без докачки; браузер уже есть</td>
+</tr>
+<tr>
+<td>Канвас</td>
+<td>Вендорить <strong>LiteGraph.js</strong> (MIT, vanilla JS)</td>
+<td>Прецедент ComfyUI: типизированные сокеты, динамические ноды, очередь; без фреймворка</td>
+</tr>
+<tr>
+<td>Источник схемы</td>
+<td>Аддитивная интроспекция в VFXweaver: <code>VFXEffectSchema</code> + check-скрипт</td>
+<td>Forward-compat: новый эффект появляется сам; схема проверяема</td>
+</tr>
+<tr>
+<td>Структура</td>
+<td>Внутри VFXweaver, тот же modid</td>
+<td>Переиспользует Stonecutter-ноды, нет отдельной сборки/версионирования</td>
+</tr>
+<tr>
+<td>Проект</td>
+<td>Проект = датапак (namespace); вкладка = один <code>data/&lt;ns&gt;/vfx/&lt;name&gt;.json</code></td>
+<td>Соответствует формату; открытие пака даёт все вкладки</td>
+</tr>
+<tr>
+<td>Хранение состояния редактора</td>
+<td><code>graph.meta</code> для value-нод (санкционировано) + sidecar <code>.vfxproj.json</code> для эффект-нод/очередей/viewport</td>
+<td><code>graph.meta</code> — штатное место («engine ignores it; may hold anything»); остального в формате нет</td>
+</tr>
+<tr>
+<td>Применение в игре</td>
+<td>Локальный слой <code>VFXDefinitionManager</code> (не зависит от экспорта)</td>
+<td>Работает и на мультиплеер-клиенте, где world-датапак не перечитывается</td>
+</tr>
+<tr>
+<td>Экспорт</td>
+<td>Кнопка + выпадающий список: «В мир» (<code>saves/&lt;world&gt;/datapacks/&lt;ns&gt;/</code>) или папка/zip</td>
+<td>Датапак нужен для сервера/шаринга; авто-<code>pack.mcmeta</code> под ноду</td>
+</tr>
+<tr>
+<td>Синхрон web↔игра</td>
+<td>Гибрид: compile-and-play для структурных изменений + инкремент (<code>set_param</code>/<code>set_keyframe</code>) для горячих правок</td>
+<td>Превью == экспорт; отзывчивость как в Blender</td>
+</tr>
+<tr>
+<td>Транспорт моста</td>
+<td>SSE (push) + POST (команды), 0 Java-зависимостей</td>
+<td>Достаточно для localhost; WS с нуля не нужен</td>
+</tr>
+<tr>
+<td>Версия пакета</td>
+<td>Compile-time константа Stonecutter</td>
+<td>Runtime-детект ненадёжен</td>
+</tr>
+</tbody>
+</table>
+<h2 id="5">5. Архитектура<a class="headerlink" href="#5" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>┌─ Браузер (localhost) ──────────────────────────────┐
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>│  LiteGraph canvas   │  таймлайн/ключи │ инспектор  │
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>│         модель проекта (JS, источник истины)        │
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>│         IR нод/рёбер → компилятор в VFX-JSON        │
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>└───────────▲───────────────────────┬────────────────┘
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>     SSE (push) │                   │ POST (команды)
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>┌───────────────┴───────────────────▼────────────────┐
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>│  VFXweaver client — Локальный мост (JDK HttpServer) │
+<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>│  127.0.0.1:&lt;random&gt;  + токен  ·  статика из jar     │
+<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>│  /events /schema /compile /transport /set_param     │
+<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>│  /import /export                                    │
+<a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>└───────┬───────────────────────────────┬─────────────┘
+<a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a>        │                               │
+<a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a>   VFXEffectSchema                 VFXDefinitionManager(local layer)
+<a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a>   (интроспекция)                  + play/stop/seek (elapsed-aware)
+<a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a>        │                               │
+<a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a>        └──────────► рендер VFXweaver ◄──┘     Экспорт → pack (world / zip)
+</code></pre></div>
+<p>Все компоненты — loader-agnostic, кроме точек входа. HTML/JS/CSS/LiteGraph — из
+<code>src/client/resources/assets/vfxweaver/editor/</code>.</p>
+<h2 id="6">6. Компоненты<a class="headerlink" href="#6" title="Permanent link">&para;</a></h2>
+<h3 id="61-java-client">6.1 Локальный мост (Java, client)<a class="headerlink" href="#61-java-client" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>com.sun.net.httpserver.HttpServer</code> (JDK), bind <code>127.0.0.1</code>, случайный свободный порт.</li>
+<li>Токен (<code>SecureRandom</code>, 128 бит) при старте; передаётся в UI (localStorage / URL-fragment).</li>
+<li>Раздаёт статику из classpath; REST-эндпоинты; SSE-канал <code>/events</code>.</li>
+<li>Стартует по команде/кнопке, не работает постоянно. Закрывает SSE по простою (30 с).</li>
+<li>Никаких loader-импортов: чистый JDK + внутренние классы мода.</li>
+</ul>
+<h3 id="62-web-ui-litegraph">6.2 Web-UI (LiteGraph)<a class="headerlink" href="#62-web-ui-litegraph" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Модель проекта в JS — <strong>единственный источник истины</strong>. Внутри — абстрактный IR
+  (<code>Node</code>, <code>Edge</code>, <code>Property</code>), который <strong>сериализуется в формат VFXweaver</strong> (блоки <code>graph</code>,
+  <code>inputs</code>, <code>effects</code>/<code>collection</code>, <code>params</code>). IR даёт гибкость для будущих расширений.</li>
+<li>Эффект-нода: сокеты-параметры из <code>/schema</code> (сгруппированы по <code>group</code>).</li>
+<li>Value-ноды: существующие <code>graph</code>-kinds (<code>constant</code>, <code>time</code>, <code>random</code>, <code>noise</code>, <code>curve</code>, <code>math</code>,
+  <code>mix</code>, <code>clamp</code>, <code>remap</code>, <code>bind</code>, <code>expr</code>, <code>compare</code>, <code>boolean</code>, <code>if</code>, <code>switch</code>, <code>subgraph</code>).</li>
+<li>Инспектор: контролы по <code>VFXParamDescriptor</code> (min/max/step/enum), bind-выбор, expr-редактор,
+  keyframes.</li>
+<li>Таймлайн (нижняя панель): дорожка на анимируемый параметр, ключи <code>{time,value,easing}</code>,
+  drag/snap/zoom, плейхед, транспорт.</li>
+<li>Undo/redo: стек команд в web-модели. Undo откатывает web-модель и шлёт <strong>полный
+  <code>/compile</code></strong>; инкрементальный откат в игре не делаем (проще и без рассинхрона).</li>
+<li>Контекстное меню нод: delete / duplicate / properties.</li>
+</ul>
+<h3 id="63-vfxeffectschema-sharedmain">6.3 Интроспекция — <code>VFXEffectSchema</code> (shared/main)<a class="headerlink" href="#63-vfxeffectschema-sharedmain" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>VFXParamDescriptor</code>: <code>name</code>, <code>kind</code> (<code>FLOAT</code>/<code>INT</code>/<code>BOOL</code>/<code>ENUM</code>/<code>COLOR_RGB</code>/<code>POSITION</code>),
+  <code>default</code>, <code>min</code>, <code>max</code>, <code>step</code>, <code>group</code>, <code>animatable</code>, <code>bindable</code>, <code>fieldCapable</code>, <code>enumValues</code>,
+  <code>neutral</code>.</li>
+<li><code>VFXEffectDescriptor</code>: упорядоченный список <code>VFXParamDescriptor</code> + структурные опции
+  (positions / entity-selector / sound / particle / shape / block / item / pattern / surface /
+  anchor; позже mask / field / collection / window / screen_image).</li>
+<li>Реестр: <code>Map&lt;VFXEffectType, VFXEffectDescriptor&gt;</code>.</li>
+<li>Пост-эффекты: дескрипторы параллельно <code>registerPost</code> (сам <code>registerPost</code> не меняется).
+  Не-пост: явные дескрипторы (параметры сейчас захардкожены в рендерерах).</li>
+<li>Нейтральные значения — из <code>VFXEffectType.neutralValue()</code>; field-capable — из
+  <code>FIELD_INPUTS</code>. <code>neutral</code> заполняется только когда значение конечно; при <code>Float.NaN</code>
+  (параметр не фейдится) поле отсутствует (<code>neutral: null</code>).</li>
+</ul>
+<h3 id="64">6.4 Игровая интеграция<a class="headerlink" href="#64" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Компилированное определение регистрируется в локальном слое <code>VFXDefinitionManager</code>
+  (<code>registerLocal</code>) и играется существующим локальным play-путём.</li>
+<li><strong>Аддитивно</strong> добавляется elapsed-aware локальный play/seek (клиентский;
+  сетевой протокол не трогаем). Используется для scrub и детерминированного превью.</li>
+<li>Ключи с отрицательным временем («от текущего момента») конвертируются в абсолютные тики
+  <strong>в web-модели</strong> при компиляции.</li>
+</ul>
+<h3 id="65">6.5 Экспорт/импорт<a class="headerlink" href="#65" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Экспорт: все вкладки → <code>data/&lt;ns&gt;/vfx/*.json</code> + <code>pack.mcmeta</code> по compile-time формату ноды
+  (26.2: <code>min_format: [107, 1]</code>, <code>max_format: 107</code>; 1.21.11 — уточнить отдельно) + sidecar.
+  Пункты назначения: мир (<code>saves/&lt;world&gt;/datapacks/&lt;ns&gt;/</code>) или папка/zip.</li>
+<li>Импорт: папка/zip → парсим <code>data/&lt;ns&gt;/vfx/*.json</code> → вкладки. Позиции value-нод — из <code>graph.meta</code>,
+  остальное — из sidecar; без sidecar ноды раскладываются автоматически.</li>
+<li>Что не удалось восстановить, не ломаем — показываем как есть.</li>
+</ul>
+<h3 id="66-sidecar-vfxprojjson">6.6 Sidecar <code>.vfxproj.json</code><a class="headerlink" href="#66-sidecar-vfxprojjson" title="Permanent link">&para;</a></h3>
+<p>Рядом с паком (или в zip) — минимальный файл состояния редактора. Хранит <strong>только то, чего нет
+в формате эффекта</strong>: позиции эффект-нод/очередей, viewport/зум, порядок и активную вкладку,
+версию. Граф value-нод (узлы, рёбра, их позиции) живёт в <code>graph</code>/<code>graph.meta</code> датапака и <strong>не
+дублируется</strong> здесь.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="p">{</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="w">  </span><span class="nt">"version"</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="w">  </span><span class="nt">"namespace"</span><span class="p">:</span><span class="w"> </span><span class="s2">"my_vfx"</span><span class="p">,</span>
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="w">  </span><span class="nt">"activeTab"</span><span class="p">:</span><span class="w"> </span><span class="s2">"effect1"</span><span class="p">,</span>
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="w">  </span><span class="nt">"tabOrder"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"effect1"</span><span class="p">,</span><span class="w"> </span><span class="s2">"effect2"</span><span class="p">],</span>
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="w">  </span><span class="nt">"tabs"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="w">    </span><span class="nt">"effect1"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="w">      </span><span class="nt">"effectNodes"</span><span class="p">:</span><span class="w"> </span><span class="p">[{</span><span class="w"> </span><span class="nt">"id"</span><span class="p">:</span><span class="w"> </span><span class="s2">"fx1"</span><span class="p">,</span><span class="w"> </span><span class="nt">"pos"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="mi">100</span><span class="p">,</span><span class="w"> </span><span class="mi">200</span><span class="p">],</span><span class="w"> </span><span class="nt">"size"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="mi">220</span><span class="p">,</span><span class="w"> </span><span class="mi">120</span><span class="p">]</span><span class="w"> </span><span class="p">}],</span>
+<a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a><span class="w">      </span><span class="nt">"queueNodes"</span><span class="p">:</span><span class="w"> </span><span class="p">[],</span>
+<a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a><span class="w">      </span><span class="nt">"viewport"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">"x"</span><span class="p">:</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="nt">"y"</span><span class="p">:</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="nt">"zoom"</span><span class="p">:</span><span class="w"> </span><span class="mf">1.0</span><span class="w"> </span><span class="p">},</span>
+<a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a><span class="w">      </span><span class="nt">"timeline"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">"scrollTick"</span><span class="p">:</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="nt">"pxPerTick"</span><span class="p">:</span><span class="w"> </span><span class="mf">2.0</span><span class="w"> </span><span class="p">}</span>
+<a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a><span class="w">    </span><span class="p">}</span>
+<a id="__codelineno-1-13" name="__codelineno-1-13" href="#__codelineno-1-13"></a><span class="w">  </span><span class="p">}</span>
+<a id="__codelineno-1-14" name="__codelineno-1-14" href="#__codelineno-1-14"></a><span class="p">}</span>
+</code></pre></div>
+<ul>
+<li>Позиции value-нод берутся из <code>graph.meta</code> (санкционированное место, переживает шаринг пака);
+  sidecar их не заменяет.</li>
+<li>Sidecar отсутствует → импорт работает, ноды раскладываются автоматически.</li>
+<li>Sidecar не является «первичным хранилищем»: датапак самодостаточен, sidecar — удобство layout.</li>
+</ul>
+<h2 id="7">7. Протокол моста<a class="headerlink" href="#7" title="Permanent link">&para;</a></h2>
+<p>Все запросы — под токеном. Только <code>GET</code>/<code>POST</code>.</p>
+<table>
+<thead>
+<tr>
+<th>Метод</th>
+<th>Путь</th>
+<th>Назначение</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>GET</td>
+<td><code>/</code></td>
+<td>UI (статика)</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/events</code></td>
+<td>SSE: <code>status</code>, ack <code>revision</code>, ошибки, события транспорта</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/schema</code></td>
+<td><code>VFXEffectSchema</code> (JSON)</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/compile</code></td>
+<td>Полный слепок: VFX-JSON определения (+<code>revision</code>) → регистрируется и играется</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/transport</code></td>
+<td>play / pause / stop / loop / seek</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/set_param</code></td>
+<td>Инкремент: параметр (+<code>revision</code>)</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/set_keyframe</code></td>
+<td>Инкремент: ключ (+<code>revision</code>)</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/import</code></td>
+<td>Загрузить пак (папка/zip)</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/export</code></td>
+<td>Экспорт (в мир / папка / zip)</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Синхронизация:</strong>
+- Web — источник истины; игра — исполнитель.
+- Монотонный <code>revision</code> в каждом сообщении.
+- Структурные изменения → <code>revision++</code> + полный <code>/compile</code>.
+- Горячие правки → <code>set_param</code>/<code>set_keyframe</code> с текущим <code>revision</code>; ack без совпадения —
+  web форсит полный <code>/compile</code>.
+- При переподключении SSE web запрашивает текущий <code>revision</code> игры и при расхождении синхронизирует
+  полным compile.
+- Drag: debounce 50–100 мс и batching.</p>
+<p><strong>Ошибки и восстановление:</strong>
+- <code>/compile</code> возвращает структурированную ошибку (<code>{"error": "...", "details": {...}}</code>; для ошибок
+  парсинга — позиция/поле), а не «тихий» fail. Компилируемый JSON дополнительно прогоняется через
+  Java-парсер <code>VFXDefinition.parse</code> — плохой JSON падает громко.
+- SSE: авто-переподключение с экспоненциальным backoff (1s, 2s, 4s…), reconcile по <code>revision</code>.
+- Инкрементная операция (<code>set_param</code>/<code>set_keyframe</code>) вернула ошибку → web откатывает правку в модели
+  и шлёт полный <code>/compile</code>.
+- Ошибки логируются и в консоли браузера, и в игре (<code>VFXLog</code>; частые — через <code>warnOnce</code>).</p>
+<h2 id="8">8. Безопасность<a class="headerlink" href="#8" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Bind только <code>127.0.0.1</code>; <code>SecureRandom</code> 128-bit токен.</li>
+<li>Проверка <code>Origin</code>/<code>Referer</code> на <code>http://127.0.0.1:&lt;port&gt;</code> / <code>http://localhost:&lt;port&gt;</code>.</li>
+<li>Только <code>GET</code>/<code>POST</code>; SSE-соединения закрываются по 30 с простоя.</li>
+<li>Простой rate limiting на POST (защита от шторма/стороннего локального процесса).</li>
+<li>Сервер не стартует постоянно — по явной команде/кнопке.</li>
+</ul>
+<h2 id="9">9. План верификации<a class="headerlink" href="#9" title="Permanent link">&para;</a></h2>
+<ol>
+<li><code>./gradlew :26.2:build :26.1.2:build :1.21.11:build</code> и
+   <code>./gradlew :26.2-neoforge:build :26.1.2-neoforge:build :1.21.11-neoforge:build</code> — все шесть.</li>
+<li><code>checkSchema</code> (Gradle-задача + CI): множество имён схемы == множество имён <code>registerPost</code> для
+   каждого типа; дескриптор на каждый <code>VFXEffectType</code>; дефолты схемы == <code>neutralValue()</code> где
+   нейтраль ≠ <code>NaN</code>.</li>
+<li>Throwaway <code>main()</code>: компилятор JSON→<code>VFXDefinition</code>, round-trip импорт/экспорт, <code>pack.mcmeta</code>
+   по ноде.</li>
+<li><strong>Компилятор web</strong> — чистая функция IR→VFX-JSON; главный валидатор — Java-парсер (п.3): если
+   компилятор выдал невалидный JSON, парсинг падает. Плюс dev-only self-test страница (без Node)
+   и фиксированные snapshot-JSON для сложных графов.</li>
+<li><code>javap</code> для <code>com.sun.net.httpserver.HttpServer</code> и loader/API-сигнатур (не угадывать).</li>
+<li><strong>Браузеры:</strong> baseline (Chrome/Firefox актуальные + предыдущая), проверка при загрузке UI — если
+   <code>LiteGraph</code>/<code>canvas</code> недоступны, показываем явное сообщение, а не белый экран.</li>
+<li>Ручной in-game сценарий: открыть пак → правка → live-play → экспорт в мир → <code>/reload</code> →
+   <code>/vfx play</code>.</li>
+</ol>
+<h2 id="10">10. Порядок реализации<a class="headerlink" href="#10" title="Permanent link">&para;</a></h2>
+<ol>
+<li><code>VFXEffectSchema</code> + <code>checkSchema</code>.</li>
+<li>HTTP-сервер + SSE + токен в <code>src/client</code>.</li>
+<li>Вендорить LiteGraph + базовый UI (открыть/вкладки/canvas).</li>
+<li>Компилятор web → JSON → <code>VFXDefinition</code> (+ <code>graph</code>/<code>inputs</code>).</li>
+<li>Транспорт + elapsed-aware seek.</li>
+<li>Таймлайн + инкрементные обновления.</li>
+<li>Импорт/экспорт (+ sidecar).</li>
+</ol>
+<h2 id="11">11. Открытые вопросы<a class="headerlink" href="#11" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Точный формат <code>pack.mcmeta</code> для 1.21.11 (для 26.2 — <code>min_format: [107, 1]</code>, <code>max_format: 107</code>).</li>
+<li>Точные сигнатуры loader/API и <code>HttpServer</code> — подтвердить <code>javap</code> перед использованием.</li>
+<li>Поведение <code>graph.meta</code> при перезаписи определения движком (проверить, что round-trip сохраняет).</li>
+<li>Точные сигнатуры локального play/<code>registerLocal</code> (сверить по исходникам перед реализацией).</li>
+<li>Наличие переиспользуемых UI-хелперов (слайдеры/цветовые пикеры) в <code>src/client/java</code>.</li>
+<li>Baseline LiteGraph-браузеров и наличие нужных custom widgets.</li>
+</ul>
+<h2 id="12">12. Риски<a class="headerlink" href="#12" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Риск</th>
+<th>Митигация</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Расхождение web-модели и игры</td>
+<td><code>revision</code> + reconcile; web — единственный источник истины</td>
+</tr>
+<tr>
+<td>Схема разъедется с рендерами</td>
+<td><code>checkSchema</code> в CI на каждый тип</td>
+</tr>
+<tr>
+<td>Сломанный UBO из-за правок <code>registerPost</code></td>
+<td><code>registerPost</code> не трогаем; схема параллельна</td>
+</tr>
+<tr>
+<td>Scrub «щёлкает» / дорогой</td>
+<td>elapsed-aware seek + debounce</td>
+</tr>
+<tr>
+<td>UI в dedicated-server jar</td>
+<td>ассеты и код — только в <code>src/client</code></td>
+</tr>
+<tr>
+<td>Огромный объём v1</td>
+<td>вертикальный срез: только пост-эффекты, без масок/полей/очередей</td>
+</tr>
+</tbody>
+</table>
+<h2 id="13-post-v1">13. Post-v1: дизайн заложен заранее<a class="headerlink" href="#13-post-v1" title="Permanent link">&para;</a></h2>
+<p>Этот раздел — durable-заготовка, чтобы план на следующую версию можно было написать <strong>без доступа
+к прошлой переписке</strong>. Ничего из этого не входит в v1; здесь зафиксированы решения, форматы и
+точки расширения, от которых уже отталкивается v1-код.</p>
+<h3 id="131-mask">13.1 Маски (<code>mask</code>)<a class="headerlink" href="#131-mask" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Датапак:</strong> top-level <code>mask</code> (парсер <code>VFXMaskParser</code>, модель <code>VFXMask</code>/<code>VFXMaskOp</code>/
+  <code>VFXMaskPrimitive</code>/<code>VFXMaskFill</code>/<code>VFXMaskField</code>). Листья — примитивы (<code>VFXMaskShapeKind</code>),
+  композиция через <code>op</code>; <code>fill</code> (<code>solid</code>/<code>stroke</code>/<code>aura</code>), <code>space</code> (screen/world), <code>volume</code>
+  (surface/aura), <code>soft</code>/<code>stroke</code>/<code>field_amount</code>/<code>field_scale</code>.</li>
+<li><strong>Резервные параметры:</strong> числовые листья автоматически регистрируются как параметры
+  <code>mask.p&lt;N&gt;.*</code> (<code>center_x/y/z</code>, <code>rotation</code>, <code>p&lt;J&gt;</code>, <code>d&lt;J&gt;</code>, <code>soft</code>, <code>stroke</code>, <code>field_amount/scale</code>).
+  <strong>Редактор обязан</strong>: (а) исключать <code>mask.</code> из обычного списка параметров эффект-ноды; (б) иметь
+  отдельную группу «Mask»; (в) <code>mask.</code> — резервное имя, пользовательский параметр с этим префиксом
+  затеняется.</li>
+<li><strong>UI:</strong> нода <code>Mask</code> c дочерними <code>MaskLeaf</code>-нодами и деревом <code>op</code>. Листья подключаются к
+  обычным value-нодам по своим <code>mask.p&lt;N&gt;.*</code>-сокетам, а своими выходами — в <code>operand</code>-порты корня.</li>
+<li><strong>Схема:</strong> в <code>VFXEffectDescriptor.structural</code> добавить <code>supportsMask</code> (true только для
+  пост-эффектов) и перечень доступных <code>VFXMaskShapeKind</code>. UI не хардкодит формы.</li>
+<li><strong>Ограничения (из кода):</strong> маска только у пост-эффектов; world-overlay её игнорирует; composition
+  флаттенит depth-first, индексы <code>&lt;N&gt;</code> — в порядке объявления; до 2 custom-листьев.</li>
+</ul>
+<h3 id="132-per-pixel-field">13.2 Per-pixel поля (<code>field</code>)<a class="headerlink" href="#132-per-pixel-field" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Датапак:</strong> только field-capable входы (<code>VFXEffectType.fieldCapableInputs()</code>), форма
+  <code>inputs: { "&lt;name&gt;": { "field": ... } | { "op": ... } }</code>. Модель — <code>dev.vfxweaver.field</code>
+  (<code>VFXField</code>, <code>VFXFieldFn</code>, <code>VFXFieldOp</code>, <code>VFXGraphEvaluator</code>); leaf-функции компилируются в
+  uniform-программу (<code>VFXFieldProgram</code>, <code>field.glsl</code>).</li>
+<li><strong>Схема уже готова:</strong> флаг <code>fieldCapable</code> есть в <code>VFXParamDescriptor</code> с v1 — он гейтит
+  «field-аффорданс» на сокете.</li>
+<li><strong>UI:</strong> отдельный набор нод для полей (свой список kinds, <strong>не</strong> путать с value-графом),
+  доступный только с field-capable сокета; сериализуется в <code>field</code>-объект.</li>
+<li><strong>Ограничения:</strong> поле глубины/мира валидно только на screen layer 0 (иначе нейтраль, раз в
+  определение — warning); caps по глубине/листьям/текстурам — из парсера.</li>
+</ul>
+<h3 id="133-collection">13.3 Очереди / коллекции (<code>collection</code>)<a class="headerlink" href="#133-collection" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Датапак:</strong> <code>type: "collection"</code>, <code>effects: [{ effect, delay, duration, params, easing }]</code>;
+  вложенность до <code>MAX_COLLECTION_DEPTH</code> (4), лимиты <code>MAX_SCHEDULED_EFFECTS</code> (128).</li>
+<li><strong>UI:</strong> нода <code>Collection</code> — упорядоченный список дочерних <strong>эффект-нод</strong> с дорожкой <code>delay</code>
+  (и опциональным <code>duration</code>/<code>easing</code>/<code>params</code> override). Вложенная коллекция — дочерняя нода,
+  которая сама является collection-типом.</li>
+<li><strong>Вкладки:</strong> вкладка остаётся одним определением. Коллекция — это определение; её канвас
+  показывает дочерние эффект-ноды. Редактор таймлайна для коллекции — диаграмма задержек.</li>
+<li><strong>Схема:</strong> <code>COLLECTION</code> уже имеет дескриптор без параметров (v1); structural-опция
+  <code>childEffects</code> гейтит ноду.</li>
+<li><strong>Компиляция:</strong> IR коллекции → <code>effects[]</code>; <code>params</code> ребёнка принимают те же формы, что и
+  обычные (constant/start-end/keyframes/bind/expr/multiply).</li>
+</ul>
+<h3 id="134-ui">13.4 Не-пост типы в UI<a class="headerlink" href="#134-ui" title="Permanent link">&para;</a></h3>
+<p>Параметры не-пост типов в v1 уже в схеме; в v2 к ним добавляются <strong>structural-опции</strong> в
+<code>VFXEffectDescriptor</code>, которые UI показывает как свойства/под-редакторы ноды (не сокеты):</p>
+<table>
+<thead>
+<tr>
+<th>Опция</th>
+<th>Поле датапака</th>
+<th>Типы</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>positions</code></td>
+<td><code>positions</code> (<code>[x,y,z]</code> или <code>{entity,point,dir,offset,distance}</code>), <code>region</code></td>
+<td>world overlay, <code>light_beam</code>, <code>pulse_ring</code>, <code>guide_line</code>, <code>particles</code>, <code>block_chain</code></td>
+</tr>
+<tr>
+<td><code>entitySelector</code></td>
+<td><code>entity_selector</code></td>
+<td><code>entity_tint/outline/displace</code></td>
+</tr>
+<tr>
+<td><code>sound</code></td>
+<td><code>sound</code>, <code>sound_pos</code>, params <code>volume</code>/<code>pitch</code></td>
+<td>все</td>
+</tr>
+<tr>
+<td><code>particle</code> / <code>shape</code> / <code>block</code> / <code>item</code></td>
+<td>одноимённые поля</td>
+<td><code>particles</code>, <code>block_chain</code></td>
+</tr>
+<tr>
+<td><code>pattern</code> / <code>surface</code></td>
+<td>top-level <code>pattern</code>/<code>surface</code></td>
+<td><code>surface_pattern</code></td>
+</tr>
+<tr>
+<td><code>anchor</code></td>
+<td>top-level <code>anchor</code> (<code>sky_mode</code> sugar — в params)</td>
+<td><code>sky_pattern</code></td>
+</tr>
+<tr>
+<td><code>window</code></td>
+<td><code>VFXWindowSpec</code></td>
+<td><code>window_create/control</code></td>
+</tr>
+<tr>
+<td><code>screenImage</code></td>
+<td><code>VFXScreenImageSpec</code></td>
+<td><code>screen_image</code></td>
+</tr>
+</tbody>
+</table>
+<p>Правило: UI генерирует эти под-редакторы <strong>по флагам схемы</strong>, без ветвлений на конкретные типы —
+иначе ломается forward-compat.</p>
+<h3 id="135-subgraph-">13.5 Subgraph-макросы<a class="headerlink" href="#135-subgraph-" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Датапак:</strong> top-level <code>subgraphs</code> (id, inputs с дефолтами, nodes, edges, outputs) + ноды
+  <code>kind: subgraph</code>; разворачиваются загрузчиком (<code>VFXSubgraphExpander</code>) до валидации. Входы
+  инстанса подставляются в <code>"$name"</code>; id локальны, префиксуются при разворачивании; вложенность
+  до 8, до 64 макросов.</li>
+<li><strong>UI:</strong> «сгруппировать выделение в макрос» — создаёт запись в <code>subgraphs</code> вкладки и ноду
+  <code>subgraph</code>; именованные входы/выходы (<code>$name</code>, <code>outputs</code> с порядком — первый = дефолтный).</li>
+</ul>
+<h3 id="136-qol-v2">13.6 QoL редактора (v2)<a class="headerlink" href="#136-qol-v2" title="Permanent link">&para;</a></h3>
+<p>Мультивыделение, copy/paste/duplicate блоков, ЛК-меню (delete/duplicate/properties), группы и
+комментарии на канвасе (LiteGraph groups), поиск по палитре, выравнивание, сворачивание нод.</p>
+<h3 id="1361-ux-">13.6.1 UX-ориентир: Блендер<a class="headerlink" href="#1361-ux-" title="Permanent link">&para;</a></h3>
+<p>Нодовый UX сверяется с редакторами нод Блендера (Shader/Geometry Nodes), а не изобретается:
+- Раскладка ручная и святая: позиции сохраняются всегда; новые ноды встают со сдвигом от
+  выделения; автораскладка — только разовое размещение при импорте, не система.
+- Reroute-точки для проводов (дешёвый способ убрать провода через ноды).
+- Неподключённые сокеты скрыты по умолчанию (видны занятые + явно показанные); показ — по клику
+  или при перетаскивании линка. Нода должна оставаться маленькой.
+- Frames (именованные рамки) + сворачивание нод.
+- Solo/preview одного эффекта из канваса в один клик (аналог viewer-ноды); mute уже есть.
+- Не берём: pie-меню и сотню хоткеев (рано), «идеальную автораскладку» (её нет и в Блендере).</p>
+<h3 id="137-v2">13.7 Мост и экспорт (v2)<a class="headerlink" href="#137-v2" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Seek:</strong> пока реcompile+play с <code>elapsedTicks</code>. Если в VFXweaver появится настоящий
+  seek/scrub у активного эффекта — переключить <code>/transport seek</code> на него (точка в
+  <code>MinecraftEditorGame.seek</code>).</li>
+<li><strong>Транспорт моста:</strong> SSE+POST, пока латентность устраивает; WS только если появится доказанная
+  проблема (не реализовывать заранее).</li>
+<li><strong>Экспорт:</strong> <code>vfx_curves/*.json</code> и <code>vfx_particles/*.json</code> (эдиторы кривых/пресетов), несколько
+  namespace в одном проекте, версионирование/миграция <code>.vfxproj.json</code> (<code>"version"</code> уже есть).</li>
+</ul>
+<h2 id="14-durable-conventions">14. Правила для будущих планов (durable conventions)<a class="headerlink" href="#14-durable-conventions" title="Permanent link">&para;</a></h2>
+<p>Чтобы план на v2+ писался по этой спеке без прошлой переписки:</p>
+<ul>
+<li><strong>Единственный источник схемы</strong> — <code>VFXEffectSchema</code>; новый эффект/параметр добавляется туда и
+  <strong>обязан</strong> пройти <code>scripts/check-vfx-schema.ps1</code>. <code>registerPost</code> не переупорядочивать никогда.</li>
+<li><strong>UI генерируется из схемы</strong>, а не из имён эффектов/параметров; любое <code>if (type == ...)</code> в
+  web-коде — сигнал, что данных не хватает в дескрипторе: расширяй дескриптор.</li>
+<li><strong>Формат датапака — только аддитивно</strong>; новые поля добавлять в конец и переживать их отсутствие.</li>
+<li><strong>Новое структурное поле</strong> → новая опция в <code>VFXEffectDescriptor.structural</code>, а не ветка в UI.</li>
+<li><strong>Web-модель — единственный источник истины</strong>; игра — исполнитель; любое новое действие моста
+  обязано нести <code>revision</code> и быть идемпотентным.</li>
+<li><strong>Тесты:</strong> Java-логика — throwaway <code>main()</code>/PowerShell-скрипт по образцу <code>scripts/check-*.ps1</code>;
+  компилятор web — фикстуры <code>selftest.html</code>, финальный валидатор — Java-парсер.</li>
+<li><strong>Определение готовности:</strong> все шесть нод собираются; визуальное — только запуском игры.</li>
+<li>План хранится рядом со спекой: <code>docs/design/YYYY-MM-DD-*.md</code>; спека путешествует с планом.</li>
+</ul>
+<h2 id="15-redesign-v11">15. Redesign v1.1 (по итогам консультации + теста в игре)<a class="headerlink" href="#15-redesign-v11" title="Permanent link">&para;</a></h2>
+<p>Сдвиг: <strong>у редактора появляется своя view-model; JSON-формы — выходной артефакт компилятора.</strong>
+Это устраняет «выбор типа параметра», <code>start/end</code>, <code>collection</code>-в-палитре и дублирование полей.</p>
+<h3 id="151">15.1 Слот + фолдинг (инспектор = свёрнутый граф)<a class="headerlink" href="#151" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Слот</strong> = любой вход (параметр эффект-ноды или поле value-ноды). Состояния взаимоисключающие:</li>
+<li><strong>inline</strong> — значение редактируется на месте (клик+drag = scrub, двойной клик = ввод). Без попапов.</li>
+<li><strong>track</strong> (≥1 ключ) — поле показывает значение на playhead; авто-ключ пишет ключ в текущее время.</li>
+<li><strong>driven</strong> (подключена нода) — поле read-only, бейдж источника, «перейти к ноде».</li>
+<li>Поверх любого состояния — опциональный <strong>multiplier</strong> (<code>×</code> → выбор bind): формат умеет <code>multiply</code>.</li>
+<li><strong>Ромб-«секундомер»</strong> на слоте → «Анимировать» (создать трек с ключом на playhead). Работает и на value-нодах (п.17).</li>
+<li><strong>ПКМ по слоту</strong> → «Заменить на выражение» / «Заменить на привязку» = авто-создание <code>expr</code>/<code>bind</code>-ноды и линка. <code>bind</code>/<code>expr</code> исчезают из выбора типа.</li>
+<li>Выбор «constant/animate/keyframe» исчезает: 0 ключей = константа, ≥1 = трек; <code>animate</code> = 2 ключа.</li>
+<li>«Показать как ноду» — трек материализуется в <code>curve</code>-ноду и обратно (мост таймлайн↔канвас).</li>
+</ul>
+<h3 id="152-">15.2 Вкладка = композиция (эффект-ноды цепочкой)<a class="headerlink" href="#152-" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Вкладка = одно играбельное определение (файл), но внутри — <strong>N эффект-нод</strong> с портами потока <code>in</code>/<code>out</code>.
+  Для пост-эффектов связь = порядок слоёв (blur→pixelate: pixelate поверх). Крайний левый без входа — источник (экран/мир).</li>
+<li><strong>Панель «Слои»</strong> справа: порядок применения, drag-reorder, mute/solo, синхронна с канвасом.</li>
+<li><strong>Пустая вкладка валидна</strong> (плейсхолдер «+ Добавить эффект») — баг «нельзя удалить последний» исчезает как класс.</li>
+<li><code>collection</code> <strong>не</strong> виден как тип (артефакт сериализации).</li>
+<li><strong>Маппинг:</strong> 1 нода → файл как сегодня (полная совместимость); N нод → корень <code>type:"collection"</code>,
+  <code>effects:[{effect,delay,duration,params,easing}]</code> в порядке цепочки (не сортировать по delay).</li>
+<li><strong>Ответ движка (проверено статически, 2026-10-12):</strong> порядок детерминирован, запасное поле не понадобилось.
+  Дети <code>collection</code> идут в порядке массива <code>effects[]</code> (<code>VFXEffectManager.play</code>: цикл по <code>getChildren()</code>
+  в <code>scheduled</code>; <code>update</code> играет due в том же порядке), а композит внутри слоя — стабильная сортировка
+  по <code>order</code> ascending (<code>VFXPostProcessingManager.process</code>, <code>List.sort</code> stable: равные <code>order</code> сохраняют
+  порядок вставки). Компилятор пинит <code>params.order = index</code> цепочки (<code>compileCollection</code>), поэтому layering =
+  порядок цепочки независимо от <code>delay</code>. <code>screen_layer</code> — внешняя ось, <code>order</code> — только внутри слоя. Fusion
+  группирует только соседние стадии без перестановки, при отказе — те же пассы в том же порядке.
+  Пиксельный A/B в игре за владельцем.</li>
+</ul>
+<h3 id="153">15.3 Тайминг (правая панель, контекст по выделению)<a class="headerlink" href="#153" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Секции: <strong>Слои</strong> / <strong>Тайминг ноды</strong> (<code>duration</code> в тиках или сек @20tps, <code>loop</code>, <code>persistent</code>, <code>fade_ticks</code>=0, <code>delay</code>) / <strong>Параметры</strong> (слоты).</li>
+<li>Компилятор <strong>всегда</strong> эмитит тайминг явно (включая дефолты) — пользователь не зависит от скрытых дефолтов датапака. Глобальные дефолты — в настройках проекта.</li>
+</ul>
+<h3 id="154">15.4 Таймлайн / кривые<a class="headerlink" href="#154" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Линейка с тиками (мажор каждые 5–10, адаптив по зуму), playhead, <strong>duration-bar с ручкой</strong>, loop-скобка.</li>
+<li>Ключи <strong>клампятся в [0, duration]</strong> (альтернатива — «зона-призрак» + предупреждение + «Clamp all»). Ось значений: auto-fit + min/max схемы; выход за диапазон — подсветка/тултип.</li>
+<li>Строки на анимированные слоты + ганты нод <code>[delay → delay+duration]</code>.</li>
+<li><strong>Curve-редактор (безье):</strong> сегмент несёт timing в нормализованном боксе; IR хранит <code>cubicBezier[x1,y1,x2,y2]</code>, x∈[0,1], y свободен (overshoot). Ручки — 2 тангента. При отпускании — snap к именованному easing (ε) → сериализуем имя, иначе числа (лосслесный round-trip). Не свободный AE-граф: время монотонно.</li>
+</ul>
+<h3 id="155">15.5 Превью / транспорт<a class="headerlink" href="#155" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Бар: play/pause, stop, loop-индикатор, таймкод, Replay, auto-replay.</li>
+<li><strong>Preview-артефакт ≠ авторский датапак:</strong> мост получает ту же ревизию, но с overrides (<code>loop:true</code>/большой duration, <code>fade_ticks:0</code>) — правки не загрязняют ассет.</li>
+<li>Правка (debounce 200–300мс) → auto-replay с t=0; скраб playhead — локальный пересчёт кривых (без запроса к игре). Статус-бейдж «rev N → в игре».</li>
+<li>Фикс «эффект пропадает» (#4) и «ключи просто затухают» (#15): см. инварианты 15.7.</li>
+</ul>
+<h3 id="156-app-shell">15.6 App-shell / «Файл» / экспорт<a class="headerlink" href="#156-app-shell" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Top bar:</strong> имя проекта (→ настройки: name, namespace <code>[a-z0-9_.-]+</code>, дефолты), табы, транспорт, статус ревизии.</li>
+<li><strong>Файл:</strong> New Project…, Open…, Recent, Save (Ctrl+S = компиляция+пуш превью), Export…, Settings.</li>
+<li><strong>Export-диалог:</strong> цели — <strong>ZIP</strong> (браузерный download через мост <code>GET /export/zip?rev=N</code>, нативный save ОС, без AWT); <strong>Папка</strong> (нативный пикер через мост <code>JFileChooser(DIRECTORIES_ONLY)</code> вне рендер-потока, результат по request-id через SSE/поллинг; фолбэк — ручной ввод пути); <strong>Мир</strong> (список из <code>saves</code> + подтверждение перезаписи). Кнопку экспорта из тулбара убрать.</li>
+<li>Хоткеи: <code>Del</code>, <code>Ctrl+Z</code>/<code>Ctrl+Shift+Z</code>, <code>Ctrl+C/V/D</code>, <code>Ctrl+A</code>, <code>Ctrl+S</code>, <code>Space</code> play/pause, <code>R</code> replay, <code>K</code> ключ на playhead, <code>F</code> frame-selected, <code>Home</code> frame-all, <code>Tab</code>/dblclick поиск-добавление, <code>Ctrl+G</code> группа, <code>[</code>/<code>]</code> вкладки, <code>MMB</code>/<code>Space+drag</code> пан, <code>Ctrl+wheel</code> зум, <code>?</code> шпаргалка.</li>
+</ul>
+<h3 id="157-undo">15.7 Undo и инварианты компилятора<a class="headerlink" href="#157-undo" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Undo — снапшотный</strong> (IR сериализуем): транзакция = <code>pointerdown→up</code> (один драг = один шаг) или одно действие; стек с капом 100. Заменяет командный стек.</li>
+<li><strong>I1:</strong> слот с ≥1 ключом сериализуется только в <code>keyframes</code>; fade не эмулирует анимацию.</li>
+<li><strong>I2:</strong> <code>fade_ticks</code> влияет только на затухание после конца жизни.</li>
+<li><strong>I3:</strong> ключи за <code>[0,duration]</code> клампятся при компиляции с warning.</li>
+<li><strong>E2E-регрессия:</strong> трек 0→1→0 в игре совпадает с кривой.</li>
+</ul>
+<h3 id="158-paramspec">15.8 Маппинг слотов → ParamSpec<a class="headerlink" href="#158-paramspec" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>IR</th>
+<th>JSON</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>constant-нода → параметр</td>
+<td><code>"value": X</code></td>
+</tr>
+<tr>
+<td>трек → параметр</td>
+<td><code>"keyframes": [...]</code> (стабильно; 2 linear-ключа можно <code>start/end</code>)</td>
+</tr>
+<tr>
+<td>bind-нода → параметр</td>
+<td><code>"bind": {...}</code></td>
+</tr>
+<tr>
+<td>expr-нода → параметр</td>
+<td><code>"expr": "..."</code></td>
+</tr>
+<tr>
+<td>прочий граф</td>
+<td><code>"graph"</code> + <code>"inputs":{"param":{"from":id}}</code></td>
+</tr>
+<tr>
+<td>трек на поле value-ноды</td>
+<td>graph-нода <code>kind:"curve"</code> с ключами</td>
+</tr>
+<tr>
+<td>multiplier слота</td>
+<td><code>"multiply": {...}</code> поверх любого</td>
+</tr>
+</tbody>
+</table>
+<p>Импорт — обратная нормализация: <code>parseParam</code> уже нормализует все формы → в IR всё становится слотами/треками.</p>
+<h3 id="159">15.9 Порядок внедрения (по консультации)<a class="headerlink" href="#159" title="Permanent link">&para;</a></h3>
+<ol>
+<li>Quick wins: снапшот-undo + хоткеи, тики таймлайна, инлайн-поля без попапа, кламп ключей, пустая вкладка.</li>
+<li>App-shell: «Файл», проект как объект, Export-диалог (+нативный пикер).</li>
+<li>Слот-модель: унификация инспектора/графа (фолдинг), ромб-анимация, ПКМ «заменить на expr/bind», multiplier; компилятор — таблица 15.8 + инварианты.</li>
+<li>Таймлайн/кривые: duration-bar, ганты, curve-редактор.</li>
+<li>Композиции: N нод/вкладка, потоки, панель слоёв, понижение в <code>collection</code> (+аддитивный <code>layer</code>/<code>mode</code> при необходимости), затем reference-ноды.</li>
+<li>Vector-группировка параметров (pos_x/y/z → pos и т.п., один ввод/бинд на все, раскрытие) — из фидбека теста.</li>
+</ol>
+<h2 id="16-preview-v2">16. Preview v2 (по консультации + фактам движка)<a class="headerlink" href="#16-preview-v2" title="Permanent link">&para;</a></h2>
+<p><strong>Принцип:</strong> превью — первосортный сеанс <code>PreviewSession = (DefinitionSet, ViewState, TimeControl) @ revision</code>,
+а не «взлом» авторского плеера. Авторский набор не трогаем.</p>
+<h3 id="161-diff-ns">16.1 Регистрация (diff, приватный ns)<a class="headerlink" href="#161-diff-ns" title="Permanent link">&para;</a></h3>
+<ul>
+<li>id → <code>vfxweaver:editor_preview/&lt;tabSlug&gt;/&lt;nodeUuid&gt;</code> — датапак-слой не может перекрыть приватный ns.</li>
+<li><code>POST /preview/sync</code> шлёт ВЕСЬ набор вкладки; контроллер diff по string-equality: changed → <code>registerLocal</code> (MERGE),
+  removed → <code>unregisterLocal</code> (tombstone).</li>
+<li>rejected из <code>registerLocal</code> → играем last-good + событие <code>preview/error</code> (MERGE оставляет старую версию). Без чёрных экранов.</li>
+<li>Учёт: активна одна вкладка (десятки id), кап 256 не давит.</li>
+</ul>
+<h3 id="162-viewstate-">16.2 ViewState = инстанс-операции (без перекомпиляции)<a class="headerlink" href="#162-viewstate-" title="Permanent link">&para;</a></h3>
+<ul>
+<li>mute → <code>removeInstance</code>; solo → видимы только solo; reorder → <code>setParam(instance,"order",i)</code> (<code>order</code> читается per-frame,
+  применится со следующего кадра).</li>
+<li><strong><code>order</code> не писать нулём через setParam:</strong> константа <code>0</code> оставляет набор оверрайдов целиком нулевым, а
+  <code>VFXTimeline.isZeroedOut()</code> считает это «эффект завершён» → инстанс респавнится каждый тик (первый post-child слоя 0
+  не рисуется). Rank <code>0</code> = <strong>снять</strong> оверрайд (<code>clearOverride("order")</code>), ранги <code>&gt;0</code> — <code>setOverride</code>. Спавн-параметры
+  <code>order</code> не передают вовсе.</li>
+<li><code>order</code> передаётся <strong>play-параметром</strong> (работает даже для необъявленного параметра) → Exact-определения <code>order</code> НЕ содержат.</li>
+<li>Панель слоёв группируется по <code>screen_layer</code> (0/&frac12;): <code>order</code> сортирует только внутри слоя (смешение слоёв — warning).</li>
+</ul>
+<h3 id="163-b">16.3 Время (Вариант B — аддитивно)<a class="headerlink" href="#163-b" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Глобальные часы <code>VFXEffectManager.clock</code> тикают каждый кадр (<code>advance</code>), <code>VFXReplayController</code> программной сессии не даёт
+  → для pause/seek нужен аддитивный per-instance override на <code>VFXActiveEffect</code> (поле <code>ageOverride</code>, honour в <code>update</code>).</li>
+<li>Контроллер владеет <code>tick</code>; spawn анкерит <code>trigger = now − age</code>; пауза/скраб = <code>setAge</code>. Loop — строго контроллерный
+  (<code>seek(0)</code> на wrap), НЕ движковый loop (движковый wrap per-instance по duration ребёнка ломает фазовые отношения delay).</li>
+<li>Exact: на каждом def <code>fade_ticks:0, loop:false, persistent:true, duration=&lt;node&gt;</code>; <strong>никогда</strong> <code>beginFadeOut</code>.
+  Authored: обычный <code>play(root)</code> с авторскими таймингами (реальный жизненный цикл).</li>
+</ul>
+<h3 id="164-">16.4 Контроллер-планировщик<a class="headerlink" href="#164-" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Exact играет детей <strong>поодиночке</strong> через <code>playReplay(defId, dur, trigger, stableId, contextPos, entities, params:{order:i}, null, false)</code>;
+  корневую коллекцию играть НЕЛЬЗЯ (<code>ScheduledPlay</code> фиксирует детей при старте).</li>
+<li><code>removeInstance</code> + <code>playReplay</code> в одном тике — позиционно бесшовно.</li>
+</ul>
+<h3 id="165-seed-phase-stable-re-issue">16.5 Seed (phase-stable re-issue)<a class="headerlink" href="#165-seed-phase-stable-re-issue" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>random</code>/<code>expr random()</code> сейчас сеются заново на каждом <code>play</code> → на re-issue мигает. Аддитивно: seed от <code>instanceId</code>
+  (стабильный hash64(tab,nodeUuid)). <code>noise</code> — чистая функция elapsed, не мигает.</li>
+</ul>
+<h3 id="166">16.6 Протокол моста<a class="headerlink" href="#166" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>POST /preview/sync</code> <code>{revision, tab, definitions{}, root, meta{tabDuration, children[{key,def,delay,duration,isPost}], context{anchor,pos,targets}}}</code> → <code>{ok, applied, rejected}</code>.</li>
+<li><code>POST /preview/viewstate</code> <code>{revision, order[], muted[], solo[]}</code>.</li>
+<li><code>POST /preview/param</code> <code>{revision, key, param, value}</code> — fast-path @30Hz; release → sync.</li>
+<li><code>POST /preview/transport</code> <code>{revision, action: play|pause|seek|stop|setMode, tick, mode: exact|authored}</code>.</li>
+<li>SSE: <code>preview/state {revision,mode,playing,tick,ended}</code>, <code>preview/error {revision,message,defId?}</code>.</li>
+<li>single-writer: применения в одной очереди на игровом потоке; viewstate/transport при <code>rev==lastApplied</code>; sync идемпотентен по revision.</li>
+</ul>
+<h3 id="167">16.7 Инварианты<a class="headerlink" href="#167" title="Permanent link">&para;</a></h3>
+<ul>
+<li>I1: ни один preview-def без явного <code>fade_ticks</code> (Exact=0); I2: Exact не эмитит <code>loop:true</code> и не зовёт <code>beginFadeOut</code>; I3: rejected≠∅ → last-good + error.</li>
+<li>Компилятор author-набора всегда пишет <code>duration/loop/persistent/fade_ticks</code> явно (движковый дефолт fade=10 не применяется).</li>
+</ul>
+<h3 id="168">16.8 Что НЕ делать<a class="headerlink" href="#168" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Не играть root-коллекцию в Exact; не полагаться на движковый loop в Exact; не писать <code>order</code> в Exact-def (только play-param);
+  не звать <code>beginFadeOut</code> в превью; не регистрировать под авторскими id; не пачкать author-профиль; не трогать <code>registerLocal</code>/<code>/vfx play</code>/сортировку движка.</li>
+</ul>
+<h3 id="169">16.9 Приоритеты<a class="headerlink" href="#169" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>P0:</strong> <code>/preview/sync</code> diff-register + PreviewTransport (Вариант B: ageOverride) + spawn/seek/pause/play/stop + контроллерный loop +
+  Exact-проекция + инварианты + <code>/preview/viewstate</code> (mute/solo/order).</li>
+<li><strong>P1:</strong> <code>/preview/param</code> fast-path + SSE state/error + статус/ended + Authored-режим + UX-дельты (группировка слоёв, бейдж живого bind, скраб=пауза).</li>
+<li><strong>P2:</strong> disconnect-cleanup, seed=instanceId.</li>
+<li><strong>P3:</strong> mute/solo в Authored, вложенные коллекции, reference-ноды.</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+  <script>var tabs=__md_get("__tabs");if(Array.isArray(tabs))e:for(var set of document.querySelectorAll(".tabbed-set")){var labels=set.querySelector(".tabbed-labels");for(var tab of tabs)for(var label of labels.getElementsByTagName("label"))if(label.innerText.trim()===tab){var input=document.getElementById(label.htmlFor);input.checked=!0;continue e}}</script>
+
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      Authored by Artition &middot; MIT licensed
+    </div>
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+      <div class="md-progress" data-md-component="progress" role="progressbar"></div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.instant", "navigation.instant.progress", "navigation.sections", "navigation.top", "navigation.tracking", "toc.follow", "search.suggest", "search.highlight", "content.code.copy", "content.tabs.link"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"alias": true, "default": "latest", "provider": "mike"}}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>
