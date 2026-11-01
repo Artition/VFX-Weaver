@@ -187,11 +187,16 @@ public final class VFXEffectSchema {
 			new String[] {"x", "y", "pos_x", "pos_y", "pos_z", "scale", "line_height", "wrap_width",
 				"alpha", "color_r", "color_g", "color_b", "gradient", "gradient_r", "gradient_g", "gradient_b",
 				"shadow", "outline", "outline_r", "outline_g", "outline_b", "reveal",
+				"scramble", "scramble_rate", "scramble_band", "scramble_time",
 				"per_char_anim", "stagger", "exit", "exit_at", "exit_stagger", "exit_speed",
 				"gravity", "spin_x", "spin_y", "spin_z", "tumble", "collision", "bounce", "friction",
 				"fade_out", "rot_x", "rot_y", "rot_z", "angle"},
 			Map.of(
 				"reveal", new float[] {0.0F, 1.0F},
+				// The only bounded scramble param: a switch. 'scramble_rate' (swaps per second),
+				// 'scramble_band' (characters ahead of the frontier) and 'scramble_time' (seconds
+				// before the detach) are unbounded above - a large band or rate only costs overdraw.
+				"scramble", new float[] {0.0F, 1.0F},
 				"collision", new float[] {0.0F, 1.0F},
 				"tumble", new float[] {0.0F, 1.0F},
 				"bounce", new float[] {0.0F, 1.0F},

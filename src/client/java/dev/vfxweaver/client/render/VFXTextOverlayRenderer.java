@@ -67,6 +67,17 @@ import org.slf4j.LoggerFactory;
  * while {@code i < reveal * count} and fades over the single character at the boundary, which is what
  * gives a typed-in / wiped-in line instead of a hard pop.
  *
+ * <p>{@code scramble} turns both transitions into a decode. While it is above half, the characters
+ * inside the {@code scramble_band} window ahead of the reveal frontier, and the characters inside the
+ * {@code scramble_time} seconds before they detach, draw a noise glyph instead of their own character:
+ * a hash of the instance id, the character index and the swap number into {@code A-Z 0-9 #$%&*+=-<>/?},
+ * so the same tick always draws the same noise and a replay agrees with a screenshot. The glyph swaps
+ * {@code scramble_rate} times a second, the noise fades out towards the far end of the band - rising
+ * towards the frontier - and a character snaps back to itself the moment the frontier passes it or the
+ * exit takes over. Both windows are read from the clock and the params, never accumulated. The world
+ * path rewrites a display's text only when the glyph it shows actually changed; the flat path simply
+ * draws the noise character. With {@code scramble} at 0 every frame is the one it was before.
+ *
  * <p>The exit is computed from the clock, never accumulated, so the same tick always yields the same
  * frame. Character {@code index} starts leaving at {@code exit_at + index * exit_stagger} seconds;
  * with {@code exit < 0.5} it only fades in place, with {@code exit >= 0.5} it falls, spins and - when
@@ -94,12 +105,18 @@ public final class VFXTextOverlayRenderer {
 	// The letters want nothing behind them. Display.TextDisplay.INITIAL_BACKGROUND is the vanilla
 	// translucent black plate; 0 is fully transparent, so the block reads as text floating in air.
 	private static final int TRANSPARENT_BACKGROUND = 0;
+	// The pool a scrambled character draws its noise from: no lowercase, so a decode reads as machine
+	// output, and a fixed order, so the hash's index into it is stable between runs.
+	private static final String NOISE_GLYPHS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789#$%&*+=-<>/?";
 
 	// Characters of one live text effect, in layout order. 'signature' is the content plus the
 	// structural inputs, because an instance id can be reused by a replay with different text.
 	// 'layout' is measured at unit scale; placeBlock multiplies it by the current 'scale'.
 	// 'lastColour' and 'lastFlags' are the values last written to the entities, so the per-frame
 	// colour and shadow refresh only touches a display when the value actually changed.
+	// 'lastTexts' is the character string last written to each display - its own glyph, or the noise
+	// glyph of the last swap - so a scrambled character is rewritten only when its noise changes and
+	// is handed its own character back when the band passes it, whatever the colour cache says.
 	// 'floors' is the one per-character value the exit stores: the top of the first collider below
 	// the character's rest position, or NEGATIVE_INFINITY when it has nothing to land on. It is a
 	// pure function of the world, so it is resolved once at spawn and the fall itself stays
@@ -112,18 +129,21 @@ public final class VFXTextOverlayRenderer {
 		private final List<Display.TextDisplay> entities;
 		private final VFXTextLayout layout;
 		private final float[] floors;
+		private final String[] lastTexts;
 		private int lastColour;
 		private byte lastFlags;
 		private float finishedAt = -1.0F;
 
 		private LiveText(final long instanceId, final String signature,
 				final List<Display.TextDisplay> entities, final VFXTextLayout layout,
-				final float[] floors, final int lastColour, final byte lastFlags) {
+				final float[] floors, final String[] lastTexts, final int lastColour,
+				final byte lastFlags) {
 			this.instanceId = instanceId;
 			this.signature = signature;
 			this.entities = entities;
 			this.layout = layout;
 			this.floors = floors;
+			this.lastTexts = lastTexts;
 			this.lastColour = lastColour;
 			this.lastFlags = lastFlags;
 		}
@@ -263,8 +283,11 @@ public final class VFXTextOverlayRenderer {
 			// Same wipe as the world path: 'reveal' is a fraction of the characters, and the single
 			// one at the boundary is caught mid-fade; the exit fades a character that is leaving, and
 			// the effect weight fades the whole block when the effect is stopped. A plain 0xRRGGBB
-			// colour has alpha 0 here, so it must be packed.
-			final float alpha = clamp01(revealed - i)
+			// colour has alpha 0 here, so it must be packed. A scrambled character is drawn at the
+			// noise's own opacity instead, which rises towards the frontier.
+			final float noise = scrambleAmount(effect, i, layout.glyphs().size());
+			final float revealAlpha = noise > 0.0F ? noise : clamp01(revealed - i);
+			final float alpha = revealAlpha
 				* flatExitAlpha(effect, i, since, restY, floorY, guiHeight) * effect.getWeight();
 			final int argb = (Math.round(alpha * 255.0F) << 24) | rgb;
 			// The gate is on the byte that actually reaches the text, not on the float: a weight that
@@ -272,10 +295,13 @@ public final class VFXTextOverlayRenderer {
 			if ((argb >>> 24) == 0) {
 				continue;
 			}
-			final String text = flat.texts().get(i);
+			// The noise character is drawn in the real character's cell, so it is measured from the
+			// real one: a swap then never shifts a letter sideways. Only the string handed to the
+			// font changes, so a scrambled frame costs no more than a plain one.
+			final String text = noise > 0.0F ? noiseGlyph(effect, i) : flat.texts().get(i);
 			// The character turns about the middle of its own font box, so a spin never drags the
 			// letter out of its slot in the line and a resting line is exactly where 'angle' puts it.
-			final float halfWidth = font.width(text) / 2.0F;
+			final float halfWidth = font.width(flat.texts().get(i)) / 2.0F;
 			final float halfHeight = font.lineHeight / 2.0F;
 			pose.pushMatrix();
 			pose.translate(restX + exit.x + halfWidth * scale, restY + exit.y + halfHeight * scale);
@@ -402,8 +428,14 @@ public final class VFXTextOverlayRenderer {
 			level.addEntity(display);
 			entities.add(display);
 		}
+		// What each display currently shows. Spawned with its own character; placeBlock rewrites an
+		// entry only when the character it should show changes, which is what a noise swap is.
+		final String[] lastTexts = new String[entities.size()];
+		for (int i = 0; i < lastTexts.length; i++) {
+			lastTexts[i] = String.valueOf(layout.glyphs().get(i).ch());
+		}
 		final LiveText live = new LiveText(effect.getInstanceId(), signature, entities, layout,
-			floors(effect, level, spec, layout, entities.size(), origin), colour, flags);
+			floors(effect, level, spec, layout, entities.size(), origin), lastTexts, colour, flags);
 		LIVE.put(effect.getInstanceId(), live);
 		return live;
 	}
@@ -482,7 +514,8 @@ public final class VFXTextOverlayRenderer {
 		final boolean reflag = flags != live.lastFlags;
 		live.lastColour = colour;
 		live.lastFlags = flags;
-		final float revealed = reveal(effect) * layout.glyphs().size();
+		final int count = layout.glyphs().size();
+		final float revealed = reveal(effect) * count;
 		// The block only finishes when every character has faded out; until then this stays above 0.
 		float brightest = 0.0F;
 		for (int i = 0; i < live.entities.size(); i++) {
@@ -503,8 +536,15 @@ public final class VFXTextOverlayRenderer {
 			final Quaternionf orientation = since < 0.0F ? rotation : spin(effect, i, since, rotation);
 			display.setTransformation(new Transformation(new Vector3f(), new Quaternionf(orientation),
 				new Vector3f(scale, scale, scale), new Quaternionf()));
-			if (restyle) {
-				display.setText(Component.literal(String.valueOf(glyph.ch())).withStyle(style));
+			// A scrambled character shows a noise glyph instead of its own, and is handed its own
+			// character back as soon as the band has passed it. The text is written when the style
+			// changed or when the character it should show changed - never once per frame - so a
+			// standing line costs nothing and a decode only touches the glyphs that are swapping.
+			final float noise = scrambleAmount(effect, i, count);
+			final String text = noise > 0.0F ? noiseGlyph(effect, i) : String.valueOf(glyph.ch());
+			if (restyle || !text.equals(live.lastTexts[i])) {
+				display.setText(Component.literal(text).withStyle(style));
+				live.lastTexts[i] = text;
 			}
 			if (reflag) {
 				display.setFlags(flags);
@@ -512,10 +552,13 @@ public final class VFXTextOverlayRenderer {
 			// reveal is a fraction of the characters, so this character is fully shown, hidden, or
 			// the single one at the wipe boundary caught mid-fade; the exit fades a character that is
 			// leaving, and the effect weight fades the whole block instead of popping it at the stop.
+			// A scrambled character is drawn at the noise's own opacity, which rises towards the
+			// frontier, so it lights up as the sweep reaches it instead of waiting at zero.
 			final float exitAlpha = exitAlpha(effect, i, restY, floorY);
+			final float revealAlpha = noise > 0.0F ? noise : clamp01(revealed - i);
 			brightest = Math.max(brightest, exitAlpha);
 			display.setTextOpacity((byte) Math.round(
-				clamp01(revealed - i) * exitAlpha * effect.getWeight() * 255.0F));
+				clamp01(revealAlpha * exitAlpha * effect.getWeight()) * 255.0F));
 		}
 		// Every character has faded and there is still an exit pending: the block is gone. Only an
 		// authored exit can get here, so a block with 'reveal' 0 (invisible, not leaving) is not
@@ -842,6 +885,62 @@ public final class VFXTextOverlayRenderer {
 	// The animated fraction of characters that are visible, 1 when the param is unset.
 	private static float reveal(final VFXActiveEffect effect) {
 		return clamp01(effect.getParam("reveal", 1.0F));
+	}
+
+	// How much of character 'index' is noise this frame, in 0..1: zero when it shows its own
+	// character, which is every character of every frame while 'scramble' is off. Two windows produce
+	// noise - the band just ahead of the reveal frontier, fading out as the character is further from
+	// it, and the 'scramble_time' seconds before the character detaches. Both are read from the clock
+	// and the params alone, so nothing accumulates and the same tick always yields the same frame.
+	//
+	// effect - the running effect
+	// index  - the character's place in the line
+	// count  - the characters in the block, the span 'reveal' is a fraction of
+	private static float scrambleAmount(final VFXActiveEffect effect, final int index,
+			final int count) {
+		final float on = clamp01(effect.getParam("scramble", 0.0F));
+		if (on <= 0.0F) {
+			return 0.0F;
+		}
+		// The exit window: noise while the character still stands in the line, then it leaves by the
+		// exit that is set, showing its own character again. A negative window would run backwards,
+		// so it is floored; there is no upper limit - a long window just scrambles longer.
+		final float detach = detachTime(effect, index);
+		final float window = Math.max(effect.getParam("scramble_time", 0.35F), 0.0F);
+		if (detach >= 0.0F && window > 0.0F) {
+			final float age = age(effect);
+			if (age >= detach - window && age < detach) {
+				return on;
+			}
+		}
+		// The reveal band: full noise at the frontier, none 'scramble_band' characters ahead of it, so
+		// the line decodes towards the wipe. A band of 0 is the switch with no reveal noise, and a
+		// huge band simply scrambles the whole tail of the line.
+		final float band = effect.getParam("scramble_band", 4.0F);
+		if (band <= 0.0F) {
+			return 0.0F;
+		}
+		final float ahead = index - reveal(effect) * count;
+		return ahead < 0.0F ? 0.0F : on * clamp01(1.0F - ahead / band);
+	}
+
+	// The noise glyph character 'index' shows this frame, as a one-character string. The swap number
+	// is the clock read in units of 'scramble_rate', and the glyph is a hash of the instance id, the
+	// index and that swap into the fixed pool: the same tick therefore always draws the same glyph,
+	// so a replay and a screenshot agree, and a glyph only changes when the rate says it should.
+	private static String noiseGlyph(final VFXActiveEffect effect, final int index) {
+		// A negative rate would walk the swaps backwards; the floor is the only guard needed, and a
+		// large rate simply swaps on every frame.
+		final float rate = Math.max(effect.getParam("scramble_rate", 15.0F), 0.0F);
+		final long swap = (long) Math.floor(age(effect) * rate);
+		long h = effect.getInstanceId() * 0x9E3779B97F4A7C15L;
+		h ^= index * 0xBF58476D1CE4E5B9L;
+		h ^= swap * 0x94D049BB133111EBL;
+		h ^= h >>> 31;
+		h *= 0x9E3779B97F4A7C15L;
+		h ^= h >>> 29;
+		final int slot = (int) Math.floorMod(h, (long) NOISE_GLYPHS.length());
+		return String.valueOf(NOISE_GLYPHS.charAt(slot));
 	}
 
 	private static float clamp01(final float value) {
