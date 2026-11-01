@@ -123,4 +123,15 @@ public final class VFXTextSpec {
 	public String font() { return this.font; }
 	public Align align() { return this.align; }
 	public Anchor anchor() { return this.anchor; }
+
+	/**
+	 * Returns a spec with the same {@code mode}, {@code font}, {@code align} and {@code anchor} and
+	 * the given content - the call-time text override keeps every layout decision from the file.
+	 *
+	 * @param content the replacement line (one line; the command language has no newline escape)
+	 * @return a new spec, never {@code null}
+	 */
+	public VFXTextSpec withContent(final String content) {
+		return new VFXTextSpec(content, this.mode, this.font, this.align, this.anchor);
+	}
 }

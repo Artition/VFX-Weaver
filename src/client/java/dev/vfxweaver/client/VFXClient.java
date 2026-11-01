@@ -251,7 +251,7 @@ public class VFXClient {
 			// A blank easing name means "use the definition default" (e.g. an inline curve that
 			// only exists in the definition, so it cannot travel as a name).
 			EasingFunction payloadEasing = payload.easing() == null || payload.easing().isBlank() ? null : EasingFunction.fromString(payload.easing());
-			VFXEffectManager.get().play(payload.effectId(), payload.durationTicks(), payload.elapsedTicks(), payload.instanceId(), payload.position(), payload.entityUuids(), payload.params(), payloadEasing);
+			VFXEffectManager.get().play(payload.effectId(), payload.durationTicks(), payload.elapsedTicks(), payload.instanceId(), payload.position(), payload.entityUuids(), payload.params(), payloadEasing, payload.textOverride());
 		}
 	}
 }

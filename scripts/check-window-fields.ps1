@@ -5,7 +5,7 @@
 # the post chain never sees it), a small structural spec carries the strings (VFXWindowSpec: the
 # window name `id`, the optional `texture` resource id and the `titles` list) and the animatable
 # numbers live in ordinary `params`. The strings stay in the definition and never travel on the
-# wire: VFXTriggerPayload (PROTOCOL_VERSION 6) gains no field, and VFXEffectType.fromString already
+# wire: VFXTriggerPayload gains no window field, and VFXEffectType.fromString already
 # resolves the new shader names without any wire change.
 #
 # Static phase pins:
@@ -14,7 +14,8 @@
 #   * VFXDefinition parses the window block only for the two window types and exposes getWindow();
 #   * VFXWindowSpec exists, parses id/texture/titles, caps the titles list and clamps an animated
 #     title_index into the list (held at the nearest valid title);
-#   * VFXTriggerPayload is untouched (still PROTOCOL_VERSION 6, no window/title field).
+#   * VFXTriggerPayload carries no window/title field (the version it is on belongs to another
+#     feature; a window field would need its own bump, so this pins the field list, not the number).
 # Runnable phase parses window_create and window_control definitions and asserts the exact field set,
 # the type, the structural values and title_index clamping, and that a missing `id` is a per-file
 # parse error. GLSL is never compiled and there is no GPU here, so nothing here claims a pixel works.
@@ -109,9 +110,11 @@ if (-not (Test-Path -LiteralPath $specPath)) {
 	}
 }
 
-# 4) the wire is untouched: no new field, protocol version still 6.
-if ($payload -notmatch 'PROTOCOL_VERSION = 6') {
-	$problems.Add("VFXTriggerPayload.PROTOCOL_VERSION is no longer 6 - the window surface must not touch the wire")
+# 4) the wire is untouched by this feature: no new field. The protocol version is pinned to the
+#    value the text-override change left it at (7) - another bump means a wire change landed and
+#    this guard has to be re-read, because the window surface must not touch the wire.
+if ($payload -notmatch 'PROTOCOL_VERSION = 7') {
+	$problems.Add("VFXTriggerPayload.PROTOCOL_VERSION is no longer 7 - a wire change landed without updating this guard (the window surface must not touch the wire)")
 }
 foreach ($forbidden in @('window_create', 'window_control', 'windowId', 'titles')) {
 	if ($payload.Contains($forbidden)) {

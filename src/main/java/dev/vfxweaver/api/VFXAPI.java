@@ -624,7 +624,18 @@ public final class VFXAPI {
 	 * @return {@code true} when the effect was known and sent
 	 */
 	public static boolean sendEffect(final ServerPlayer player, final Identifier effectId, final Map<String, Float> overrides, final @Nullable EasingType easing) {
-		return sendEffect(player, effectId, 0L, null, List.of(), overrides, easing);
+		return sendEffect(player, effectId, overrides, easing, null);
+	}
+
+	/**
+	 * Same as {@link #sendEffect(ServerPlayer, Identifier, Map, EasingType)} with a call-time text
+	 * override that replaces a {@code text_overlay} definition's {@code text.content}.
+	 *
+	 * @param text the string to draw instead of the definition's content (null or blank = no override)
+	 * @return {@code true} when the effect was known and sent
+	 */
+	public static boolean sendEffect(final ServerPlayer player, final Identifier effectId, final Map<String, Float> overrides, final @Nullable EasingType easing, final @Nullable String text) {
+		return sendEffect(player, effectId, 0L, null, List.of(), overrides, easing, text);
 	}
 
 	/**
@@ -640,7 +651,18 @@ public final class VFXAPI {
 	 * @return {@code true} when the effect was known and sent
 	 */
 	public static boolean sendEffect(final ServerPlayer player, final Identifier effectId, final Vec3 worldPos, final Map<String, Float> overrides, final @Nullable EasingType easing) {
-		return sendEffect(player, effectId, 0L, worldPos, List.of(), overrides, easing);
+		return sendEffect(player, effectId, worldPos, overrides, easing, null);
+	}
+
+	/**
+	 * Same as {@link #sendEffect(ServerPlayer, Identifier, Vec3, Map, EasingType)} with a call-time
+	 * text override.
+	 *
+	 * @param text the string to draw instead of the definition's content (null or blank = no override)
+	 * @return {@code true} when the effect was known and sent
+	 */
+	public static boolean sendEffect(final ServerPlayer player, final Identifier effectId, final Vec3 worldPos, final Map<String, Float> overrides, final @Nullable EasingType easing, final @Nullable String text) {
+		return sendEffect(player, effectId, 0L, worldPos, List.of(), overrides, easing, text);
 	}
 
 	/**
@@ -668,6 +690,29 @@ public final class VFXAPI {
 		final Map<String, Float> overrides,
 		final @Nullable EasingType easing
 	) {
+		return sendEffect(player, effectId, instanceId, worldPos, entityUuids, overrides, easing, null);
+	}
+
+	/**
+	 * Same as
+	 * {@link #sendEffect(ServerPlayer, Identifier, long, Vec3, List, Map, EasingType)} with a
+	 * call-time text override that replaces a {@code text_overlay} definition's {@code text.content}.
+	 * The other text fields ({@code mode}, {@code font}, {@code align}, {@code anchor}) still come
+	 * from the definition, and a definition without a {@code text} block ignores the override.
+	 *
+	 * @param text the string to draw instead of the definition's content (null or blank = no override)
+	 * @return {@code true} when the effect was known and sent
+	 */
+	public static boolean sendEffect(
+		final ServerPlayer player,
+		final Identifier effectId,
+		final long instanceId,
+		final @Nullable Vec3 worldPos,
+		final List<UUID> entityUuids,
+		final Map<String, Float> overrides,
+		final @Nullable EasingType easing,
+		final @Nullable String text
+	) {
 		VFXDefinition definition = VFXDefinitionManager.get().get(effectId);
 		if (definition == null) {
 			VFXLog.warnOnce(LOGGER, "api:unknown-effect:" + effectId, "sendEffect({}) failed: unknown effect", effectId);
@@ -686,7 +731,7 @@ public final class VFXAPI {
 		// An inline curve cannot be reconstructed from its name over the network; send a blank name
 		// so the client falls back to its own definition default (which carries the same curve).
 		String wireEasing = effectiveEasing.isInline() ? "" : effectiveEasing.name();
-		VFXNetwork.sendToPlayer(player, VFXTriggerPayload.play(effectId, duration, instanceId, worldPos, entityUuids, params, wireEasing));
+		VFXNetwork.sendToPlayer(player, VFXTriggerPayload.play(effectId, duration, instanceId, worldPos, entityUuids, params, wireEasing, text));
 		VFXServerEffects.get().record(player, effectId, duration, instanceId, worldPos, entityUuids, params, wireEasing);
 		VFXScoreboardSync.onEffectPlayed(player, definition, duration);
 		return true;
@@ -703,7 +748,24 @@ public final class VFXAPI {
 		final Map<String, Float> params,
 		final EasingType easing
 	) {
-		VFXNetwork.sendToPlayer(player, VFXTriggerPayload.play(effectId, durationTicks, params, easing));
+		sendEffect(player, effectId, durationTicks, params, easing, null);
+	}
+
+	/**
+	 * Same as {@link #sendEffect(ServerPlayer, Identifier, int, Map, EasingType)} with a call-time
+	 * text override for a {@code text_overlay} definition.
+	 *
+	 * @param text the string to draw instead of the definition's content (null or blank = no override)
+	 */
+	public static void sendEffect(
+		final ServerPlayer player,
+		final Identifier effectId,
+		final int durationTicks,
+		final Map<String, Float> params,
+		final EasingType easing,
+		final @Nullable String text
+	) {
+		VFXNetwork.sendToPlayer(player, VFXTriggerPayload.play(effectId, durationTicks, params, easing, text));
 		VFXServerEffects.get().record(player, effectId, durationTicks, 0L, null, List.of(), params, easing.name());
 	}
 

@@ -10,7 +10,10 @@
 #     enum-like ones so the editor cannot send nonsense;
 #   * the renderer keeps the per-character exit wiring - the fall, the detach schedule, the
 #     per-character stagger and the finished-record lifecycle - because none of it compiles into
-#     anything a build would notice if it went missing.
+#     anything a build would notice if it went missing;
+#   * the call-time text override stays wired: the payload's textOverride field, the
+#     VFXTextSpec.withContent() method, the command's MAX_TEXT_OVERRIDE cap and the one place the
+#     manager applies it.
 #
 # Nothing here compiles GLSL or draws a pixel. It pins the text the two halves must agree on.
 #
@@ -62,6 +65,17 @@ foreach ($pattern in 'fallOffset', 'detachTime', 'exit_stagger', 'finished') {
 }
 
 # --- the guide page is added in Task 6; until then the guard must not demand it ---------------
+
+# --- the call-time text override (Task B): the field, the spec method and its cap -------------
+$payloadPath = Join-Path $repoRoot "src\main\java\dev\vfxweaver\network\VFXTriggerPayload.java"
+$managerPath = Join-Path $repoRoot "src\client\java\dev\vfxweaver\client\effect\VFXEffectManager.java"
+$commandPath = Join-Path $repoRoot "src\main\java\dev\vfxweaver\command\VFXCommand.java"
+
+Require-Pattern $payloadPath 'textOverride' "the payload lost the textOverride field"
+Require-Pattern $payloadPath 'MAX_TEXT_OVERRIDE' "the payload lost the MAX_TEXT_OVERRIDE cap"
+Require-Pattern $specPath 'withContent\(' "VFXTextSpec has no withContent()"
+Require-Pattern $managerPath 'withContent\(' "VFXEffectManager no longer applies the override with withContent()"
+Require-Pattern $commandPath 'MAX_TEXT_OVERRIDE' "the command no longer caps the text override"
 
 if ($failures.Count -gt 0) {
 	$failures | ForEach-Object { "FAIL  $_" }

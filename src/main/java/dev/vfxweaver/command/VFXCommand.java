@@ -14,6 +14,7 @@ import dev.vfxweaver.api.VFXAPI;
 import dev.vfxweaver.effect.VFXDefinition;
 import dev.vfxweaver.network.VFXTriggerPayload;
 import dev.vfxweaver.resource.VFXDefinitionManager;
+import dev.vfxweaver.util.VFXLog;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
@@ -36,6 +37,7 @@ import net.minecraft.server.permissions.PermissionLevel;
 import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.entity.Entity;
 import java.util.UUID;
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -82,6 +84,26 @@ public final class VFXCommand {
 												.executes(context2 -> play(context2, EntityArgument.getPlayers(context2, "targets"), params(context2)))
 										)
 								)
+								.then(
+									Commands.literal("text")
+										.then(
+											Commands.argument("text", StringArgumentType.string())
+												.executes(context2 -> play(context2, List.of(requirePlayer(context2)), Map.of(), text(context2)))
+												.then(
+													Commands.argument("targets", EntityArgument.players())
+														.executes(context2 -> play(context2, EntityArgument.getPlayers(context2, "targets"), Map.of(), text(context2)))
+												)
+												.then(
+													Commands.argument("params", new ParamMapArgument())
+														.suggests(VFXCommand::suggestParamMap)
+														.executes(context2 -> play(context2, List.of(requirePlayer(context2)), params(context2), text(context2)))
+														.then(
+															Commands.argument("targets", EntityArgument.players())
+																.executes(context2 -> play(context2, EntityArgument.getPlayers(context2, "targets"), params(context2), text(context2)))
+														)
+												)
+										)
+								)
 				)
 			)
 			.then(
@@ -104,6 +126,26 @@ public final class VFXCommand {
 											.then(
 												Commands.argument("targets", EntityArgument.players())
 													.executes(context2 -> playAt(context2, EntityArgument.getPlayers(context2, "targets"), params(context2)))
+											)
+									)
+									.then(
+										Commands.literal("text")
+											.then(
+												Commands.argument("text", StringArgumentType.string())
+													.executes(context2 -> playAt(context2, List.of(requirePlayer(context2)), Map.of(), text(context2)))
+													.then(
+														Commands.argument("targets", EntityArgument.players())
+															.executes(context2 -> playAt(context2, EntityArgument.getPlayers(context2, "targets"), Map.of(), text(context2)))
+													)
+													.then(
+														Commands.argument("params", new ParamMapArgument())
+															.suggests(VFXCommand::suggestParamMap)
+															.executes(context2 -> playAt(context2, List.of(requirePlayer(context2)), params(context2), text(context2)))
+															.then(
+																Commands.argument("targets", EntityArgument.players())
+																	.executes(context2 -> playAt(context2, EntityArgument.getPlayers(context2, "targets"), params(context2), text(context2)))
+															)
+													)
 											)
 									)
 							)
@@ -134,6 +176,34 @@ public final class VFXCommand {
 											.then(
 												Commands.argument("players", EntityArgument.players())
 													.executes(context2 -> playEntity(context2, EntityArgument.getEntities(context2, "targets"), EntityArgument.getPlayers(context2, "players"), params(context2)))
+											)
+									)
+							)
+							.then(
+								Commands.literal("text")
+									.then(
+										Commands.argument("text", StringArgumentType.string())
+											.executes(context2 -> playEntity(context2, List.of(requirePlayer(context2)), List.of(requirePlayer(context2)), Map.of(), text(context2)))
+											.then(
+												Commands.argument("targets", EntityArgument.entities())
+													.executes(context2 -> playEntity(context2, EntityArgument.getEntities(context2, "targets"), List.of(requirePlayer(context2)), Map.of(), text(context2)))
+													.then(
+														Commands.argument("players", EntityArgument.players())
+															.executes(context2 -> playEntity(context2, EntityArgument.getEntities(context2, "targets"), EntityArgument.getPlayers(context2, "players"), Map.of(), text(context2)))
+													)
+											)
+											.then(
+												Commands.argument("params", new ParamMapArgument())
+													.suggests(VFXCommand::suggestParamMap)
+													.executes(context2 -> playEntity(context2, List.of(requirePlayer(context2)), List.of(requirePlayer(context2)), params(context2), text(context2)))
+													.then(
+														Commands.argument("targets", EntityArgument.entities())
+															.executes(context2 -> playEntity(context2, EntityArgument.getEntities(context2, "targets"), List.of(requirePlayer(context2)), params(context2), text(context2)))
+															.then(
+																Commands.argument("players", EntityArgument.players())
+																	.executes(context2 -> playEntity(context2, EntityArgument.getEntities(context2, "targets"), EntityArgument.getPlayers(context2, "players"), params(context2), text(context2)))
+															)
+													)
 											)
 									)
 							)
@@ -198,6 +268,16 @@ public final class VFXCommand {
 	}
 
 	private static int play(final CommandContext<CommandSourceStack> context, final Collection<ServerPlayer> targets, final Map<String, Float> overrides) throws CommandSyntaxException {
+		return play(context, targets, overrides, null);
+	}
+
+	/**
+	 * Plays an effect for the targets, with an optional call-time text override
+	 * ({@code text "<string>", already capped by {@link #text(CommandContext)}).
+	 *
+	 * @param text the {@code text_overlay} content to draw instead of the definition's (may be null)
+	 */
+	private static int play(final CommandContext<CommandSourceStack> context, final Collection<ServerPlayer> targets, final Map<String, Float> overrides, final @Nullable String text) throws CommandSyntaxException {
 		Identifier effectId = IdentifierArgument.getId(context, "effect");
 		VFXDefinition definition = VFXDefinitionManager.get().get(effectId);
 		if (definition == null) {
@@ -208,7 +288,7 @@ public final class VFXCommand {
 		if (selector != null && !selector.isBlank()) {
 			// Entity-targeted effect: the datapack declares its own selector, so plain /vfx play
 			// resolves it into target UUIDs and sends to the executor.
-			return playEntity(context, resolveSelector(context, selector), List.of(requirePlayer(context)), overrides);
+			return playEntity(context, resolveSelector(context, selector), List.of(requirePlayer(context)), overrides, text);
 		}
 
 		if (!definition.getEntityAnchors().isEmpty()) {
@@ -228,7 +308,7 @@ public final class VFXCommand {
 				anchorUuids.add(found.iterator().next().getUUID());
 			}
 			for (ServerPlayer player : targets) {
-				VFXAPI.sendEffect(player, effectId, 0L, null, anchorUuids, overrides, null);
+				VFXAPI.sendEffect(player, effectId, 0L, null, anchorUuids, overrides, null, text);
 			}
 			context.getSource()
 				.sendSuccess(
@@ -239,7 +319,7 @@ public final class VFXCommand {
 		}
 
 		for (ServerPlayer player : targets) {
-			VFXAPI.sendEffect(player, effectId, overrides, null);
+			VFXAPI.sendEffect(player, effectId, overrides, null, text);
 		}
 
 		context.getSource()
@@ -258,6 +338,15 @@ public final class VFXCommand {
 	}
 
 	private static int playEntity(final CommandContext<CommandSourceStack> context, final Collection<? extends Entity> targets, final Collection<ServerPlayer> viewers, final Map<String, Float> overrides) throws CommandSyntaxException {
+		return playEntity(context, targets, viewers, overrides, null);
+	}
+
+	/**
+	 * Plays an entity-targeted effect for the viewers, with an optional call-time text override.
+	 *
+	 * @param text the {@code text_overlay} content to draw instead of the definition's (may be null)
+	 */
+	private static int playEntity(final CommandContext<CommandSourceStack> context, final Collection<? extends Entity> targets, final Collection<ServerPlayer> viewers, final Map<String, Float> overrides, final @Nullable String text) throws CommandSyntaxException {
 		Identifier effectId = IdentifierArgument.getId(context, "effect");
 		if (!VFXDefinitionManager.get().contains(effectId)) {
 			throw ERROR_UNKNOWN_EFFECT.create(effectId.toString());
@@ -272,7 +361,7 @@ public final class VFXCommand {
 		}
 
 		for (ServerPlayer viewer : viewers) {
-			VFXAPI.sendEffect(viewer, effectId, 0L, null, entityUuids, overrides, null);
+			VFXAPI.sendEffect(viewer, effectId, 0L, null, entityUuids, overrides, null, text);
 		}
 
 		context.getSource()
@@ -284,6 +373,16 @@ public final class VFXCommand {
 	}
 
 	private static int playAt(final CommandContext<CommandSourceStack> context, final Collection<ServerPlayer> targets, final Map<String, Float> overrides) throws CommandSyntaxException {
+		return playAt(context, targets, overrides, null);
+	}
+
+	/**
+	 * Plays an effect at a block position for the targets, with an optional call-time text
+	 * override.
+	 *
+	 * @param text the {@code text_overlay} content to draw instead of the definition's (may be null)
+	 */
+	private static int playAt(final CommandContext<CommandSourceStack> context, final Collection<ServerPlayer> targets, final Map<String, Float> overrides, final @Nullable String text) throws CommandSyntaxException {
 		Identifier effectId = IdentifierArgument.getId(context, "effect");
 		if (!VFXDefinitionManager.get().contains(effectId)) {
 			throw ERROR_UNKNOWN_EFFECT.create(effectId.toString());
@@ -292,7 +391,7 @@ public final class VFXCommand {
 		Vec3 worldPos = Vec3.atCenterOf(pos);
 
 		for (ServerPlayer player : targets) {
-			VFXAPI.sendEffect(player, effectId, worldPos, overrides, null);
+			VFXAPI.sendEffect(player, effectId, worldPos, overrides, null, text);
 		}
 
 		context.getSource()
@@ -500,5 +599,30 @@ public final class VFXCommand {
 		} catch (IllegalArgumentException e) {
 			return Map.of();
 		}
+	}
+
+	/**
+	 * Reads the optional {@code text} argument of {@code /vfx play|playat|playentity text "<string>"},
+	 * or {@code null} when that branch was not used. A value longer than
+	 * {@link VFXTriggerPayload#MAX_TEXT_OVERRIDE} is cut there, with one warning.
+	 */
+	private static @Nullable String text(final CommandContext<CommandSourceStack> context) {
+		final String value;
+		try {
+			value = StringArgumentType.getString(context, "text");
+		} catch (IllegalArgumentException e) {
+			return null;
+		}
+		if (value.length() > VFXTriggerPayload.MAX_TEXT_OVERRIDE) {
+			VFXLog.warnOnce(
+				LOGGER,
+				"command:text-override-clip",
+				"Command text override is {} characters long; cut to MAX_TEXT_OVERRIDE ({})",
+				value.length(),
+				VFXTriggerPayload.MAX_TEXT_OVERRIDE
+			);
+			return value.substring(0, VFXTriggerPayload.MAX_TEXT_OVERRIDE);
+		}
+		return value;
 	}
 }
