@@ -69,3 +69,5 @@ tools/
 
 # runtime logs
 logs/
+__pycache__/
+*.pyc
