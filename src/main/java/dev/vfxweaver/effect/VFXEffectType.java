@@ -130,6 +130,8 @@ public enum VFXEffectType {
 	SKY_PATTERN("sky_pattern"),
 	/** Draws a resource-pack or caller image onto the game's own framebuffer at a screen layer. */
 	SCREEN_IMAGE("screen_image"),
+	/** Draws text with per-character reveal and an exit: as a layer over the frame or as characters standing in the world, never a post pass. */
+	TEXT_OVERLAY("text_overlay"),
 	/** Opens a named client-side OS picture window (frameless, transparent, click-through) for the effect's lifetime, never a post pass. */
 	WINDOW_CREATE("window_create"),
 	/** Moves, animates and retitles an existing aux window by name, never a post pass. */
@@ -155,7 +157,7 @@ public enum VFXEffectType {
 	 * True for the effect types that render a fullscreen post-processing pass.
 	 */
 	public boolean isPostProcessing() {
-		return this != CAMERA_SHAKE && this != CAMERA_ROLL && this != BLOCK_OUTLINE && this != BLOCK_TINT && this != LIGHT_BEAM && this != PULSE_RING && this != GUIDE_LINE && this != PARTICLES && this != BLOCK_CHAIN && this != ENTITY_TINT && this != ENTITY_OUTLINE && this != ENTITY_DISPLACE && this != FOV_MODIFIER && this != FOG_MODIFIER && this != HUM && this != NOISE && this != VOLUME_DUCK && this != HEARTBEAT && this != WINDOW_CREATE && this != WINDOW_CONTROL && this != COLLECTION;
+		return this != CAMERA_SHAKE && this != CAMERA_ROLL && this != BLOCK_OUTLINE && this != BLOCK_TINT && this != LIGHT_BEAM && this != PULSE_RING && this != GUIDE_LINE && this != PARTICLES && this != BLOCK_CHAIN && this != ENTITY_TINT && this != ENTITY_OUTLINE && this != ENTITY_DISPLACE && this != FOV_MODIFIER && this != FOG_MODIFIER && this != HUM && this != NOISE && this != VOLUME_DUCK && this != HEARTBEAT && this != WINDOW_CREATE && this != WINDOW_CONTROL && this != TEXT_OVERLAY && this != COLLECTION;
 	}
 
 	/**

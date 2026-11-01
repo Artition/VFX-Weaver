@@ -183,6 +183,21 @@ public final class VFXEffectSchema {
 		registerNonPost(VFXEffectType.WINDOW_CONTROL,
 			new String[] {"pos_x", "pos_y", "size_w", "size_h", "opacity", "frames", "frame_time", "title_index"},
 			windowBounds());
+		registerNonPost(VFXEffectType.TEXT_OVERLAY,
+			new String[] {"x", "y", "pos_x", "pos_y", "pos_z", "scale", "line_height", "wrap_width",
+				"alpha", "color_r", "color_g", "color_b", "gradient", "gradient_r", "gradient_g", "gradient_b",
+				"shadow", "outline", "outline_r", "outline_g", "outline_b", "reveal",
+				"per_char_anim", "stagger", "exit", "exit_at", "exit_stagger", "exit_speed",
+				"gravity", "spin_x", "spin_y", "spin_z", "tumble", "collision", "bounce", "friction",
+				"fade_out", "rot_x", "rot_y", "rot_z", "angle"},
+			Map.of(
+				"reveal", new float[] {0.0F, 1.0F},
+				"collision", new float[] {0.0F, 1.0F},
+				"tumble", new float[] {0.0F, 1.0F},
+				"bounce", new float[] {0.0F, 1.0F},
+				"friction", new float[] {0.0F, 1.0F},
+				"per_char_anim", new float[] {0.0F, 3.0F},
+				"exit", new float[] {0.0F, 1.0F}));
 	}
 
 	/**
