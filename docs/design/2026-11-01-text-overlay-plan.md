@@ -610,20 +610,29 @@ git commit -m "feat(text): world-space characters as client-side text displays" 
 	 * always yields the same frame - a replay and a screenshot agree.
 	 */
 	private static Vector3f fallOffset(final VFXActiveEffect effect, final int index,
-			final float since, final float groundY) {
+			final float since, final float restY, final float floorY) {
 		final float gravity = effect.getParam("gravity", 18.0F);
 		final float speed = effect.getParam("exit_speed", 0.0F) * jitter(effect, index);
-		final float y = speed * since - 0.5F * gravity * since * since;
-		if (effect.getParam("collision", 1.0F) < 0.5F) {
-			return new Vector3f(0.0F, y, 0.0F);
+		final float drop = restY - floorY;
+		// Without a floor, or with collision off, the letter simply falls for ever.
+		if (effect.getParam("collision", 1.0F) < 0.5F || !Float.isFinite(floorY)) {
+			return new Vector3f(0.0F, speed * since - 0.5F * gravity * since * since, 0.0F);
 		}
-		final float floor = groundY;
-		if (y <= floor) {
-			final float impact = Math.max(0.0F, since - (float) Math.sqrt(Math.max(0.0F, 2.0F * -floor / gravity)));
-			final float bounce = effect.getParam("bounce", 0.15F);
-			return new Vector3f(0.0F, Math.max(floor, floor + bounce * impact), 0.0F);
+		// Time to reach the floor: the positive root of restY + v0 t - g t^2 / 2 = floorY.
+		final float impact = (speed + (float) Math.sqrt(speed * speed + 2.0F * gravity * drop)) / gravity;
+		if (since <= impact) {
+			return new Vector3f(0.0F, speed * since - 0.5F * gravity * since * since, 0.0F);
 		}
-		return new Vector3f(0.0F, y, 0.0F);
+		// One rebound with restitution 'bounce', then settle: the hop is the same parabola with the
+		// reversed impact speed, so the landing still has a closed form and costs nothing.
+		final float landing = -drop;
+		final float reboundSpeed = Math.max(0.0F, -speed + gravity * impact) * Math.min(1.0F, effect.getParam("bounce", 0.15F));
+		final float hop = 2.0F * reboundSpeed / gravity;
+		final float after = since - impact;
+		if (after >= hop) {
+			return new Vector3f(0.0F, landing, 0.0F);
+		}
+		return new Vector3f(0.0F, landing + reboundSpeed * after - 0.5F * gravity * after * after, 0.0F);
 	}
 
 	/** Deterministic per-character jitter in [0.85, 1.15], from the instance seed and the index. */
@@ -641,8 +650,30 @@ character falls free.
 - [ ] **Step 3: Apply position, spin and opacity per frame**
 
 In the per-frame update, for each character: if `detachTime < 0` or `age < detachTime`, keep the rest
-pose and opacity 1; otherwise apply `fallOffset`, rotate by `spin_* * since * tumble`, and set the
-display's text opacity from `1 - clamp((since - fallDuration) / fade_out)`.
+pose and opacity 1; otherwise apply `fallOffset`, spin, and set the display's text opacity.
+
+Spelling out the details, because the sketch above leaves them open:
+
+- `restY` is the character's rest world Y (`origin.y + local.y`), `floorY` is the top of the first
+  collider found below it, `Float.POSITIVE_INFINITY` is *not* a valid sentinel here - use
+  `Float.NEGATIVE_INFINITY` for "no floor", and `fallOffset` must treat a non-finite floor as no
+  collision. Look the floor up **once** per character when the block is spawned, with one
+  `level.getBlockCollisions(null, new AABB(x - 0.05, restY - 64, z - 0.05, x + 0.05, restY + 0.05, z + 0.05))`
+  and take `maxY` of the boxes below `restY`; the same call the collision helper uses. Cache the
+  array in `LiveText`. The floor never changes for the life of one block, so this costs nothing per
+  frame.
+- `exit` is a float code: `< 0.5` = fade, `>= 0.5` = fall. One branch, not two code paths.
+- Fade: `alpha = 1 - clamp01(since / fade_out)`.
+- Fall: `alpha = 1` until the letter has landed (impact time plus the hop), then
+  `alpha = 1 - clamp01((since - landedAt) / fade_out)`. `landedAt` is the impact time when
+  `bounce <= 0` and `impact + hop` otherwise.
+- Spin: the character's orientation is the block's `rot_*` quaternion composed with a rotation of
+  `|spin| * since` degrees about the axis `(spin_x, spin_y, spin_z)`; when `tumble >= 0.5` the axis
+  comes from `jitter` instead, so the letters tumble off-axis rather than spinning like a wheel. A
+  zero spin vector must not produce a NaN axis - skip the composition when its length is under 1e-4.
+- When every character's alpha has reached 0, mark the `LiveText` finished and release its entities,
+  and let `renderWorld` return early for a finished instance. Otherwise `ensure` would see no entry
+  in the pool and respawn the block every frame for ever.
 
 - [ ] **Step 4: Mirror the behaviour for `exit: 0` (fade)**
 
