@@ -436,6 +436,21 @@ git commit -m "feat(text): layout characters once, with hard and soft wrapping" 
   called from the overlay dispatch for `TEXT_OVERLAY`
 - Produces (Task 4 extends it): an internal per-instance pool keyed by effect instance id
 
+**Reality check, done before writing any of the code below (supersedes the plan where it disagrees):**
+
+1. `Display.TextDisplay`'s setters are **private** in 26.2: `setText`, `setLineWidth`, `setTextOpacity`,
+   `setBackgroundColor`, `setFlags`. `Display#setTransformation` is already opened by
+   `src/main/resources/vfxweaver.accesswidener`, so the same file must gain the text setters, **and**
+   `src/main/resources/META-INF/accesstransformer.cfg` must gain the matching lines or the
+   `:26.2-neoforge` build fails at `validateAccessTransformers`.
+2. `EntityTypes.TEXT_DISPLAY` is the constant name in 26.2 (`EntityType` is the `<26.2` alias).
+3. `VFXActiveEffect` has **no** `getDefinition()`: the manager flattens spec fields into the instance
+   constructor (`particleId`, `blockId`, `itemId`). So the text spec travels the same way - add a
+   `textSpec` field, a constructor parameter, a getter `getTextSpec()`, and pass it from the single
+   construction site in `VFXEffectManager` (around line 456).
+4. The transform must carry position **once**: `setPos(origin + local)` and a zero translation in the
+   `Transformation`.
+
 - [ ] **Step 0: Confirm the `TextDisplay` setter names on this exact version**
 
 ```powershell
@@ -465,7 +480,7 @@ In `VFXTextOverlayRenderer`, model on `VFXBlockParticleEngine` (same file family
 		if (existing != null) {
 			return existing;
 		}
-		final VFXTextSpec spec = effect.getDefinition().getText();
+		final VFXTextSpec spec = effect.getTextSpec();
 		final Font font = Minecraft.getInstance().font;
 		final float scale = effect.getParam("scale", 1.0F);
 		final VFXTextLayout layout = VFXTextLayout.measure(font, spec.content(), scale,
@@ -499,12 +514,12 @@ In `VFXTextOverlayRenderer`, model on `VFXBlockParticleEngine` (same file family
 		final Vec3 origin = new Vec3(effect.getParam("pos_x", 0.0F), effect.getParam("pos_y", 0.0F),
 			effect.getParam("pos_z", 0.0F));
 		final float scale = effect.getParam("scale", 1.0F);
-		final float alignShift = switch (effect.getDefinition().getText().align()) {
+		final float alignShift = switch (effect.getTextSpec().align()) {
 			case LEFT -> 0.0F;
 			case CENTER -> -live.layout().width() / 2.0F;
 			case RIGHT -> -live.layout().width();
 		};
-		final float anchorShiftY = switch (effect.getDefinition().getText().anchor()) {
+		final float anchorShiftY = switch (effect.getTextSpec().anchor()) {
 			case TOP_LEFT, TOP, TOP_RIGHT -> 0.0F;
 			case LEFT, CENTER, RIGHT -> -live.layout().height() / 2.0F;
 			case BOTTOM_LEFT, BOTTOM, BOTTOM_RIGHT -> -live.layout().height();
@@ -520,8 +535,10 @@ In `VFXTextOverlayRenderer`, model on `VFXBlockParticleEngine` (same file family
 				(glyph.y() + anchorShiftY) * scale,
 				0.0F).rotate(rotation);
 			final Display.TextDisplay display = live.entities().get(i);
+			// Position carries the offset; the transformation's translation stays zero, otherwise the
+			// offset is applied twice and the block flies away from its anchor.
 			display.setPos(origin.x + local.x, origin.y + local.y, origin.z + local.z);
-			display.setTransformation(new Transformation(local, new Quaternionf(rotation), new Vector3f(scale, scale, scale), new Quaternionf()));
+			display.setTransformation(new Transformation(new Vector3f(), new Quaternionf(rotation), new Vector3f(scale, scale, scale), new Quaternionf()));
 		}
 	}
 ```
@@ -676,7 +693,7 @@ v0.160.0+26.2 provides for HUD drawing. Record which one was used in the commit 
 ```java
 	public static void renderFlat(final VFXActiveEffect effect, final GuiGraphics graphics,
 			final int screenWidth, final int screenHeight) {
-		final VFXTextSpec spec = effect.getDefinition().getText();
+		final VFXTextSpec spec = effect.getTextSpec();
 		final Font font = Minecraft.getInstance().font;
 		final float scale = effect.getParam("scale", 1.0F);
 		final VFXTextLayout layout = VFXTextLayout.measure(font, spec.content(), scale,
