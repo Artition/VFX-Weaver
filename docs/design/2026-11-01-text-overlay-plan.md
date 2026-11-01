@@ -358,14 +358,14 @@ public final class VFXTextLayout {
 		float widest = 0.0F;
 		for (int lineNo = 0; lineNo < lines.size(); lineNo++) {
 			final String line = lines.get(lineNo);
-			final float lineWidth = font.width(line) * scale / 8.0F;
+			final float lineWidth = font.width(line) * scale;
 			widest = Math.max(widest, lineWidth);
 			float cursor = 0.0F;
 			for (int i = 0; i < line.length(); i++) {
 				final char ch = line.charAt(i);
 				final int advance = font.width(String.valueOf(ch));
-				glyphs.add(new Glyph(ch, (int) index++, cursor, lineNo * lineStep, advance * scale / 8.0F));
-				cursor += advance * scale / 8.0F;
+				glyphs.add(new Glyph(ch, (int) index++, cursor, lineNo * lineStep, advance * scale));
+				cursor += advance * scale;
 			}
 		}
 		final float totalHeight = Math.max(0.0F, (lines.size() - 1) * lineStep + scale);
@@ -387,7 +387,7 @@ public final class VFXTextLayout {
 			final StringBuilder current = new StringBuilder();
 			for (final String word : hardLine.split(" ", -1)) {
 				final String candidate = current.isEmpty() ? word : current + " " + word;
-				final float candidateWidth = font.width(candidate) * scale / 8.0F;
+				final float candidateWidth = font.width(candidate) * scale;
 				if (!current.isEmpty() && candidateWidth > wrapWidth) {
 					lines.add(current.toString());
 					current.setLength(0);
