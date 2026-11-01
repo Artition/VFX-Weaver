@@ -25,6 +25,7 @@ import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.phys.shapes.VoxelShape;
 import org.joml.Matrix3x2fStack;
 import org.joml.Quaternionf;
+import org.joml.Vector2f;
 import org.joml.Vector3f;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
@@ -51,6 +52,15 @@ import org.slf4j.LoggerFactory;
  * {@code angle} turns the whole block about that anchor and {@code scale} multiplies the font's own
  * pixel size. The reveal wipe and the effect weight work exactly as they do in the world.
  *
+ * <p>The flat exit is the world exit's timeline in screen space: the same {@code exit_at},
+ * {@code exit_stagger}, {@code exit}, {@code exit_speed}, {@code gravity} and {@code fade_out}, but
+ * {@code gravity} and the speeds are read in screen heights per second, so every offset is multiplied
+ * by the GUI height and the fall looks the same at GUI scale 2 and 4. With {@code collision} on, a
+ * falling character is stopped by the bottom edge and fades out holding there, and its sideways drift
+ * is folded back into the frame so it bounces off the left and right edges; with {@code collision} off
+ * it falls straight out through the bottom while fading. A leaving character may only turn about z, so
+ * its own rotation is {@code angle + spin_z * since}, applied about the middle of its own font box.
+ *
  * <p>{@code reveal} is a fraction of the characters that are visible: character {@code i} is opaque
  * while {@code i < reveal * count} and fades over the single character at the boundary, which is what
  * gives a typed-in / wiped-in line instead of a hard pop.
@@ -58,7 +68,8 @@ import org.slf4j.LoggerFactory;
  * <p>The exit is computed from the clock, never accumulated, so the same tick always yields the same
  * frame. Character {@code index} starts leaving at {@code exit_at + index * exit_stagger} seconds;
  * with {@code exit < 0.5} it only fades in place, with {@code exit >= 0.5} it falls, spins and - when
- * {@code collision} is on - lands on the first block below it, rebounds once and settles. Once every
+ * {@code collision} is on - lands on the first block below it, rebounds once and settles - or, in
+ * {@code flat} mode, on the bottom edge of the frame and holds there. Once every
  * character has faded, the block is marked finished at the age it finished and its entities are
  * released; when the effect loops or is replayed and the clock goes back, the block is rebuilt.
  *
@@ -163,10 +174,11 @@ public final class VFXTextOverlayRenderer {
 	// Draws the flat-mode block of one text effect onto the HUD. Called once per frame per flat
 	// effect from the client render hooks; a no-op for a faded-out effect or one without a block.
 	//
-	// The block is laid out at unit scale and then turned into screen space by the pose: 'x' and
-	// 'y' are fractions of the GUI size and place the block's anchor point, 'angle' turns the whole
-	// block about that point, and 'scale' multiplies the font's own pixel size. That is why the
-	// measured layout does not carry the scale - it can animate without re-measuring anything.
+	// The block is laid out at unit scale and then turned into screen space by hand: 'x' and 'y' are
+	// fractions of the GUI size and place the block's anchor point, 'angle' turns the whole block
+	// about that point, and 'scale' multiplies the font's own pixel size. That is why the measured
+	// layout does not carry the scale - it can animate without re-measuring anything. Each character
+	// then gets its own pose, because a character that is leaving also turns about its own centre.
 	//
 	// effect   - the running effect, its 'flat' text already resolved into a spec
 	// graphics - the HUD graphics of the current frame (also its size, and its pose)
@@ -185,33 +197,57 @@ public final class VFXTextOverlayRenderer {
 			return;
 		}
 		final Font font = Minecraft.getInstance().font;
-		final float anchorX = effect.getParam("x", 0.5F) * graphics.guiWidth();
-		final float anchorY = effect.getParam("y", 0.5F) * graphics.guiHeight();
+		final float guiWidth = graphics.guiWidth();
+		final float guiHeight = graphics.guiHeight();
+		final float anchorX = effect.getParam("x", 0.5F) * guiWidth;
+		final float anchorY = effect.getParam("y", 0.5F) * guiHeight;
+		final float scale = effect.getParam("scale", 1.0F);
+		final float angle = effect.getParam("angle", 0.0F);
 		final float alignShift = alignOffset(spec, layout.width());
 		final float anchorShiftY = anchorOffset(spec, layout.height());
+		// The bottom edge, as the screen Y a character's own box rests on when it has landed: the
+		// fall is solved against the bottom of the letter, not the top of its cell, so a landed line
+		// reads as standing on the frame instead of having fallen through it.
+		final float floorY = guiHeight - font.lineHeight * scale;
+		// 'angle' turns the block about its anchor, so the rest positions are turned here instead of
+		// by the pose - the pose below is per character and carries 'angle + spin_z * since'.
+		final float radians = (float) Math.toRadians(angle);
+		final float cos = (float) Math.cos(radians);
+		final float sin = (float) Math.sin(radians);
 		final int rgb = colour(effect);
 		final boolean shadow = effect.getParam("shadow", 1.0F) >= 0.5F;
 		final float revealed = reveal(effect) * layout.glyphs().size();
 		final Matrix3x2fStack pose = graphics.pose();
-		pose.pushMatrix();
-		pose.translate(anchorX, anchorY);
-		pose.rotate((float) Math.toRadians(effect.getParam("angle", 0.0F)));
-		pose.scale(effect.getParam("scale", 1.0F), effect.getParam("scale", 1.0F));
 		for (int i = 0; i < layout.glyphs().size(); i++) {
 			final VFXTextLayout.Glyph glyph = layout.glyphs().get(i);
+			final float since = exitSince(effect, i);
+			final float localX = (glyph.x() + alignShift) * scale;
+			final float localY = (glyph.y() + anchorShiftY) * scale;
+			final float restX = anchorX + localX * cos - localY * sin;
+			final float restY = anchorY + localX * sin + localY * cos;
+			final Vector2f exit = flatExitOffset(effect, i, since, restX, restY, floorY, guiWidth, guiHeight);
 			// Same wipe as the world path: 'reveal' is a fraction of the characters, and the single
-			// one at the boundary is caught mid-fade; the effect weight fades the whole block when
-			// the effect is stopped. A plain 0xRRGGBB colour has alpha 0 here, so it must be packed.
-			final float alpha = clamp01(revealed - i) * effect.getWeight();
+			// one at the boundary is caught mid-fade; the exit fades a character that is leaving, and
+			// the effect weight fades the whole block when the effect is stopped. A plain 0xRRGGBB
+			// colour has alpha 0 here, so it must be packed.
+			final float alpha = clamp01(revealed - i)
+				* flatExitAlpha(effect, i, since, restY, floorY, guiHeight) * effect.getWeight();
 			if (alpha <= 0.0F) {
 				continue;
 			}
 			final int argb = (Math.round(alpha * 255.0F) << 24) | rgb;
-			graphics.text(font, String.valueOf(glyph.ch()),
-				Math.round(glyph.x() + alignShift), Math.round(glyph.y() + anchorShiftY),
-				argb, shadow);
+			final String text = String.valueOf(glyph.ch());
+			// The character turns about the middle of its own font box, so a spin never drags the
+			// letter out of its slot in the line and a resting line is exactly where 'angle' puts it.
+			final float halfWidth = font.width(text) / 2.0F;
+			final float halfHeight = font.lineHeight / 2.0F;
+			pose.pushMatrix();
+			pose.translate(restX + exit.x + halfWidth * scale, restY + exit.y + halfHeight * scale);
+			pose.rotate((float) Math.toRadians(angle + flatSpin(effect, i, since)));
+			pose.scale(scale, scale);
+			graphics.text(font, text, -Math.round(halfWidth), -Math.round(halfHeight), argb, shadow);
+			pose.popMatrix();
 		}
-		pose.popMatrix();
 	}
 
 	// Drops the cached layouts of flat-mode effects that are no longer running: the cache is keyed
@@ -608,6 +644,116 @@ public final class VFXTextOverlayRenderer {
 		final float reboundSpeed = Math.max(0.0F, -speed + gravity * impact)
 			* Math.min(1.0F, effect.getParam("bounce", 0.15F));
 		return reboundSpeed > 0.0F ? impact + 2.0F * reboundSpeed / gravity : impact;
+	}
+
+	// Where a flat character is this frame, relative to its rest position on the HUD: zero while it
+	// stands in the line, zero for a fade exit, and otherwise a sideways drift plus a drop. Closed
+	// form, so the same tick always yields the same frame, and the same 'exit_at', 'exit_stagger',
+	// 'exit', 'exit_speed', 'gravity' and 'fade_out' the world path reads - only the space differs:
+	// speeds are in screen heights per second, hence the multiplications by the GUI height that make
+	// GUI scale 2 and 4 look the same.
+	//
+	// effect    - the running effect
+	// index     - the character's place in the line, for its share of the jitter
+	// since     - seconds since the character detached, or -1 while it still stands
+	// restX     - its resting screen X, the axis the drift folds around
+	// restY     - its resting screen Y, the height the fall starts from
+	// floorY    - the screen Y it rests on once it has landed (the bottom edge, minus its own box)
+	// guiWidth  - the frame width, the span the drift bounces inside
+	// guiHeight - the frame height, the unit the physics is expressed in
+	private static Vector2f flatExitOffset(final VFXActiveEffect effect, final int index,
+			final float since, final float restX, final float restY, final float floorY,
+			final float guiWidth, final float guiHeight) {
+		if (since < 0.0F || effect.getParam("exit", 0.0F) < 0.5F) {
+			return new Vector2f();
+		}
+		// Sideways: a small drift taken from the same jitter the world fall uses, so the characters of
+		// one line never leave in the same direction, folded back into the frame so the letter bounces
+		// off the left and right edges. Subtracting the fold of the rest position keeps the letter on
+		// its own spot at 'since' 0, whatever the author placed.
+		final float drift = (jitter(effect, index) - 1.0F) * guiHeight * since;
+		final float sideways = reflect(restX + drift, guiWidth) - reflect(restX, guiWidth);
+		final float impact = flatImpact(effect, index, restY, floorY, guiHeight);
+		if (impact < 0.0F) {
+			// No frame to hit: the letter falls straight out through the bottom while it fades.
+			return new Vector2f(sideways, flatDrop(effect, index, since, guiHeight));
+		}
+		if (since <= impact) {
+			return new Vector2f(sideways, flatDrop(effect, index, since, guiHeight));
+		}
+		// Landing: the letter holds on the bottom edge and fades there. A fold back up would never
+		// settle, and a letter that never settles reads as jitter instead of as a landing.
+		return new Vector2f(sideways, floorY - restY);
+	}
+
+	// How far a flat character has dropped 'since' seconds after it detached, in screen pixels: the
+	// same parabola the world fall uses, with its speed and gravity read in screen heights.
+	private static float flatDrop(final VFXActiveEffect effect, final int index, final float since,
+			final float guiHeight) {
+		final float speed = effect.getParam("exit_speed", 0.0F) * jitter(effect, index);
+		return (speed * since - 0.5F * gravityOf(effect) * since * since) * guiHeight;
+	}
+
+	// When a flat character reaches the bottom edge, in seconds since it detached, or -1 when there
+	// is nothing to reach: collision off, a letter that already rests on the edge, or a frame whose
+	// height would divide by zero. The drop is measured in screen heights, so the shared 'gravity' and
+	// 'exit_speed' keep their meaning at any GUI scale.
+	private static float flatImpact(final VFXActiveEffect effect, final int index,
+			final float restY, final float floorY, final float guiHeight) {
+		if (effect.getParam("collision", 1.0F) < 0.5F || !Float.isFinite(floorY) || guiHeight <= 0.0F) {
+			return -1.0F;
+		}
+		final float drop = (floorY - restY) / guiHeight;
+		if (drop <= 0.0F) {
+			return -1.0F;
+		}
+		final float gravity = gravityOf(effect);
+		final float speed = effect.getParam("exit_speed", 0.0F) * jitter(effect, index);
+		final float impact = (speed + (float) Math.sqrt(speed * speed + 2.0F * gravity * drop)) / gravity;
+		return Float.isFinite(impact) ? impact : -1.0F;
+	}
+
+	// Opacity of flat character 'index' from the same timeline: 1 until it detaches, then the fade
+	// exit's ramp, or - for a fall - 1 until it has hit the bottom edge and the ramp while it holds.
+	private static float flatExitAlpha(final VFXActiveEffect effect, final int index,
+			final float since, final float restY, final float floorY, final float guiHeight) {
+		if (since < 0.0F) {
+			return 1.0F;
+		}
+		// A zero fade would divide by zero; the lower bound is the only guard needed here.
+		final float fadeOut = Math.max(effect.getParam("fade_out", 0.5F), 1e-4F);
+		if (effect.getParam("exit", 0.0F) < 0.5F) {
+			return 1.0F - clamp01(since / fadeOut);
+		}
+		final float impact = flatImpact(effect, index, restY, floorY, guiHeight);
+		if (impact < 0.0F) {
+			// Nothing to land on: there is no impact to wait for, so the letter fades with the fall
+			// and still reaches zero instead of hanging in the frame for ever.
+			return 1.0F - clamp01(since / fadeOut);
+		}
+		return since <= impact ? 1.0F : 1.0F - clamp01((since - impact) / fadeOut);
+	}
+
+	// A flat character's extra rotation while it leaves, in degrees: a 2D pose can only turn about z,
+	// so the spin is spin_z * since. With 'tumble' the direction flips per character from the jitter,
+	// so the letters do not turn as one rigid sheet. It is added to 'angle' by the caller.
+	private static float flatSpin(final VFXActiveEffect effect, final int index, final float since) {
+		if (since < 0.0F) {
+			return 0.0F;
+		}
+		final float spin = effect.getParam("spin_z", 0.0F) * since;
+		if (effect.getParam("tumble", 0.0F) < 0.5F) {
+			return spin;
+		}
+		return jitter(effect, index) >= 1.0F ? spin : -spin;
+	}
+
+	// Folds a coordinate back inside [0, size] as if it bounced off both edges. Closed form - a fold,
+	// not a loop over frames - so a replay and a screenshot agree on where the letter is.
+	private static float reflect(final float value, final float size) {
+		final float span = Math.max(size, 1.0F);
+		final float folded = Math.abs(value % (2.0F * span));
+		return folded > span ? 2.0F * span - folded : folded;
 	}
 
 	// A character's orientation while it is leaving: the block's rot_* quaternion composed with a
