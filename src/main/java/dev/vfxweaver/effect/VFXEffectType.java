@@ -167,6 +167,7 @@ public enum VFXEffectType {
 		return this == BLOCK_OUTLINE || this == BLOCK_TINT
 			|| this == LIGHT_BEAM || this == PULSE_RING || this == GUIDE_LINE || this == PARTICLES
 			|| this == BLOCK_CHAIN
+			|| this == TEXT_OVERLAY
 			|| this == ENTITY_TINT || this == ENTITY_OUTLINE;
 	}
 

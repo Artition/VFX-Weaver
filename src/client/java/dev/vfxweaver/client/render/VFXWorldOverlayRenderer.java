@@ -1070,9 +1070,13 @@ public final class VFXWorldOverlayRenderer {
 		// running; their effect buckets are pruned against the active instance sets.
 		Set<Long> blockInstances = new HashSet<>();
 		Set<Long> sparkInstances = new HashSet<>();
+		Set<Long> textInstances = new HashSet<>();
 		Set<Long> liveInstances = new HashSet<>();
 		for (VFXActiveEffect effect : effects) {
 			liveInstances.add(effect.getInstanceId());
+			if (effect.getType() == VFXEffectType.TEXT_OVERLAY) {
+				textInstances.add(effect.getInstanceId());
+			}
 			if (effect.getType() == VFXEffectType.PARTICLES) {
 				if (VFXBlockParticleEngine.isModelMode(effect)) {
 					blockInstances.add(effect.getInstanceId());
@@ -1087,6 +1091,18 @@ public final class VFXWorldOverlayRenderer {
 		pruneInstanceState(liveInstances);
 		VFXBlockParticleEngine.tick(level, manager.getClock(), blockInstances);
 		VFXSparkEngine.tick(level, manager.getClock(), sparkInstances);
+		// Text characters are real client entities, so they need the same per-frame life as the
+		// particle displays: stepped here every frame and released the moment their effect leaves
+		// the world list (pruned by instance id, the same way the engines prune their buckets).
+		VFXTextOverlayRenderer.tick(level, textInstances);
+		// A text effect that stopped between two frames can still be listed for one more pass
+		// (a stopped effect that is still fading is listed with weight 0). Its characters are
+		// released through the direct hook, so a stop never leaves them standing.
+		for (VFXActiveEffect effect : effects) {
+			if (effect.getType() == VFXEffectType.TEXT_OVERLAY && effect.getWeight() <= 0.0F) {
+				VFXTextOverlayRenderer.remove(effect.getInstanceId());
+			}
+		}
 		if (effects.isEmpty()) {
 			return;
 		}
@@ -1133,6 +1149,10 @@ public final class VFXWorldOverlayRenderer {
 					if (renderGuideLines(sink, camera, effect, level, through ? GLOW_VISIBLE : GLOW_OCCLUDED)) {
 						drawn.add(through ? GLOW_VISIBLE : GLOW_OCCLUDED);
 					}
+				} else if (effect.getType() == VFXEffectType.TEXT_OVERLAY) {
+					// The characters are display entities carrying their own transform, so nothing
+					// is submitted to the sink: renderWorld positions them and returns.
+					VFXTextOverlayRenderer.renderWorld(effect, level, new PoseStack());
 				} else if (effect.getType() == VFXEffectType.PARTICLES) {
 					final VFXSparkSpec sparkSpec = VFXSparkEngine.isSparkMode(effect) ? VFXSparkEngine.resolve(effect) : null;
 					if (sparkSpec != null) {
