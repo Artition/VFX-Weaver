@@ -137,6 +137,15 @@ World-space geometry drawn at `positions` (or entity anchors).
 - [particles](world/particles.md) - vanilla particles in animated shapes
 - [block_chain](world/block-chain.md) - real block-model links between anchors
 
+### Text
+
+Authored text, either drawn on the HUD (`mode: "flat"`, the default) or standing in the world
+(`mode: "world"`). The words live in the definition's `text` block, so they cannot be set at play
+time; the params are only numbers. Not a screen effect - it is drawn, not composited, so there is no
+`screen_layer` and no `order`.
+
+- [text_overlay](text/text-overlay.md) - a line of text over the frame or in the world, revealed per character and gone by fade or fall
+
 ### Entity effects
 
 Targets are set by `/vfx playentity <effect> <selector>`, the Java API, or the `entity_selector`

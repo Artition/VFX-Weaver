@@ -109,6 +109,8 @@ nav:
           - guide_line: guide/effects/world/guide-line.md
           - particles: guide/effects/world/particles.md
           - block_chain: guide/effects/world/block-chain.md
+      - Text:
+          - text_overlay: guide/effects/text/text-overlay.md
       - Entity effects:
           - entity_tint: guide/effects/entity/entity-tint.md
           - entity_outline: guide/effects/entity/entity-outline.md

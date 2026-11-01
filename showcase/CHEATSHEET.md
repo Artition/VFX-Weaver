@@ -150,38 +150,40 @@ is a **day** take and `show_sky_anchor_moon` / `show_sky_anchor_stars` are **nig
     /vfx stop @s
 66. /vfx play vfx_demos:show_block_chain
     /vfx stop @s
-67. /vfx play vfx_demos:show_entity_tint
+67. /vfx play vfx_demos:show_text_overlay
     /vfx stop @s
-68. /vfx play vfx_demos:show_entity_outline
+68. /vfx play vfx_demos:show_entity_tint
     /vfx stop @s
-69. /vfx play vfx_demos:show_entity_displace
+69. /vfx play vfx_demos:show_entity_outline
     /vfx stop @s
-70. /vfx play vfx_demos:show_camera_shake
+70. /vfx play vfx_demos:show_entity_displace
     /vfx stop @s
-71. /vfx play vfx_demos:show_camera_roll
+71. /vfx play vfx_demos:show_camera_shake
     /vfx stop @s
-72. /vfx play vfx_demos:show_fov_modifier
+72. /vfx play vfx_demos:show_camera_roll
+    /vfx stop @s
+73. /vfx play vfx_demos:show_fov_modifier
     /vfx stop @s
     /tp @s 2000 100 2000 180 0
-73. /vfx play vfx_demos:show_fog_modifier
+74. /vfx play vfx_demos:show_fog_modifier
     /vfx stop @s
-74. /vfx play vfx_demos:show_collection
+75. /vfx play vfx_demos:show_collection
     /vfx stop @s
-75. /vfx play vfx_demos:show_datamosh
+76. /vfx play vfx_demos:show_datamosh
     /vfx stop @s
-76. /vfx play vfx_demos:show_torn_edge
+77. /vfx play vfx_demos:show_torn_edge
     /vfx stop @s
-77. /vfx play vfx_demos:show_spectral
+78. /vfx play vfx_demos:show_spectral
     /vfx stop @s
-78. /vfx play vfx_demos:show_hex_grid
+79. /vfx play vfx_demos:show_hex_grid
     /vfx stop @s
-79. /vfx play vfx_demos:show_heartbeat
+80. /vfx play vfx_demos:show_heartbeat
     /vfx stop @s
-80. /vfx play vfx_demos:show_hum
+81. /vfx play vfx_demos:show_hum
     /vfx stop @s
-81. /vfx play vfx_demos:show_noise
+82. /vfx play vfx_demos:show_noise
     /vfx stop @s
-82. /vfx play vfx_demos:show_volume_duck
+83. /vfx play vfx_demos:show_volume_duck
     /vfx stop @s
 ```
 
@@ -189,7 +191,7 @@ is a **day** take and `show_sky_anchor_moon` / `show_sky_anchor_stars` are **nig
 # VFX Weaver showcase - recording cheat sheet
 
 Datapack: `vfx_demos` (world `New World`), namespace `vfx_demos:`.
-Instance: `26.2fabric`. Effects: `data/vfx_demos/vfx/*.json` (82 `show_*` definitions).
+Instance: `26.2fabric`. Effects: `data/vfx_demos/vfx/*.json` (83 `show_*` definitions).
 Scene functions: `data/vfx_demos/function/scene/setup.mcfunction` and `scene/clear.mcfunction`.
 
 ## Before recording
@@ -310,6 +312,18 @@ track the vanilla sun/moon/stars, so set the time on the `/time set` lines first
 | `vfxweaver:ember` | `/vfx play vfx_demos:show_ember` | Small ember spark sphere at the villager, pulsing | look at the villager | 8 s |
 | `vfxweaver:sparks` | `/vfx play vfx_demos:show_sparks` | Dense ember sparks burst around the villager | look at the villager | 8 s |
 | `vfxweaver:block_chain` | `/vfx play vfx_demos:show_block_chain` | Iron-chain blocks sag and swing between two anchors | look at the pillar/blue block | 8 s |
+
+---
+
+## Text (1)
+
+| effect id | command | what it looks like | camera/scene | loop |
+|---|---|---|---|---|
+| (no built-in) | `/vfx play vfx_demos:show_text_overlay` | "VFX WEAVER" types itself in over the platform, holds, then the letters drop, land and fade | look at the wall, the line sits at x 2000 / y 102.5 / z 2001 | 8 s |
+
+`show_text_overlay` is not a built-in - no effect ships as `text_overlay` - so it demonstrates the type
+from the pack. The block stands in `world` mode with its baseline rotation at 0, which is **unverified
+in game**: if the line reads mirrored from the recording spot, add `"rot_y": 180` to its `params`.
 
 ---
 
