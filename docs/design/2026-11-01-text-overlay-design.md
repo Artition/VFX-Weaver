@@ -19,6 +19,10 @@ definition and the clock comes from the effect timeline.
 
 - No lyrics/music integration, no external text providers, no audio alignment.
 - No in-game text editor: text is authored in the definition JSON.
+- **No runtime text.** `params` are `Map<String, Float>`, and the trigger payload carries the effect
+  id plus numeric params only, so the string cannot be injected at play time — it comes from the
+  definition. This is deliberate for v1: titles and captions are authored content. Dynamic text
+  (player name, scoreboard value) is a separate design around `text.source`, not a string param.
 - No per-character arrays of colour/font/animation (v1 uses per-line colour with a gradient, one
   animation for the line, and per-character timing only through `stagger`).
 - No custom TTF loading from a datapack. `default` and `monospace` only.
