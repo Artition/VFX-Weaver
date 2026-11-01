@@ -38,6 +38,8 @@ public class VFXActiveEffect {
 	private final @Nullable String shape;
 	private final @Nullable String blockId;
 	private final @Nullable String itemId;
+	/** The authored text block of a {@code text_overlay} effect; {@code null} for every other type. */
+	private final @Nullable VFXTextSpec textSpec;
 	private float elapsed;
 	private float age;
 	/**
@@ -134,7 +136,7 @@ public class VFXActiveEffect {
 	 * @param blockId    block id for {@code block_chain} effects ({@code null} = renderer default)
 	 */
 	public VFXActiveEffect(final Identifier id, final VFXEffectType type, final long instanceId, final long instanceSeed, final float startTime, final VFXTimeline timeline, final int fadeTicks, final boolean loop, final List<BlockPos> positions, final List<UUID> entityUuids, final List<ResolvedAnchor> anchors, final @Nullable String particleId, final @Nullable String shape, final @Nullable String blockId) {
-		this(id, type, instanceId, instanceSeed, startTime, timeline, fadeTicks, loop, positions, entityUuids, anchors, particleId, shape, blockId, null);
+		this(id, type, instanceId, instanceSeed, startTime, timeline, fadeTicks, loop, false, positions, entityUuids, anchors, particleId, shape, blockId, null, null);
 	}
 
 	/**
@@ -147,7 +149,7 @@ public class VFXActiveEffect {
 	 * @param itemId     item id for inline item-mode particles ({@code null} = renderer default)
 	 */
 	public VFXActiveEffect(final Identifier id, final VFXEffectType type, final long instanceId, final long instanceSeed, final float startTime, final VFXTimeline timeline, final int fadeTicks, final boolean loop, final List<BlockPos> positions, final List<UUID> entityUuids, final List<ResolvedAnchor> anchors, final @Nullable String particleId, final @Nullable String shape, final @Nullable String blockId, final @Nullable String itemId) {
-		this(id, type, instanceId, instanceSeed, startTime, timeline, fadeTicks, loop, false, positions, entityUuids, anchors, particleId, shape, blockId, itemId);
+		this(id, type, instanceId, instanceSeed, startTime, timeline, fadeTicks, loop, false, positions, entityUuids, anchors, particleId, shape, blockId, itemId, null);
 	}
 
 	/**
@@ -160,8 +162,9 @@ public class VFXActiveEffect {
 	 * @param blockId    block id for {@code block_chain} / inline block-mode particles ({@code null} = renderer default)
 	 * @param itemId     item id for inline item-mode particles ({@code null} = renderer default)
 	 * @param persistent true when the instance never ends until stopped (persistent/looping definition)
+	 * @param textSpec   the authored text block for {@code text_overlay} ({@code null} for other types)
 	 */
-	public VFXActiveEffect(final Identifier id, final VFXEffectType type, final long instanceId, final long instanceSeed, final float startTime, final VFXTimeline timeline, final int fadeTicks, final boolean loop, final boolean persistent, final List<BlockPos> positions, final List<UUID> entityUuids, final List<ResolvedAnchor> anchors, final @Nullable String particleId, final @Nullable String shape, final @Nullable String blockId, final @Nullable String itemId) {
+	public VFXActiveEffect(final Identifier id, final VFXEffectType type, final long instanceId, final long instanceSeed, final float startTime, final VFXTimeline timeline, final int fadeTicks, final boolean loop, final boolean persistent, final List<BlockPos> positions, final List<UUID> entityUuids, final List<ResolvedAnchor> anchors, final @Nullable String particleId, final @Nullable String shape, final @Nullable String blockId, final @Nullable String itemId, final @Nullable VFXTextSpec textSpec) {
 		this.id = id;
 		this.type = type;
 		this.instanceId = instanceId;
@@ -178,6 +181,7 @@ public class VFXActiveEffect {
 		this.shape = shape;
 		this.blockId = blockId;
 		this.itemId = itemId;
+		this.textSpec = textSpec;
 		this.elapsed = 0.0F;
 		this.age = 0.0F;
 	}
@@ -434,6 +438,14 @@ public class VFXActiveEffect {
 	 */
 	public @Nullable String getItemId() {
 		return this.itemId;
+	}
+
+	/**
+	 * Authored text block for {@code text_overlay} effects (from the definition,
+	 * {@code null} for every other effect type).
+	 */
+	public @Nullable VFXTextSpec getTextSpec() {
+		return this.textSpec;
 	}
 
 	/**

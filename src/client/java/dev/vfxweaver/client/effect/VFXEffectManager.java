@@ -453,7 +453,7 @@ public class VFXEffectManager {
 			this.active.removeIf(existing -> existing.getInstanceId() == instanceId);
 		}
 		final float effectiveStart = Float.isNaN(startTime) ? this.clock : startTime;
-		VFXActiveEffect effect = new VFXActiveEffect(effectId, type, id, instanceSeed, effectiveStart, timeline, fadeTicks, loop, persistent, positions, entityUuids, anchors, definition != null ? definition.getParticleId() : null, definition != null ? definition.getShape() : null, definition != null ? definition.getBlockId() : null, definition != null ? definition.getItemId() : null);
+		VFXActiveEffect effect = new VFXActiveEffect(effectId, type, id, instanceSeed, effectiveStart, timeline, fadeTicks, loop, persistent, positions, entityUuids, anchors, definition != null ? definition.getParticleId() : null, definition != null ? definition.getShape() : null, definition != null ? definition.getBlockId() : null, definition != null ? definition.getItemId() : null, definition != null ? definition.getText() : null);
 		// Same-id replays with auto-allocated ids stack as independent instances; MAX_ACTIVE_EFFECTS caps the total.
 		while (this.active.size() >= MAX_ACTIVE_EFFECTS) {
 			LOGGER.warn("Active VFX effect limit ({}) reached; removing oldest effect '{}'", MAX_ACTIVE_EFFECTS, this.active.get(0).getId());

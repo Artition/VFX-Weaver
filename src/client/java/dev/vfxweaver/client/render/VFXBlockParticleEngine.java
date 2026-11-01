@@ -119,6 +119,15 @@ public final class VFXBlockParticleEngine {
 	private VFXBlockParticleEngine() {
 	}
 
+	//? if >=26.2 {
+	/*// Hands out the next client-local display-entity id (see LOCAL_ENTITY_IDS) to any renderer
+	// that creates its own display and must set the id before ClientLevel.addEntity. Older
+	// versions assign the id in the Entity constructor, so there is nothing to hand out there.
+	public static int nextLocalEntityId() {
+		return LOCAL_ENTITY_IDS.getAndDecrement();
+	}
+	*///?}
+
 	/** One simulated particle; {@code spec} is shared and immutable and {@code display} is its live entity. */
 	private static final class Particle {
 		Vec3 pos;
@@ -636,8 +645,18 @@ public final class VFXBlockParticleEngine {
 	}
 
 	private static void removeDisplay(final Particle particle) {
-		if (particle.display != null && !particle.display.isRemoved()) {
-			particle.display.discard();
+		removeDisplay(particle.display);
+	}
+
+	/**
+	 * Discards one display entity if it is still live: the single removal path, shared by the
+	 * engine's own particles and by a renderer that owns a display of its own.
+	 *
+	 * @param display the display to discard ({@code null} = nothing to remove)
+	 */
+	public static void removeDisplay(final @Nullable Display display) {
+		if (display != null && !display.isRemoved()) {
+			display.discard();
 		}
 	}
 
