@@ -3,5 +3,5 @@ function rift:clear
 function rift:build
 function rift:spawn
 function rift:tp
-function rift:night
+function rift:atmosphere
 vfx play rift:scene

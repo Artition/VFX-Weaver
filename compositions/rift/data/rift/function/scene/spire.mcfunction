@@ -1,4 +1,4 @@
-# A 5x5 base narrowing to a single amethyst column; the light comes out of the stone.
+# A 5x5 base narrowing twice, then a column of amethyst: the light comes out of the stone.
 setblock 2998 200 2998 minecraft:polished_blackstone
 setblock 2998 200 2999 minecraft:deepslate_tiles
 setblock 2998 200 3000 minecraft:deepslate_tiles
@@ -139,5 +139,3 @@ setblock 3000 208 3000 minecraft:amethyst_block
 setblock 3000 209 3000 minecraft:amethyst_block
 setblock 3000 210 3000 minecraft:amethyst_block
 setblock 3000 211 3000 minecraft:budding_amethyst
-setblock 3000 212 3000 minecraft:budding_amethyst
-setblock 3000 213 3000 minecraft:sea_lantern

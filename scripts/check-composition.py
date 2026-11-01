@@ -151,6 +151,23 @@ def main():
                    for bx1, by1, bz1, bx2, by2, bz2 in boxes):
             fail(problems, f"{fid}:{lineno}: ({x}, {y}, {z}) is outside every clear box")
 
+    # a param is legal for an effect type if any shipped definition of that type uses it: the mod
+    # registers every param of a type, so a definition that does not mention one can still be
+    # overridden by a collection child.
+    known_params = {}
+    for extra_dir in (os.path.join(root, "src", "main", "resources", "data", "vfxweaver", "vfx"),
+                      os.path.join(root, "showcase", "data", "vfx_demos", "vfx")):
+        if not os.path.isdir(extra_dir):
+            continue
+        for name in os.listdir(extra_dir):
+            if not name.endswith(".json"):
+                continue
+            try:
+                d = json.load(io.open(os.path.join(extra_dir, name), encoding="utf-8"))
+            except ValueError:
+                continue
+            known_params.setdefault(d.get("type"), set()).update((d.get("params") or {}).keys())
+
     # collection children must exist, and their overrides must be real params of the effect
     for eid, path in sorted(effects.items()):
         data = json.load(io.open(path, encoding="utf-8"))
@@ -161,13 +178,17 @@ def main():
             if target not in effects:
                 fail(problems, f"{eid}: child {i} names missing effect {target}")
                 continue
-            child_type = json.load(io.open(effects[target], encoding="utf-8")).get("type")
-            for key in child.get("params", {}):
-                if key.startswith("mask.") or key in ("pos_x", "pos_y", "pos_z", "screen_layer"):
+            child_def = json.load(io.open(effects[target], encoding="utf-8"))
+            child_type = child_def.get("type")
+            legal = set((child_def.get("params") or {}).keys()) | known_params.get(child_type, set())
+            overrides = child.get("params") or {}
+            if not isinstance(overrides, dict):
+                fail(problems, f"{eid}: child {i} params is not an object")
+                continue
+            for key in overrides:
+                if key.startswith("mask.") or key in ("pos_x", "pos_y", "pos_z", "screen_layer") or key in legal:
                     continue
-                known = json.load(io.open(effects[target], encoding="utf-8")).get("params", {})
-                if key not in known:
-                    fail(problems, f"{eid}: child {i} overrides {key!r}, which {target} does not set ({child_type})")
+                fail(problems, f"{eid}: child {i} overrides {key!r}, which is not a param of {child_type}")
 
     print(f"composition: {os.path.basename(pack)} - {len(functions)} functions, {len(effects)} definitions, "
           f"{len(placed)} placed blocks, {len(boxes)} clear boxes")

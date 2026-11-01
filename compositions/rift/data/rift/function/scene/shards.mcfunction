@@ -1,9 +1,0 @@
-# Seven turned blocks above the obelisk: block_display entities, no physics, any tilt.
-summon minecraft:block_display 3004.58 216.20 3002.86 {block_state:{Name:"minecraft:amethyst_block"},transformation:{left_rotation:[0.2674f,0.1671f,-0.0472f,0.9478f],scale:[1.90f,1.90f,0.80f]},brightness:{sky:15,block:15},Tags:["rift_shard"]}
-summon minecraft:block_display 3001.57 218.60 3003.89 {block_state:{Name:"minecraft:deepslate"},transformation:{left_rotation:[0.1472f,0.1717f,-0.0259f,0.9737f],scale:[1.50f,1.50f,0.63f]},brightness:{sky:15,block:15},Tags:["rift_shard"]}
-summon minecraft:block_display 3005.87 218.20 3001.25 {block_state:{Name:"minecraft:sea_lantern"},transformation:{left_rotation:[0.1081f,0.1726f,-0.0191f,0.9789f],scale:[1.10f,1.10f,0.46f]},brightness:{sky:15,block:15},Tags:["rift_shard"]}
-summon minecraft:block_display 2999.23 215.40 3003.10 {block_state:{Name:"minecraft:amethyst_block"},transformation:{left_rotation:[0.4061f,0.1582f,-0.0716f,0.8972f],scale:[1.20f,1.20f,0.50f]},brightness:{sky:15,block:15},Tags:["rift_shard"]}
-summon minecraft:block_display 3003.33 220.80 3003.45 {block_state:{Name:"minecraft:cobbled_deepslate"},transformation:{left_rotation:[0.2197f,0.1693f,-0.0387f,0.9600f],scale:[1.70f,1.70f,0.71f]},brightness:{sky:15,block:15},Tags:["rift_shard"]}
-summon minecraft:block_display 3001.60 217.60 3000.58 {block_state:{Name:"minecraft:budding_amethyst"},transformation:{left_rotation:[0.5147f,0.1480f,-0.0908f,0.8396f],scale:[1.00f,1.00f,0.42f]},brightness:{sky:15,block:15},Tags:["rift_shard"]}
-summon minecraft:block_display 3000.24 216.60 3006.80 {block_state:{Name:"minecraft:deepslate_tiles"},transformation:{left_rotation:[0.3145f,0.1646f,-0.0554f,0.9333f],scale:[1.30f,1.30f,0.55f]},brightness:{sky:15,block:15},Tags:["rift_shard"]}
-summon minecraft:allay 3000.50 215.40 3000.50 {NoAI:1b,NoGravity:1b,Silent:1b,Invulnerable:1b,PersistenceRequired:1b,Tags:["rift_spirit"]}
