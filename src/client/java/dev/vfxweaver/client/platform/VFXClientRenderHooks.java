@@ -10,6 +10,17 @@ import dev.vfxweaver.client.render.VFXWorldOverlayRenderer;
 import dev.vfxweaver.client.window.VFXWindowManager;
 import dev.vfxweaver.effect.VFXWorldBindings;
 import net.minecraft.client.Minecraft;
+//? if >=26.2 {
+/*import dev.vfxweaver.client.effect.VFXEffectManager;
+import dev.vfxweaver.client.render.VFXTextOverlayRenderer;
+import dev.vfxweaver.effect.VFXActiveEffect;
+import dev.vfxweaver.effect.VFXEffectType;
+import dev.vfxweaver.effect.VFXTextSpec;
+import java.util.HashSet;
+import java.util.Set;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
+import net.minecraft.resources.Identifier;
+*///?}
 //? if <26.1 {
 /*import net.minecraft.client.renderer.state.SkyRenderState;
 import net.minecraft.world.level.dimension.DimensionType;
@@ -34,6 +45,9 @@ import net.fabricmc.fabric.api.client.rendering.v1.world.WorldRenderEvents;
 import net.fabricmc.fabric.api.client.rendering.v1.level.LevelRenderContext;
 import net.fabricmc.fabric.api.client.rendering.v1.level.LevelRenderEvents;
 //?}
+//? if >=26.2 {
+/*import net.fabricmc.fabric.api.client.rendering.v1.hud.HudElementRegistry;
+*///?}
 //?} else {
 /*import net.neoforged.neoforge.client.event.ClientPlayerNetworkEvent;
 import net.neoforged.neoforge.client.event.ClientTickEvent;
@@ -42,6 +56,9 @@ import net.neoforged.neoforge.client.event.RenderLevelStageEvent;
 //?}
 //? if >=26.1 {
 import net.neoforged.neoforge.client.event.SubmitCustomGeometryEvent;
+//?}
+//? if >=26.2 {
+import net.neoforged.neoforge.client.event.RenderGuiEvent;
 //?}
 import net.neoforged.neoforge.client.event.lifecycle.ClientStoppingEvent;
 import net.neoforged.neoforge.common.NeoForge;*/
@@ -69,6 +86,13 @@ public final class VFXClientRenderHooks {
 	 */
 	private static @Nullable SubmitNodeCollector currentCollector;
 
+	//? if >=26.2 {
+	/*// Identifier of the flat text HUD element: 26.2's HUD registry addresses elements by name,
+	// so this is what the element is attached (and, if it ever has to be, removed) by.
+	private static final Identifier FLAT_TEXT_HUD =
+		Identifier.fromNamespaceAndPath("vfxweaver", "text_overlay");
+	*///?}
+
 	private VFXClientRenderHooks() {
 	}
 
@@ -83,11 +107,21 @@ public final class VFXClientRenderHooks {
 		ClientPlayConnectionEvents.JOIN.register((handler, sender, client) -> onClientJoin());
 		ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> onClientDisconnect());
 		ClientLifecycleEvents.CLIENT_STOPPING.register(client -> onClientStopping());
+		//? if >=26.2 {
+		/*// HudElementRegistry.addLast appends after every vanilla element, so the flat text is the
+		// last thing drawn and sits over the hotbar, the chat and the vanilla overlays.
+		HudElementRegistry.addLast(FLAT_TEXT_HUD, (graphics, delta) -> drawFlatText(graphics));
+		*///?}
 		//?} else {
 		/*NeoForge.EVENT_BUS.addListener((ClientTickEvent.Post event) -> onClientTick());
 		NeoForge.EVENT_BUS.addListener((ClientPlayerNetworkEvent.LoggingIn event) -> onClientJoin());
 		NeoForge.EVENT_BUS.addListener((ClientPlayerNetworkEvent.LoggingOut event) -> onClientDisconnect());
-		NeoForge.EVENT_BUS.addListener((ClientStoppingEvent event) -> onClientStopping());*/
+		NeoForge.EVENT_BUS.addListener((ClientStoppingEvent event) -> onClientStopping());
+		//? if >=26.2 {
+		// RenderGuiEvent.Post is the HUD pass on NeoForge: the event hands out the same GUI
+		// graphics Fabric's HUD element gets, so both loaders share one drawing path.
+		NeoForge.EVENT_BUS.addListener((RenderGuiEvent.Post event) -> drawFlatText(event.getGuiGraphics()));
+		//?}*/
 		//?}
 	}
 
@@ -99,6 +133,33 @@ public final class VFXClientRenderHooks {
 		// uses, so the controller's tick and the render frame stay in the same order.
 		EditorPreviewController.get().onClientTick();
 	}
+
+	//? if >=26.2 {
+	/*// Draws every running flat-mode text_overlay on the HUD, once per frame. This only walks the
+	// active effects and picks the flat ones out: the layout, the reveal wipe and the colour all
+	// live in VFXTextOverlayRenderer.renderFlat, so the 2D and 3D paths share one block of shape
+	// code. Instance ids of the flat effects are collected here because the renderer's layout cache
+	// is keyed by instance id - without the prune, every finished effect would leave its layout in
+	// the cache for the life of the client.
+	//
+	// graphics - the GUI graphics of the current HUD pass
+	private static void drawFlatText(final GuiGraphicsExtractor graphics) {
+		final Set<Long> flatInstances = new HashSet<>();
+		for (final VFXActiveEffect effect : VFXEffectManager.get().getActiveWorldEffects()) {
+			if (effect.getType() != VFXEffectType.TEXT_OVERLAY) {
+				continue;
+			}
+			final VFXTextSpec spec = effect.getTextSpec();
+			// A definition without a text block or in world mode is the world pass's business.
+			if (spec == null || spec.mode() != VFXTextSpec.Mode.FLAT) {
+				continue;
+			}
+			flatInstances.add(effect.getInstanceId());
+			VFXTextOverlayRenderer.renderFlat(effect, graphics);
+		}
+		VFXTextOverlayRenderer.pruneFlat(flatInstances);
+	}
+	*///?}
 
 	/** Resets the server-pushed scoreboard cache when the player joins a server. */
 	public static void onClientJoin() {

@@ -14,6 +14,7 @@ import java.util.List;
 import java.util.Map;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.Style;
 import net.minecraft.network.chat.TextColor;
@@ -22,6 +23,7 @@ import net.minecraft.world.entity.EntityTypes;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.phys.shapes.VoxelShape;
+import org.joml.Matrix3x2fStack;
 import org.joml.Quaternionf;
 import org.joml.Vector3f;
 import org.jspecify.annotations.Nullable;
@@ -30,8 +32,9 @@ import org.slf4j.LoggerFactory;
 *///?}
 
 /**
- * Draws a {@code text_overlay} effect's {@code world} mode: one client-side
- * {@code Display.TextDisplay} per character, standing where the author put the block.
+ * Draws a {@code text_overlay} effect: {@code world} mode as one client-side
+ * {@code Display.TextDisplay} per character standing where the author put the block, {@code flat}
+ * mode as the same laid-out block drawn onto the HUD through the GUI graphics.
  *
  * <p>The characters are laid out once by {@link VFXTextLayout} at unit scale and then placed every
  * frame from the animatable params - {@code pos_x/pos_y/pos_z} for the origin, {@code rot_x/rot_y/rot_z}
@@ -42,6 +45,11 @@ import org.slf4j.LoggerFactory;
  *
  * <p>{@code wrap_width} and {@code line_height} shape the layout, which is measured once when the
  * block is spawned, so they are sampled at that moment and are not animatable.
+ *
+ * <p>In {@code flat} mode the block is laid out at unit scale, cached by instance id, and drawn onto
+ * the HUD: {@code x} and {@code y} are fractions of the GUI size and place the block's anchor,
+ * {@code angle} turns the whole block about that anchor and {@code scale} multiplies the font's own
+ * pixel size. The reveal wipe and the effect weight work exactly as they do in the world.
  *
  * <p>{@code reveal} is a fraction of the characters that are visible: character {@code i} is opaque
  * while {@code i < reveal * count} and fades over the single character at the boundary, which is what
@@ -108,7 +116,16 @@ public final class VFXTextOverlayRenderer {
 		}
 	}
 
+	// One flat-mode block's measured layout, cached by instance id: the HUD pass runs every frame,
+	// so a long line is measured once per instance instead of sixty times a second. 'signature' is
+	// the same content-plus-shape idea the world pool uses, because a replay can hand out an
+	// instance id again with other text; the unit-scale layout is scaled by the pose when drawn, so
+	// an animated 'scale' does not invalidate it.
+	private record FlatText(String signature, VFXTextLayout layout) {
+	}
+
 	private static final Map<Long, LiveText> LIVE = new HashMap<>();
+	private static final Map<Long, FlatText> FLAT = new HashMap<>();
 	private static @Nullable ClientLevel lastLevel;
 
 	// Draws (and on the first frame spawns) the world-mode block of one text effect. Called from the
@@ -128,12 +145,10 @@ public final class VFXTextOverlayRenderer {
 			return;
 		}
 		handleLevelChange(level);
-		// 2D ('flat') mode has no renderer yet, and the flat spec must not fall through to the
-		// world path: that would draw 3D glyphs at 0,0,0 for every definition without "mode".
+		// Flat ('2D') blocks belong to the HUD pass, which calls renderFlat; they must not fall
+		// through to the world path, or every definition without a "mode" would spawn 3D glyphs
+		// at 0,0,0.
 		if (spec.mode() != VFXTextSpec.Mode.WORLD) {
-			VFXLog.warnOnce(LOGGER, "text_overlay:flat:" + effect.getId(),
-				"text_overlay effect '{}' is mode 'flat': the 2D layer is not implemented yet, nothing is drawn",
-				effect.getId());
 			return;
 		}
 		final LiveText live = ensure(effect, level, spec);
@@ -143,6 +158,87 @@ public final class VFXTextOverlayRenderer {
 			return;
 		}
 		placeBlock(effect, live, spec);
+	}
+
+	// Draws the flat-mode block of one text effect onto the HUD. Called once per frame per flat
+	// effect from the client render hooks; a no-op for a faded-out effect or one without a block.
+	//
+	// The block is laid out at unit scale and then turned into screen space by the pose: 'x' and
+	// 'y' are fractions of the GUI size and place the block's anchor point, 'angle' turns the whole
+	// block about that point, and 'scale' multiplies the font's own pixel size. That is why the
+	// measured layout does not carry the scale - it can animate without re-measuring anything.
+	//
+	// effect   - the running effect, its 'flat' text already resolved into a spec
+	// graphics - the HUD graphics of the current frame (also its size, and its pose)
+	public static void renderFlat(final VFXActiveEffect effect, final GuiGraphicsExtractor graphics) {
+		if (effect.getWeight() <= 0.0F) {
+			return;
+		}
+		final VFXTextSpec spec = effect.getTextSpec();
+		if (spec == null) {
+			VFXLog.warnOnce(LOGGER, "text_overlay:spec:" + effect.getId(),
+				"text_overlay effect '{}' has no text block; nothing is drawn", effect.getId());
+			return;
+		}
+		final VFXTextLayout layout = flatLayout(effect, spec);
+		if (layout.glyphs().isEmpty()) {
+			return;
+		}
+		final Font font = Minecraft.getInstance().font;
+		final float anchorX = effect.getParam("x", 0.5F) * graphics.guiWidth();
+		final float anchorY = effect.getParam("y", 0.5F) * graphics.guiHeight();
+		final float alignShift = alignOffset(spec, layout.width());
+		final float anchorShiftY = anchorOffset(spec, layout.height());
+		final int rgb = colour(effect);
+		final boolean shadow = effect.getParam("shadow", 1.0F) >= 0.5F;
+		final float revealed = reveal(effect) * layout.glyphs().size();
+		final Matrix3x2fStack pose = graphics.pose();
+		pose.pushMatrix();
+		pose.translate(anchorX, anchorY);
+		pose.rotate((float) Math.toRadians(effect.getParam("angle", 0.0F)));
+		pose.scale(effect.getParam("scale", 1.0F), effect.getParam("scale", 1.0F));
+		for (int i = 0; i < layout.glyphs().size(); i++) {
+			final VFXTextLayout.Glyph glyph = layout.glyphs().get(i);
+			// Same wipe as the world path: 'reveal' is a fraction of the characters, and the single
+			// one at the boundary is caught mid-fade; the effect weight fades the whole block when
+			// the effect is stopped. A plain 0xRRGGBB colour has alpha 0 here, so it must be packed.
+			final float alpha = clamp01(revealed - i) * effect.getWeight();
+			if (alpha <= 0.0F) {
+				continue;
+			}
+			final int argb = (Math.round(alpha * 255.0F) << 24) | rgb;
+			graphics.text(font, String.valueOf(glyph.ch()),
+				Math.round(glyph.x() + alignShift), Math.round(glyph.y() + anchorShiftY),
+				argb, shadow);
+		}
+		pose.popMatrix();
+	}
+
+	// Drops the cached layouts of flat-mode effects that are no longer running: the cache is keyed
+	// by instance id, so without this every finished effect would leave its layout behind.
+	public static void pruneFlat(final Set<Long> activeInstances) {
+		FLAT.keySet().removeIf(id -> !activeInstances.contains(id));
+	}
+
+	// The measured layout of a flat block, from the cache when the content and the structural
+	// inputs are unchanged. 'wrap_width' is expressed in layout units, hence the division by the
+	// current 'scale' - the same conversion the world pool makes.
+	private static VFXTextLayout flatLayout(final VFXActiveEffect effect, final VFXTextSpec spec) {
+		final float lineHeight = effect.getParam("line_height", 1.2F);
+		// A replay can hand out an instance id again with other text, so the cached layout is only
+		// reused when it was measured from the same text and the same shaping inputs.
+		final String signature = spec.content() + '\u0000' + spec.mode() + '\u0000' + spec.align()
+			+ '\u0000' + spec.anchor() + '\u0000' + lineHeight;
+		final FlatText existing = FLAT.get(effect.getInstanceId());
+		if (existing != null && existing.signature().equals(signature)) {
+			return existing.layout();
+		}
+		final float scale = effect.getParam("scale", 1.0F);
+		final VFXTextLayout layout = VFXTextLayout.measure(Minecraft.getInstance().font,
+			spec.content(), 1.0F, lineHeight,
+			effect.getParam("wrap_width", 0.0F) / Math.max(scale, 1e-4F));
+		FLAT.put(effect.getInstanceId(), new FlatText(signature, layout));
+		return layout;
 	}
 
 	// Per-frame housekeeping for the text pool: drops the characters of effects that are no longer
