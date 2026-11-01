@@ -38,7 +38,9 @@ import org.slf4j.LoggerFactory;
  * mode as the same laid-out block drawn onto the HUD through the GUI graphics.
  *
  * <p>The characters are laid out once by {@link VFXTextLayout} at unit scale and then placed every
- * frame from the animatable params - {@code pos_x/pos_y/pos_z} for the origin, {@code rot_x/rot_y/rot_z}
+ * frame from the animatable params - the frame's first world slot (a runtime move, a {@code positions}
+ * entry or an entity anchor) plus {@code pos_x/pos_y/pos_z} as an offset from it, or those params
+ * alone as absolute coordinates when the definition has no slot - {@code rot_x/rot_y/rot_z}
  * for the orientation, {@code scale} for the size of the whole block, the spec's {@code align} and
  * {@code anchor} for which point of the block sits on that origin - so moving, rotating or scaling an
  * already-running effect moves the whole block without respawning anything. {@code colour_r/g/b} and
@@ -167,13 +169,39 @@ public final class VFXTextOverlayRenderer {
 		if (spec.mode() != VFXTextSpec.Mode.WORLD) {
 			return;
 		}
-		final LiveText live = ensure(effect, level, spec);
+		// The block hangs from this frame's first slot - a runtime move, a 'positions' entry, or an
+		// entity anchor resolved to where the entity is now. An anchor whose entity is untracked
+		// this frame resolves to no slot at all, and like every other world effect the text then
+		// draws nothing instead of standing at a stale place.
+		final List<Vec3> slots = VFXWorldOverlayRenderer.effectPositions(effect, level);
+		if (slots.isEmpty()) {
+			return;
+		}
+		final Vec3 origin = origin(effect, slots.get(0));
+		final LiveText live = ensure(effect, level, spec, origin);
 		// A finished block has already released its characters and has nothing left to place; the
 		// pool entry only stays so 'ensure' does not spawn the same line again on the next frame.
 		if (live == null || live.finishedAt >= 0.0F) {
 			return;
 		}
-		placeBlock(effect, live, spec);
+		placeBlock(effect, live, spec, origin);
+	}
+
+	// The point the block is measured from. A definition with a slot (a move, a 'positions' entry
+	// or an entity anchor) is measured from that slot, and pos_x/pos_y/pos_z become an offset from
+	// it, so pos_y 2 is two blocks above whatever block the effect was played at. A definition
+	// without a slot keeps the old absolute pos_* - 'slot' is then only the resolver's echo of those
+	// same params, centred on X/Z for the other effects, and using it here would move every block
+	// that already exists.
+	private static Vec3 origin(final VFXActiveEffect effect, final Vec3 slot) {
+		final boolean hasSlot = effect.getMovePosition() != null || !effect.getPositions().isEmpty()
+			|| !effect.getAnchors().isEmpty();
+		if (!hasSlot) {
+			return new Vec3(effect.getParam("pos_x", 0.0F), effect.getParam("pos_y", 0.0F),
+				effect.getParam("pos_z", 0.0F));
+		}
+		return new Vec3(slot.x + effect.getParam("pos_x", 0.0F),
+			slot.y + effect.getParam("pos_y", 0.0F), slot.z + effect.getParam("pos_z", 0.0F));
 	}
 
 	// Draws the flat-mode block of one text effect onto the HUD. Called once per frame per flat
@@ -326,7 +354,7 @@ public final class VFXTextOverlayRenderer {
 
 	// Builds the display entities of a world-mode effect the first time it is drawn.
 	private static @Nullable LiveText ensure(final VFXActiveEffect effect, final ClientLevel level,
-			final VFXTextSpec spec) {
+			final VFXTextSpec spec, final Vec3 origin) {
 		final float scale = effect.getParam("scale", 1.0F);
 		final float lineHeight = effect.getParam("line_height", 1.2F);
 		final float wrapWidth = effect.getParam("wrap_width", 0.0F);
@@ -375,7 +403,7 @@ public final class VFXTextOverlayRenderer {
 			entities.add(display);
 		}
 		final LiveText live = new LiveText(effect.getInstanceId(), signature, entities, layout,
-			floors(effect, level, spec, layout, entities.size()), colour, flags);
+			floors(effect, level, spec, layout, entities.size(), origin), colour, flags);
 		LIVE.put(effect.getInstanceId(), live);
 		return live;
 	}
@@ -385,15 +413,14 @@ public final class VFXTextOverlayRenderer {
 	// running a collision query per character per frame. NEGATIVE_INFINITY means "nothing below";
 	// POSITIVE_INFINITY is not a valid sentinel here, because it reads as 'already landed'.
 	//
-	// effect - the running effect, for the origin and rot_* the rest pose is built from
+	// effect - the running effect, for rot_* the rest pose is built from
 	// level  - the client level the colliders are queried from
 	// spec   - the authored block, for the align/anchor shifts
 	// layout - the unit-scale layout the characters come from
 	// count  - how many characters actually got an entity (the cap drops the tail)
+	// origin - the point the block is measured from this frame (a slot plus the pos_* offset)
 	private static float[] floors(final VFXActiveEffect effect, final ClientLevel level,
-			final VFXTextSpec spec, final VFXTextLayout layout, final int count) {
-		final Vec3 origin = new Vec3(effect.getParam("pos_x", 0.0F), effect.getParam("pos_y", 0.0F),
-			effect.getParam("pos_z", 0.0F));
+			final VFXTextSpec spec, final VFXTextLayout layout, final int count, final Vec3 origin) {
 		final float scale = effect.getParam("scale", 1.0F);
 		final Quaternionf rotation = blockRotation(effect);
 		final float alignShift = alignOffset(spec, layout.width() * scale);
@@ -439,9 +466,8 @@ public final class VFXTextOverlayRenderer {
 
 	// Positions every character of the block: unit layout times the current 'scale', rotated by
 	// rot_*, anchored, displaced by the exit, and refreshed for the animatable colour and shadow.
-	private static void placeBlock(final VFXActiveEffect effect, final LiveText live, final VFXTextSpec spec) {
-		final Vec3 origin = new Vec3(effect.getParam("pos_x", 0.0F), effect.getParam("pos_y", 0.0F),
-			effect.getParam("pos_z", 0.0F));
+	private static void placeBlock(final VFXActiveEffect effect, final LiveText live,
+			final VFXTextSpec spec, final Vec3 origin) {
 		final float scale = effect.getParam("scale", 1.0F);
 		final VFXTextLayout layout = live.layout;
 		final float alignShift = alignOffset(spec, layout.width() * scale);

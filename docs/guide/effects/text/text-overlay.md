@@ -47,9 +47,9 @@ surface - constant, `start`/`end`, `keyframes`, `bind`, `expr`, the `/vfx play` 
 |---|---|---|---|
 | `x` | 0.5 | yes (`flat` only) | Anchor X as a fraction of the GUI width |
 | `y` | 0.5 | yes (`flat` only) | Anchor Y as a fraction of the GUI height |
-| `pos_x` | 0 | yes (`world` only) | Block origin, world X |
-| `pos_y` | 0 | yes (`world` only) | Block origin, world Y |
-| `pos_z` | 0 | yes (`world` only) | Block origin, world Z |
+| `pos_x` | 0 | yes (`world` only) | Block origin, world X - an offset from the first slot when the effect has one, else absolute (see [Where the block stands](#where-the-block-stands)) |
+| `pos_y` | 0 | yes (`world` only) | Block origin, world Y, measured the same way |
+| `pos_z` | 0 | yes (`world` only) | Block origin, world Z, measured the same way |
 | `scale` | 1 | yes | Size of the whole block. `world` scales the characters and their spacing in blocks; `flat` multiplies the laid-out offsets by it and then, per character, pushes a pose, translates it to the glyph's centre, rotates it, calls `pose.scale(scale, scale)` and draws the glyph at 1.0 inside it - so the 2D block is a scaled pose like any other, not a larger font size. The layout is measured at unit scale, so animating `scale` never respawns anything |
 | `line_height` | 1.2 | sampled, see below | Line spacing as a multiple of `scale` |
 | `wrap_width` | 0 | sampled, see below | Soft wrap: a line breaks at a space once the next word would pass this width (in the block's own units). `0` = only `\n` breaks |
@@ -111,11 +111,24 @@ Notes on the numbers:
   nothing visible - until the effect stops being active, which is when `VFXClientRenderHooks` prunes
   that cache entry.
 - **This is not a screen effect.** There is no `screen_layer` and no `order` - nothing is composited
-  over the frame; `flat` text is drawn on the HUD after the post passes. `positions` and `region` are
-  not read either: `world` mode uses `pos_x`/`pos_y`/`pos_z`.
+  over the frame; `flat` text is drawn on the HUD after the post passes. `region` is not read.
 - **A `text` block that is missing renders nothing, and says so once.** The definition is rejected at
   parse time when `text` or `text.content` is absent or blank, and an effect that reaches the renderer
   without a block warns once through the log.
+
+### Where the block stands
+
+`world` mode hangs the block from the effect's **first world slot**: a runtime move position wins,
+otherwise the first `positions` entry, otherwise the first entity anchor resolved to where that entity
+is right now. When a slot is present, `pos_x`/`pos_y`/`pos_z` are an **offset from it** - `pos_y: 2` is
+two blocks above whatever block the effect was played at - and only the **first** slot is used (one
+pool of characters per slot is not implemented; extra slots are ignored). A definition with **no**
+slot (no move, no `positions`, no anchor) keeps the old **absolute** coordinates, so nothing that
+already exists moves. An entity anchor whose entity is untracked this frame (dead, out of range, not
+spawned yet) resolves to no slot, and the block draws nothing that frame, exactly like every other
+world effect.
+
+`flat` mode does not read slots or `pos_*`: it is placed by `x`/`y` on the frame.
 
 ## The two exits
 
