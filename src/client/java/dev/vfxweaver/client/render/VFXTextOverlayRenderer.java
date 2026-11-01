@@ -129,11 +129,16 @@ public final class VFXTextOverlayRenderer {
 
 	// One flat-mode block's measured layout, cached by instance id: the HUD pass runs every frame,
 	// so a long line is measured once per instance instead of sixty times a second. 'signature' is
-	// the same content-plus-shape idea the world pool uses, because a replay can hand out an
-	// instance id again with other text; the unit-scale layout is scaled by the pose when drawn, so
-	// an animated 'scale' does not invalidate it.
-	private record FlatText(String signature, VFXTextLayout layout) {
+	// structural only - content, mode, align, anchor - because that is what the layout is a function
+	// of once it has been measured; 'line_height' and 'wrap_width' are sampled at that moment, the
+	// same way the world pool samples them, so an animated 'line_height' does not re-measure. 'texts'
+	// holds the one-character string of each glyph, built once here instead of on every frame.
+	private record FlatText(String signature, VFXTextLayout layout, List<String> texts) {
 	}
+
+	// The offset of a character that is not leaving. Shared, because a standing line must not
+	// allocate one vector per character per frame; the callers only read it.
+	private static final Vector2f ZERO_OFFSET = new Vector2f();
 
 	private static final Map<Long, LiveText> LIVE = new HashMap<>();
 	private static final Map<Long, FlatText> FLAT = new HashMap<>();
@@ -192,7 +197,8 @@ public final class VFXTextOverlayRenderer {
 				"text_overlay effect '{}' has no text block; nothing is drawn", effect.getId());
 			return;
 		}
-		final VFXTextLayout layout = flatLayout(effect, spec);
+		final FlatText flat = flatLayout(effect, spec);
+		final VFXTextLayout layout = flat.layout();
 		if (layout.glyphs().isEmpty()) {
 			return;
 		}
@@ -232,11 +238,13 @@ public final class VFXTextOverlayRenderer {
 			// colour has alpha 0 here, so it must be packed.
 			final float alpha = clamp01(revealed - i)
 				* flatExitAlpha(effect, i, since, restY, floorY, guiHeight) * effect.getWeight();
-			if (alpha <= 0.0F) {
+			final int argb = (Math.round(alpha * 255.0F) << 24) | rgb;
+			// The gate is on the byte that actually reaches the text, not on the float: a weight that
+			// rounds to alpha 0 draws nothing anyway, and submitting it only costs a draw.
+			if ((argb >>> 24) == 0) {
 				continue;
 			}
-			final int argb = (Math.round(alpha * 255.0F) << 24) | rgb;
-			final String text = String.valueOf(glyph.ch());
+			final String text = flat.texts().get(i);
 			// The character turns about the middle of its own font box, so a spin never drags the
 			// letter out of its slot in the line and a resting line is exactly where 'angle' puts it.
 			final float halfWidth = font.width(text) / 2.0F;
@@ -256,25 +264,31 @@ public final class VFXTextOverlayRenderer {
 		FLAT.keySet().removeIf(id -> !activeInstances.contains(id));
 	}
 
-	// The measured layout of a flat block, from the cache when the content and the structural
-	// inputs are unchanged. 'wrap_width' is expressed in layout units, hence the division by the
-	// current 'scale' - the same conversion the world pool makes.
-	private static VFXTextLayout flatLayout(final VFXActiveEffect effect, final VFXTextSpec spec) {
-		final float lineHeight = effect.getParam("line_height", 1.2F);
+	// The measured layout of a flat block, from the cache when the structural inputs are unchanged.
+	// 'line_height' and 'wrap_width' shape the layout, so they are sampled here, when it is measured,
+	// and not per frame: animating them must not re-measure the line sixty times a second. The wrap
+	// width is expressed in layout units, hence the division by the current 'scale' - the same
+	// conversion the world pool makes.
+	private static FlatText flatLayout(final VFXActiveEffect effect, final VFXTextSpec spec) {
 		// A replay can hand out an instance id again with other text, so the cached layout is only
-		// reused when it was measured from the same text and the same shaping inputs.
+		// reused when it was measured from the same text and the same structural inputs.
 		final String signature = spec.content() + '\u0000' + spec.mode() + '\u0000' + spec.align()
-			+ '\u0000' + spec.anchor() + '\u0000' + lineHeight;
+			+ '\u0000' + spec.anchor();
 		final FlatText existing = FLAT.get(effect.getInstanceId());
 		if (existing != null && existing.signature().equals(signature)) {
-			return existing.layout();
+			return existing;
 		}
 		final float scale = effect.getParam("scale", 1.0F);
 		final VFXTextLayout layout = VFXTextLayout.measure(Minecraft.getInstance().font,
-			spec.content(), 1.0F, lineHeight,
+			spec.content(), 1.0F, effect.getParam("line_height", 1.2F),
 			effect.getParam("wrap_width", 0.0F) / Math.max(scale, 1e-4F));
-		FLAT.put(effect.getInstanceId(), new FlatText(signature, layout));
-		return layout;
+		final List<String> texts = new ArrayList<>(layout.glyphs().size());
+		for (final VFXTextLayout.Glyph glyph : layout.glyphs()) {
+			texts.add(String.valueOf(glyph.ch()));
+		}
+		final FlatText measured = new FlatText(signature, layout, List.copyOf(texts));
+		FLAT.put(effect.getInstanceId(), measured);
+		return measured;
 	}
 
 	// Per-frame housekeeping for the text pool: drops the characters of effects that are no longer
@@ -665,7 +679,9 @@ public final class VFXTextOverlayRenderer {
 			final float since, final float restX, final float restY, final float floorY,
 			final float guiWidth, final float guiHeight) {
 		if (since < 0.0F || effect.getParam("exit", 0.0F) < 0.5F) {
-			return new Vector2f();
+			// The shared constant, not a fresh vector: this is the branch almost every character of
+			// almost every frame takes, and the caller only reads it.
+			return ZERO_OFFSET;
 		}
 		// Sideways: a small drift taken from the same jitter the world fall uses, so the characters of
 		// one line never leave in the same direction, folded back into the frame so the letter bounces
@@ -682,7 +698,8 @@ public final class VFXTextOverlayRenderer {
 			return new Vector2f(sideways, flatDrop(effect, index, since, guiHeight));
 		}
 		// Landing: the letter holds on the bottom edge and fades there. A fold back up would never
-		// settle, and a letter that never settles reads as jitter instead of as a landing.
+		// settle, and a letter that never settles reads as jitter instead of as a landing. 'bounce' is
+		// a world-mode parameter - there is no rebound against a frame edge, only the sideways fold.
 		return new Vector2f(sideways, floorY - restY);
 	}
 

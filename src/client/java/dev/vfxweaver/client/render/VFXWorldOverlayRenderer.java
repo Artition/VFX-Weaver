@@ -31,6 +31,7 @@ import dev.vfxweaver.client.platform.VFXClientRenderHooks;
 import dev.vfxweaver.effect.VFXActiveEffect;
 import dev.vfxweaver.effect.VFXEffectType;
 import dev.vfxweaver.effect.VFXSparkSpec;
+import dev.vfxweaver.effect.VFXTextSpec;
 import dev.vfxweaver.util.VFXBeamBasis;
 import dev.vfxweaver.util.VFXLog;
 import java.util.ArrayList;
@@ -1035,6 +1036,13 @@ public final class VFXWorldOverlayRenderer {
 	 * Resolves the chain block from the effect's {@code block} definition field
 	 * (default {@code minecraft:iron_chain}); unknown ids warn once per id.
 	 */
+	// Whether a text effect owns world display entities. A flat block draws on the HUD and has no
+	// entities at all, so the world pool must not keep anything alive for it.
+	private static boolean isWorldText(final VFXActiveEffect effect) {
+		final VFXTextSpec spec = effect.getTextSpec();
+		return spec != null && spec.mode() == VFXTextSpec.Mode.WORLD;
+	}
+
 	private static @Nullable BlockState resolveChainBlock(final VFXActiveEffect effect) {
 		String id = effect.getBlockId();
 		if (id == null || id.isBlank()) {
@@ -1074,7 +1082,10 @@ public final class VFXWorldOverlayRenderer {
 		Set<Long> liveInstances = new HashSet<>();
 		for (VFXActiveEffect effect : effects) {
 			liveInstances.add(effect.getInstanceId());
-			if (effect.getType() == VFXEffectType.TEXT_OVERLAY) {
+			// Only world-mode text has display entities to keep alive. A flat block draws on the HUD
+			// and never reaches 'ensure', so listing it here would hold a stale world pool entry -
+			// and up to MAX_CHARS displays - for the rest of the session.
+			if (effect.getType() == VFXEffectType.TEXT_OVERLAY && isWorldText(effect)) {
 				textInstances.add(effect.getInstanceId());
 			}
 			if (effect.getType() == VFXEffectType.PARTICLES) {
