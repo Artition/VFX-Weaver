@@ -1,0 +1,1 @@
+{"type":"particles","duration":200,"persistent":true,"fade_ticks":20,"params":{"rate":55.0,"speed":8.0,"aim":1.0,"spread":0.01,"lifetime":55.0,"size":1.0,"color_r":0.86,"color_g":0.92,"color_b":1.0},"positions":[[3015.5960702230177,219.6,2990.6964973697295],[3000.5,214.0,3000.5]],"particle":"minecraft:end_rod","shape":"line"}

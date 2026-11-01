@@ -1,1 +1,1 @@
-{"type":"chromatic_aberration","duration":200,"persistent":true,"loop":true,"fade_ticks":20,"params":{"intensity":0.55,"radius":0.85}}
+{"type":"chromatic_aberration","duration":200,"persistent":true,"fade_ticks":20,"params":{"intensity":0.35,"radius":0.85}}

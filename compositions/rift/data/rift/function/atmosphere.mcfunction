@@ -1,3 +1,4 @@
-# Dusk: the sky does the work a night sky cannot do in a still frame.
-time set 12400
+# Night, deliberately: the inverted interior has to read as light, and inverting a
+# daylight sky turns the orb into a yellow stain instead of a lamp.
+time set 18000
 weather clear

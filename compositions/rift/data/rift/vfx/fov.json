@@ -1,1 +1,1 @@
-{"type":"fov_modifier","duration":200,"persistent":true,"loop":true,"fade_ticks":20,"params":{"fov_delta":-18.0}}
+{"type":"fov_modifier","duration":200,"persistent":true,"fade_ticks":20,"params":{"fov_delta":-18.0}}

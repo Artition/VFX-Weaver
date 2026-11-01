@@ -1,1 +1,1 @@
-{"type":"vortex","duration":200,"persistent":true,"loop":true,"fade_ticks":20,"params":{"strength":1.05,"radius":0.62,"center_x":0.5,"center_y":0.2581}}
+{"type":"vortex","duration":200,"persistent":true,"fade_ticks":20,"params":{"strength":0.45,"radius":0.75,"center_x":{"bind":"screen_x","pos":[3000.5,214.0,3000.5]},"center_y":{"bind":"screen_y","pos":[3000.5,214.0,3000.5]}},"mask":{"shape":"sphere","space":"world","volume":"aura","center":[3000.5,214.0,3000.5],"radius":7.0,"softness":0.8,"invert":true}}

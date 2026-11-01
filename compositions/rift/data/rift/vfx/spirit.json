@@ -1,1 +1,1 @@
-{"type":"entity_outline","duration":200,"persistent":true,"loop":true,"fade_ticks":20,"params":{"color_r":0.86,"color_g":0.92,"color_b":1.0,"alpha":0.9,"width":0.06,"through_blocks":1.0},"entity_selector":"@e[tag=rift_spirit,limit=1]"}
+{"type":"entity_outline","duration":200,"persistent":true,"fade_ticks":20,"params":{"color_r":0.86,"color_g":0.92,"color_b":1.0,"alpha":0.9,"width":0.06,"through_blocks":1.0},"entity_selector":"@e[tag=rift_spirit,limit=1]"}

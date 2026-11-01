@@ -1,1 +1,1 @@
-{"type":"fog_modifier","duration":200,"persistent":true,"loop":true,"fade_ticks":20,"params":{"fog_start_scale":0.7,"fog_end_scale":1.0,"fog_r":0.36,"fog_g":0.32,"fog_b":0.62,"fog_color_amount":0.5}}
+{"type":"fog_modifier","duration":200,"persistent":true,"fade_ticks":20,"params":{"fog_start_scale":0.7,"fog_end_scale":1.0,"fog_r":0.36,"fog_g":0.32,"fog_b":0.62,"fog_color_amount":0.5}}

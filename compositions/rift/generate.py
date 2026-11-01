@@ -22,21 +22,27 @@ PACK = os.path.join(ROOT, "compositions", "rift")
 OX, OY, OZ = 3000, 200, 3000
 R_OUTER = 16
 R_GLOW = 11
-PLATFORM_Z = 22
+PLATFORM_Z = 30       # the bridge runs this far past the island centre; the camera stands on it
+VIEW_UV_Y = 0.35      # where the sphere's centre lands on screen (0 = top of the frame)
+EYE = 1.62            # player eye height: the pitch and the screen centre are both measured from it
 TAG_DEBRIS = "rift_debris"
 TAG_SPIRIT = "rift_spirit"
 
 # The sphere: its centre is the composition. Everything else is placed against it.
-SX, SY, SZ = OX + 0.5, OY + 15.0, OZ + 0.5
-R_SPHERE = 9.0
+SX, SY, SZ = OX + 0.5, OY + 14.0, OZ + 0.5
+R_SPHERE = 7.0
 CAM_Z = OZ + PLATFORM_Z + 0.5
-CAM_Y = OY + 2.0
-CAM_PITCH = -18.0   # degrees; negative looks up
+CAM_Y = OY + 1.0                                  # feet, not the eye
 BASE_FOV = 70.0
 FOV_DELTA = -18.0
+# Tilt chosen so the sphere sits at VIEW_UV_Y instead of wherever it happens to land; the pull
+# effects are then centred on it by construction rather than by a hand-tuned screen fraction.
+CAM_PITCH = round(-(math.degrees(math.atan2(SY - (CAM_Y + EYE), CAM_Z - SZ))
+                    - (0.5 - VIEW_UV_Y) * (BASE_FOV + FOV_DELTA)), 1)
 
 VIOLET = (0.62, 0.44, 1.0)
 COLD_WHITE = (0.86, 0.92, 1.0)
+INFLOW_LINES = 8
 
 
 def h(x, z, salt=0):
@@ -64,9 +70,14 @@ def quat(axis, degrees):
 
 
 def display(name, x, y, z, scale, rotation, tag=TAG_DEBRIS):
+    # A display entity's Transformation codec wants all four components; a map without
+    # translation/right_rotation is rejected whole, and the entity silently fails to spawn.
     nbt = (
         'block_state:{Name:"minecraft:%s"},'
-        'transformation:{left_rotation:[%.4ff,%.4ff,%.4ff,%.4ff],scale:[%.2ff,%.2ff,%.2ff]},'
+        'transformation:{translation:[0.0f,0.0f,0.0f],'
+        'left_rotation:[%.4ff,%.4ff,%.4ff,%.4ff],'
+        'right_rotation:[0.0f,0.0f,0.0f,1.0f],'
+        'scale:[%.2ff,%.2ff,%.2ff]},'
         'brightness:{sky:15,block:15},Tags:["%s"]'
         % (name, rotation[0], rotation[1], rotation[2], rotation[3], scale[0], scale[1], scale[2], tag)
     )
@@ -197,8 +208,7 @@ def main():
         d = {
             "type": effect,
             "duration": 200,
-            "persistent": True,
-            "loop": True,
+            "persistent": True,   # infinite on its own - `loop` would re-add it every period
             "fade_ticks": 20,
             "params": params,
         }
@@ -220,9 +230,12 @@ def main():
         "radius": R_SPHERE,
         "softness": 0.8,
     }
+    # Everything outside the sphere is what moves: the pull is masked to the inverse, so the
+    # orb itself stays crisp while the world around it is dragged in.
+    pull_mask = {**sphere_mask, "invert": True}
     # where the sphere lands on screen: the screen-space effects must be centred there, not on the
     # frame, or the swirl happens around empty sky
-    elev = math.degrees(math.atan2(SY - CAM_Y, CAM_Z - SZ))
+    elev = math.degrees(math.atan2(SY - (CAM_Y + EYE), CAM_Z - SZ))
     fov = BASE_FOV + FOV_DELTA
     uv_y = 0.5 - (elev - (-CAM_PITCH)) / fov
     screen_centre = {"center_x": 0.5, "center_y": round(uv_y, 4)}
@@ -234,47 +247,54 @@ def main():
     effects["invert_in"] = definition("invert", {"intensity": 1.0,
                                                  "screen_layer": 0}, mask=sphere_mask)
     effects["grade_in"] = definition("color_grade", {
-        "saturation": 0.75,
-        "contrast": 1.12,
-        "brightness": 1.06,
+        "saturation": 0.70,
+        "contrast": 1.16,
+        "brightness": 1.25,
         "tint_r": 0.92, "tint_g": 0.96, "tint_b": 1.10,
     }, mask=sphere_mask)
 
     # --- the pull
+    # The centre is bound to the sphere's world position, so the funnel follows the object
+    # instead of a screen fraction that only happens to be right for one camera.
     effects["swirl"] = definition("vortex", {
-        "strength": 1.05,
-        "radius": 0.62,
-        **screen_centre,
-    })
+        "strength": 0.45,
+        "radius": 0.75,
+        "center_x": {"bind": "screen_x", "pos": [SX, SY, SZ]},
+        "center_y": {"bind": "screen_y", "pos": [SX, SY, SZ]},
+    }, mask=pull_mask)
     effects["dent"] = definition("dent", {
-        "strength": 0.55,
-        "radius": 0.40,
-        **screen_centre,
-    })
+        "strength": 0.34,
+        "radius": 0.55,
+        "center_x": {"bind": "screen_x", "pos": [SX, SY, SZ]},
+        "center_y": {"bind": "screen_y", "pos": [SX, SY, SZ]},
+    }, mask=pull_mask)
     effects["streaks"] = definition("speed_lines", {
         "count": 84.0,
         "length": 0.62,
         "length_rand": 0.85,
         "pos_rand": 1.0,
-        "width": 0.32,
+        "width": 0.18,
         "seed": 3.0,
         "color_r": 0.80, "color_g": 0.76, "color_b": 1.0,
-        "intensity": 0.30,
-        **screen_centre,
-    })
+        "intensity": 0.20,
+        "center_x": {"bind": "screen_x", "pos": [SX, SY, SZ]},
+        "center_y": {"bind": "screen_y", "pos": [SX, SY, SZ]},
+    }, mask=pull_mask)
     effects["chroma"] = definition("chromatic_aberration", {
-        "intensity": 0.55,
+        "intensity": 0.35,
         "radius": 0.85,
     })
 
     # --- light and air
+    # The halo: a billboarded ring wider than the orb, so it reads as a ring around the sphere
+    # rather than a line on its surface.
     effects["rim"] = definition("pulse_ring", {
-        "radius": R_SPHERE + 0.18,
-        "thickness": 0.11,
+        "radius": R_SPHERE + 2.6,
+        "thickness": 0.12,
         "billboard": 1.0,
         "red": 0.78, "green": 0.72, "blue": 1.0,
         "through_blocks": 1.0,
-        "intensity": 0.85,
+        "intensity": 1.0,
     }, positions=[[SX, SY, SZ]])
 
     effects["column"] = definition("light_beam", {
@@ -315,6 +335,30 @@ def main():
     }, positions=[[SX, SY, SZ], [SX, SY, SZ]],
         extra={"particle": "dust", "shape": "sphere"})
 
+    # Streams flying in: shape "line" spawns particles along the segment from the first position
+    # slot to the second, and `aim` launches each one at the second slot, so one child reads as a
+    # thread of particles being pulled into the sphere instead of a random cloud.
+    inflow_lines = []
+    for k in range(INFLOW_LINES):
+        angle = math.radians(360.0 / INFLOW_LINES * k + 12.0)
+        radius = 17.0 + 5.0 * ((k * 3) % 5) / 5.0
+        rise = -8.0 + 17.0 * ((k * 7) % 5) / 5.0
+        name = f"inflow_{k}"
+        inflow_lines.append(name)
+        # end_rod renders unlit, and the whole frame outside the orb is graded dark - a dust thread
+        # disappears there, while a rod keeps its own brightness.
+        effects[name] = definition("particles", {
+            "rate": 55.0,
+            "speed": 8.0,          # 8 blocks/s over 55 ticks walks the whole segment
+            "aim": 1.0,
+            "spread": 0.01,
+            "lifetime": 55.0,
+            "size": 1.0,
+            "color_r": COLD_WHITE[0], "color_g": COLD_WHITE[1], "color_b": COLD_WHITE[2],
+        }, positions=[[SX + radius * math.cos(angle), SY + rise, SZ + radius * math.sin(angle)],
+                      [SX, SY, SZ]],
+            extra={"particle": "minecraft:end_rod", "shape": "line"})
+
     effects["fallback_glow"] = definition("particles", {
         "rate": 40.0,
         "radius": 5.0,
@@ -325,15 +369,6 @@ def main():
     }, positions=[[SX, OY + 1.0, SZ]],
         extra={"particle": "minecraft:end_rod", "shape": "helix"})
 
-
-    effects["spectral"] = definition("spectral", {
-        "amount": 0.22,
-        "mode": 1.0,
-        "center_x": 0.5,
-        "center_y": 0.5,
-        "mid": 0.5,
-        "core": 0.86,
-    }, mask=sphere_mask)
 
     effects["grain"] = definition("film_grain", {
         "intensity": 0.16,
@@ -348,10 +383,13 @@ def main():
 
     effects["roll"] = definition("camera_roll", {"angle": 2.5, "wobble": 0.0})
 
+    # The tear cuts the frame in half: `offset` is measured from the middle of the screen along the
+    # line normal, so 0 puts the cut exactly through the screen centre whatever the angle. The tilt
+    # stays as a tilt only - it never moves the line off the centre.
     effects["tear"] = definition("slice_shift", {
-        "angle": 12.0,
-        "offset": 0.18,
-        "shift": 0.012,
+        "angle": 16.0,
+        "offset": 0.0,
+        "shift": 0.02,
         "mirror": 1.0,
     })
 
@@ -427,11 +465,12 @@ def main():
 
     # the play order is also the stop order: one list, so the two can never drift apart
     order = [
-        "grade_out", "invert_in", "grade_in", "spectral", "swirl", "dent", "streaks",
+        "grade_out", "invert_in", "grade_in", "swirl", "dent", "streaks",
         "chroma", "tear", "grain", "bars", "roll", "fog", "bloom", "vignette", "fov",
         "rim", "column", "ground_ring", "orbit", "infall", "fallback_glow",
         "tint", "outline", "spirit",
     ]
+    order += inflow_lines
     children = [{"effect": f"rift:{name}", "delay": 0, "duration": -1} for name in order]
     for (sx, sy, sz) in stone_top:
         d = (SX - sx, SY - sy, SZ - sz)
@@ -482,8 +521,9 @@ def main():
     ])
 
     write("data/rift/function/atmosphere.mcfunction", [
-        "# Dusk: the sky does the work a night sky cannot do in a still frame.",
-        "time set 12400",
+        "# Night, deliberately: the inverted interior has to read as light, and inverting a",
+        "# daylight sky turns the orb into a yellow stain instead of a lamp.",
+        "time set 18000",
         "weather clear",
     ])
 
@@ -504,10 +544,13 @@ def main():
 
     write("data/rift/function/clear.mcfunction", [
         "# Remove the scene: effects, entities and every block in the bounding box.",
+        "# Persistent effects only begin fading on the first stop; the second one removes them,",
+        "# so a second /function rift:go never stacks a second copy of the whole collection.",
+        "function rift:stop",
         "function rift:stop",
         f"kill @e[tag={TAG_DEBRIS}]",
         f"kill @e[tag={TAG_SPIRIT}]",
-        f"fill {OX - 3} {OY - 3} {OZ - 17} {OX + 3} {OY + 20} {OZ + 24} minecraft:air",
+        f"fill {OX - 3} {OY - 3} {OZ - 17} {OX + 3} {OY + 20} {OZ + 34} minecraft:air",
         f"fill {OX - 18} {OY - 10} {OZ - 18} {OX + 18} {OY + 20} {OZ + 18} minecraft:air",
     ])
 

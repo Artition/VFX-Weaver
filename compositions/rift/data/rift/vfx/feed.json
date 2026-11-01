@@ -1,1 +1,1 @@
-{"type":"light_beam","duration":200,"persistent":true,"loop":true,"fade_ticks":20,"params":{"radius":0.16,"height":12.0,"top_scale":1.6,"softness":2.4,"top_fade":0.0,"bottom_fade":0.8,"red":0.86,"green":0.92,"blue":1.0,"intensity":0.35,"through_blocks":0.0}}
+{"type":"light_beam","duration":200,"persistent":true,"fade_ticks":20,"params":{"radius":0.16,"height":12.0,"top_scale":1.6,"softness":2.4,"top_fade":0.0,"bottom_fade":0.8,"red":0.86,"green":0.92,"blue":1.0,"intensity":0.35,"through_blocks":0.0}}

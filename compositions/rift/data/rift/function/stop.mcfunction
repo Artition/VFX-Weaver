@@ -2,7 +2,6 @@
 vfx stop rift:grade_out
 vfx stop rift:invert_in
 vfx stop rift:grade_in
-vfx stop rift:spectral
 vfx stop rift:swirl
 vfx stop rift:dent
 vfx stop rift:streaks
@@ -24,5 +23,13 @@ vfx stop rift:fallback_glow
 vfx stop rift:tint
 vfx stop rift:outline
 vfx stop rift:spirit
+vfx stop rift:inflow_0
+vfx stop rift:inflow_1
+vfx stop rift:inflow_2
+vfx stop rift:inflow_3
+vfx stop rift:inflow_4
+vfx stop rift:inflow_5
+vfx stop rift:inflow_6
+vfx stop rift:inflow_7
 vfx stop rift:feed
 vfx stop rift:scene
