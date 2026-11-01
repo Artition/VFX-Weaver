@@ -81,11 +81,16 @@ public final class VFXTextSpec {
 		};
 	}
 
+	// Only Minecraft's built-in font is ever drawn: the renderer always uses
+	// Minecraft.getInstance().font, so any other name would silently be ignored. Reject it at parse
+	// time instead of drawing something other than what the definition asked for.
 	private static String parseFont(final String raw) {
 		final String font = raw.toLowerCase(java.util.Locale.ROOT);
 		return switch (font) {
-			case "default", "monospace" -> font;
-			default -> throw new IllegalArgumentException("text_overlay: unknown text.font '" + raw + "'");
+			case "default", "minecraft:default" -> "default";
+			default -> throw new IllegalArgumentException("text_overlay: text.font '" + raw
+				+ "' is not supported - only 'default' / 'minecraft:default' is drawn "
+				+ "(a resource-pack font is not supported yet)");
 		};
 	}
 

@@ -25,7 +25,8 @@ definition and the clock comes from the effect timeline.
   (player name, scoreboard value) is a separate design around `text.source`, not a string param.
 - No per-character arrays of colour/font/animation (v1 uses per-line colour with a gradient, one
   animation for the line, and per-character timing only through `stagger`).
-- No custom TTF loading from a datapack. `default` and `monospace` only.
+- No custom TTF loading from a datapack. `default` only; `minecraft:default` is accepted as the same
+  font, any other name is rejected because a resource-pack font is not supported yet.
 - 26.3 port is explicitly deferred; this feature is implemented against 26.2.
 
 ## Behaviour
@@ -87,13 +88,13 @@ can be animated and bound like any other parameter.
 | `scale` | float | 1 | pixels per glyph in `flat`, blocks per glyph in `world` |
 | `line_height` | float | 1.2 | line spacing as a multiple of `scale` |
 | `wrap_width` | float | 0 | wrap when the line exceeds this width; 0 = only `\n` breaks |
-| `alpha` | float | 1 | overall opacity multiplier |
+| `alpha` | float | 1 | overall opacity multiplier — **not implemented yet**: the `world` path never reads it |
 | `color_r/g/b` | float | 1/1/1 | base colour |
-| `gradient` | float | 0 | 0 = flat colour; 1 = ramp across the line to `gradient_r/g/b` |
-| `gradient_r/g/b` | float | 1/0.6/0.3 | second colour of the ramp |
+| `gradient` | float | 0 | 0 = flat colour; 1 = ramp across the line to `gradient_r/g/b` — **not implemented yet**: the `world` path never reads it |
+| `gradient_r/g/b` | float | 1/0.6/0.3 | second colour of the ramp — **not implemented yet**: the `world` path never reads it |
 | `shadow` | float | 1 | drop shadow under glyphs |
-| `outline` | float | 0 | outline width in pixels (`flat`) or a fraction of `scale` (`world`) |
-| `outline_r/g/b` | float | 0/0/0 | outline colour |
+| `outline` | float | 0 | outline width in pixels (`flat`) or a fraction of `scale` (`world`) — **not implemented yet**: the `world` path never reads it |
+| `outline_r/g/b` | float | 0/0/0 | outline colour — **not implemented yet**: the `world` path never reads it |
 | `reveal` | float | 1 | 0..1, fraction of characters shown |
 | `per_char_anim` | int | 0 | animation while appearing: `0` none, `1` rise, `2` wave, `3` tilt |
 | `stagger` | float | 0 | delay between characters for `per_char_anim`, seconds |
@@ -110,7 +111,7 @@ can be animated and bound like any other parameter.
 | `fade_out` | float | 0.5 | seconds to fade after landing / after leaving the frame |
 | `rot_x`, `rot_y`, `rot_z` | float | 0 | baseline orientation of the whole block, degrees |
 | `angle` | float | 0 | `flat` mode: rotation of the block around its anchor, degrees |
-| `font` | string | `default` | `default` or `monospace` |
+| `font` | string | `default` | `default` or `minecraft:default`; a resource-pack font is rejected (not supported yet) |
 
 Numeric params follow the existing rules: constants, keyframes, animations, bindings, expressions,
 multipliers, no arbitrary clamps beyond the ones that avoid degenerate maths (`scale > 0`,
