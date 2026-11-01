@@ -732,7 +732,7 @@ public final class VFXAPI {
 		// so the client falls back to its own definition default (which carries the same curve).
 		String wireEasing = effectiveEasing.isInline() ? "" : effectiveEasing.name();
 		VFXNetwork.sendToPlayer(player, VFXTriggerPayload.play(effectId, duration, instanceId, worldPos, entityUuids, params, wireEasing, text));
-		VFXServerEffects.get().record(player, effectId, duration, instanceId, worldPos, entityUuids, params, wireEasing);
+		VFXServerEffects.get().record(player, effectId, duration, instanceId, worldPos, entityUuids, params, wireEasing, text);
 		VFXScoreboardSync.onEffectPlayed(player, definition, duration);
 		return true;
 	}
@@ -766,7 +766,7 @@ public final class VFXAPI {
 		final @Nullable String text
 	) {
 		VFXNetwork.sendToPlayer(player, VFXTriggerPayload.play(effectId, durationTicks, params, easing, text));
-		VFXServerEffects.get().record(player, effectId, durationTicks, 0L, null, List.of(), params, easing.name());
+		VFXServerEffects.get().record(player, effectId, durationTicks, 0L, null, List.of(), params, easing.name(), text);
 	}
 
 	/**

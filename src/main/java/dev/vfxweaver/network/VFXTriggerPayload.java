@@ -108,18 +108,27 @@ public record VFXTriggerPayload(
 	 */
 	public static final StreamCodec<ByteBuf, String> OPTIONAL_TEXT_OVERRIDE = new StreamCodec<>() {
 		public String decode(final ByteBuf input) {
-			final String value = OPTIONAL_STRING.decode(input);
-			if (value != null && value.length() > MAX_TEXT_OVERRIDE) {
-				VFXLog.warnOnce(LOGGER, "net:text-override-clip", "Text override is {} characters long; cut to MAX_TEXT_OVERRIDE ({})", value.length(), MAX_TEXT_OVERRIDE);
-				return value.substring(0, MAX_TEXT_OVERRIDE);
-			}
-			return value;
+			return clipTextOverride(OPTIONAL_STRING.decode(input));
 		}
 
 		public void encode(final ByteBuf output, final String value) {
-			OPTIONAL_STRING.encode(output, value);
+			OPTIONAL_STRING.encode(output, clipTextOverride(value));
 		}
 	};
+
+	/**
+	 * Cuts an over-long override to {@link #MAX_TEXT_OVERRIDE}, with one warning. Shared by both
+	 * directions: a value cut on the way out cannot make {@code STRING_UTF8} throw at send time, and
+	 * one cut on the way in cannot reach the renderer. A value already inside the cap is returned
+	 * unchanged (and {@code null} stays {@code null}).
+	 */
+	private static @Nullable String clipTextOverride(final @Nullable String value) {
+		if (value == null || value.length() <= MAX_TEXT_OVERRIDE) {
+			return value;
+		}
+		VFXLog.warnOnce(LOGGER, "net:text-override-clip", "Text override is {} characters long; cut to MAX_TEXT_OVERRIDE ({})", value.length(), MAX_TEXT_OVERRIDE);
+		return value.substring(0, MAX_TEXT_OVERRIDE);
+	}
 
 	/**
 	 * The three optional trailing strings, composed on their own: {@link StreamCodec#composite} has

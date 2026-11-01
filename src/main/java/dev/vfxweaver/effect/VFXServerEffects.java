@@ -110,6 +110,8 @@ public final class VFXServerEffects {
 	 * resets on every world reload, which made elapsed time collapse to zero and replayed effects
 	 * never expire. {@code keys} carries the keyframes added after the play (via {@code /vfx key})
 	 * so a reconnect resumes the same animation instead of restarting from the definition defaults.
+	 * {@code textOverride} is the call-time text the play carried, stored next to the params so the
+	 * re-send shows the same string instead of falling back to the definition's {@code content}.
 	 *
 	 * @param neverExpires true for persistent and looping definitions: they are re-applied no
 	 *                     matter how long the player was away
@@ -122,6 +124,7 @@ public final class VFXServerEffects {
 		@Nullable Vec3 worldPos,
 		List<UUID> entityUuids,
 		Map<String, Float> params,
+		@Nullable String textOverride,
 		String easing,
 		long startMillis,
 		List<RecordedKey> keys
@@ -146,6 +149,9 @@ public final class VFXServerEffects {
 
 	/**
 	 * Records an effect play sent to the player. Replaces any previous entry of the same effect id.
+	 *
+	 * @param textOverride the call-time text the play carried (null when the definition's own
+	 *                     {@code text.content} is drawn), kept so a reconnect re-sends it
 	 */
 	public void record(
 		final ServerPlayer player,
@@ -155,7 +161,8 @@ public final class VFXServerEffects {
 		final @Nullable Vec3 worldPos,
 		final List<UUID> entityUuids,
 		final Map<String, Float> params,
-		final String easing
+		final String easing,
+		final @Nullable String textOverride
 	) {
 		if (flashbackIsReplaying()) {
 			return;
@@ -172,7 +179,7 @@ public final class VFXServerEffects {
 				it.remove();
 			}
 		}
-		effects.put(effectId, new ActiveEffect(effectId, durationTicks, neverExpires(effectId, durationTicks), instanceId, worldPos, List.copyOf(entityUuids), Map.copyOf(params), easing, now, List.of()));
+		effects.put(effectId, new ActiveEffect(effectId, durationTicks, neverExpires(effectId, durationTicks), instanceId, worldPos, List.copyOf(entityUuids), Map.copyOf(params), textOverride, easing, now, List.of()));
 	}
 
 	/**
@@ -196,7 +203,7 @@ public final class VFXServerEffects {
 			keys.remove(0);
 		}
 		keys.add(new RecordedKey(param, time, value, easing));
-		state.effects.put(effectId, new ActiveEffect(active.effectId(), active.durationTicks(), active.neverExpires(), active.instanceId(), active.worldPos(), active.entityUuids(), active.params(), active.easing(), active.startMillis(), List.copyOf(keys)));
+		state.effects.put(effectId, new ActiveEffect(active.effectId(), active.durationTicks(), active.neverExpires(), active.instanceId(), active.worldPos(), active.entityUuids(), active.params(), active.textOverride(), active.easing(), active.startMillis(), List.copyOf(keys)));
 	}
 
 	/**
@@ -294,7 +301,7 @@ public final class VFXServerEffects {
 				continue;
 			}
 			VFXNetwork.sendToPlayer(player, VFXTriggerPayload.play(
-				active.effectId(), remaining, elapsed, active.instanceId(), active.worldPos(), active.entityUuids(), active.params(), active.easing()
+				active.effectId(), remaining, elapsed, active.instanceId(), active.worldPos(), active.entityUuids(), active.params(), active.easing(), active.textOverride()
 			));
 			for (final RecordedKey key : active.keys()) {
 				VFXNetwork.sendToPlayer(player, VFXTriggerPayload.keyframe(

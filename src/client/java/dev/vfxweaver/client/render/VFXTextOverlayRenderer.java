@@ -129,6 +129,7 @@ public final class VFXTextOverlayRenderer {
 		private final List<Display.TextDisplay> entities;
 		private final VFXTextLayout layout;
 		private final float[] floors;
+		private final String[] ownTexts;
 		private final String[] lastTexts;
 		private int lastColour;
 		private byte lastFlags;
@@ -136,13 +137,14 @@ public final class VFXTextOverlayRenderer {
 
 		private LiveText(final long instanceId, final String signature,
 				final List<Display.TextDisplay> entities, final VFXTextLayout layout,
-				final float[] floors, final String[] lastTexts, final int lastColour,
-				final byte lastFlags) {
+				final float[] floors, final String[] ownTexts, final String[] lastTexts,
+				final int lastColour, final byte lastFlags) {
 			this.instanceId = instanceId;
 			this.signature = signature;
 			this.entities = entities;
 			this.layout = layout;
 			this.floors = floors;
+			this.ownTexts = ownTexts;
 			this.lastTexts = lastTexts;
 			this.lastColour = lastColour;
 			this.lastFlags = lastFlags;
@@ -428,14 +430,18 @@ public final class VFXTextOverlayRenderer {
 			level.addEntity(display);
 			entities.add(display);
 		}
+		// The one-character string of each spawned glyph, built once here instead of on every frame
+		// (the flat path caches the same thing), then copied into the "what the display shows" array.
+		final String[] ownTexts = new String[entities.size()];
+		for (int i = 0; i < ownTexts.length; i++) {
+			ownTexts[i] = String.valueOf(layout.glyphs().get(i).ch());
+		}
 		// What each display currently shows. Spawned with its own character; placeBlock rewrites an
 		// entry only when the character it should show changes, which is what a noise swap is.
-		final String[] lastTexts = new String[entities.size()];
-		for (int i = 0; i < lastTexts.length; i++) {
-			lastTexts[i] = String.valueOf(layout.glyphs().get(i).ch());
-		}
+		final String[] lastTexts = ownTexts.clone();
 		final LiveText live = new LiveText(effect.getInstanceId(), signature, entities, layout,
-			floors(effect, level, spec, layout, entities.size(), origin), lastTexts, colour, flags);
+			floors(effect, level, spec, layout, entities.size(), origin), ownTexts, lastTexts,
+			colour, flags);
 		LIVE.put(effect.getInstanceId(), live);
 		return live;
 	}
@@ -516,6 +522,9 @@ public final class VFXTextOverlayRenderer {
 		live.lastFlags = flags;
 		final int count = layout.glyphs().size();
 		final float revealed = reveal(effect) * count;
+		// Noise is only computed when 'scramble' is on: with it off every character shows its own
+		// cached one-character string, and the line costs no hash and no param lookup per frame.
+		final boolean scrambleOn = effect.getParam("scramble", 0.0F) > 0.0F;
 		// The block only finishes when every character has faded out; until then this stays above 0.
 		float brightest = 0.0F;
 		for (int i = 0; i < live.entities.size(); i++) {
@@ -540,8 +549,8 @@ public final class VFXTextOverlayRenderer {
 			// character back as soon as the band has passed it. The text is written when the style
 			// changed or when the character it should show changed - never once per frame - so a
 			// standing line costs nothing and a decode only touches the glyphs that are swapping.
-			final float noise = scrambleAmount(effect, i, count);
-			final String text = noise > 0.0F ? noiseGlyph(effect, i) : String.valueOf(glyph.ch());
+			final float noise = scrambleOn ? scrambleAmount(effect, i, count) : 0.0F;
+			final String text = noise > 0.0F ? noiseGlyph(effect, i) : live.ownTexts[i];
 			if (restyle || !text.equals(live.lastTexts[i])) {
 				display.setText(Component.literal(text).withStyle(style));
 				live.lastTexts[i] = text;

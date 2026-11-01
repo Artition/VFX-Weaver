@@ -110,15 +110,27 @@ if (-not (Test-Path -LiteralPath $specPath)) {
 	}
 }
 
-# 4) the wire is untouched by this feature: no new field. The protocol version is pinned to the
-#    value the text-override change left it at (7) - another bump means a wire change landed and
-#    this guard has to be re-read, because the window surface must not touch the wire.
-if ($payload -notmatch 'PROTOCOL_VERSION = 7') {
-	$problems.Add("VFXTriggerPayload.PROTOCOL_VERSION is no longer 7 - a wire change landed without updating this guard (the window surface must not touch the wire)")
-}
-foreach ($forbidden in @('window_create', 'window_control', 'windowId', 'titles')) {
-	if ($payload.Contains($forbidden)) {
-		$problems.Add("VFXTriggerPayload carries '$forbidden' - strings do not travel on the wire in v1")
+# 4) the wire is untouched by this feature: the window surface adds no field. This reads the
+#    record's component list - which is the wire order - and pins that, so the guard survives a
+#    protocol bump another feature owns (the number is not what makes a window field wrong).
+$headerStart = $payload.IndexOf('public record VFXTriggerPayload(')
+$headerEnd = if ($headerStart -ge 0) { $payload.IndexOf(') implements CustomPacketPayload', $headerStart) } else { -1 }
+if ($headerStart -lt 0 -or $headerEnd -lt 0) {
+	$problems.Add("VFXTriggerPayload: the record component list is not readable")
+} else {
+	$wireFields = @(
+		$payload.Substring($headerStart, $headerEnd - $headerStart) -split "`n" |
+			ForEach-Object { $_.Trim().TrimEnd(',') } |
+			Where-Object { $_ -ne '' } |
+			ForEach-Object { if ($_ -match '([A-Za-z_][A-Za-z0-9_]*)$') { $Matches[1] } }
+	)
+	if ($wireFields -notcontains 'protocolVersion' -or $wireFields -notcontains 'effectId') {
+		$problems.Add("VFXTriggerPayload: the component list did not parse (got: $($wireFields -join ', '))")
+	}
+	foreach ($forbidden in @('windowId', 'texture', 'titles', 'window', 'title')) {
+		if ($wireFields -contains $forbidden) {
+			$problems.Add("VFXTriggerPayload carries the '$forbidden' component - window strings do not travel on the wire in v1")
+		}
 	}
 }
 
