@@ -8,6 +8,7 @@ vfx stop rift:spirit
 vfx stop rift:grade_out
 vfx stop rift:grade_in
 vfx stop rift:spectral
+vfx stop rift:fog
 vfx stop rift:bloom
 vfx stop rift:vignette
 vfx stop rift:dof

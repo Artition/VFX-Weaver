@@ -1,8 +1,8 @@
 ﻿"""Generate the RIFT composition datapack.
 
-RIFT is one still frame made in game: a broken disc of stone hanging in dusk, four leaning pillars
-whose beams converge above an amethyst spire, a halo of turned plates and shards, and a rift of
-violet light that the two masks cut out of a grey world.
+RIFT is one still frame made in game: an island of dark stone at dusk, four leaning monoliths whose
+beams converge above an amethyst spire, a ring of turned plates around it, and a rift the masks cut
+out of the world.
 
 Everything is assembled by `/function rift:go`; nothing is placed by hand. Every effect value is a
 constant, because the piece has to read in a single screenshot, not over time.
@@ -21,13 +21,18 @@ PACK = os.path.join(ROOT, "compositions", "rift")
 OX, OY, OZ = 3000, 200, 3000
 R_OUTER = 16
 R_GLOW = 11
-PLATFORM_Z = 23            # the viewer stands here
+PLATFORM_Z = 23
 TAG_SHARD = "rift_shard"
 TAG_SPIRIT = "rift_spirit"
 
-VIOLET = (0.62, 0.44, 1.0)     # the rift
-COLD_WHITE = (0.84, 0.90, 1.0)  # light
+VIOLET = (0.62, 0.44, 1.0)
+COLD_WHITE = (0.84, 0.90, 1.0)
 APEX = (OX + 0.5, OY + 40, OZ + 0.5)
+
+PILLAR_RADIUS = 7.5
+PILLAR_HEIGHT = 12.0
+PILLAR_TILT = 11.0
+SPIRE_TOP = 212
 
 
 def h(x, z, salt=0):
@@ -49,7 +54,6 @@ def setblock(x, y, z, name):
 
 
 def quat(axis, degrees):
-    """[x, y, z, w] for a rotation about a unit axis."""
     half = math.radians(degrees) / 2.0
     s = math.sin(half)
     return [axis[0] * s, axis[1] * s, axis[2] * s, math.cos(half)]
@@ -95,6 +99,7 @@ def main():
     if os.path.isdir(data):
         shutil.rmtree(data)
         print("rift: cleared the previous pack output")
+
     # ------------------------------------------------------------------ island
     print("rift: island")
     lines = ["# The disc and the rock under it: a cone, so the island reads as a mass and not a coin."]
@@ -110,7 +115,6 @@ def main():
                 elif dy >= -1:
                     name = "deepslate" if h(dx, dz, dy) % 11 else "cobbled_deepslate"
                 else:
-                    # the underside frays where it tapers
                     if h(dx, dz, dy + 40) % 100 < 26:
                         continue
                     name = "cobbled_deepslate" if h(dx, dz, dy + 7) % 3 else "deepslate"
@@ -120,68 +124,62 @@ def main():
 
     # ------------------------------------------------------------------ spire
     print("rift: spire")
-    spire = ["# A 5x5 base narrowing twice, then a column of amethyst: the light comes out of the stone."]
-    for y in range(0, 4):
-        for dx in range(-2, 3):
-            for dz in range(-2, 3):
-                corner = abs(dx) == 2 and abs(dz) == 2
-                ring = max(abs(dx), abs(dz)) == 2
-                name = "polished_blackstone" if corner else ("deepslate_tiles" if ring else "deepslate")
-                spire.append(setblock(OX + dx, OY + y, OZ + dz, name))
-    for y in range(4, 8):
+    spire = ["# A slim plinth and an amethyst column: the light comes out of the stone."]
+    for y in range(0, 3):
         for dx in range(-1, 2):
             for dz in range(-1, 2):
-                name = "amethyst_block" if (dx == 0 and dz == 0) else "deepslate"
+                corner = abs(dx) == 1 and abs(dz) == 1
+                name = "polished_blackstone" if corner else "deepslate_tiles"
                 spire.append(setblock(OX + dx, OY + y, OZ + dz, name))
-    for y in range(8, 12):
+    for y in range(3, 12):
         spire.append(setblock(OX, OY + y, OZ, "amethyst_block" if y < 11 else "budding_amethyst"))
     write("data/rift/function/scene/spire.mcfunction", spire)
 
-    # ------------------------------------------------------------------ pillars
-    print("rift: pillars")
-    pillars = ["# Four leaning pillars: block_display entities stretched into monoliths, tilted inward."]
+    # ------------------------------------------------------------------ monoliths
+    print("rift: monoliths")
+    monoliths = ["# Four leaning monoliths: one block stretched twelve times, tilted inward. This is the frame."]
     pillar_tops = []
     for k in range(4):
         a = math.radians(45 + 90 * k)
-        px, pz = 9.5 * math.cos(a), 9.5 * math.sin(a)
+        px, pz = PILLAR_RADIUS * math.cos(a), PILLAR_RADIUS * math.sin(a)
         cx, cz = OX + px, OZ + pz
+        # a square footing, so the leaning shape has something to stand on
         for dx in (-1, 0, 1):
             for dz in (-1, 0, 1):
-                pillars.append(setblock(int(round(cx)) + dx, OY, int(round(cz)) + dz, "polished_blackstone"))
+                monoliths.append(setblock(int(round(cx)) + dx, OY, int(round(cz)) + dz, "polished_blackstone"))
         axis = (-math.sin(a), 0.0, math.cos(a))
-        rot = quat(axis, 9.0)
-        pillars.append(display("polished_blackstone", cx, OY + 5.5, cz, (1.35, 11.0, 1.35), rot))
-        lean = math.sin(math.radians(9.0)) * 5.5
-        pillar_tops.append((cx - lean * math.cos(a), OY + 11.0, cz - lean * math.sin(a)))
-    write("data/rift/function/scene/pillars.mcfunction", pillars)
+        rot = quat(axis, PILLAR_TILT)
+        monoliths.append(display("polished_blackstone", cx, OY + PILLAR_HEIGHT / 2.0, cz,
+                                 (1.3, PILLAR_HEIGHT, 1.3), rot))
+        lean = math.sin(math.radians(PILLAR_TILT)) * (PILLAR_HEIGHT / 2.0)
+        pillar_tops.append((cx - lean * math.cos(a), OY + PILLAR_HEIGHT, cz - lean * math.sin(a)))
+    write("data/rift/function/scene/monoliths.mcfunction", monoliths)
 
     # ------------------------------------------------------------------ crown
     print("rift: crown")
-    crown = ["# A halo of turned plates and shards: the only geometry in the piece that blocks cannot make."]
+    crown = ["# One ring, one height, one tilt: a halo. The shards are the accents, not more debris."]
     for k in range(12):
         a = math.radians(30 * k)
-        r = 4.6 + 0.35 * math.sin(3 * a)
-        x, z = OX + r * math.cos(a), OZ + r * math.sin(a)
-        y = OY + 12.2 + 1.5 * math.cos(2 * a)
+        x, z = OX + 4.2 * math.cos(a), OZ + 4.2 * math.sin(a)
         block = "sea_lantern" if k % 3 == 0 else "amethyst_block"
         axis = (-math.sin(a), 0.0, math.cos(a))
-        crown.append(display(block, x, y, z, (1.9, 0.22, 1.1), quat(axis, 22.0)))
-    for k in range(3):
-        a = math.radians(120 * k + 20)
+        crown.append(display(block, x, OY + 14.6, z, (1.55, 0.20, 0.95), quat(axis, 18.0)))
+    for k in range(4):
+        a = math.radians(90 * k + 45)
         crown.append(display(
             "budding_amethyst",
-            OX + 2.4 * math.cos(a), OY + 13.4, OZ + 2.4 * math.sin(a),
-            (0.7, 3.2, 0.7), quat((-math.sin(a), 0.0, math.cos(a)), 14.0),
+            OX + 2.9 * math.cos(a), OY + 16.2, OZ + 2.9 * math.sin(a),
+            (0.55, 2.6, 0.55), quat((-math.sin(a), 0.0, math.cos(a)), 8.0),
         ))
     crown.append(
-        f"summon minecraft:allay {OX + 0.5:.2f} {OY + 13.0:.2f} {OZ + 0.5:.2f} "
+        f"summon minecraft:allay {OX + 0.5:.2f} {OY + 13.2:.2f} {OZ + 0.5:.2f} "
         '{NoAI:1b,NoGravity:1b,Silent:1b,Invulnerable:1b,PersistenceRequired:1b,Tags:["rift_spirit"]}'
     )
     write("data/rift/function/scene/crown.mcfunction", crown)
 
     # ------------------------------------------------------------------ approach
     print("rift: approach")
-    approach = ["# Bridge, platform, and two dark columns that frame the shot from the near edge."]
+    approach = ["# Bridge and platform. No framing columns: the monoliths are the frame."]
     for z in range(16, 20):
         for x in (-1, 0, 1):
             approach.append(setblock(OX + x, OY, OZ + z, "polished_blackstone" if x == 0 else "deepslate_tiles"))
@@ -189,10 +187,6 @@ def main():
         for dz in range(20, PLATFORM_Z + 1):
             name = "polished_blackstone" if (abs(dx) == 2 or dz == PLATFORM_Z) else "deepslate_tiles"
             approach.append(setblock(OX + dx, OY, OZ + dz, name))
-    for dx in (-5, 5):
-        for y in range(1, 10):
-            approach.append(setblock(OX + dx, OY + y, OZ + 12, "deepslate" if y % 3 else "polished_blackstone"))
-        approach.append(setblock(OX + dx, OY + 10, OZ + 12, "sea_lantern"))
     write("data/rift/function/scene/approach.mcfunction", approach)
 
     # ------------------------------------------------------------------ effects
@@ -217,113 +211,121 @@ def main():
             d.update(extra)
         return d
 
+    # `surface`, not `aura`: the rift colours the stone that stands in it, and leaves no visible
+    # dome hanging in the air.
     core = {
         "shape": "sphere",
         "space": "world",
-        "volume": "aura",
+        "volume": "surface",
         "center": [float(OX), float(OY + 8), float(OZ)],
-        "radius": 11.0,
-        "softness": 2.5,
+        "radius": 9.5,
+        "softness": 1.4,
     }
 
     effects = {}
 
-    # Long, soft, slightly violet columns that meet above the spire.
     effects["beam"] = definition("light_beam", {
-        "radius": 0.55,
+        "radius": 0.30,
         "height": 26.0,
-        "top_scale": 2.2,
-        "softness": 3.2,
-        "top_fade": 0.05,
-        "bottom_fade": 0.55,
-        "red": 0.80, "green": 0.76, "blue": 1.0,
-        "intensity": 0.42,
+        "top_scale": 2.0,
+        "softness": 3.5,
+        "top_fade": 0.0,
+        "bottom_fade": 0.65,
+        "red": 0.86, "green": 0.84, "blue": 1.0,
+        "intensity": 0.30,
         "through_blocks": 0.0,
     })
 
     effects["rift_light"] = definition("light_beam", {
-        "radius": 0.35,
+        "radius": 0.28,
         "height": 30.0,
-        "top_scale": 3.2,
-        "softness": 3.6,
+        "top_scale": 3.4,
+        "softness": 4.0,
         "top_fade": 0.0,
-        "bottom_fade": 0.85,
+        "bottom_fade": 0.9,
         "red": VIOLET[0], "green": VIOLET[1], "blue": VIOLET[2],
-        "intensity": 0.55,
+        "intensity": 0.5,
         "through_blocks": 0.0,
-    }, positions=[[OX + 0.5, OY + 11, OZ + 0.5]])
+    }, positions=[[OX + 0.5, OY + 12, OZ + 0.5]])
 
     effects["dust"] = definition("particles", {
-        "rate": 70.0,
-        "radius": 2.0,
-        "height": 13.0,
+        "rate": 55.0,
+        "radius": 1.7,
+        "height": 12.0,
         "turns": 3.0,
-        "spin": 0.35,
-        "vel_y": 0.010,
-        "size": 1.2,
+        "spin": 0.25,
+        "vel_y": 0.008,
+        "size": 1.0,
         "color_r": VIOLET[0], "color_g": VIOLET[1], "color_b": VIOLET[2],
     }, positions=[[OX + 0.5, OY + 1.0, OZ + 0.5]],
         extra={"particle": "dust", "shape": "helix"})
 
     effects["motes"] = definition("particles", {
-        "rate": 30.0,
-        "radius": 7.0,
-        "speed": 0.006,
-        "vel_y": 0.010,
+        "rate": 22.0,
+        "radius": 6.5,
+        "speed": 0.005,
+        "vel_y": 0.008,
         "spread": 0.5,
     }, positions=[[OX + 0.5, OY + 5.0, OZ + 0.5]],
         extra={"particle": "minecraft:end_rod", "shape": "sphere"})
 
     effects["outline"] = definition("block_outline", {
         "color_r": COLD_WHITE[0], "color_g": COLD_WHITE[1], "color_b": COLD_WHITE[2],
-        "alpha": 0.55,
-        "width": 0.05,
+        "alpha": 0.5,
+        "width": 0.045,
         "through_blocks": 0.0,
     }, positions=[[int(round(tx)), OY + 1, int(round(tz))] for tx, _, tz in pillar_tops])
 
     effects["spirit"] = definition("entity_outline", {
         "color_r": COLD_WHITE[0], "color_g": COLD_WHITE[1], "color_b": COLD_WHITE[2],
-        "alpha": 0.85,
-        "width": 0.06,
+        "alpha": 0.8,
+        "width": 0.055,
         "through_blocks": 0.0,
     }, extra={"entity_selector": f"@e[tag={TAG_SPIRIT},limit=1]"})
 
-    # The two grades are one sphere, one inverted: outside goes grey and cold, inside goes violet.
     effects["grade_out"] = definition("color_grade", {
-        "saturation": 0.55,
+        "saturation": 0.58,
         "contrast": 1.03,
-        "brightness": 0.94,
-        "tint_r": 0.92, "tint_g": 0.96, "tint_b": 1.08,
+        "brightness": 0.95,
+        "tint_r": 0.94, "tint_g": 0.97, "tint_b": 1.06,
     }, mask={**core, "invert": True})
 
     effects["grade_in"] = definition("color_grade", {
-        "saturation": 1.5,
-        "contrast": 1.08,
-        "brightness": 1.04,
-        "tint_r": 1.10, "tint_g": 0.92, "tint_b": 1.16,
+        "saturation": 1.45,
+        "contrast": 1.06,
+        "brightness": 1.03,
+        "tint_r": 1.08, "tint_g": 0.94, "tint_b": 1.14,
     }, mask=core)
 
     effects["spectral"] = definition("spectral", {
-        "amount": 0.14,
+        "amount": 0.12,
         "mode": 1.0,
         "center_x": 0.5,
         "center_y": 0.5,
-        "mid": 0.56,
-        "core": 0.86,
+        "mid": 0.58,
+        "core": 0.88,
     }, mask=dict(core))
 
+    # Depth: the air is not empty, and a little violet fog gives the frame a far plane.
+    effects["fog"] = definition("fog_modifier", {
+        "fog_start_scale": 0.72,
+        "fog_end_scale": 1.0,
+        "fog_r": 0.42, "fog_g": 0.38, "fog_b": 0.72,
+        "fog_color_amount": 0.42,
+    })
+
     effects["bloom"] = definition("bloom", {
-        "intensity": 0.5,
-        "threshold": 0.5,
+        "intensity": 0.42,
+        "threshold": 0.55,
         "radius": 5.0,
     })
 
-    effects["vignette"] = definition("vignette", {"intensity": 0.5})
+    effects["vignette"] = definition("vignette", {"intensity": 0.48})
 
     effects["dof"] = definition("depth_of_field", {
-        "intensity": 0.32,
+        "intensity": 0.30,
         "focus_center": 0.56,
-        "focus_range": 0.20,
+        "focus_range": 0.22,
     })
 
     effects["fov"] = definition("fov_modifier", {"fov_delta": -16.0})
@@ -340,6 +342,7 @@ def main():
         {"effect": "rift:vignette", "delay": 0, "duration": -1},
         {"effect": "rift:bloom", "delay": 0, "duration": -1},
         {"effect": "rift:dof", "delay": 0, "duration": -1},
+        {"effect": "rift:fog", "delay": 0, "duration": -1},
         {"effect": "rift:fov", "delay": 0, "duration": -1},
         {"effect": "rift:spectral", "delay": 0, "duration": -1},
         {"effect": "rift:rift_light", "delay": 0, "duration": -1},
@@ -380,7 +383,7 @@ def main():
         "# Assemble the geometry. Safe to run twice: every block is placed, nothing is additive.",
         "function rift:scene/island",
         "function rift:scene/spire",
-        "function rift:scene/pillars",
+        "function rift:scene/monoliths",
         "function rift:scene/approach",
     ])
 
@@ -423,6 +426,7 @@ def main():
         "vfx stop rift:grade_out",
         "vfx stop rift:grade_in",
         "vfx stop rift:spectral",
+        "vfx stop rift:fog",
         "vfx stop rift:bloom",
         "vfx stop rift:vignette",
         "vfx stop rift:dof",
@@ -435,7 +439,7 @@ def main():
         "function rift:stop",
         f"kill @e[tag={TAG_SHARD}]",
         f"kill @e[tag={TAG_SPIRIT}]",
-        f"fill {OX - 7} {OY - 3} {OZ - 17} {OX + 7} {OY + 20} {OZ + 26} minecraft:air",
+        f"fill {OX - 3} {OY - 3} {OZ - 17} {OX + 3} {OY + 20} {OZ + 26} minecraft:air",
         f"fill {OX - 18} {OY - 10} {OZ - 18} {OX + 18} {OY + 20} {OZ + 18} minecraft:air",
     ])
 

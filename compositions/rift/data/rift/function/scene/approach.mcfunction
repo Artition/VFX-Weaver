@@ -1,4 +1,4 @@
-# Bridge, platform, and two dark columns that frame the shot from the near edge.
+# Bridge and platform. No framing columns: the monoliths are the frame.
 setblock 2999 200 3016 minecraft:deepslate_tiles
 setblock 3000 200 3016 minecraft:polished_blackstone
 setblock 3001 200 3016 minecraft:deepslate_tiles
@@ -31,23 +31,3 @@ setblock 3002 200 3020 minecraft:polished_blackstone
 setblock 3002 200 3021 minecraft:polished_blackstone
 setblock 3002 200 3022 minecraft:polished_blackstone
 setblock 3002 200 3023 minecraft:polished_blackstone
-setblock 2995 201 3012 minecraft:deepslate
-setblock 2995 202 3012 minecraft:deepslate
-setblock 2995 203 3012 minecraft:polished_blackstone
-setblock 2995 204 3012 minecraft:deepslate
-setblock 2995 205 3012 minecraft:deepslate
-setblock 2995 206 3012 minecraft:polished_blackstone
-setblock 2995 207 3012 minecraft:deepslate
-setblock 2995 208 3012 minecraft:deepslate
-setblock 2995 209 3012 minecraft:polished_blackstone
-setblock 2995 210 3012 minecraft:sea_lantern
-setblock 3005 201 3012 minecraft:deepslate
-setblock 3005 202 3012 minecraft:deepslate
-setblock 3005 203 3012 minecraft:polished_blackstone
-setblock 3005 204 3012 minecraft:deepslate
-setblock 3005 205 3012 minecraft:deepslate
-setblock 3005 206 3012 minecraft:polished_blackstone
-setblock 3005 207 3012 minecraft:deepslate
-setblock 3005 208 3012 minecraft:deepslate
-setblock 3005 209 3012 minecraft:polished_blackstone
-setblock 3005 210 3012 minecraft:sea_lantern

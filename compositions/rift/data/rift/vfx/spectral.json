@@ -1,1 +1,1 @@
-{"type":"spectral","duration":200,"persistent":true,"loop":true,"fade_ticks":20,"params":{"amount":0.14,"mode":1.0,"center_x":0.5,"center_y":0.5,"mid":0.56,"core":0.86},"mask":{"shape":"sphere","space":"world","volume":"aura","center":[3000.0,208.0,3000.0],"radius":11.0,"softness":2.5}}
+{"type":"spectral","duration":200,"persistent":true,"loop":true,"fade_ticks":20,"params":{"amount":0.12,"mode":1.0,"center_x":0.5,"center_y":0.5,"mid":0.58,"core":0.88},"mask":{"shape":"sphere","space":"world","volume":"surface","center":[3000.0,208.0,3000.0],"radius":9.5,"softness":1.4}}

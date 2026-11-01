@@ -1,1 +1,1 @@
-{"type":"block_outline","duration":200,"persistent":true,"loop":true,"fade_ticks":20,"params":{"color_r":0.84,"color_g":0.9,"color_b":1.0,"alpha":0.55,"width":0.05,"through_blocks":0.0},"positions":[[3006,201,3006],[2994,201,3006],[2994,201,2994],[3006,201,2994]]}
+{"type":"block_outline","duration":200,"persistent":true,"loop":true,"fade_ticks":20,"params":{"color_r":0.84,"color_g":0.9,"color_b":1.0,"alpha":0.5,"width":0.045,"through_blocks":0.0},"positions":[[3004,201,3004],[2996,201,3004],[2996,201,2996],[3004,201,2996]]}

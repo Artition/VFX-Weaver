@@ -1,1 +1,1 @@
-{"type":"particles","duration":200,"persistent":true,"loop":true,"fade_ticks":20,"params":{"rate":30.0,"radius":7.0,"speed":0.006,"vel_y":0.01,"spread":0.5},"positions":[[3000.5,205.0,3000.5]],"particle":"minecraft:end_rod","shape":"sphere"}
+{"type":"particles","duration":200,"persistent":true,"loop":true,"fade_ticks":20,"params":{"rate":22.0,"radius":6.5,"speed":0.005,"vel_y":0.008,"spread":0.5},"positions":[[3000.5,205.0,3000.5]],"particle":"minecraft:end_rod","shape":"sphere"}
