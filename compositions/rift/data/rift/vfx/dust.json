@@ -1,1 +1,0 @@
-{"type":"particles","duration":200,"persistent":true,"loop":true,"fade_ticks":20,"params":{"rate":55.0,"radius":1.7,"height":12.0,"turns":3.0,"spin":0.25,"vel_y":0.008,"size":1.0,"color_r":0.62,"color_g":0.44,"color_b":1.0},"positions":[[3000.5,201.0,3000.5]],"particle":"dust","shape":"helix"}

@@ -1,1 +1,1 @@
-{"type":"bloom","duration":200,"persistent":true,"loop":true,"fade_ticks":20,"params":{"intensity":0.42,"threshold":0.55,"radius":5.0}}
+{"type":"bloom","duration":200,"persistent":true,"loop":true,"fade_ticks":20,"params":{"intensity":0.55,"threshold":0.5,"radius":5.0}}

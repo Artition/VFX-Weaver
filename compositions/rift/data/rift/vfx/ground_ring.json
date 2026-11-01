@@ -1,0 +1,1 @@
+{"type":"pulse_ring","duration":200,"persistent":true,"loop":true,"fade_ticks":20,"params":{"radius":5.4,"thickness":0.1,"billboard":0.0,"rot_x":90.0,"red":0.62,"green":0.44,"blue":1.0,"through_blocks":1.0,"intensity":0.55},"positions":[[3000.5,200.15,3000.5]]}

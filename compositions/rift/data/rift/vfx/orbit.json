@@ -1,0 +1,1 @@
+{"type":"particles","duration":200,"persistent":true,"loop":true,"fade_ticks":20,"params":{"rate":55.0,"radius":10.6,"speed":0.0,"spread":0.2,"size":0.8,"color_r":0.62,"color_g":0.44,"color_b":1.0},"positions":[[3000.5,215.0,3000.5]],"particle":"dust","shape":"ring"}

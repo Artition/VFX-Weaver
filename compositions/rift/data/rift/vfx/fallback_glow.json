@@ -1,0 +1,1 @@
+{"type":"particles","duration":200,"persistent":true,"loop":true,"fade_ticks":20,"params":{"rate":40.0,"radius":5.0,"height":9.0,"turns":2.0,"spin":0.2,"vel_y":0.012},"positions":[[3000.5,201.0,3000.5]],"particle":"minecraft:end_rod","shape":"helix"}

@@ -1,4 +1,4 @@
-# Bridge and platform. No framing columns: the monoliths are the frame.
+# Bridge and platform; the viewer's eye ends up level with the sphere's lower third.
 setblock 2999 200 3016 minecraft:deepslate_tiles
 setblock 3000 200 3016 minecraft:polished_blackstone
 setblock 3001 200 3016 minecraft:deepslate_tiles
@@ -14,20 +14,15 @@ setblock 3001 200 3019 minecraft:deepslate_tiles
 setblock 2998 200 3020 minecraft:polished_blackstone
 setblock 2998 200 3021 minecraft:polished_blackstone
 setblock 2998 200 3022 minecraft:polished_blackstone
-setblock 2998 200 3023 minecraft:polished_blackstone
 setblock 2999 200 3020 minecraft:deepslate_tiles
 setblock 2999 200 3021 minecraft:deepslate_tiles
-setblock 2999 200 3022 minecraft:deepslate_tiles
-setblock 2999 200 3023 minecraft:polished_blackstone
+setblock 2999 200 3022 minecraft:polished_blackstone
 setblock 3000 200 3020 minecraft:deepslate_tiles
 setblock 3000 200 3021 minecraft:deepslate_tiles
-setblock 3000 200 3022 minecraft:deepslate_tiles
-setblock 3000 200 3023 minecraft:polished_blackstone
+setblock 3000 200 3022 minecraft:polished_blackstone
 setblock 3001 200 3020 minecraft:deepslate_tiles
 setblock 3001 200 3021 minecraft:deepslate_tiles
-setblock 3001 200 3022 minecraft:deepslate_tiles
-setblock 3001 200 3023 minecraft:polished_blackstone
+setblock 3001 200 3022 minecraft:polished_blackstone
 setblock 3002 200 3020 minecraft:polished_blackstone
 setblock 3002 200 3021 minecraft:polished_blackstone
 setblock 3002 200 3022 minecraft:polished_blackstone
-setblock 3002 200 3023 minecraft:polished_blackstone

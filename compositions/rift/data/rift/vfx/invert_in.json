@@ -1,0 +1,1 @@
+{"type":"invert","duration":200,"persistent":true,"loop":true,"fade_ticks":20,"params":{"intensity":1.0,"screen_layer":0},"mask":{"shape":"sphere","space":"world","volume":"aura","center":[3000.5,215.0,3000.5],"radius":9.0,"softness":0.8}}
