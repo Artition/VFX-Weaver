@@ -9,6 +9,34 @@ triggered, so a command block can show a line without a definition file per phra
 /vfx play vfx_demos:notice text "The gate is closed" @a
 ```
 
+## Dynamic text: what this unlocks, and what it does not
+
+Once the string is an argument, the *server* decides it. That means dynamic text needs no further
+feature from this mod, because vanilla already knows how to compose command arguments:
+
+```
+# ns:notice.mcfunction
+$vfx play my_ns:notice text "$(msg)" @a
+
+# anywhere else, per player
+execute store result storage ns:args kills int 1 run scoreboard players get @s kills
+data modify storage ns:args msg set value "$(player) closed the gate"
+function ns:notice with storage ns:args
+```
+
+So: scoreboard values, player names and anything else the server can put in a storage argument work
+on day one, and they arrive per player because the payload is already sent per player. This is why
+the design does not grow a `%score:kills%` template language of its own - it would be a second,
+worse version of macros.
+
+Two things stay out of reach, and should be stated plainly rather than promised:
+
+- **A string that changes while the effect runs.** The override is read once, when the instance is
+  created, so a running line cannot tick from "3" to "2". Live text would need a new packet action
+  and a pool key that tolerates a changing string.
+- **Client-only data.** What the player is looking at, their FOV, their own GUI scale - the server
+  cannot see it, so it cannot be composed into an argument.
+
 ## Non-goals
 
 - **No server-side string sources.** No scoreboard values, entity names or selectors resolved into
