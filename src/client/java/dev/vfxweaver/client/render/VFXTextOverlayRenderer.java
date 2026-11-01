@@ -15,6 +15,8 @@ import java.util.Map;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.Style;
+import net.minecraft.network.chat.TextColor;
 import net.minecraft.world.entity.Display;
 import net.minecraft.world.entity.EntityTypes;
 import net.minecraft.world.phys.Vec3;
@@ -61,8 +63,10 @@ public final class VFXTextOverlayRenderer {
 	// translucent black plate; 0 is fully transparent, so the block reads as text floating in air.
 	private static final int TRANSPARENT_BACKGROUND = 0;
 
-	// Characters of one live text effect, in layout order.
-	private record LiveText(long instanceId, List<Display.TextDisplay> entities, VFXTextLayout layout) {
+	// Characters of one live text effect, in layout order. 'signature' is the content plus the
+	// layout inputs, because an instance id can be reused by a replay with different text.
+	private record LiveText(long instanceId, String signature, List<Display.TextDisplay> entities,
+			VFXTextLayout layout) {
 	}
 
 	private static final Map<Long, LiveText> LIVE = new HashMap<>();
@@ -85,6 +89,14 @@ public final class VFXTextOverlayRenderer {
 			return;
 		}
 		handleLevelChange(level);
+		// 2D ('flat') mode has no renderer yet, and the flat spec must not fall through to the
+		// world path: that would draw 3D glyphs at 0,0,0 for every definition without "mode".
+		if (spec.mode() != VFXTextSpec.Mode.WORLD) {
+			VFXLog.warnOnce(LOGGER, "text_overlay:flat:" + effect.getId(),
+				"text_overlay effect '{}' is mode 'flat': the 2D layer is not implemented yet, nothing is drawn",
+				effect.getId());
+			return;
+		}
 		final LiveText live = ensure(effect, level, spec);
 		if (live == null) {
 			return;
@@ -128,16 +140,25 @@ public final class VFXTextOverlayRenderer {
 	// Builds the display entities of a world-mode effect the first time it is drawn.
 	private static @Nullable LiveText ensure(final VFXActiveEffect effect, final ClientLevel level,
 			final VFXTextSpec spec) {
+		final float scale = effect.getParam("scale", 1.0F);
+		final float lineHeight = effect.getParam("line_height", 1.2F);
+		final float wrapWidth = effect.getParam("wrap_width", 0.0F);
+		// A replay can hand out an instance id again with other text or other layout inputs, so the
+		// pooled characters are only reused when they were built from the same ones.
+		final String signature = spec.content() + '\u0000' + scale + '\u0000' + lineHeight + '\u0000' + wrapWidth;
 		final LiveText existing = LIVE.get(effect.getInstanceId());
 		if (existing != null) {
-			return existing;
+			if (existing.signature().equals(signature)) {
+				return existing;
+			}
+			release(existing);
+			LIVE.remove(effect.getInstanceId());
 		}
 		final Font font = Minecraft.getInstance().font;
-		final float scale = effect.getParam("scale", 1.0F);
-		final VFXTextLayout layout = VFXTextLayout.measure(font, spec.content(), scale,
-			effect.getParam("line_height", 1.2F), effect.getParam("wrap_width", 0.0F));
+		final VFXTextLayout layout = VFXTextLayout.measure(font, spec.content(), scale, lineHeight, wrapWidth);
 		final List<Display.TextDisplay> entities = new ArrayList<>(layout.glyphs().size());
 		final byte flags = effect.getParam("shadow", 1.0F) >= 0.5F ? Display.TextDisplay.FLAG_SHADOW : (byte) 0;
+		final Style style = Style.EMPTY.withColor(TextColor.fromRgb(colour(effect)));
 		for (final VFXTextLayout.Glyph glyph : layout.glyphs()) {
 			if (entities.size() >= MAX_CHARS) {
 				VFXLog.warnOnce(LOGGER, "text_overlay:cap:" + effect.getId(),
@@ -146,7 +167,7 @@ public final class VFXTextOverlayRenderer {
 				break;
 			}
 			final Display.TextDisplay display = new Display.TextDisplay(EntityTypes.TEXT_DISPLAY, level);
-			display.setText(Component.literal(String.valueOf(glyph.ch())));
+			display.setText(Component.literal(String.valueOf(glyph.ch())).withStyle(style));
 			display.setBackgroundColor(TRANSPARENT_BACKGROUND);
 			display.setFlags(flags);
 			display.setPos(0.0, 0.0, 0.0);
@@ -156,12 +177,20 @@ public final class VFXTextOverlayRenderer {
 			level.addEntity(display);
 			entities.add(display);
 		}
-		final LiveText live = new LiveText(effect.getInstanceId(), entities, layout);
+		final LiveText live = new LiveText(effect.getInstanceId(), signature, entities, layout);
 		LIVE.put(effect.getInstanceId(), live);
 		return live;
 	}
 
-	// Positions every character of the block: layout units scaled, rotated by rot_*, anchored.
+	// The effect's colour_r/g/b (0..1 each) as one packed 0xRRGGBB integer, white when unset.
+	private static int colour(final VFXActiveEffect effect) {
+		final int red = Math.round(clamp01(effect.getParam("color_r", 1.0F)) * 255.0F);
+		final int green = Math.round(clamp01(effect.getParam("color_g", 1.0F)) * 255.0F);
+		final int blue = Math.round(clamp01(effect.getParam("color_b", 1.0F)) * 255.0F);
+		return (red << 16) | (green << 8) | blue;
+	}
+
+	// Positions every character of the block: layout (already scaled), rotated by rot_*, anchored.
 	private static void placeBlock(final VFXActiveEffect effect, final LiveText live, final VFXTextSpec spec) {
 		final Vec3 origin = new Vec3(effect.getParam("pos_x", 0.0F), effect.getParam("pos_y", 0.0F),
 			effect.getParam("pos_z", 0.0F));
@@ -184,8 +213,8 @@ public final class VFXTextOverlayRenderer {
 		for (int i = 0; i < live.entities().size(); i++) {
 			final VFXTextLayout.Glyph glyph = live.layout().glyphs().get(i);
 			final Vector3f local = new Vector3f(
-				(glyph.x() + alignShift) * scale,
-				(glyph.y() + anchorShiftY) * scale,
+				glyph.x() + alignShift,
+				glyph.y() + anchorShiftY,
 				0.0F).rotate(rotation);
 			final Display.TextDisplay display = live.entities().get(i);
 			// Position carries the offset; the transformation's translation stays zero, otherwise the
@@ -194,8 +223,9 @@ public final class VFXTextOverlayRenderer {
 			display.setTransformation(new Transformation(new Vector3f(), new Quaternionf(rotation),
 				new Vector3f(scale, scale, scale), new Quaternionf()));
 			// reveal is a fraction of the characters, so this character is fully shown, hidden, or
-			// the single one at the wipe boundary caught mid-fade.
-			display.setTextOpacity((byte) Math.round(clamp01(revealed - i) * 255.0F));
+			// the single one at the wipe boundary caught mid-fade; the effect weight fades the whole
+			// block out instead of popping it at the stop.
+			display.setTextOpacity((byte) Math.round(clamp01(revealed - i) * effect.getWeight() * 255.0F));
 		}
 	}
 

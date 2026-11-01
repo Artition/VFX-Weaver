@@ -7,8 +7,7 @@
 #     through a getter - the same three places screenImage goes through, because a definition that
 #     loses its spec when params are merged renders nothing;
 #   * the schema registers the type with exactly the params the renderer reads, and bounds the
-#     enum-like ones so the editor cannot send nonsense;
-#   * the demo definition and the guide page exist, so the type is documented where users look.
+#     enum-like ones so the editor cannot send nonsense.
 #
 # Nothing here compiles GLSL or draws a pixel. It pins the text the two halves must agree on.
 #

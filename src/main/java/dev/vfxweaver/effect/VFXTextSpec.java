@@ -39,7 +39,9 @@ public final class VFXTextSpec {
 	 *
 	 * @param json the effect object
 	 * @return the parsed spec, never {@code null}
-	 * @throws IllegalArgumentException when {@code text} is missing or {@code content} is blank
+	 * @throws IllegalArgumentException when {@code text} is missing, {@code content} is blank, or a
+	 *                                  structural value ({@code mode}, {@code font}, {@code align},
+	 *                                  {@code anchor}) is unknown
 	 */
 	public static VFXTextSpec parse(final JsonObject json) {
 		if (json == null) {
@@ -63,7 +65,7 @@ public final class VFXTextSpec {
 		final String font = str(obj, "font", "default");
 		final String align = str(obj, "align", "center");
 		final String anchor = str(obj, "anchor", "center");
-		return new VFXTextSpec(content, parseMode(mode), font, parseAlign(align), parseAnchor(anchor));
+		return new VFXTextSpec(content, parseMode(mode), parseFont(font), parseAlign(align), parseAnchor(anchor));
 	}
 
 	private static String str(final JsonObject obj, final String key, final String fallback) {
@@ -76,6 +78,14 @@ public final class VFXTextSpec {
 			case "flat" -> Mode.FLAT;
 			case "world" -> Mode.WORLD;
 			default -> throw new IllegalArgumentException("text_overlay: unknown text.mode '" + raw + "'");
+		};
+	}
+
+	private static String parseFont(final String raw) {
+		final String font = raw.toLowerCase(java.util.Locale.ROOT);
+		return switch (font) {
+			case "default", "monospace" -> font;
+			default -> throw new IllegalArgumentException("text_overlay: unknown text.font '" + raw + "'");
 		};
 	}
 

@@ -12,8 +12,9 @@ import net.minecraft.client.gui.Font;
  * out here instead: hard breaks on {@code \n}, soft breaks on spaces when {@code wrapWidth > 0}, one
  * {@link Glyph} per character in reading order.
  *
- * <p>Positions are in layout units - {@code scale = 1} pixels - so the same layout serves a 2D
- * overlay at any GUI scale and a 3D block at any size in the world.
+ * <p>Positions are in layout units already multiplied by {@code scale}: pixels at {@code scale = 1}.
+ * Consumers must not apply the scale a second time - only {@code advance}, {@code x}, {@code y},
+ * {@code width} and {@code height} are consistent with each other.
  */
 public final class VFXTextLayout {
 

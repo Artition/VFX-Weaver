@@ -83,7 +83,6 @@ can be animated and bound like any other parameter.
 | parameter | type | default | meaning |
 |---|---|---|---|
 | `x`, `y` | float | 0.5, 0.5 | UV position (flat) |
-| `z` | float | 0 | unused for `flat`; reserved for depth ordering |
 | `pos_x`, `pos_y`, `pos_z` | float | 0 | world anchor (`world` mode, uses the standard `pos_*` override) |
 | `scale` | float | 1 | pixels per glyph in `flat`, blocks per glyph in `world` |
 | `line_height` | float | 1.2 | line spacing as a multiple of `scale` |
