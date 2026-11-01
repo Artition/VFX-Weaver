@@ -7,7 +7,10 @@
 #     through a getter - the same three places screenImage goes through, because a definition that
 #     loses its spec when params are merged renders nothing;
 #   * the schema registers the type with exactly the params the renderer reads, and bounds the
-#     enum-like ones so the editor cannot send nonsense.
+#     enum-like ones so the editor cannot send nonsense;
+#   * the renderer keeps the per-character exit wiring - the fall, the detach schedule, the
+#     per-character stagger and the finished-record lifecycle - because none of it compiles into
+#     anything a build would notice if it went missing.
 #
 # Nothing here compiles GLSL or draws a pixel. It pins the text the two halves must agree on.
 #
@@ -19,6 +22,7 @@ $typePath = Join-Path $repoRoot "src\main\java\dev\vfxweaver\effect\VFXEffectTyp
 $specPath = Join-Path $repoRoot "src\main\java\dev\vfxweaver\effect\VFXTextSpec.java"
 $defPath = Join-Path $repoRoot "src\main\java\dev\vfxweaver\effect\VFXDefinition.java"
 $schemaPath = Join-Path $repoRoot "src\main\java\dev\vfxweaver\editor\VFXEffectSchema.java"
+$rendererPath = Join-Path $repoRoot "src\client\java\dev\vfxweaver\client\render\VFXTextOverlayRenderer.java"
 
 $failures = New-Object System.Collections.Generic.List[string]
 
@@ -50,6 +54,11 @@ foreach ($param in 'reveal', 'exit', 'exit_at', 'exit_stagger', 'exit_speed', 'g
 		'rot_x', 'rot_y', 'rot_z', 'angle', 'per_char_anim', 'stagger', 'wrap_width', 'gradient',
 		'shadow', 'outline') {
 	Require-Pattern $schemaPath ('"' + $param + '"') "the schema is missing param '$param'"
+}
+
+# --- the exit wiring in the renderer ----------------------------------------------------------
+foreach ($pattern in 'fallOffset', 'detachTime', 'exit_stagger', 'finished') {
+	Require-Pattern $rendererPath $pattern "the renderer lost '$pattern' from the per-character exit"
 }
 
 # --- the guide page is added in Task 6; until then the guard must not demand it ---------------

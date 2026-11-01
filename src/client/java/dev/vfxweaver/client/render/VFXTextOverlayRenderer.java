@@ -51,7 +51,8 @@ import org.slf4j.LoggerFactory;
  * frame. Character {@code index} starts leaving at {@code exit_at + index * exit_stagger} seconds;
  * with {@code exit < 0.5} it only fades in place, with {@code exit >= 0.5} it falls, spins and - when
  * {@code collision} is on - lands on the first block below it, rebounds once and settles. Once every
- * character has faded, the block is marked finished and its entities are released.
+ * character has faded, the block is marked finished at the age it finished and its entities are
+ * released; when the effect loops or is replayed and the clock goes back, the block is rebuilt.
  *
  * <p>The whole body is gated on {@code >=26.2}: {@code Display.TextDisplay}'s setters are only
  * public there, and {@link VFXBlockParticleEngine#nextLocalEntityId()} (needed because 26.2's
@@ -81,8 +82,9 @@ public final class VFXTextOverlayRenderer {
 	// 'floors' is the one per-character value the exit stores: the top of the first collider below
 	// the character's rest position, or NEGATIVE_INFINITY when it has nothing to land on. It is a
 	// pure function of the world, so it is resolved once at spawn and the fall itself stays
-	// closed-form. 'finished' says every character has faded out and been released, which keeps
-	// renderWorld from respawning the block through 'ensure' every frame for ever.
+	// closed-form. 'finishedAt' is the age at which every character had faded out and been
+	// released, or -1 while the block is live; a record whose age is now below that value is
+	// stale, because a looping effect wraps 'elapsed' back to 0 and a replay reuses the instance id.
 	private static final class LiveText {
 		private final long instanceId;
 		private final String signature;
@@ -91,7 +93,7 @@ public final class VFXTextOverlayRenderer {
 		private final float[] floors;
 		private int lastColour;
 		private byte lastFlags;
-		private boolean finished;
+		private float finishedAt = -1.0F;
 
 		private LiveText(final long instanceId, final String signature,
 				final List<Display.TextDisplay> entities, final VFXTextLayout layout,
@@ -137,15 +139,15 @@ public final class VFXTextOverlayRenderer {
 		final LiveText live = ensure(effect, level, spec);
 		// A finished block has already released its characters and has nothing left to place; the
 		// pool entry only stays so 'ensure' does not spawn the same line again on the next frame.
-		if (live == null || live.finished) {
+		if (live == null || live.finishedAt >= 0.0F) {
 			return;
 		}
 		placeBlock(effect, live, spec);
 	}
 
 	// Per-frame housekeeping for the text pool: drops the characters of effects that are no longer
-	// running and the whole pool when the client level changes. The per-character exit (fall) is the
-	// next task's job; until then this only owns the lifecycle.
+	// running and the whole pool when the client level changes. The per-character exit is placed by
+	// placeBlock from the effect clock; this only owns the lifecycle.
 	//
 	// level           - the client level being drawn
 	// activeInstances - instance ids of the running world-mode text effects
@@ -189,7 +191,11 @@ public final class VFXTextOverlayRenderer {
 			+ '\u0000' + spec.anchor();
 		final LiveText existing = LIVE.get(effect.getInstanceId());
 		if (existing != null) {
-			if (existing.signature.equals(signature)) {
+			// A finished record that the clock has gone back past is stale: a looping effect wraps
+			// 'elapsed' and a replay reuses the instance id, so the line has to come back - it is
+			// released and rebuilt here, in this same frame.
+			final boolean stale = existing.finishedAt >= 0.0F && age(effect) < existing.finishedAt;
+			if (existing.signature.equals(signature) && !stale) {
 				return existing;
 			}
 			release(existing);
@@ -343,7 +349,7 @@ public final class VFXTextOverlayRenderer {
 		// authored exit can get here, so a block with 'reveal' 0 (invisible, not leaving) is not
 		// mistaken for a finished one and keeps waiting for its characters.
 		if (brightest <= 0.0F && !live.entities.isEmpty() && detachTime(effect, 0) >= 0.0F) {
-			finish(live);
+			finish(effect, live);
 		}
 	}
 
@@ -419,14 +425,18 @@ public final class VFXTextOverlayRenderer {
 	// yields the same frame - a replay and a screenshot agree.
 	private static Vector3f fallOffset(final VFXActiveEffect effect, final int index,
 			final float since, final float restY, final float floorY) {
-		// Gravity divides the fall, so zero would divide by zero: a lower bound only, because there
-		// is no upper limit - a huge gravity just makes the drop instant, it does not need a cap.
-		final float gravity = Math.max(effect.getParam("gravity", 18.0F), 1.0e-3F);
+		final float gravity = gravityOf(effect);
 		final float speed = effect.getParam("exit_speed", 0.0F) * jitter(effect, index);
 		final float drop = restY - floorY;
 		// Without a floor, or with collision off, the letter simply falls for ever.
 		if (effect.getParam("collision", 1.0F) < 0.5F || !Float.isFinite(floorY)) {
 			return new Vector3f(0.0F, speed * since - 0.5F * gravity * since * since, 0.0F);
+		}
+		// An animated pos_y can lift the rest height below the floor that was cached at spawn. There
+		// is no drop left to run then, and the square root below would take a negative and hand a
+		// NaN to setPos, so the character simply keeps its rest pose.
+		if (drop <= 0.0F) {
+			return new Vector3f();
 		}
 		// Time to reach the floor: the positive root of restY + v0 t - g t^2 / 2 = floorY.
 		final float impact = (speed + (float) Math.sqrt(speed * speed + 2.0F * gravity * drop)) / gravity;
@@ -443,6 +453,13 @@ public final class VFXTextOverlayRenderer {
 			return new Vector3f(0.0F, landing, 0.0F);
 		}
 		return new Vector3f(0.0F, landing + reboundSpeed * after - 0.5F * gravity * after * after, 0.0F);
+	}
+
+	// The one reading of 'gravity' both halves of the exit use: it divides the fall and the landing
+	// test, so zero would divide by zero. A lower bound only - there is no upper limit, a huge
+	// gravity just makes the drop instant.
+	private static float gravityOf(final VFXActiveEffect effect) {
+		return Math.max(effect.getParam("gravity", 18.0F), 1.0e-3F);
 	}
 
 	// Deterministic per-character jitter in [0.85, 1.15], from the instance seed and the index.
@@ -486,7 +503,7 @@ public final class VFXTextOverlayRenderer {
 		if (effect.getParam("collision", 1.0F) < 0.5F || !Float.isFinite(floorY) || drop <= 0.0F) {
 			return -1.0F;
 		}
-		final float gravity = effect.getParam("gravity", 18.0F);
+		final float gravity = gravityOf(effect);
 		final float speed = effect.getParam("exit_speed", 0.0F) * jitter(effect, index);
 		final float impact = (speed + (float) Math.sqrt(speed * speed + 2.0F * gravity * drop)) / gravity;
 		if (!Float.isFinite(impact)) {
@@ -498,35 +515,40 @@ public final class VFXTextOverlayRenderer {
 	}
 
 	// A character's orientation while it is leaving: the block's rot_* quaternion composed with a
-	// rotation of |spin| * since degrees about spin_x/y/z. 'tumble' takes the axis from the
-	// per-character jitter instead, so the letters tumble off-axis instead of all wheeling about the
-	// same world axis. A spin vector of length zero has no axis to rotate about - normalising it
-	// would be a NaN - so the rest orientation is handed back untouched.
+	// rotation of |spin| * since degrees about spin_x/y/z. 'tumble' replaces the axis with one taken
+	// from the per-character jitter, so the letters tumble off-axis instead of all wheeling about the
+	// same world axis, and leaves the speed at |spin|. A spin vector of length zero has no axis to
+	// rotate about - normalising it would be a NaN - so the rest orientation is handed back untouched.
 	private static Quaternionf spin(final VFXActiveEffect effect, final int index, final float since,
 			final Quaternionf rotation) {
 		final Vector3f axis = new Vector3f(effect.getParam("spin_x", 0.0F),
 			effect.getParam("spin_y", 0.0F), effect.getParam("spin_z", 0.0F));
-		float speed = axis.length();
+		final float speed = axis.length();
 		if (speed < 1e-4F) {
 			return new Quaternionf(rotation);
 		}
 		if (effect.getParam("tumble", 0.0F) >= 0.5F) {
-			// Three different readings of the same jitter: a deterministic, never-zero direction.
+			// Tumble swaps the axis only - the angular speed stays |spin|, so an authored
+			// 'spin_z 180' with tumble on still turns at 180 degrees per second, off-axis. Three
+			// readings of the same jitter give a deterministic direction.
 			final float j = jitter(effect, index);
 			axis.set(j - 1.0F, 1.0F - j, 0.5F * j - 0.5F);
-			speed = axis.length();
-			if (speed < 1e-4F) {
+			if (axis.lengthSquared() < 1e-8F) {
 				return new Quaternionf(rotation);
 			}
+			axis.normalize();
+		} else {
+			axis.div(speed);
 		}
 		return new Quaternionf(rotation)
-			.rotateAxis((float) Math.toRadians(speed * since), axis.div(speed));
+			.rotateAxis((float) Math.toRadians(speed * since), axis);
 	}
 
-	// The block is over: every character has faded out. Its characters are released now, and the pool
-	// entry stays behind marked finished, so 'ensure' does not spawn the whole line again next frame.
-	private static void finish(final LiveText live) {
-		live.finished = true;
+	// The block is over: every character has faded out. Its characters are released now, and the
+	// pool entry stays behind carrying the age it finished at, so 'ensure' neither respawns the line
+	// next frame nor keeps it dead once the effect loops or is replayed.
+	private static void finish(final VFXActiveEffect effect, final LiveText live) {
+		live.finishedAt = age(effect);
 		release(live);
 		live.entities.clear();
 	}
