@@ -20,9 +20,16 @@ The string and the shape of the block are **structural**, so they live in a top-
 |---|---|---|---|
 | `content` | string | — (required) | The line(s) to draw. `\n` is a hard break; blank content is rejected |
 | `mode` | string | `flat` | `flat` draws the block on the HUD, `world` puts the characters in the world. Selects the render path, so it cannot animate |
-| `font` | string | `default` | The font name, stored as given. The renderer currently always draws with the game's default font, so any other value changes nothing (custom fonts are not supported yet) |
-| `align` | string | `center` | Horizontal placement of each line inside the block: `left`, `center`, `right` |
-| `anchor` | string | `center` | Which point of the block sits on the anchor position: `top_left`, `top`, `top_right`, `left`, `center`, `right`, `bottom_left`, `bottom`, `bottom_right` |
+| `font` | string | `default` | Only the game's own font exists. The name is lower-cased and must be `default` or `minecraft:default`; **any other value is rejected at parse time**, so the definition fails to load instead of drawing something else (a resource-pack font is not supported yet) |
+| `align` | string | `center` | Horizontal placement of the **whole block**, shifted by the width of its **widest line**: `left` leaves it where it was laid out, `center` moves it left by half that width, `right` by the whole width. Lines are not aligned against each other |
+| `anchor` | string | `center` | Which point of the block sits on the anchor position, read **vertically only**: `top`/`top_left`/`top_right` put the top of the block on it, `left`/`center`/`right` its middle, `bottom`/`bottom_left`/`bottom_right` its bottom |
+
+**`align` and `anchor` are not a nine-way placement grid.** The renderer reads only the vertical part
+of `anchor` (the top names shift by `0`, the middle names by `-height / 2`, the bottom names by
+`-height`), so its three horizontal variants are the same placement: **`top_left` draws exactly like
+`top_right`, and `left`, `center` and `right` all draw the same**. The sideways half of the name is
+simply not read - where the block sits horizontally comes from `align` alone, and `align` shifts the
+whole block by the width of the widest line rather than aligning each line by its own width.
 
 **The `text` block cannot be set at play time.** `/vfx play`, the trigger payload and `setParam` carry
 the effect id plus *numbers only* - every param is a float - so there is no way to send a string
@@ -43,7 +50,7 @@ surface - constant, `start`/`end`, `keyframes`, `bind`, `expr`, the `/vfx play` 
 | `pos_x` | 0 | yes (`world` only) | Block origin, world X |
 | `pos_y` | 0 | yes (`world` only) | Block origin, world Y |
 | `pos_z` | 0 | yes (`world` only) | Block origin, world Z |
-| `scale` | 1 | yes | Size of the whole block: `flat` multiplies the font's own pixel size, `world` scales the characters in blocks. The layout is measured at unit scale, so animating it never respawns anything |
+| `scale` | 1 | yes | Size of the whole block. `world` scales the characters and their spacing in blocks; `flat` multiplies the laid-out offsets by it and then, per character, pushes a pose, translates it to the glyph's centre, rotates it, calls `pose.scale(scale, scale)` and draws the glyph at 1.0 inside it - so the 2D block is a scaled pose like any other, not a larger font size. The layout is measured at unit scale, so animating `scale` never respawns anything |
 | `line_height` | 1.2 | sampled, see below | Line spacing as a multiple of `scale` |
 | `wrap_width` | 0 | sampled, see below | Soft wrap: a line breaks at a space once the next word would pass this width (in the block's own units). `0` = only `\n` breaks |
 | `alpha` | 1 | **not read yet** | Would be an overall opacity multiplier; the renderer does not read it - use `reveal` and the effect's own fade |
@@ -77,7 +84,7 @@ surface - constant, `start`/`end`, `keyframes`, `bind`, `expr`, the `/vfx play` 
 | `fade_out` | 0.5 | yes | Seconds a character takes to fade once it has left (fade exit) or once it has come to rest (fall exit). Floored at `1e-4` |
 | `rot_x` | 0 | yes | Baseline orientation of the whole block, degrees |
 | `rot_y` | 0 | yes | Baseline orientation of the whole block, degrees, Y |
-| `rot_z` | 0 | yes | Baseline orientation of the whole block, degrees, Z |
+| `rot_z` | 0 | yes (`world` only) | Baseline orientation of the whole block, degrees, Z. `flat` turns about Z with `angle` and `spin_z` instead, so this is not read there |
 | `angle` | 0 | yes (`flat` only) | Turns the whole block about its anchor, degrees |
 
 Notes on the numbers:
@@ -98,8 +105,11 @@ Notes on the numbers:
 - **Opacity is three things multiplied**: `reveal` (per character), the exit fade (per character) and
   the effect's own weight - so `duration`/`fade_ticks` fade the whole block in and out on top of
   everything else, and stopping the effect never pops the text.
-- **A finished block comes back.** Once every character has faded out its entities are released; when
-  the effect loops or is replayed the block is rebuilt from the definition.
+- **Only `world` has a finished state.** Once every character has faded out, its entities are
+  released; when the effect loops or is replayed the block is rebuilt from the definition. `flat` has
+  no finished state at all: it draws from a layout cached per instance and keeps drawing - with
+  nothing visible - until the effect stops being active, which is when `VFXClientRenderHooks` prunes
+  that cache entry.
 - **This is not a screen effect.** There is no `screen_layer` and no `order` - nothing is composited
   over the frame; `flat` text is drawn on the HUD after the post passes. `positions` and `region` are
   not read either: `world` mode uses `pos_x`/`pos_y`/`pos_z`.
@@ -118,7 +128,8 @@ Notes on the numbers:
   downwards, accelerated by `gravity`, spin from `spin_x`/`spin_y`/`spin_z` (with `tumble` mixing the
   axis per character). A falling character stays opaque until it comes to rest and fades over
   `fade_out` after that; with nothing to land on it fades from the moment it detaches, so a block
-  always reaches zero and its characters are always released.
+  always reaches zero - and in `world` mode its entities are released there (`flat` has no entities
+  to release).
 
 `collision` is the same switch in both modes; only the surface differs:
 
@@ -140,7 +151,7 @@ back inside the frame width, so a letter bounces off the left and right edges, a
 bottom edge stops there and fades: a `flat` landing does not rebound, so `bounce` is a `world`-only
 param. `flat` spins a letter about its own centre, which a 2D pose can only do about Z, so it reads
 `spin_z` alone (with `tumble` flipping its direction per character instead of moving its axis), and the
-block's own turn comes from `angle` - `rot_x` and `rot_y` stay `world`-only. `exit_stagger` and
+block's own turn comes from `angle` - `rot_x`, `rot_y` and `rot_z` stay `world`-only. `exit_stagger` and
 `collision` mean the same thing in both modes.
 
 ## Example
