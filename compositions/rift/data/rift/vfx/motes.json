@@ -1,0 +1,1 @@
+{"type":"particles","duration":240,"easing":"ease_in_out_cubic","persistent":true,"loop":true,"fade_ticks":20,"params":{"rate":22.0,"radius":6.5,"speed":0.008,"vel_y":0.012,"spread":0.4},"positions":[[3000,204.0,3000]],"particle":"minecraft:end_rod","shape":"sphere"}

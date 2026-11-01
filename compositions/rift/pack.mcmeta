@@ -1,0 +1,11 @@
+{
+	"pack": {
+		"description": "RIFT - a VFX Weaver composition (blocks, entities, effects)",
+		"pack_format": 107,
+		"min_format": [
+			107,
+			1
+		],
+		"max_format": 107
+	}
+}

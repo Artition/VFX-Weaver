@@ -1,4 +1,4 @@
-site_name: VFX Weaver
+﻿site_name: VFX Weaver
 site_description: >-
   A client-side VFX library/API for Minecraft on Fabric and NeoForge: screen
   post-processing, camera shake, world overlays, entity effects, datapack-defined
@@ -53,6 +53,7 @@ nav:
   - Home: index.md
   - Getting started: guide/index.md
   - Showcase datapack: guide/showcase-datapack.md
+  - "Composition: RIFT": guide/compositions.md
   - Your first datapack: guide/first-datapack.md
   - Visual node editor: guide/editor.md
   - Effects:

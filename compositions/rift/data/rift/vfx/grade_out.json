@@ -1,0 +1,1 @@
+{"type":"color_grade","duration":240,"easing":"ease_in_out_cubic","persistent":true,"loop":true,"fade_ticks":20,"params":{"saturation":0.42,"contrast":1.06,"brightness":0.96,"tint_r":0.94,"tint_g":0.98,"tint_b":1.06},"mask":{"a":{"shape":"sphere","space":"world","volume":"aura","center":[3000.0,208.0,3000.0],"radius":9.0,"softness":1.8},"invert":true}}

@@ -4,12 +4,14 @@
 # VFXDefinition.parse and fails on any bad definition: the pack is what the guide links to, so it
 # must never ship a definition the mod cannot load.
 #
-# Usage: powershell -ExecutionPolicy Bypass -File scripts/check-showcase-pack-parse.ps1
+# Usage: powershell -ExecutionPolicy Bypass -File scripts/check-showcase-pack-parse.ps1 [-Dir <pack>/data/<ns>/vfx
 # Exits 1 on any failed definition; 0 when every showcase definition parses.
+param([string]$Dir = "showcase/data/vfx_demos/vfx")
+
 $ErrorActionPreference = "Stop"
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
-$definitionsDir = "showcase/data/vfx_demos/vfx"
+$definitionsDir = $Dir
 
 if (-not (Test-Path (Join-Path $repoRoot $definitionsDir))) {
 	Write-Error "showcase parse sweep: $definitionsDir not found."
@@ -54,7 +56,8 @@ $jars = (Get-ChildItem (Join-Path $env:USERPROFILE ".gradle\caches\modules-2\fil
 	Where-Object { $_.FullName -notmatch 'dev\.vfxweaver|maven\.modrinth' } |
 	ForEach-Object { $_.FullName.Replace('\', '/') }) -join ';'
 
-$checkDir = Join-Path $env:TEMP "vfxweaver-showcase-check"
+# one temp dir per target, so two packs can be checked in a row
+$checkDir = Join-Path $env:TEMP ("vfxweaver-pack-check-" + ($definitionsDir -replace "[^A-Za-z0-9]", "_"))
 New-Item -ItemType Directory -Force -Path $checkDir | Out-Null
 $sweepSrc = Join-Path $checkDir "ParseSweep.java"
 $cpFile = Join-Path $checkDir "cp.txt"
