@@ -31,11 +31,68 @@ of `anchor` (the top names shift by `0`, the middle names by `-height / 2`, the 
 simply not read - where the block sits horizontally comes from `align` alone, and `align` shifts the
 whole block by the width of the widest line rather than aligning each line by its own width.
 
-**The `text` block cannot be set at play time.** `/vfx play`, the trigger payload and `setParam` carry
-the effect id plus *numbers only* - every param is a float - so there is no way to send a string
-later. A definition is the only place the words are authored; to change them, edit the JSON and
-`/reload`. (Dynamic text such as a player name or a scoreboard value is a separate design, not this
-effect.)
+**The block is structural, and at play time only `content` can be replaced.** `mode`, `font`, `align`
+and `anchor` are layout decisions that always come from the file; the words can be chosen per call,
+through the optional `text "<string>"` argument described below. Every *param* is still a number, so
+`setParam` and the param map never carry a string, and there is still no way to change a line while
+it is running.
+
+## Setting the text at play time
+
+`/vfx play`, `/vfx playat` and `/vfx playentity` take an optional `text "<string>"` argument that
+replaces the definition's `content` for that one call:
+
+```
+/vfx play       <effect> text "<string>" [<params>] [<targets>]
+/vfx playat     <effect> <pos> text "<string>" [<params>] [<targets>]
+/vfx playentity <effect> text "<string>" [<targets>] [<players>]
+```
+
+```
+/vfx play vfx_demos:notice text "The gate is closed" @a
+```
+
+What it does and does not do:
+
+- **Only `content` changes.** `mode`, `font`, `align` and `anchor` still come from the definition, so
+  one definition keeps its layout and gets a different sentence per call.
+- **It is per target, not broadcast.** The trigger payload is already sent per player, so two calls
+  can show two players different strings - or the same call can carry one string to all of them.
+- **An empty string means "not given".** A blank override is dropped rather than applied, so
+  `text ""` cannot blank a definition by accident.
+- **Two caps, in series.** The wire carries at most 512 characters (`MAX_TEXT_OVERRIDE`); longer input
+  is cut there with one warning. The renderer's own 256-glyph cap still applies afterwards, so a
+  512-character override still draws at most 256 characters.
+- **A definition with no `text` block ignores the override**, with one warning per effect id: there is
+  no `mode` to draw in, and inventing a default would hide an authoring mistake. The same is true,
+  silently, of a non-text effect that receives one.
+- **It is read once, when the instance is created.** A running line cannot tick from "3" to "2"; live
+  text would need a new packet action and a pool key that tolerates a changing string.
+- **One line only.** The command language has no escape for a newline, so an override is a single
+  line; multi-line text stays in the definition's `content`.
+- **Nothing else moves.** `reveal`, `exit`, `exit_at`, `scale`, `pos_*` and the rest are params and
+  keep animating exactly as before.
+
+### Dynamic text comes from macros, not from this mod
+
+Once the string is an argument, the *server* chooses it - and vanilla already knows how to compose
+command arguments, so a scoreboard value or a player name needs nothing from this effect:
+
+```
+# ns:notice.mcfunction
+$vfx play my_ns:notice text "$(msg)" @a
+
+# anywhere else, per player
+execute store result storage ns:args kills int 1 run scoreboard players get @s kills
+data modify storage ns:args msg set value "$(player) closed the gate"
+function ns:notice with storage ns:args
+```
+
+That is why the effect has no `%score:kills%` template language of its own: it would be a second,
+worse version of datapack macros. Two things stay out of reach, and are worth saying plainly: a
+string that changes **while** the effect runs, and **client-only** data - what the player is looking
+at, their FOV, their own GUI scale - which the server cannot see and therefore cannot put into an
+argument.
 
 ## Params
 
@@ -67,6 +124,10 @@ surface - constant, `start`/`end`, `keyframes`, `bind`, `expr`, the `/vfx play` 
 | `outline_g` | 0 | **not read yet** | Outline colour, green |
 | `outline_b` | 0 | **not read yet** | Outline colour, blue |
 | `reveal` | 1 | yes | Fraction of the characters that are shown, `0..1`: character `i` is opaque while `i < reveal * count`, and the one character at the boundary is caught mid-fade, so a keyframe from `0` to `1` is a typewriter |
+| `scramble` | 0 | yes | Intensity of the decode, clamped `0..1`: at `0` every frame is the frame it would be without it, and any value above `0` makes the characters inside the two scramble windows (see [The scramble transitions](#the-scramble-transitions)) draw a noise glyph instead of their own, at that opacity |
+| `scramble_rate` | 15 | yes | Noise swaps per second. The swap number is `floor(age * scramble_rate)`, so the glyph changes at most that often; floored at `0`, **no upper limit** (a huge rate swaps on every frame) |
+| `scramble_band` | 4 | yes | How many characters **ahead of** the `reveal` frontier show noise, with the noise fading out towards the far end of the band. `0` turns the reveal half off, **no upper limit** (a huge band scrambles the whole tail of the line) |
+| `scramble_time` | 0.35 | yes | Seconds **before** a character detaches during which it shows noise instead of its own glyph, so the exit reads as a decode. Floored at `0`, **no upper limit** (a long window just scrambles longer) |
 | `per_char_anim` | 0 | **not read yet** | Would pick an animation for characters as they appear (`0` none, `1` rise, `2` wave, `3` tilt) |
 | `stagger` | 0 | **not read yet** | Would be the delay between characters for `per_char_anim` |
 | `exit` | 0 | yes | Float code, clamped `0..1`: `< 0.5` fades in place, `>= 0.5` falls |
@@ -96,7 +157,10 @@ Notes on the numbers:
 - **No upper limits on the motion.** `gravity`, `exit_speed`, `spin_*`, `scale`, `pos_*` and the
   delays accept any value: a huge `gravity` or `exit_speed` just makes the drop instant, a huge
   `spin_*` makes the letter a blur. Only the lower guards that avoid degenerate maths are applied
-  (`gravity >= 1e-3`, `fade_out >= 1e-4`), plus the `0..1` fractions listed in the table.
+  (`gravity >= 1e-3`, `fade_out >= 1e-4`), plus the `0..1` fractions listed in the table. The three
+  scramble shapes follow the same rule: `scramble_rate`, `scramble_band` and `scramble_time` have only
+  floors (`>= 0`) and no ceiling, and `scramble` itself is the one bounded value, an intensity read
+  as `0..1`.
 - **The block is laid out by the mod, not by Minecraft.** `\n` always breaks; with `wrap_width` set,
   the block also breaks at spaces. Each character gets its own rest position, which is what makes the
   per-character reveal and the per-character fall possible.
@@ -167,6 +231,56 @@ param. `flat` spins a letter about its own centre, which a 2D pose can only do a
 block's own turn comes from `angle` - `rot_x`, `rot_y` and `rot_z` stay `world`-only. `exit_stagger` and
 `collision` mean the same thing in both modes.
 
+## The scramble transitions
+
+`scramble` above `0` turns both transitions into a **decode**: instead of appearing and disappearing
+as themselves, the characters pass through noise. Four params, and only `scramble` is a plain switch
+with an intensity - the other three shape the two windows it opens.
+
+- **The reveal band.** Character `i` is `i - reveal * count` characters ahead of the reveal frontier.
+  While it is fewer than `scramble_band` characters ahead, it draws a noise glyph, and the noise fades
+  out towards the far end of the band - full at the frontier, nothing at `scramble_band`. So the tail
+  of the line reads as machine noise that decodes as the wipe sweeps over it, and the moment the
+  frontier passes a character it snaps back to itself. The band is computed from `reveal` alone; no
+  history is kept, so seeking to the middle of the wipe lands on the frame that wipe has.
+- **The exit window.** For the `scramble_time` seconds before a character's own detach time
+  (`exit_at + index * exit_stagger`), it shows noise instead of its own glyph, at the full `scramble`
+  opacity, and then leaves by whichever exit is set - still falling or fading as itself, so the last
+  thing you read before the letter goes is a scrap of noise rather than the letter.
+
+**The noise is a fixed pool**: `A-Z 0-9` plus `#$%&*+=-<>/?` - no lowercase, so a decode reads as
+machine output rather than as text that happens to be wrong. The glyph is a hash of the instance id,
+the character index and the swap number, and the swap number is the clock read as
+`floor(age * scramble_rate)`: the same tick therefore always draws the same glyph, so a replay
+matches the first run and a screenshot can be compared against it frame for frame. Nothing is
+accumulated - both windows and the glyph are pure functions of the clock and the params.
+
+It works on **both transitions** (a revealed line decodes in, a leaving character decodes out) and in
+**both modes**. The `world` path rewrites a display's text only when the glyph it should show actually
+changed, so a decode costs what a standing line costs; the `flat` path draws the noise character in
+the real character's cell - measured from the real one, so a swap never shifts a letter sideways - and
+costs no more than a plain frame either. A character that is scrambled replaces **both** its glyph and
+its opacity: the band characters are visible at the noise's opacity instead of waiting at zero, which
+is why the tail lights up as the sweep reaches it.
+
+With `scramble` at `0` the effect is exactly what it was before, so a definition that does not ask for
+a decode is unaffected.
+
+```json
+{
+	"params": {
+		"reveal": { "start": 0.0, "end": 1.0 },
+		"scramble": 1.0,
+		"scramble_rate": 15.0,
+		"scramble_band": 4.0,
+		"exit_at": 3.0,
+		"exit_stagger": 0.04,
+		"scramble_time": 0.4,
+		"exit": 1.0
+	}
+}
+```
+
 ## Example
 
 ```json
@@ -232,6 +346,10 @@ Its datapack definition:
 		"color_g": 0.92,
 		"color_b": 0.62,
 		"reveal": { "keyframes": [{ "time": 0, "value": 0.0 }, { "time": 40, "value": 1.0 }, { "time": 160, "value": 1.0 }] },
+		"scramble": 1.0,
+		"scramble_rate": 15.0,
+		"scramble_band": 4.0,
+		"scramble_time": 0.4,
 		"exit_at": 5.0,
 		"exit_stagger": 0.04,
 		"exit": 1.0,
@@ -244,8 +362,10 @@ Its datapack definition:
 }
 ```
 
-The demo types the title in over the first two seconds, holds it, then drops the letters onto the
-platform at `y 100` where they land, hop and fade, and the loop starts again.
+The demo decodes the title in over the first two seconds - the characters ahead of the reveal frontier
+show noise for `scramble_band` places - holds it, then scrambles each letter for `scramble_time`
+before it detaches, drops it onto the platform at `y 100` where it lands, hops and fades, and the loop
+starts again.
 
 ## See also
 

@@ -319,7 +319,7 @@ track the vanilla sun/moon/stars, so set the time on the `/time set` lines first
 
 | effect id | command | what it looks like | camera/scene | loop |
 |---|---|---|---|---|
-| (no built-in) | `/vfx play vfx_demos:show_text_overlay` | "VFX WEAVER" types itself in over the platform, holds, then the letters drop, land and fade | look at the wall, the line sits at x 2000 / y 102.5 / z 2001 | 8 s |
+| (no built-in) | `/vfx play vfx_demos:show_text_overlay` | "VFX WEAVER" decodes itself in over the platform (noise ahead of the reveal frontier), holds, then scrambles each letter and the letters drop, land and fade | look at the wall, the line sits at x 2000 / y 102.5 / z 2001 | 8 s |
 
 `show_text_overlay` is not a built-in - no effect ships as `text_overlay` - so it demonstrates the type
 from the pack. The block stands in `world` mode with its baseline rotation at 0, which is **unverified

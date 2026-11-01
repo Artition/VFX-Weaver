@@ -80,6 +80,16 @@ void sendMaskData(ServerPlayer player, Identifier effectId, int primitive, float
 void sendKeyframe(ServerPlayer player, Identifier effectId, String param, int timeTicks, float value, EasingType easing);
 ```
 
+**Call-time text (protocol 7).** Each of the four definition-resolving variants above also has an
+overload taking one more trailing `@Nullable String text`. It replaces a `text_overlay` definition's
+`text.content` for that one call: only `content` changes, `mode`/`font`/`align`/`anchor` still come
+from the definition, a blank or `null` text means "no override", and a definition with no `text` block
+ignores it with one warning. The signatures shown above are unchanged and keep meaning **no
+override** - they delegate with `null`, so nothing that compiles today has to change. The wire caps
+the string at `VFXTriggerPayload.MAX_TEXT_OVERRIDE` (512 characters) and the renderer's own 256-glyph
+cap still applies on top. As with any payload change, client and server must be the same protocol
+version (see [Network protocol](#network-protocol)).
+
 ### Client (locally, without the network)
 
 ```java
@@ -518,7 +528,7 @@ Semantics:
 
 | Field | Type | Description |
 |---|---|---|
-| `protocolVersion` | byte | Current value — `VFXTriggerPayload.PROTOCOL_VERSION` (6). The client **silently ignores** the packet on a version mismatch (see `VFXClient.handleTrigger`). |
+| `protocolVersion` | byte | Current value — `VFXTriggerPayload.PROTOCOL_VERSION` (7). The client **silently ignores** the packet on a version mismatch (see `VFXClient.handleTrigger`), so client and server must be the same version — 7 added the optional text override below, and a 6/7 mismatch fails exactly like every earlier bump. |
 | `effectId` | `Identifier` | Effect id (built-in or datapack) |
 | `action` | `VFXAction` (`PLAY`/`STOP`/`SET_PARAM`/`KEYFRAME`/`SET_EXPR`/`MOVE`) | `SET_PARAM`/`KEYFRAME` apply to **running** effect instances: `params` carries exactly one `name → value` entry, for `KEYFRAME` the frame time is in `durationTicks` (negative = start the segment at the current time and run over `|time|` ticks), the segment easing in `easing`; `SET_EXPR` uses `exprParam`+`exprSource`; `MOVE` uses `position` + `instanceId` |
 | `durationTicks` | varint | 0 = definition default, negative = persistent (only for `PLAY`) |
@@ -526,6 +536,7 @@ Semantics:
 | `params` | `Map<String, Float>` | Constant overrides, numbers only |
 | `easing` | `EasingType` (string) | |
 | `exprParam` / `exprSource` | optional strings | Only for `SET_EXPR`: the parameter name and the raw expression source |
+| `textOverride` | optional string | New in **7**. Only for `PLAY`: replaces the definition's `text.content` for this instance. Absent (null) on every other action and on every older sender, which means "use the definition's own text". Cut to 512 characters on decode, with one warning |
 
 ### Serverbound: `vfxweaver:vfx_request` (`VFXRequestPayload`)
 
