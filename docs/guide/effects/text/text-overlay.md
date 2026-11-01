@@ -65,14 +65,14 @@ surface - constant, `start`/`end`, `keyframes`, `bind`, `expr`, the `/vfx play` 
 | `exit` | 0 | yes | Float code, clamped `0..1`: `< 0.5` fades in place, `>= 0.5` falls |
 | `exit_at` | -1 | yes | Seconds from the start of the effect when the **first** character starts leaving. Negative = the text never leaves on its own and stays until the effect is stopped |
 | `exit_stagger` | 0 | yes | Seconds between one character leaving and the next one |
-| `exit_speed` | 0 | yes | Initial downward speed of a leaving character, blocks/s, multiplied by a per-character jitter in `0.85..1.15` |
-| `gravity` | 18 | yes | Downward acceleration, blocks/s². Floored at `1e-3` so it cannot divide by zero, **no upper limit** |
-| `spin_x` | 0 | yes | Angular velocity of a leaving character, degrees/s; the vector `(spin_x, spin_y, spin_z)` is an axis and its length the speed |
-| `spin_y` | 0 | yes | Same, Y component of the spin axis |
-| `spin_z` | 0 | yes | Same, Z component of the spin axis |
-| `tumble` | 0 | yes | `>= 0.5` takes the spin axis from the per-character jitter instead, so the letters tumble off different axes while keeping `|spin|` as the speed. Clamped `0..1` |
+| `exit_speed` | 0 | yes | Initial downward speed of a leaving character, multiplied by a per-character jitter in `0.85..1.15`: blocks/s in `world`, screen heights/s in `flat`, so the same value moves the block the same fraction of the frame at any GUI scale |
+| `gravity` | 18 | yes | Downward acceleration: blocks/s² in `world`, screen heights/s² in `flat`. Floored at `1e-3` so it cannot divide by zero, **no upper limit** |
+| `spin_x` | 0 | yes (`world` only) | Angular velocity of a leaving character, degrees/s; the vector `(spin_x, spin_y, spin_z)` is an axis and its length the speed |
+| `spin_y` | 0 | yes (`world` only) | Same, Y component of the spin axis |
+| `spin_z` | 0 | yes | Same, Z component of the spin axis. Also the only spin a `flat` character can turn by: a 2D pose rotates about Z |
+| `tumble` | 0 | yes | `>= 0.5` takes the spin axis from the per-character jitter instead, so the letters tumble off different axes while keeping `|spin|` as the speed; in `flat` it flips the direction of `spin_z` per character instead. Clamped `0..1` |
 | `collision` | 1 | yes | `>= 0.5` lets a falling character stop on a surface, `< 0.5` lets it fall straight through. Clamped `0..1` |
-| `bounce` | 0.15 | yes | Restitution of the single rebound after landing, `0..1`. `0` lands and stays down |
+| `bounce` | 0.15 | yes (`world` only) | Restitution of the single rebound after landing, `0..1`. `0` lands and stays down. `flat` has no rebound: a character that reaches the bottom edge holds there and fades |
 | `friction` | 0.4 | **not read yet** | Would be the tangential damping on impact; the fall is vertical only, so there is nothing to damp |
 | `fade_out` | 0.5 | yes | Seconds a character takes to fade once it has left (fade exit) or once it has come to rest (fall exit). Floored at `1e-4` |
 | `rot_x` | 0 | yes | Baseline orientation of the whole block, degrees |
@@ -130,10 +130,18 @@ Notes on the numbers:
   window are the floor and the walls, and `collision: 0` lets a character leave the picture and fade
   where it went.
 
-That second half is the design, not the current code: **the `flat` path does not run the exit yet.**
-Today `flat` mode draws the block with `reveal`, `color_*` and `shadow` only, so `exit`, `exit_at`,
-`exit_stagger`, `exit_speed`, `gravity`, `spin_*`, `tumble`, `collision`, `bounce` and `fade_out` do
-nothing there. Both exits are a `world`-mode feature.
+That second half is the code, not only the design: **both exits run in both modes, on one timeline.**
+`flat` reads the same `exit_at` + `index * exit_stagger` schedule, the same `exit` code and the same
+`fade_out`; what differs is the space the motion is measured in. A `flat` fall moves the character in
+**screen heights** - `exit_speed` is screen heights per second and `gravity` screen heights per second
+squared, multiplied by the GUI height - so GUI scale 2 and GUI scale 4 put the letter in the same place
+at the same moment. The sideways drift a leaving character gets from the per-character jitter is folded
+back inside the frame width, so a letter bounces off the left and right edges, and one that reaches the
+bottom edge stops there and fades: a `flat` landing does not rebound, so `bounce` is a `world`-only
+param. `flat` spins a letter about its own centre, which a 2D pose can only do about Z, so it reads
+`spin_z` alone (with `tumble` flipping its direction per character instead of moving its axis), and the
+block's own turn comes from `angle` - `rot_x` and `rot_y` stay `world`-only. `exit_stagger` and
+`collision` mean the same thing in both modes.
 
 ## Example
 
