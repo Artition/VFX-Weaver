@@ -177,7 +177,7 @@ surface - constant, `start`/`end`, `keyframes`, `bind`, `expr`, the `/vfx play` 
 | `rot_z` | 0 | yes (`world` only) | Baseline orientation of the whole block, degrees, Z. `flat` turns about Z with `angle` and `spin_z` instead, so this is not read there. It is part of the `billboard: 0` auto rule in `world`: only while all three are zero does the block face the camera |
 | `angle` | 0 | yes (`flat` only) | Turns the whole block about its anchor, degrees |
 | `billboard` | 0 | sampled, see below (`world` only) | Float code for how the block follows the camera, mapped straight onto the display's billboard constraint: `0` = **auto**, `1` = **fixed**, `2` = **center**, `3` = **vertical**, `4` = **horizontal**. `0` is the rule this effect always used - see [What the block faces, and how it is lit](#what-the-block-faces-and-how-it-is-lit). Read once per display at spawn, so changing it needs a respawn |
-| `two_sided` | 1 | sampled, see below (`world` only) | `>= 0.5` (the default) spawns a **second display per unit, glued back to back**: its origin is the original position plus the block rotation applied to `(unitWidth, 0, 0)` - one advance for a character, the measured width for a word, the widest line for a block - and its rotation is the block rotation composed with a 180 degree turn about Y, so its text runs from the far edge back to the original origin. Both copies cover exactly the same rectangle with opposite normals: a **two-sided sign, readable from both sides**, drawn with no x-ray. `< 0.5` spawns no twin at all, a strictly one-sided decal. Used only when the resolved `billboard` is not `center`, because a `center` billboard already faces you from every side - see [Showing the back of a pinned block](#showing-the-back-of-a-pinned-block). Read at spawn; each twin counts against the 256-display cap and is released with its unit |
+| `two_sided` | 1 | sampled, see below (`world` only) | `>= 0.5` (the default) spawns a **second display per unit that is the mirror image of the first**: its origin is the original position plus the block rotation applied to `(unitWidth, 0, 0)` - one advance for a character, the measured width for a word, the widest line for a block - it carries **the same block rotation as the original**, and its transformation scale has a **negative X** (`-scale, scale, scale`), so its text runs from the far edge back to the original origin. That scale mirrors the glyph and flips the triangle winding, so the copy covers exactly the same rectangle and is drawn only from behind: the **back of the sign**, the letter reversed, never a readable second copy - and not through blocks, because the plane is drawn once per side. `< 0.5` spawns no twin at all, a strictly one-sided decal. Used only when the resolved `billboard` is not `center`, because a `center` billboard already faces you from every side - see [Showing the back of a pinned block](#showing-the-back-of-a-pinned-block). Read at spawn; each twin counts against the 256-display cap and is released with its unit |
 | `see_through` | 0 | yes (`world` only) | `>= 0.5` ORs vanilla's `FLAG_SEE_THROUGH` into every unit's flags, so the **same quads** are drawn from both sides - the physical back of a letter, a mirror image rather than a readable second copy. It is **off by default** and stays as the option for text that should be seen through walls: see-through is exactly vanilla's x-ray mode, so the text is then **drawn through terrain** - a line behind a hill is visible through it. `< 0.5` (the default) draws each quad on its one side, and the back of a pinned block comes from its `two_sided` twin instead |
 
 Notes on the numbers:
@@ -268,22 +268,27 @@ light do not exist.
 ### Showing the back of a pinned block
 
 A text display draws its glyphs on a **single-sided** quad, so a block pinned in world orientation is
-invisible from behind. The default is a **two-sided sign**: two displays per unit, glued back to back.
+invisible from behind. The default is a **two-sided sign**: two displays per unit, the second a
+mirrored copy of the first - from behind the letters read reversed, like the back of a physical sign.
 
-- **`two_sided: 1` (the default): two displays, one facing each way.** Every unit of a block whose
+- **`two_sided: 1` (the default): a mirrored copy behind every unit.** Every unit of a block whose
   resolved `billboard` is not `center` spawns a **twin** carrying the same text, flags, alignment,
-  brightness and transformation scale. The twin is **glued**, not placed beside the original: a unit's
-  text runs from its origin along the block's local **+X** by its own width - the advance for a
-  character, the measured width for a word, the widest line for a block - so the twin's origin is
-  *the original position plus the block rotation applied to `(unitWidth, 0, 0)`*, and its rotation is
-  the block rotation composed with a **180 degree turn about Y**. With that, the twin's text runs from
-  the far edge back to the original origin: both copies cover **exactly the same rectangle** with
-  **opposite normals**. A viewer in front reads the original, a viewer behind reads the twin, and both
-  read left to right - the turn reverses the glyph order and the advance direction together, so
-  neither side is a mirror image. Nothing is drawn through terrain: a block behind a hill is hidden by
-  it, like any other world geometry. A single-character unit is the one case that needs no shift, because
-  vanilla draws it centred on its own origin and a centred quad is symmetric - the turn alone puts the
-  twin on the identical cell.
+  brightness and rotation. The twin is **glued**, not placed beside the original: a unit's text runs
+  from its origin along the block's local **+X** by its own width - the advance for a character, the
+  measured width for a word, the widest line for a block - so the twin's origin is *the original
+  position plus the block rotation applied to `(unitWidth, 0, 0)`*. Its rotation is **the same block
+  rotation the original gets**, and the mirror comes from its transformation scale, **`(-scale, scale,
+  scale)`**: a negative X scale has a **negative determinant**, which mirrors the glyph along X and
+  flips the triangle winding. The flipped winding is what makes the copy **culled from the front and
+  drawn only from behind**, and the shifted origin is what makes the mirrored quad, which now runs
+  backwards from where it stands, cover **exactly the same rectangle** as the original. So a viewer in
+  front reads the original, and a viewer behind reads the same letters **reversed** - the back of a
+  physical sign, a mirror image, never a readable second front. Nothing is drawn through terrain: each
+  plane is drawn on its one side, so a block behind a hill is hidden by it, like any other world
+  geometry. A single-character unit is the one case that needs no shift, and the maths says the
+  special case still holds under a mirror: vanilla draws that quad centred, spanning
+  `[-width/2, +width/2]` about its origin, and a mirror about that same origin maps the interval onto
+  itself - the twin lands on the identical cell.
 - **The pair is one object.** Both copies are driven by **exactly the same rotation each frame** -
   block rotation, then spin, then tumble - and share the exit displacement, the floor, the opacity, the
   brightness and the release, so a falling or tumbling pair never separates and neither copy outlives

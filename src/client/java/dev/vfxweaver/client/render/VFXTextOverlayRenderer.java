@@ -51,17 +51,20 @@ import org.slf4j.LoggerFactory;
  * {@code colour_r/g/b}, {@code shadow} and {@code brightness} are re-applied per frame, but only
  * written to the entities when the value changed.
  *
- * <p>The back of a block pinned in world orientation is a <strong>second display glued to the
- * first</strong>: {@code two_sided} (on unless it is below 0.5) spawns one twin per unit, placed at
- * the far edge of that unit's own advance - the original position plus the block rotation applied to
- * {@code (unitWidth, 0, 0)}, the layout's measured width for the unit - and turned 180 degrees about
- * Y, so both copies cover the same rectangle with opposite normals. That is a real two-sided sign:
- * the twin's text runs from the far edge back to the original origin, mirrored so it reads left to
- * right for a viewer standing behind, and nothing is drawn through terrain. A {@code center}
+ * <p>The back of a block pinned in world orientation is a <strong>second display that is the mirror
+ * image of the first</strong>: {@code two_sided} (on unless it is below 0.5) spawns one twin per
+ * unit, placed at the far edge of that unit's own advance - the original position plus the block
+ * rotation applied to {@code (unitWidth, 0, 0)}, the layout's measured width for the unit - carrying
+ * the same block rotation as the original with a transformation scale of
+ * {@code (-scale, scale, scale)}. A negative X scale has a negative determinant: it mirrors the glyph
+ * and flips the triangle winding, so the twin is culled from the front and drawn only from behind,
+ * where it fills exactly the same rectangle and reads the letter reversed - the back of a solid
+ * sign, never a readable second copy - and nothing is drawn through terrain. A {@code center}
  * billboard already faces the camera from every side, so it needs no twin. Both copies are driven by
- * one rotation per frame - block rotation plus spin plus tumble - and share the exit offset, the
- * floor, the opacity, the brightness and the release, so a falling or tumbling pair never separates;
- * the pair counts against the entity cap, so a two-sided block spends two entities per unit.
+ * the same rotation every frame - block rotation plus spin plus tumble, composed identically - and
+ * share the exit offset, the floor, the opacity, the brightness and the release, so a falling or
+ * tumbling pair never separates; the pair counts against the entity cap, so a two-sided block spends
+ * two entities per unit.
  * {@code see_through} stays only as an option, for text meant to be seen through walls, and is
  * <strong>off</strong> by default.
  *
@@ -173,8 +176,9 @@ public final class VFXTextOverlayRenderer {
 	// An entry starts as NaN - unresolved - and is filled with one downward scan on the frame the
 	// unit detaches, so the probe follows the world under the word instead of a single spawn-time
 	// query. 'twins' holds one extra display per unit when the block is two-sided - the same unit
-	// turned 180 degrees about Y - and is empty for a one-sided (or center-billboard) block, so the
-	// original and its twin are paired by index. 'finishedAt' is the age at which every unit had
+	// mirrored by a negative X transformation scale - and is empty for a one-sided (or
+	// center-billboard) block, so the original and its twin are paired by index. 'finishedAt' is the
+	// age at which every unit had
 	// faded out and been released, or -1
 	// while the block is live; a record whose age is now below that value is stale, because a
 	// looping effect wraps 'elapsed' back to 0 and a replay reuses the instance id.
@@ -535,14 +539,16 @@ public final class VFXTextOverlayRenderer {
 		final float wrapFontPixels = wrapWidth / Math.max(scale, 1e-4F);
 		final int lineWidth = VFXTextLayout.lineWidth(wrapFontPixels);
 		// A text display draws its single-sided quad one way round, so a block pinned in the world
-		// needs a second display facing the other way: 'two_sided' (the default) spawns one twin per
-		// unit, glued to the same rectangle and turned 180 degrees about Y. A 'center' billboard
-		// already turns to face the camera from every side, so it needs no twin and would only
-		// double the entities for nothing. Structural, read once here like 'billboard'.
+		// needs a second display drawn from the other side: 'two_sided' (the default) spawns one twin
+		// per unit, glued to the same rectangle, carrying the same block rotation as the original and
+		// a transformation scale of (-scale, scale, scale). The negative X scale has a negative
+		// determinant, which mirrors the glyph and flips the triangle winding, so the twin is culled
+		// from the front and drawn only from behind: the letter seen reversed, the way the back of a
+		// physical sign reads. A 'center' billboard already turns to face the camera from every side,
+		// so it needs no twin and would only double the entities for nothing. Structural, read once
+		// here like 'billboard'.
 		final boolean twoSided = effect.getParam("two_sided", 1.0F) >= 0.5F
 			&& billboard != Display.BillboardConstraints.CENTER;
-		final Quaternionf twinRotation = new Quaternionf(spawnRotation)
-			.rotateY((float) Math.PI);
 		// Glyphs spent so far: 'MAX_CHARS' still caps the characters even when they share entities,
 		// and a unit is only spawned whole, so a block never appears half cut off.
 		int spawnedGlyphs = 0;
@@ -586,13 +592,14 @@ public final class VFXTextOverlayRenderer {
 			}
 			spawnedEntities++;
 			entities.add(display);
-			// The twin: the same unit through its own origin, turned 180 degrees about Y, standing at
-			// the far edge of the original's advance - so the pair covers one rectangle, back to back.
+			// The twin: the same unit through its own origin, carrying the same block rotation and
+			// standing one unit width further on along that rotation - where its mirrored scale makes
+			// the text run back over the original's rectangle.
 			if (twoSided) {
 				final Display.TextDisplay twin = spawnDisplay(effect, level, unit, spec.split(), style,
 					unitFlags, lineWidth, billboard, brightness, origin,
 					twinRestOffset(unit, spec.split(), scale, spawnAlignShift, spawnAnchorShiftY,
-						twinRotation));
+						spawnRotation));
 				if (twin == null) {
 					break;
 				}
@@ -826,10 +833,10 @@ public final class VFXTextOverlayRenderer {
 			}
 			live.lastBrightness = brightness;
 		}
-		// The two-sided twin's own rest rotation: the block's rotation turned 180 degrees about Y.
-		// Null when this block has no twins, so a one-sided or center-billboard line never builds it.
-		final Quaternionf twinRotation = live.twins.isEmpty()
-			? null : new Quaternionf(rotation).rotateY((float) Math.PI);
+		// The two-sided twin's rest pose is the block's own rotation: the copy is the same letter
+		// mirrored by its transformation scale, not a second, differently turned display. False when
+		// this block has no twins, so a one-sided or center-billboard line never touches one.
+		final boolean hasTwin = !live.twins.isEmpty();
 		final int count = layout.units().size();
 		final float revealed = reveal(effect) * count;
 		// Noise is only computed when 'scramble' is on: with it off every unit shows its own cached
@@ -895,23 +902,26 @@ public final class VFXTextOverlayRenderer {
 			final byte opacity = (byte) Math.round(
 				clamp01(revealAlpha * exitAlpha * effect.getWeight()) * 255.0F);
 			display.setTextOpacity(opacity);
-			// The twin is the same unit seen from behind: its own origin at the far edge of this
-			// unit's advance, the block rotation turned 180 degrees about Y, and then exactly this
-			// frame's spin and tumble on top - the same rotation composition the original got - plus
-			// the same exit displacement, floor, brightness and opacity. Its text and flags are
-			// written on exactly the conditions the original's are, so a standing line writes neither
-			// copy and a decode touches both where it touched one.
-			if (twinRotation != null && i < live.twins.size()) {
+			// The twin is the same unit seen from behind: it stands at the far edge of this unit's
+			// advance, takes exactly this frame's rotation - block rotation, then spin, then tumble,
+			// the same composition the original got - and differs only in its transformation scale,
+			// (-scale, scale, scale). That negative X scale is the mirror: it flips the glyph and the
+			// triangle winding, so the copy is culled from the front and drawn from behind, showing
+			// the letter reversed exactly where the original stands. It shares the same exit
+			// displacement, floor, brightness and opacity, and its text and flags are written on
+			// exactly the conditions the original's are, so a standing line writes neither copy and a
+			// decode touches both where it touched one.
+			if (hasTwin && i < live.twins.size()) {
 				final Display.TextDisplay twin = live.twins.get(i);
 				final Vector3f twinLocal = twinRestOffset(unit, spec.split(), scale, alignShift,
-					anchorShiftY, twinRotation);
+					anchorShiftY, rotation);
 				twin.setPos(origin.x + twinLocal.x + exit.x, origin.y + twinLocal.y + exit.y,
 					origin.z + twinLocal.z + exit.z);
 				twin.setOldPosAndRot();
-				final Quaternionf twinOrientation = since < 0.0F ? twinRotation
-					: spin(effect, i, since, twinRotation);
+				final Quaternionf twinOrientation = since < 0.0F ? rotation
+					: spin(effect, i, since, rotation);
 				twin.setTransformation(new Transformation(new Vector3f(),
-					new Quaternionf(twinOrientation), new Vector3f(scale, scale, scale),
+					new Quaternionf(twinOrientation), new Vector3f(-scale, scale, scale),
 					new Quaternionf()));
 				if (textChanged) {
 					twin.setText(Component.literal(text).withStyle(style));
@@ -992,17 +1002,18 @@ public final class VFXTextOverlayRenderer {
 
 	// Where a two-sided twin stands, relative to the block origin: the original unit's own rest
 	// offset plus the block rotation applied to (unitWidth, 0, 0). A display draws its text from the
-	// position it is given along its local +X, so the twin's origin is the far edge of the
-	// original's advance - and, turned 180 degrees about Y, its text runs back over exactly the same
-	// rectangle, from that far edge to the original origin, with the opposite normal. A unit vanilla
-	// draws centred instead - a single-glyph 'char' unit owns no alignment bit - needs no shift: a
-	// centred quad is symmetric about its origin, so the turn alone lands it on the same rectangle.
+	// position it is given along its local +X, and the twin's negative X scale makes it run that way
+	// backwards, so the twin's origin is the far edge of the original's advance: its text covers the
+	// same rectangle from that far edge back to the original origin, mirrored about the plane.
+	// A unit vanilla draws centred instead - a single-glyph 'char' unit owns no alignment bit - needs
+	// no shift: a centred quad spans [-width/2, +width/2] about its origin, and a mirror about that
+	// same origin maps the interval onto itself, so it lands on the identical cell.
 	// Shared by the spawn-time rest pose and the per-frame placement, so the pair cannot drift apart.
 	private static Vector3f twinRestOffset(final VFXTextLayout.Unit unit,
 			final VFXTextSpec.Split split, final float scale, final float alignShift,
-			final float anchorShiftY, final Quaternionf twinRotation) {
+			final float anchorShiftY, final Quaternionf rotation) {
 		final float originX = alignFlags(unit, split) != 0 ? unit.x() + unit.width() : unit.x();
-		return restOffset(originX, unit.y(), scale, alignShift, anchorShiftY, twinRotation);
+		return restOffset(originX, unit.y(), scale, alignShift, anchorShiftY, rotation);
 	}
 
 	private static float alignOffset(final VFXTextSpec spec, final float width) {
