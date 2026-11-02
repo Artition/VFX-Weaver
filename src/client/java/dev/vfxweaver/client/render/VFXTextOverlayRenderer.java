@@ -177,6 +177,14 @@ public final class VFXTextOverlayRenderer {
 	// reaches zero, lets 'finish' run and releases its displays. Chosen well above any fall a level
 	// can produce, and raised only if a level can honestly outlast it.
 	private static final float RELEASE_SECONDS = 10.0F;
+	// The collision padding a falling glyph is resolved with, in blocks: its half-thickness, not its
+	// half-height. A glyph is a flat quad a few millimetres deep, and VFXWorldCollision.resolve
+	// depenetrates a point box of this radius, so the padding becomes the height at which the body
+	// comes to rest above the surface - passing half the glyph's height would leave every landed
+	// letter floating at half its own size over the floor. Two centimetres is the quad's own depth
+	// with a little margin, so the letter lies on the surface instead of sinking into it. The body
+	// floors it at its own minimum, so this value only has to be honest, not tiny-proof.
+	private static final double COLLISION_PADDING = 0.02;
 	// The pool a scrambled character draws its noise from: no lowercase, so a decode reads as machine
 	// output, and a fixed order, so the hash's index into it is stable between runs.
 	private static final String NOISE_GLYPHS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789#$%&*+=-<>/?";
@@ -239,9 +247,9 @@ public final class VFXTextOverlayRenderer {
 	}
 
 	// One unit's fall: the body that carries it and the physics it is stepped with, both built once
-	// when the unit detaches, plus the 'since' at which it came to rest or was released for falling
-	// out of sight. A unit without a Fall still stands in the line, or left by a fade, and is placed
-	// from its rest pose.
+	// when the unit detaches, plus the 'since' at which it finished lying down or was released for
+	// falling out of sight. A unit without a Fall still stands in the line, or left by a fade, and
+	// is placed from its rest pose.
 	private static final class Fall {
 		private final VFXTextBody body;
 		private final VFXTextBody.Params params;
@@ -800,17 +808,13 @@ public final class VFXTextOverlayRenderer {
 	// say. Both are authored in blocks per second and the body integrates in blocks per tick, hence
 	// the division by 20. 'gravity' is blocks per second squared, and the body reads it in the
 	// block-particle unit (a multiple of GRAVITY_STEP, i.e. 400 * GRAVITY_STEP per second squared),
-	// so the two engines agree on what a gravity of 18 means. The padding is half the glyph's own
-	// height in blocks: the letter's footprint, which is what a collider has to catch.
+	// so the two engines agree on what a gravity of 18 means.
 	private static Fall createFall(final VFXActiveEffect effect, final int index,
-			final VFXTextLayout.Unit unit, final Vec3 origin, final Vector3f local,
-			final Quaternionf rotation, final float scale) {
+			final Vec3 origin, final Vector3f local, final Quaternionf rotation) {
 		final Vec3 rest = new Vec3(origin.x + local.x, origin.y + local.y, origin.z + local.z);
 		final Vector3f scatter = scatterVelocity(effect, index);
 		final Vec3 velocity = new Vec3(scatter.x / 20.0,
 			effect.getParam("exit_speed", 0.0F) * jitter(effect, index) / 20.0, scatter.z / 20.0);
-		final double glyphHeight = Minecraft.getInstance().font.lineHeight * unit.lines() * scale
-			* WORLD_UNITS_PER_FONT_PIXEL;
 		// 'friction' is air drag per tick and the tangential velocity kept on contact, exactly as in
 		// the block-particle spec - and it has to be below 1 for a glyph that lands skidding to stop
 		// skidding, which is what lets the body come to rest and the fade start.
@@ -819,7 +823,7 @@ public final class VFXTextOverlayRenderer {
 			effect.getParam("friction", 0.94F),
 			effect.getParam("bounce", 0.15F),
 			effect.getParam("collision", 1.0F) >= 0.5F,
-			0.5 * glyphHeight,
+			COLLISION_PADDING,
 			effect.getParam("tumble", 0.0F) >= 0.5F);
 		return new Fall(new VFXTextBody(rest, velocity, rotation,
 			initialAngularVelocity(effect, index)), params);
@@ -924,7 +928,7 @@ public final class VFXTextOverlayRenderer {
 				live.falls[i] = null;
 				fall = null;
 			} else if (fall == null) {
-				fall = createFall(effect, i, unit, origin, local, rotation, scale);
+				fall = createFall(effect, i, origin, local, rotation);
 				live.falls[i] = fall;
 			}
 			// The pose this frame: the rest pose while the unit stands, and the body's interpolated
@@ -1172,18 +1176,19 @@ public final class VFXTextOverlayRenderer {
 	}
 
 	// Opacity of unit 'index' from its exit timeline: 1 while it stands, then the fade exit's ramp,
-	// or - for a fall - 1 until the body reports resting, the 'hold' seconds after that, and then
-	// 'fade_out'. The rest time is recorded from the body itself, on the first frame it reports
-	// settled, so the hold and the ramp are timed from the tick the physics actually stopped - there
-	// is no closed form left to ask. A body that cannot rest (free fall, a bounce of 1 or a friction
-	// so close to 1 it never sheds its drift) would otherwise never reach the ramp, so the same hold
-	// + ramp starts the moment it is released: when it has left the world (below the level's minimum
-	// build height, where nothing can catch it) or when 'RELEASE_SECONDS' have passed without it
-	// coming to rest. Both are release guarantees, not gameplay limits - an honest fall lands or
-	// leaves the world long before either fires - and they let the block reach zero so 'finish'
-	// releases it whatever the physics is doing. With 'collision' off there is no floor at all, so
-	// 'fade_out' runs from the detach instead (and 0 keeps it opaque), which is the free-fall rule
-	// this renderer has always had.
+	// or - for a fall - 1 until the body reports that its lie-down has finished, the 'hold' seconds
+	// after that, and then 'fade_out'. The time is recorded from the body itself, on the first frame
+	// it reports settled, so the hold and the ramp are timed from the tick the letter actually came
+	// to rest flat on its face - there is no closed form left to ask, and no guessed delay in front
+	// of the tip. A body that cannot rest (free fall, a bounce of 1 or a friction so close to 1 it
+	// never sheds its drift) would otherwise never reach the ramp, so the same hold + ramp starts the
+	// moment it is released: when it has left the world (below the level's minimum build height,
+	// where nothing can catch it) or when 'RELEASE_SECONDS' have passed without it coming to rest.
+	// Both are release guarantees, not gameplay limits - an honest fall lands or leaves the world
+	// long before either fires - and they let the block reach zero so 'finish' releases it whatever
+	// the physics is doing. With 'collision' off there is no floor at all, so 'fade_out' runs from
+	// the detach instead (and 0 keeps it opaque), which is the free-fall rule this renderer has
+	// always had.
 	private static float exitAlpha(final VFXActiveEffect effect, final Fall fall, final float since) {
 		if (since < 0.0F) {
 			return 1.0F;
@@ -1198,7 +1203,7 @@ public final class VFXTextOverlayRenderer {
 			&& (stranded(fall.body) || since >= RELEASE_SECONDS)) {
 			fall.releaseSince = since;
 		}
-		if (fall.restSince < 0.0F && fall.body.resting()) {
+		if (fall.restSince < 0.0F && fall.body.settled()) {
 			fall.restSince = since;
 		}
 		final float from = fall.releaseSince >= 0.0F ? fall.releaseSince : fall.restSince;

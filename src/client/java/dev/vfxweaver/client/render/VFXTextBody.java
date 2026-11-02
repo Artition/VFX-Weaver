@@ -21,7 +21,8 @@ import org.joml.Vector3f;
  * <p>The body holds no level and no effect of its own, so a renderer owns one per unit and drives
  * it directly: the constructor seeds position, velocity, orientation and angular velocity,
  * {@link #step} takes the level and the physics in {@link Params}, and {@link #pos(float)},
- * {@link #orientation(float)} and {@link #resting()} are all the renderer reads back.
+ * {@link #orientation(float)}, {@link #resting()} and {@link #settled()} are all the renderer reads
+ * back.
  *
  * <p><b>Not verified in game.</b>
  */
@@ -42,12 +43,14 @@ public final class VFXTextBody {
 	/** Consecutive still ticks before the body is declared resting; 0.2 s at 20 Hz. */
 	private static final int REST_TICKS = 4;
 	/**
-	 * Ticks the orientation takes to lie down after the body is declared resting. The first tick
-	 * turns a third of the remaining angle, the second a half of what is left, the third the rest, so
-	 * the settle is a short visible turn instead of a one-frame pop - and because both ends of every
-	 * tick are written back, the frame interpolation cannot fight it.
+	 * Ticks the orientation takes to lie down after the body is declared resting - nine, i.e. about
+	 * 0.45 s at 20 Hz, so the tip reads as a letter falling over instead of as a snap into the fade.
+	 * Each tick turns an equal share of what is still left (the slerp factor is one over the ticks
+	 * remaining), so the topple runs at a steady rate and the last tick lands exactly on
+	 * {@link #FLAT} - and because both ends of every tick are written back, the frame interpolation
+	 * cannot fight it.
 	 */
-	private static final int REST_ORIENT_TICKS = 3;
+	private static final int REST_ORIENT_TICKS = 9;
 	/**
 	 * Margin, in blocks, below the level's minimum build height at which a still-falling body counts
 	 * as having left the world. Nothing exists below that floor - there is no block to land on and
@@ -127,6 +130,19 @@ public final class VFXTextBody {
 	/** @return {@code true} once the body has settled; {@link #step} then only finishes the pose */
 	public boolean resting() {
 		return this.resting;
+	}
+
+	/**
+	 * Whether the lie-down has finished: the body is resting <em>and</em> its pose has been frozen,
+	 * so it is exactly {@link #FLAT} - face up on the floor - with both ends of the tick written to
+	 * that pose. The renderer starts its {@code hold} + {@code fade_out} timeline from the tick this
+	 * turns true, not from {@link #resting}: a fade that began at the rest instant would dissolve the
+	 * letter while it is still tipping over.
+	 *
+	 * @return {@code true} once the rest turn into the lying pose is complete
+	 */
+	public boolean settled() {
+		return this.restPoseFrozen;
 	}
 
 	/**
@@ -259,8 +275,10 @@ public final class VFXTextBody {
 	 * Finishes the resting pose: the first {@link #REST_ORIENT_TICKS} resting ticks slerp the
 	 * orientation into {@link #FLAT}, each ending exactly where the frame interpolation expects, and
 	 * the tick after the blend freezes both ends of the tick to FLAT so the display cannot swing off
-	 * the floor while it fades. Until that freeze, the last blend tick's interpolation window starts
-	 * at the pre-blend pose and ends at the flat one - the turn is drawn, not snapped.
+	 * the floor while it fades - that freeze is what {@link #settled()} reports, and so what the
+	 * renderer waits for before it starts the fade. Until that freeze, the last blend tick's
+	 * interpolation window starts at the pre-blend pose and ends at the flat one - the turn is drawn,
+	 * not snapped.
 	 */
 	private void lieDown() {
 		if (this.restOrientTicks > 0) {
@@ -291,8 +309,11 @@ public final class VFXTextBody {
 	 *                 on contact, so it is the same damping the engine applies
 	 * @param bounce   restitution of the normal velocity on contact, {@code 0..1}
 	 * @param collide  whether the world is resolved at all; off means the body falls through it
-	 * @param padding  the gap kept between the body and a collision surface — half the glyph's own
-	 *                 size in blocks, floored so a tiny glyph still depenetrates
+	 * @param padding  the gap kept between the body and a collision surface: the glyph's own
+	 *                 half-<em>thickness</em> in blocks, because a glyph is a thin flat quad and
+	 *                 {@link VFXWorldCollision#resolve} depenetrates a box of that radius - its
+	 *                 height is the wrong quantity here and would hold the letter that far above
+	 *                 the floor. Floored so a tiny glyph still depenetrates, no upper limit
 	 * @param tumble   whether contact turns slip into roll; off keeps the body from gaining spin by
 	 *                 sliding, like the engine's yaw/none modes. The touched surface damps the spin
 	 *                 either way - otherwise a landed letter never reaches the angular rest
