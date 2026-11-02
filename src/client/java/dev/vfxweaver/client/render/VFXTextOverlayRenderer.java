@@ -29,7 +29,6 @@ import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.phys.shapes.CollisionContext;
 import org.joml.Matrix3x2fStack;
 import org.joml.Quaternionf;
-import org.joml.Vector2f;
 import org.joml.Vector3f;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
@@ -93,14 +92,16 @@ import org.slf4j.LoggerFactory;
  * block) as one piece, and its glyphs are drawn inside that one pose.
  *
  * <p>The flat exit is the world exit's timeline in screen space: the same {@code exit_at},
- * {@code exit_stagger}, {@code exit}, {@code exit_speed}, {@code gravity}, {@code hold} and
- * {@code fade_out}, but
+ * {@code exit_stagger}, {@code exit}, {@code exit_speed}, {@code gravity}, {@code gravity_angle},
+ * {@code bounce}, {@code friction}, {@code hold} and {@code fade_out}, but
  * {@code gravity} and the speeds are read in screen heights per second, so every offset is multiplied
- * by the GUI height and the fall looks the same at GUI scale 2 and 4. With {@code collision} on, a
- * falling character is stopped by the bottom edge and fades out holding there, and its sideways drift
- * is folded back into the frame so it bounces off the left and right edges; with {@code collision} off
- * it falls straight out through the bottom while fading. A leaving character may only turn about z, so
- * its own rotation is {@code angle + spin_z * since}, applied about the middle of its own font box.
+ * by the GUI height and the fall looks the same at GUI scale 2 and 4. The body is the same
+ * {@link VFXTextBody} the world uses, in screen pixels, and the four edges of the frame are its
+ * floor, walls and ceiling: with {@code collision} on a letter lands on the bottom edge, rebounds by
+ * {@code bounce} and dies down there, is stopped by the sides instead of being folded by a formula,
+ * and stops at the top edge when a rebound throws it that high; with {@code collision} off it falls
+ * straight out through the bottom while fading. A leaving character may only turn about z, so its own
+ * rotation is the block's {@code angle} plus the body's roll about the middle of its own font box.
  *
  * <p>{@code reveal} is a fraction of the units that are visible: unit {@code i} is opaque
  * while {@code i < reveal * count} and fades over the single unit at the boundary, which is what
@@ -124,25 +125,28 @@ import org.slf4j.LoggerFactory;
  * a {@link VFXTextBody} the moment it detaches - a light per-unit body seeded with the rest pose it
  * had then, the {@code spread} scatter and {@code exit_speed} upward as its velocity, and the
  * {@code spin_*} / {@code tumble} angular velocity with its per-unit jitter - and from then on it
- * <strong>falls, bounces once and settles</strong>. One downward raycast, taken at that moment, is
- * the only thing the body knows about the world: it is the Y the glyph lands on, so a letter comes
- * to rest on the ground under the spot it detached from and never tips over an edge, slides down a
- * slope or tumbles through a gap. The body is integrated once per client tick by the same step
+ * <strong>falls, bounces and settles</strong> under {@code gravity} pulled in the direction
+ * {@code gravity_angle} names. One downward raycast, taken at that moment, is the only thing the
+ * body knows about the world: it is the Y the glyph lands on, so a letter comes to rest on the ground
+ * under the spot it detached from and never tips over an edge, slides down a slope or tumbles through
+ * a gap. The body is integrated once per client tick by the same step
  * {@link VFXBlockParticleEngine} uses and drawn at the interpolation between the last two ticks, so
- * 20 Hz physics still looks smooth. That per-tick state is the one place this renderer is not a
- * closed form of the clock: a replay from the effect's start matches frame for frame, while jumping
- * into the middle of a run does not reproduce the same resting arrangement - the trade the block
- * particles make.
+ * 20 Hz physics still looks smooth.
  *
- * <p>{@code flat} mode keeps the closed-form timeline of the same params: the HUD has no geometry to
- * hit, so a 2D block keeps the analytic fall and needs no body.
+ * <p>That per-tick state is the one place this renderer is not a closed form of the clock - in both
+ * modes now. A changing acceleration has no closed form, so an animated {@code gravity_angle} (or
+ * {@code gravity}) has to be integrated: the direction is read again on every tick, which is what
+ * makes a turning gravity bend the trajectory instead of pulling along a frozen axis. A replay from
+ * the effect's start matches frame for frame, while jumping into the middle of a run does not
+ * reproduce the same arrangement - the trade the block particles make.
  *
  * <p>A unit that falls stays opaque while it is in the air: once its body reports resting, {@code
  * hold} seconds pass and then {@code fade_out} runs. Free fall never rests, so with {@code
  * collision} off the fade runs from the detach (and with {@code fade_out} 0 the letters simply keep
  * falling until the effect stops). A body that has collision but cannot rest - dropped out of the
- * world, or bouncing forever - is released the same way when it falls below the level's minimum build
- * height or after ten seconds without coming to rest, so no unit can stay spawned and fully opaque
+ * world, bouncing forever, or dragged along a floor by an angled gravity - is released the same way
+ * when it falls below the level's minimum build height or after ten seconds without coming to rest,
+ * so no unit can stay spawned and fully opaque
  * until someone stops the effect. Once
  * every unit has faded, the block is marked finished at the age it finished and its entities are
  * released; when the effect loops or is replayed and the clock goes back, the block is rebuilt. An
@@ -251,19 +255,32 @@ public final class VFXTextOverlayRenderer {
 		}
 	}
 
-	// One unit's fall: the body that carries it and the physics it is stepped with, both built once
-	// when the unit detaches, plus the 'since' at which it came to rest or was released for falling
-	// out of sight. A unit without a Fall still stands in the line, or left by a fade, and is placed
-	// from its rest pose.
+	// One unit's fall: the body that carries it plus what its physics is read from, all built when
+	// the unit detaches, plus the 'since' at which it came to rest or was released for falling out
+	// of sight. The effect is kept instead of a built Params, because 'gravity' and 'gravity_angle'
+	// are read again on every tick - an animated turn has to bend the trajectory, so the acceleration
+	// cannot be frozen at the detach.
+	//
+	// 'gravityUnit' converts the authored 'gravity' into the body's own unit (a multiple of
+	// GRAVITY_STEP) for this space: 1/(400*GRAVITY_STEP) in the world, where gravity is blocks per
+	// second squared, and GUI height/(400*GRAVITY_STEP) on the HUD, where the same number is screen
+	// heights per second squared. 'ySign' is the sign of "down" along the space's Y axis: -1 in the
+	// world (Y grows up) and +1 on the HUD (Y grows down). A unit without a Fall still stands in the
+	// line, or left by a fade, and is placed from its rest pose.
 	private static final class Fall {
+		private final VFXActiveEffect effect;
 		private final VFXTextBody body;
-		private final VFXTextBody.Params params;
+		private final float gravityUnit;
+		private final float ySign;
 		private float restSince = -1.0F;
 		private float releaseSince = -1.0F;
 
-		private Fall(final VFXTextBody body, final VFXTextBody.Params params) {
+		private Fall(final VFXActiveEffect effect, final VFXTextBody body, final float gravityUnit,
+				final float ySign) {
+			this.effect = effect;
 			this.body = body;
-			this.params = params;
+			this.gravityUnit = gravityUnit;
+			this.ySign = ySign;
 		}
 	}
 
@@ -276,10 +293,6 @@ public final class VFXTextOverlayRenderer {
 	// on every frame.
 	private record FlatText(String signature, VFXTextLayout layout, List<String> texts) {
 	}
-
-	// The offset of a character that is not leaving. Shared, because a standing line must not
-	// allocate one vector per character per frame; the callers only read it.
-	private static final Vector2f ZERO_OFFSET = new Vector2f();
 
 	private static final Map<Long, LiveText> LIVE = new HashMap<>();
 	private static final Map<Long, FlatText> FLAT = new HashMap<>();
@@ -398,6 +411,14 @@ public final class VFXTextOverlayRenderer {
 		final List<VFXTextLayout.Glyph> glyphs = layout.glyphs();
 		final List<VFXTextLayout.Unit> units = layout.units();
 		final int count = units.size();
+		// The bodies of this block, one per unit, kept across frames: the flat exit integrates its
+		// motion now, so the state lives here instead of being recomputed from the clock. Rebuilt when
+		// the unit count changes, which is the same thing as a new layout.
+		Fall[] falls = FLAT_FALLS.get(effect.getInstanceId());
+		if (falls == null || falls.length != count) {
+			falls = new Fall[count];
+			FLAT_FALLS.put(effect.getInstanceId(), falls);
+		}
 		// The same fraction the world path reads: 'reveal' is a fraction of the units, so a coarse
 		// split wipes in its words (or its single block) instead of its characters.
 		final float revealed = reveal(effect) * count;
@@ -422,19 +443,44 @@ public final class VFXTextOverlayRenderer {
 			final float halfWidth = Math.max(0.0F, unitRight - unit.x()) / 2.0F;
 			final float unitHeight = font.lineHeight * unit.lines();
 			final float halfHeight = unitHeight / 2.0F;
+			// The same two halves in screen pixels, which is the space the body lives in.
+			final float halfWidthPx = halfWidth * scale;
+			final float halfHeightPx = halfHeight * scale;
 			final float since = exitSince(effect, u);
 			final float localX = (unit.x() + alignShift) * scale;
 			final float localY = (unit.y() + anchorShiftY) * scale;
 			final float restX = anchorX + localX * cos - localY * sin;
 			final float restY = anchorY + localX * sin + localY * cos;
-			// The bottom edge this unit rests on: solved against the bottom of its own box, so a
-			// landed unit stands on the frame instead of having fallen through it.
-			final float floorY = guiHeight - unitHeight * scale;
-			final float impact = flatImpact(effect, u, restY, floorY, guiHeight);
-			// The radius the roll is derived from: the glyph's own half-height on screen, so a letter
-			// thrown sideways rolls over its own edge instead of spinning at a made-up rate.
-			final float spinRadius = halfHeight * Math.max(scale, 1.0e-4F);
-			final Vector2f exit = flatExitOffset(effect, u, since, restX, restY, floorY, guiWidth, guiHeight);
+			// The unit's body, built on the first frame it has detached and kept from then on - the
+			// same integrator the world path hands a display, in screen pixels instead of blocks,
+			// with the four edges of the frame for its world. A unit that is standing again - a
+			// looping effect wrapped the clock, or 'exit' was animated away from a fall - hands its
+			// body back, so the line comes back whole and the next detach seeds a fresh fall.
+			Fall fall = falls[u];
+			if (since < 0.0F || effect.getParam("exit", 0.0F) < 0.5F) {
+				falls[u] = null;
+				fall = null;
+			} else if (fall == null) {
+				fall = flatFall(effect, u, restX, restY, guiWidth, guiHeight, halfWidthPx,
+					halfHeightPx);
+				falls[u] = fall;
+			}
+			// The pose this frame: the rest pose while the unit stands, and the body's interpolated
+			// one once it falls - the position lerped and the roll lerped by the leftover tick
+			// fraction, so 20 Hz physics is drawn smoothly, exactly as the displays are.
+			final float exitX;
+			final float exitY;
+			final float spinDegrees;
+			if (fall == null) {
+				exitX = 0.0F;
+				exitY = 0.0F;
+				spinDegrees = 0.0F;
+			} else {
+				final Vec3 position = fall.body.pos(lastFraction);
+				exitX = (float) position.x - (restX + halfWidthPx);
+				exitY = (float) position.y - (restY + halfHeightPx);
+				spinDegrees = (float) Math.toDegrees(fall.body.angle(lastFraction));
+			}
 			// Same wipe and scramble as the world path, both indexed by unit: 'reveal' is a
 			// fraction of the units, the single one at the boundary is caught mid-fade, the exit
 			// fades a unit that is leaving, and the effect weight fades the whole block. A plain
@@ -443,7 +489,7 @@ public final class VFXTextOverlayRenderer {
 			final float noise = scrambleAmount(effect, u, count);
 			final float revealAlpha = noise > 0.0F ? noise : clamp01(revealed - u);
 			final float alpha = revealAlpha
-				* flatExitAlpha(effect, u, since, restY, floorY, guiHeight) * effect.getWeight();
+				* exitAlpha(effect, fall, since, false) * effect.getWeight();
 			final int argb = (Math.round(alpha * 255.0F) << 24) | rgb;
 			// The gate is on the byte that actually reaches the text, not on the float: a weight that
 			// rounds to alpha 0 draws nothing anyway, and submitting it only costs a draw.
@@ -453,8 +499,8 @@ public final class VFXTextOverlayRenderer {
 			// The unit turns about the middle of its own font box, so a spin never drags it out of
 			// its place in the line and a resting line is exactly where 'angle' puts it.
 			pose.pushMatrix();
-			pose.translate(restX + exit.x + halfWidth * scale, restY + exit.y + halfHeight * scale);
-			pose.rotate((float) Math.toRadians(angle + flatSpin(effect, u, since, guiHeight, spinRadius, impact)));
+			pose.translate(restX + exitX + halfWidthPx, restY + exitY + halfHeightPx);
+			pose.rotate((float) Math.toRadians(angle + spinDegrees));
 			pose.scale(scale, scale);
 			if (noise > 0.0F) {
 				// One noise glyph for the whole unit, drawn from the unit's left edge: that is what
@@ -477,10 +523,12 @@ public final class VFXTextOverlayRenderer {
 		}
 	}
 
-	// Drops the cached layouts of flat-mode effects that are no longer running: the cache is keyed
-	// by instance id, so without this every finished effect would leave its layout behind.
+	// Drops the cached layouts and the bodies of flat-mode effects that are no longer running: both
+	// maps are keyed by instance id, so without this every finished effect would leave its layout -
+	// and up to MAX_UNITS bodies - behind for the life of the client.
 	public static void pruneFlat(final Set<Long> activeInstances) {
 		FLAT.keySet().removeIf(id -> !activeInstances.contains(id));
+		FLAT_FALLS.keySet().removeIf(id -> !activeInstances.contains(id));
 	}
 
 	// The measured layout of a flat block, from the cache when the structural inputs are unchanged.
@@ -513,7 +561,9 @@ public final class VFXTextOverlayRenderer {
 	// Per-frame housekeeping for the text pool: drops the characters of effects that are no longer
 	// running, the whole pool when the client level changes, and steps every falling unit's body by
 	// the ticks the shared clock owes - once per client tick, never once per frame, so the physics is
-	// the 20 Hz integration the block particles get and the frames in between only interpolate.
+	// the 20 Hz integration the block particles get and the frames in between only interpolate. The
+	// flat blocks are stepped here too: they now run the same integrator, in screen units, so they
+	// owe the same ticks and interpolate by the same leftover fraction.
 	//
 	// level           - the client level being drawn
 	// clock           - the shared effect clock, in ticks
@@ -546,6 +596,9 @@ public final class VFXTextOverlayRenderer {
 				for (final LiveText live : LIVE.values()) {
 					stepBodies(live);
 				}
+				for (final Fall[] falls : FLAT_FALLS.values()) {
+					stepBodies(falls);
+				}
 			}
 		}
 		// What the displays interpolate by this frame: the fraction of a tick the clock is into its
@@ -555,13 +608,37 @@ public final class VFXTextOverlayRenderer {
 	}
 
 	// Integrates every body of one block by one tick. A settled body is not stepped at all (the body
-	// itself refuses), so a line that has come to rest costs nothing.
+	// itself refuses), so a line that has come to rest costs nothing. The physics is rebuilt per
+	// tick, because 'gravity' and 'gravity_angle' are animatable: an angle that turns mid-fall
+	// curves the trajectory instead of pulling along a fixed axis.
 	private static void stepBodies(final LiveText live) {
-		for (final Fall fall : live.falls) {
+		stepBodies(live.falls);
+	}
+
+	// The same step for a flat block's bodies, which are kept per unit in their own pool because a
+	// HUD block owns no entities.
+	private static void stepBodies(final Fall[] falls) {
+		for (final Fall fall : falls) {
 			if (fall != null) {
-				fall.body.step(fall.params);
+				fall.body.step(physics(fall));
 			}
 		}
+	}
+
+	// One tick of physics for a fall, in the unit the body integrates in. The acceleration is read
+	// from the params again on every tick: 'gravity_angle' gives the direction (0 = down, 90 = right,
+	// clockwise on the screen), 'gravity' the length, and the component along the space's Y is
+	// flipped by 'ySign' so that "down" means -Y in the world and +Y on the HUD. Sine and cosine
+	// keep the magnitude, so an angle only ever turns the pull - a huge angle is simply a direction.
+	private static VFXTextBody.Params physics(final Fall fall) {
+		final VFXActiveEffect effect = fall.effect;
+		final double angle = Math.toRadians(effect.getParam("gravity_angle", 0.0F));
+		final double magnitude = gravityOf(effect) * fall.gravityUnit;
+		return new VFXTextBody.Params(
+			(float) (magnitude * Math.sin(angle)),
+			(float) (fall.ySign * magnitude * Math.cos(angle)),
+			effect.getParam("friction", 0.94F),
+			effect.getParam("bounce", 0.15F));
 	}
 
 	// Removes one effect's characters, by instance id.
@@ -578,6 +655,10 @@ public final class VFXTextOverlayRenderer {
 			release(live);
 		}
 		LIVE.clear();
+		// The HUD blocks carry bodies too now: their state is in screen pixels, but a level change
+		// resets the whole text machinery, and a stale pool would still be stepped by tick.
+		FLAT.clear();
+		FLAT_FALLS.clear();
 	}
 
 	// Builds the display entities of a world-mode effect the first time it is drawn.
@@ -817,7 +898,8 @@ public final class VFXTextOverlayRenderer {
 	// say. Both are authored in blocks per second and the body integrates in blocks per tick, hence
 	// the division by 20. 'gravity' is blocks per second squared, and the body reads it in the
 	// block-particle unit (a multiple of GRAVITY_STEP, i.e. 400 * GRAVITY_STEP per second squared),
-	// so the two engines agree on what a gravity of 18 means.
+	// so the two engines agree on what a gravity of 18 means; its direction comes from
+	// 'gravity_angle' and is resolved per tick (see physics), not here.
 	//
 	// The one thing the body is told about the world is the floor under it, taken here - once per
 	// unit, at the moment it detaches - with a single downward raycast against collider blocks. NaN
@@ -829,22 +911,20 @@ public final class VFXTextOverlayRenderer {
 		final Vector3f scatter = scatterVelocity(effect, index);
 		final Vec3 velocity = new Vec3(scatter.x / 20.0,
 			effect.getParam("exit_speed", 0.0F) * jitter(effect, index) / 20.0, scatter.z / 20.0);
-		// 'friction' is air drag per tick and the share of the horizontal drift kept on a contact,
-		// exactly as in the block-particle spec - and it has to be below 1 for a glyph that lands
-		// skidding to stop skidding, which is what lets the body come to rest and the fade start.
-		final VFXTextBody.Params params = new VFXTextBody.Params(
-			gravityOf(effect) / (400.0F * VFXBlockParticleSpec.GRAVITY_STEP),
-			effect.getParam("friction", 0.94F),
-			effect.getParam("bounce", 0.15F));
 		// The radius the roll is derived from: the glyph's own half-height in world units, so a
 		// letter rolls over its own edge instead of spinning at a made-up rate, and a tall block
 		// rolls slower than a small one at the same drift.
 		final float radius = Minecraft.getInstance().font.lineHeight * unit.lines() * 0.5F
 			* Math.max(effect.getParam("scale", 1.0F), 1.0e-4F) * WORLD_UNITS_PER_FONT_PIXEL;
 		final boolean collide = effect.getParam("collision", 1.0F) >= 0.5F;
-		return new Fall(new VFXTextBody(rest, velocity, initialSpin(effect, index), radius,
-			collide ? floorBelow(rest) : Double.NaN), params);
+		return new Fall(effect, new VFXTextBody(rest, velocity, initialSpin(effect, index),
+			radius, collide ? VFXTextBody.Bounds.ground(floorBelow(rest)) : VFXTextBody.Bounds.free()),
+			WORLD_GRAVITY_UNIT, -1.0F);
 	}
+
+	// Blocks per second squared, as the body wants it: a multiple of the block particles' per-tick
+	// gravity step, so the text and the particles fall the same way for the same number.
+	private static final float WORLD_GRAVITY_UNIT = 1.0F / (400.0F * VFXBlockParticleSpec.GRAVITY_STEP);
 
 	// The Y the glyph of a detaching unit lands on: one downward raycast from where it stands,
 	// against the level's collider blocks only (a plant or a torch is not a floor), over
@@ -1009,7 +1089,7 @@ public final class VFXTextOverlayRenderer {
 			// the effect weight fades the whole block instead of popping it at the stop. A scrambled
 			// unit is drawn at the noise's own opacity, which rises towards the frontier, so it
 			// lights up as the sweep reaches it instead of waiting at zero.
-			final float exitAlpha = exitAlpha(effect, fall, since);
+			final float exitAlpha = exitAlpha(effect, fall, since, true);
 			final float revealAlpha = noise > 0.0F ? noise : clamp01(revealed - i);
 			brightest = Math.max(brightest, exitAlpha);
 			final byte opacity = (byte) Math.round(
@@ -1201,20 +1281,21 @@ public final class VFXTextOverlayRenderer {
 			spread * (2.0F * unitHash(effect, index, SALT_SCATTER_Z) - 1.0F));
 	}
 
-	// Opacity of unit 'index' from its exit timeline: 1 while it stands, then the fade exit's ramp,
-	// or - for a fall - 1 until the body reports resting, the 'hold' seconds after that, and then
+	// Opacity of a unit from its exit timeline: 1 while it stands, then the fade exit's ramp, or -
+	// for a fall - 1 until the body reports resting, the 'hold' seconds after that, and then
 	// 'fade_out'. The time is recorded from the body itself, on the first frame it reports resting,
 	// so the hold and the ramp are timed from the tick the letter actually came to rest - there is no
-	// closed form left to ask. A body that cannot rest (free fall, a bounce of 1 or a friction so
-	// close to 1 it never sheds its drift) would otherwise never reach the ramp, so the same hold +
-	// ramp starts the moment it is released: when it has left the world (below the level's minimum
-	// build height, where nothing can catch it) or when 'RELEASE_SECONDS' have passed without it
-	// coming to rest. Both are release guarantees, not gameplay limits - an honest fall lands or
-	// leaves the world long before either fires - and they let the block reach zero so 'finish'
-	// releases it whatever the physics is doing. With 'collision' off there is no floor at all, so
-	// 'fade_out' runs from the detach instead (and 0 keeps it opaque), which is the free-fall rule
-	// this renderer has always had.
-	private static float exitAlpha(final VFXActiveEffect effect, final Fall fall, final float since) {
+	// closed form to ask. A body that cannot rest (free fall, a bounce of 1 or a friction so close to
+	// 1 it never sheds its drift) would otherwise never reach the ramp, so the same hold + ramp
+	// starts the moment it is released: when it has left the world (below the level's minimum build
+	// height, where nothing can catch it - 'world' only, since the HUD's frame keeps its letters)
+	// or when 'RELEASE_SECONDS' have passed without it coming to rest. Both are release guarantees,
+	// not gameplay limits - an honest fall lands or leaves the world long before either fires - and
+	// they let the block reach zero so 'finish' releases it whatever the physics is doing. With
+	// 'collision' off there is no floor at all, so 'fade_out' runs from the detach instead (and 0
+	// keeps it opaque), which is the free-fall rule this renderer has always had.
+	private static float exitAlpha(final VFXActiveEffect effect, final Fall fall, final float since,
+			final boolean world) {
 		if (since < 0.0F) {
 			return 1.0F;
 		}
@@ -1225,7 +1306,7 @@ public final class VFXTextOverlayRenderer {
 			return fade(effect, since, 0.0F);
 		}
 		if (fall.releaseSince < 0.0F && fall.restSince < 0.0F
-			&& (stranded(fall.body) || since >= RELEASE_SECONDS)) {
+			&& ((world && stranded(fall.body)) || since >= RELEASE_SECONDS)) {
 			fall.releaseSince = since;
 		}
 		if (fall.restSince < 0.0F && fall.body.resting()) {
@@ -1265,168 +1346,61 @@ public final class VFXTextOverlayRenderer {
 		return Math.max(effect.getParam("hold", 0.0F), 0.0F);
 	}
 
-	// Where a flat character is this frame, relative to its rest position on the HUD: zero while it
-	// stands in the line, zero for a fade exit, and otherwise a sideways drift plus a drop. Closed
-	// form, so the same tick always yields the same frame, and the same 'exit_at', 'exit_stagger',
-	// 'exit', 'exit_speed', 'gravity' and 'fade_out' the world path reads - only the space differs:
-	// speeds are in screen heights per second, hence the multiplications by the GUI height that make
-	// GUI scale 2 and 4 look the same.
+	// The bodies of the flat blocks, keyed by instance id like their layouts: the HUD exit carries
+	// the same integrator the world does, so it needs the same per-tick state - one body per unit and
+	// nothing else. Pruned with the layouts by pruneFlat.
+	private static final Map<Long, Fall[]> FLAT_FALLS = new HashMap<>();
+
+	// One 'gravity' unit on the HUD as the body wants it: 'gravity' is screen heights per second
+	// squared, so multiplying by the GUI height makes it pixels per second squared, and the body
+	// integrates in twentieths of a second - 400 divides it, exactly the conversion the world makes
+	// for blocks. A constant per frame height, applied when the unit detaches.
+	private static final float SCREEN_GRAVITY_UNIT =
+		1.0F / (400.0F * VFXBlockParticleSpec.GRAVITY_STEP);
+
+	// Builds the body of a flat unit that has just detached, in screen pixels. It is the world's body
+	// with the picture for its world: 'rest' is the centre of the unit's box - the point the pose
+	// translates to, so the glyph turns about its own middle - the bottom edge is the floor, the top
+	// edge the ceiling and the sides are the walls, each inset by the unit's own half-size so a
+	// landed letter stands on the frame with its box instead of halfway through it.
 	//
-	// effect    - the running effect
-	// index     - the character's place in the line, for its share of the jitter
-	// since     - seconds since the character detached, or -1 while it still stands
-	// restX     - its resting screen X, the axis the drift folds around
-	// restY     - its resting screen Y, the height the fall starts from
-	// floorY    - the screen Y it rests on once it has landed (the bottom edge, minus its own box)
-	// guiWidth  - the frame width, the span the drift bounces inside
-	// guiHeight - the frame height, the unit the physics is expressed in
-	private static Vector2f flatExitOffset(final VFXActiveEffect effect, final int index,
-			final float since, final float restX, final float restY, final float floorY,
-			final float guiWidth, final float guiHeight) {
-		if (since < 0.0F || effect.getParam("exit", 0.0F) < 0.5F) {
-			// The shared constant, not a fresh vector: this is the branch almost every character of
-			// almost every frame takes, and the caller only reads it.
-			return ZERO_OFFSET;
-		}
-		// Sideways: a small drift taken from the same jitter the world fall uses, so the characters of
-		// one line never leave in the same direction, folded back into the frame so the letter bounces
-		// off the left and right edges. Subtracting the fold of the rest position keeps the letter on
-		// its own spot at 'since' 0, whatever the author placed. The drift is evaluated at the landing
-		// once the letter has landed, so a unit standing on the bottom edge holds still while 'hold'
-		// and 'fade_out' run instead of sliding out of the frame.
-		final float impact = flatImpact(effect, index, restY, floorY, guiHeight);
-		final float moving = impact < 0.0F ? since : Math.min(since, impact);
-		final float drift = (jitter(effect, index) - 1.0F) * guiHeight * moving;
-		final float sideways = reflect(restX + drift, guiWidth) - reflect(restX, guiWidth);
-		if (impact < 0.0F) {
-			// No frame to hit: the letter falls straight out through the bottom while it fades.
-			return new Vector2f(sideways, flatDrop(effect, index, since, guiHeight));
-		}
-		if (since <= impact) {
-			return new Vector2f(sideways, flatDrop(effect, index, since, guiHeight));
-		}
-		// Landing: the letter holds on the bottom edge and fades there. A fold back up would never
-		// settle, and a letter that never settles reads as jitter instead of as a landing. 'bounce' is
-		// a world-mode parameter - there is no rebound against a frame edge, only the sideways fold.
-		return new Vector2f(sideways, floorY - restY);
-	}
-
-	// How much of the authored 'gravity' the flat fall actually accelerates with. 'gravity' is tuned
-	// for a few-block drop in the world, and one screen stands in for roughly eight of those drops:
-	// read as screen heights per second squared, the same number crosses the whole frame in about a
-	// third of a second, so the exit reads as a cut rather than as a fall. Dividing by eight turns
-	// the world default of 18 into 2.25 screen heights per second squared - the default fall from
-	// the line to the bottom edge now takes about 0.8 s and the letter visibly speeds up on the way
-	// down. It is a scale and not a clamp: 'gravity' stays the only knob, so doubling it halves the
-	// duration and halving it doubles it.
-	private static final float SCREEN_GRAVITY_SCALE = 1.0F / 8.0F;
-
-	// The screen-space acceleration of a flat fall, in screen heights per second squared: the same
-	// authored 'gravity' the world body reads, scaled for the screen (see SCREEN_GRAVITY_SCALE). The
-	// drop and the impact solve both use this one reading, so the letter lands exactly where the
-	// curve puts it instead of a step away from it.
-	private static float flatGravity(final VFXActiveEffect effect) {
-		return gravityOf(effect) * SCREEN_GRAVITY_SCALE;
-	}
-
-	// How far a flat character has dropped 'since' seconds after it detached, in screen pixels,
-	// positive **downwards**: a GuiGraphics y grows down, while the world fall's convention is up, so
-	// the parabola is negated here. A positive 'exit_speed' therefore still launches the letter
-	// upward first and it falls back from there. Same speed, same gravity, same screen heights.
-	private static float flatDrop(final VFXActiveEffect effect, final int index, final float since,
-			final float guiHeight) {
-		final float speed = effect.getParam("exit_speed", 0.0F) * jitter(effect, index);
-		return (0.5F * flatGravity(effect) * since * since - speed * since) * guiHeight;
-	}
-
-	// When a flat character reaches the bottom edge, in seconds since it detached, or -1 when there
-	// is nothing to reach: collision off, a letter that already rests on the edge, or a frame whose
-	// height would divide by zero. The drop is measured in screen heights and accelerated by the same
-	// scaled reading of 'gravity' the drop uses (SCREEN_GRAVITY_SCALE), so the shared 'gravity' and
-	// 'exit_speed' keep their meaning at any GUI scale while the fall lasts about 0.8 s instead of a
-	// third of a second. It is the same quadratic 'flatDrop' solves, with the negated screen sign
-	// cancelling on both sides, so the position at 'impact' is exactly the edge - the letter lands
-	// there instead of jumping to it.
-	private static float flatImpact(final VFXActiveEffect effect, final int index,
-			final float restY, final float floorY, final float guiHeight) {
-		if (effect.getParam("collision", 1.0F) < 0.5F || !Float.isFinite(floorY) || guiHeight <= 0.0F) {
-			return -1.0F;
-		}
-		final float drop = (floorY - restY) / guiHeight;
-		if (drop <= 0.0F) {
-			return -1.0F;
-		}
-		final float gravity = flatGravity(effect);
-		final float speed = effect.getParam("exit_speed", 0.0F) * jitter(effect, index);
-		final float impact = (speed + (float) Math.sqrt(speed * speed + 2.0F * gravity * drop)) / gravity;
-		return Float.isFinite(impact) ? impact : -1.0F;
-	}
-
-	// Opacity of flat character 'index' from the same timeline: 1 until it detaches, then the fade
-	// exit's ramp, or - for a fall - 1 until it has hit the bottom edge, held for 'hold', and the
-	// ramp while it holds there.
-	private static float flatExitAlpha(final VFXActiveEffect effect, final int index,
-			final float since, final float restY, final float floorY, final float guiHeight) {
-		if (since < 0.0F) {
-			return 1.0F;
-		}
-		if (effect.getParam("exit", 0.0F) < 0.5F) {
-			return fade(effect, since, 0.0F);
-		}
-		final float impact = flatImpact(effect, index, restY, floorY, guiHeight);
-		if (impact < 0.0F) {
-			// Nothing to land on: there is no impact to wait for, so the letter fades with the fall
-			// unless 'fade_out' is 0, where it falls on until the effect stops.
-			return fade(effect, since, 0.0F);
-		}
-		return fade(effect, since, impact + holdOf(effect));
-	}
-
-	// Ticks per second the flat physics is expressed in: 'since' is in seconds, but the world body
-	// integrates its roll once per tick, so the flat rate is converted to the same unit to keep the
-	// two exits turning at the same speed for the same numbers.
-	private static final float TICKS_PER_SECOND = 20.0F;
-	// Floor for the roll radius, in screen pixels: a zero-sized glyph would divide by zero.
-	private static final float MIN_ROLL_RADIUS = 1.0e-3F;
-
-	// A flat character's extra rotation while it leaves, in degrees, about its own centre (the only
-	// axis a 2D pose can turn by). It is the world body's roll, in radians per tick: the authored
-	// 'spin_z' seed, its direction flipped per unit by 'tumble', plus the sideways speed over the
-	// glyph's own half-height, so a letter thrown sideways spins faster. The sum is capped at the
-	// world body's MAX_SPIN, so a huge 'spread' cannot spin a glyph absurdly. The angle freezes at
-	// the landing (min with 'impact'), so a landed unit holds still while 'hold' and 'fade_out' run.
+	// The motion is authored in screen heights per second, so it is multiplied by the GUI height:
+	// GUI scale 2 and GUI scale 4 then put the letter in the same place at the same moment. A
+	// positive 'exit_speed' still throws the letter upward, hence the negation into the screen's
+	// y-grows-down convention, and the sideways kick is the same per-character jitter the closed
+	// form used before this became a body.
 	//
-	// effect  - the running effect
-	// index   - the character's place in the line, for its share of the jitter
-	// since   - seconds since the character detached, or -1 while it still stands
-	// guiHeight - the frame height, the span the sideways speed is measured in
-	// radius  - the glyph's half-height on screen, the radius it rolls over
-	// impact  - when it reaches the bottom edge, or -1 when it never does
-	private static float flatSpin(final VFXActiveEffect effect, final int index, final float since,
-			final float guiHeight, final float radius, final float impact) {
-		if (since < 0.0F) {
-			return 0.0F;
-		}
-		final float seed = (float) Math.toRadians(effect.getParam("spin_z", 0.0F)
-			* jitter(effect, index)) / TICKS_PER_SECOND;
-		final float signedSeed = effect.getParam("tumble", 0.0F) >= 0.5F && jitter(effect, index) < 1.0F
-			? -seed : seed;
-		// A fade exit never drifts, so only the authored seed turns it; the fall adds the roll.
-		final float roll = effect.getParam("exit", 0.0F) < 0.5F ? 0.0F
-			: (jitter(effect, index) - 1.0F) * guiHeight / TICKS_PER_SECOND
-				/ Math.max(radius, MIN_ROLL_RADIUS);
-		final float rate = Math.max(-VFXTextBody.MAX_SPIN,
-			Math.min(VFXTextBody.MAX_SPIN, signedSeed + roll));
-		final float moving = impact < 0.0F ? since : Math.min(since, impact);
-		return (float) Math.toDegrees(rate * moving * TICKS_PER_SECOND);
-	}
-
-	// Folds a coordinate back inside [0, size] as if it bounced off both edges. Closed form - a fold,
-	// not a loop over frames - so a replay and a screenshot agree on where the letter is.
-	private static float reflect(final float value, final float size) {
-		final float span = Math.max(size, 1.0F);
-		final float folded = Math.abs(value % (2.0F * span));
-		return folded > span ? 2.0F * span - folded : folded;
+	// effect     - the running effect
+	// index      - the character's place in the line, for its share of the jitter
+	// restX      - the unit's resting screen X (its box's left edge)
+	// restY      - the unit's resting screen Y (its box's top edge)
+	// guiWidth   - the frame width, the span the walls are on
+	// guiHeight  - the frame height: the floor, the ceiling and the unit the motion is expressed in
+	// halfWidth  - half the unit's box across, in screen pixels
+	// halfHeight - half the unit's box down, in screen pixels, and the radius it rolls over
+	private static Fall flatFall(final VFXActiveEffect effect, final int index,
+			final float restX, final float restY, final float guiWidth, final float guiHeight,
+			final float halfWidth, final float halfHeight) {
+		final Vec3 rest = new Vec3(restX + halfWidth, restY + halfHeight, 0.0);
+		final double velX = (jitter(effect, index) - 1.0F) * guiHeight / 20.0;
+		final double velY = -effect.getParam("exit_speed", 0.0F) * jitter(effect, index)
+			* guiHeight / 20.0;
+		// 'collision' still decides whether there is an edge at all: with it off the body is bounded
+		// by nothing and leaves the picture, fading on the way out. The insets are ordered, so a unit
+		// larger than the frame (a huge 'scale') gets a degenerate box instead of inverted walls that
+		// would flip its drift every tick.
+		final boolean collide = effect.getParam("collision", 1.0F) >= 0.5F;
+		final float floorY = Math.max(guiHeight - halfHeight, halfHeight);
+		final float roofY = Math.min(guiHeight - halfHeight, halfHeight);
+		final float leftX = Math.min(halfWidth, guiWidth - halfWidth);
+		final float rightX = Math.max(halfWidth, guiWidth - halfWidth);
+		final VFXTextBody.Bounds bounds = collide
+			? VFXTextBody.Bounds.frame(floorY, roofY, leftX, rightX)
+			: VFXTextBody.Bounds.free();
+		return new Fall(effect,
+			new VFXTextBody(rest, new Vec3(velX, velY, 0.0), initialSpin(effect, index), halfHeight,
+				bounds),
+			SCREEN_GRAVITY_UNIT * guiHeight, 1.0F);
 	}
 
 	// The block is over: every character has faded out. Its characters are released now, and the

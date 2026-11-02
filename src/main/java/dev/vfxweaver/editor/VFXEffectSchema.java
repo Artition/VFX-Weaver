@@ -189,7 +189,8 @@ public final class VFXEffectSchema {
 				"shadow", "outline", "outline_r", "outline_g", "outline_b", "reveal",
 				"scramble", "scramble_rate", "scramble_band", "scramble_time",
 				"per_char_anim", "stagger", "exit", "exit_at", "exit_stagger", "exit_speed", "spread",
-				"gravity", "spin_x", "spin_y", "spin_z", "tumble", "collision", "bounce", "friction",
+				"gravity", "gravity_angle", "spin_x", "spin_y", "spin_z", "tumble", "collision",
+				"bounce", "friction",
 				"hold", "fade_out", "rot_x", "rot_y", "rot_z", "angle", "billboard", "brightness",
 				"two_sided", "through_blocks"},
 			Map.ofEntries(

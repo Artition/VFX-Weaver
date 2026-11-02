@@ -163,15 +163,16 @@ surface - constant, `start`/`end`, `keyframes`, `bind`, `expr`, the `/vfx play` 
 | `exit_stagger` | 0 | yes | Seconds between one unit leaving and the next one |
 | `exit_speed` | 0 | yes | Initial **upward** speed of a leaving character, multiplied by a per-character jitter in `0.85..1.15`: blocks/s in `world`, screen heights/s in `flat`, so the same value moves the block the same fraction of the frame at any GUI scale. Gravity brings the letter back; a negative value throws it down instead |
 | `spread` | 0.6 | yes (`world` only) | Horizontal scatter of a falling unit, in blocks/s, picked from a hash of the instance id and its index so the letters of one line fan out instead of dropping straight down. The cheap fall is a 2D model, so it reads the **X** draw and drops the Z one (`flat` still folds both, since its drift is folded into the frame). It seeds the body's velocity when the unit detaches; the air friction `friction` bleeds it off from there. **No upper limit** - a large value simply scatters them further |
-| `gravity` | 18 | yes | Downward acceleration added to every falling body on every tick: blocks/s² in `world`, screen heights/s² in `flat`. Read in the block-particle unit (a multiple of its per-tick gravity step, i.e. `400 * GRAVITY_STEP` per second squared), so the two engines agree on what `18` means. The `flat` fall applies that reading scaled by a fixed **1/8** - a screen stands in for roughly eight of the few-block drops the world number is tuned for - so the default `18` takes about **0.8 s** from the line to the bottom edge and the letter visibly speeds up on the way; `gravity` is still the only knob, so doubling it halves the duration. Floored at `1e-3` so it cannot divide by zero. **No upper limit** - a huge value just makes the drop instant |
-| `spin_x` | 0 | yes (`world` only) | Angular velocity of a leaving character, degrees/s: the vector `(spin_x, spin_y, spin_z)` is an axis whose **length is the speed**, multiplied by the same per-character jitter so letters do not rotate together. The cheap body has one angle, so the axis only supplies the speed - the glyph always turns about **its own plane normal**, which keeps it readable instead of edge-on. The horizontal drift adds its own roll on top (see [The two exits](#the-two-exits)) |
-| `spin_y` | 0 | yes (`world` only) | Same, Y component - it contributes to the **speed** only |
-| `spin_z` | 0 | yes | Same, Z component. Also the authored seed for a `flat` character, which turns about Z only - its rate is this seed plus the roll of the sideways drift over the glyph's half-height, the same rule the `world` body uses (see [The two exits](#the-two-exits)) |
+| `gravity` | 18 | yes | Acceleration added to every falling body on every tick: blocks/s² in `world`, screen heights/s² in `flat`. Read in the block-particle unit (a multiple of its per-tick gravity step, i.e. `400 * GRAVITY_STEP` per second squared), so the two engines agree on what `18` means. It is the **length** of the acceleration: `gravity_angle` picks the direction, and both modes run the same integrator, so the HUD default `18` crosses a frame in about a third of a second and a smaller value is the knob for a slower, longer fall. Floored at `1e-3` so it cannot divide by zero. **No upper limit** - a huge value just makes the drop instant |
+| `gravity_angle` | 0 | yes | Direction of `gravity`, degrees, **clockwise on the screen**: `0` = down, `90` = right, `180` = up, `270` = left, and any value in between or beyond it (it is not wrapped or clamped). The acceleration is the vector `gravity * (sin(angle), cos(angle))`, so a `90` in `world` pulls along +X and the letters slide along the floor they land on, and a `90` in `flat` pulls towards the right edge of the frame. It is **animatable and read every tick**, so animating it **bends** the trajectory of a letter already in the air instead of only changing where the next one falls. **No bounds at all** - it is an angle |
+| `spin_x` | 0 | yes | Angular velocity of a leaving character, degrees/s: the vector `(spin_x, spin_y, spin_z)` is an axis whose **length is the speed**, multiplied by the same per-character jitter so letters do not rotate together. The body has one angle, so the axis only supplies the speed - the glyph always turns about **its own plane normal**, which keeps it readable instead of edge-on. The horizontal drift adds its own roll on top (see [The two exits](#the-two-exits)) |
+| `spin_y` | 0 | yes | Same, Y component - it contributes to the **speed** only, in both modes |
+| `spin_z` | 0 | yes | Same, Z component. Also the seed a `flat` character is turned by, which turns about Z only - its rate is this seed plus the roll of the sideways drift over the glyph's half-height, the same rule the `world` body uses (see [The two exits](#the-two-exits)) |
 | `tumble` | 0 | yes | `>= 0.5` takes the **direction** of the roll from the per-character jitter, so the letters turn opposite ways instead of as one sheet, while `|spin|` stays the speed - in `world` and in `flat` alike. The axis is no longer per-character: the cheap body has a single angle about the glyph's own plane normal, so there is one axis for all of them. Clamped `0..1` |
-| `collision` | 1 | yes | `>= 0.5` lets a falling character stop on a surface, `< 0.5` lets it fall straight through. In `world` this is the **one raycast** taken when the unit detaches: with it on, the ground is found once and the unit lands on it; with it off, there is no floor and the unit keeps falling. Clamped `0..1` |
-| `bounce` | 0.15 | yes (`world` only) | Restitution of the **one** rebound the landing gets, `0..1`: the vertical velocity is reflected and scaled by it on the first touch only, so `0` lands dead, `0.15` gives a small hop, and `1` reflects it in full - which with `friction` at `1` is a body that never settles and is only ended by the release guarantees. `flat` has no rebound: its closed-form fall stops at the bottom edge, holds for `hold` and fades |
-| `friction` | 0.94 | yes | Per-tick air drag **and** the share of the horizontal drift kept on a contact, `0..1`, `1` = no drag - the block-particle default is the same `0.94`. It is what makes a landing glyph stop skidding so the body can be declared resting, and set too close to `1` a drifting unit slides for ever, never settles and so never starts its fade. Clamped `0..1` because it is a fraction, not a size. `flat` does not read it: the closed-form fall has no drag |
-| `hold` | 0 | yes | Seconds a unit stays **fully opaque after it comes to rest**, before its fade starts: the tick the body reports **resting** plus `hold` is when the opacity begins to fall. A duration, so **no upper limit**; floored at `0`, because a negative value would run the fade backwards. In `flat` the rest is the bottom edge instead. It is the fall exit's wait - a fade exit has no rest to hold on |
+| `collision` | 1 | yes | `>= 0.5` lets a falling character stop on a surface, `< 0.5` lets it fall straight through. In `world` this is the **one raycast** taken when the unit detaches: with it on, the ground is found once and the unit lands on it; with it off, there is no floor and the unit keeps falling. In `flat` it is the **frame as a box**: on, the bottom edge is the floor, the top edge the ceiling and the sides are walls the letter rebounds off; off, there is no edge at all and it leaves the picture. Clamped `0..1` |
+| `bounce` | 0.15 | yes | Restitution of the **one** rebound the landing gets, `0..1`: the velocity into the surface is reflected and scaled by it on the first touch only, so `0` lands dead, `0.15` gives a small hop, and `1` reflects it in full - which with `friction` at `1` is a body that never settles and is only ended by the release guarantees. The same restitution is applied to a rebound off a `flat` frame edge, so a letter thrown at the side of the HUD comes back instead of leaving the picture |
+| `friction` | 0.94 | yes | Per-tick air drag **and** the share of the horizontal drift kept on a contact, `0..1`, `1` = no drag - the block-particle default is the same `0.94`. It is what makes a landing glyph stop skidding so the body can be declared resting, and set too close to `1` a drifting unit slides for ever, never settles and so never starts its fade. Clamped `0..1` because it is a fraction, not a size. Both modes read it: the `flat` body is the same integrator |
+| `hold` | 0 | yes | Seconds a unit stays **fully opaque after it comes to rest**, before its fade starts: the tick the body reports **resting** plus `hold` is when the opacity begins to fall. A duration, so **no upper limit**; floored at `0`, because a negative value would run the fade backwards. In `flat` the rest is the bottom edge, reached when the bounces have died down. It is the fall exit's wait - a fade exit has no rest to hold on |
 | `fade_out` | 0.5 | yes | Seconds the fade takes once it has started. **`0` means never fade**: the character stays fully opaque until the effect stops instead of vanishing at the instant it settles (or detaches). Above `0` the division is floored at `1e-4`, so a tiny non-zero value is a very fast fade and only `0` is read as "keep it" |
 | `rot_x` | 0 | yes | Baseline orientation of the whole block, degrees. This is the `billboard: 0` (auto) rule: with `rot_x`, `rot_y` and `rot_z` all at zero the block is a **billboard facing the camera**, so it is readable from any side; setting any of the three pins it in world orientation |
 | `rot_y` | 0 | yes | Baseline orientation of the whole block, degrees, Y. It takes part in the billboard rule above: any non-zero value pins the block in the world |
@@ -189,9 +190,11 @@ Notes on the numbers:
   billboard constraint and the number of entities belong to the block rather than to a frame.
   Animating any of them mid-flight changes nothing until the block is rebuilt; every other param -
   `through_blocks` and `shadow` included - is read again every frame.
-- **No upper limits on the motion.** `gravity`, `exit_speed`, `spread`, `spin_*`, `scale`, `pos_*` and the
-  delays accept any value: a huge `gravity` or `exit_speed` just makes the drop instant, a huge
-  `spin_*` makes the letter a blur, a huge `hold` just keeps the letters standing. Only the lower
+- **No upper limits on the motion.** `gravity`, `gravity_angle`, `exit_speed`, `spread`, `spin_*`,
+  `scale`, `pos_*` and the delays accept any value: a huge `gravity` or `exit_speed` just makes the
+  drop instant, a huge `spin_*` makes the letter a blur, a huge `hold` just keeps the letters
+  standing, and any `gravity_angle` is only a direction - it is not wrapped, so `450` means `90`.
+  Only the lower
   guards that avoid degenerate maths are applied (`gravity >= 1e-3`, `hold >= 0`, and the `1e-4` floor
   on the division when `fade_out` is above `0`), plus the `0..1` fractions listed in the table. The three
   scramble shapes follow the same rule: `scramble_rate`, `scramble_band` and `scramble_time` have only
@@ -402,51 +405,50 @@ then there is no fade at all and the letter keeps falling, fully opaque, until t
   column has nothing within 32 blocks has **no floor**: it keeps falling, and the release guarantees
   below end it. `collision: 0` skips the raycast entirely and the text falls straight through the
   ground.
-- **2D (`flat`) collision is the frame.** The picture *is* the world there: the edges of the game
-  window are the floor and the walls, and `collision: 0` lets a unit leave the picture and fade
-  where it went.
+- **2D (`flat`) collision is the frame.** The picture *is* the world there: the bottom edge of the game
+  window is the floor, the two sides are walls and the top edge is a ceiling, and `collision: 0` lets
+  a unit leave the picture and fade where it went.
 
 That second half is the code, not only the design: **both exits run in both modes, and the fade
 schedule is one timeline.** `flat` reads the same `exit_at` + `index * exit_stagger` schedule, the same
 `exit` code, the same `hold` and the same `fade_out`; what differs is the space the motion is measured
 in. A `flat` fall moves the unit in **screen heights** - `exit_speed` is screen heights per second and
 `gravity` screen heights per second squared, multiplied by the GUI height - so GUI scale 2 and GUI
-scale 4 put the text in the same place at the same moment. The acceleration is the authored `gravity`
-scaled by `1/8` (`SCREEN_GRAVITY_SCALE`): the world number is tuned for a few-block drop, one screen
-stands in for roughly eight of those, and read unscaled it crossed the frame in about a third of a
-second - no acceleration to see. So the default `18` accelerates at `2.25` screen heights per second
-squared, the default fall from the line to the bottom edge takes about **0.8 s**, and the letter
-visibly speeds up on the way down; `gravity` stays the only knob, so doubling it halves that time.
-The HUD's y grows **downwards**, so the
-offset is written positive-down: `s(t) = (gravity / 8 * t² / 2 - exit_speed * t) * GUI height`, which
-means a **positive `exit_speed` still launches the letter upward first** and it falls back from there.
-The impact time `t* = (v + sqrt(v² + 2 * (gravity / 8) * d)) / (gravity / 8)` - `v` the jittered
-`exit_speed`, `d` the distance to the bottom edge in screen heights - solves the same quadratic, so
-`s(t*)` is exactly the drop onto the bottom edge: the letter **lands there instead of jumping to
-it**, flush on the frame edge (there is no surface to z-fight with, so the `world` half's landing lift
-has no counterpart here). The sideways drift
-a leaving unit gets from the per-unit jitter is folded back inside the frame width, so a unit bounces
-off the left and right edges, and **both that drift and the rotation freeze at `t*`**: a unit that
-reaches the bottom edge stands still, holds for `hold` and fades where it landed. A `flat` landing
-does not rebound, so `bounce` is a `world`-only param. `flat` turns a unit about its own centre - the
-only axis a 2D pose has - and turns it the way the `world` body rolls: a seed from `spin_z` (signed
-per unit by `tumble`, in radians per tick) **plus the sideways speed over the glyph's own
-half-height**, capped at the same `0.5` rad/tick the body uses. So a letter thrown sideways spins
-faster, and neither a hard drift nor a tall frame can spin a glyph absurdly. `rot_x`, `rot_y` and
-`rot_z` stay `world`-only, the block's own turn comes from `angle`, and `exit_stagger` and `collision`
-mean the same thing in both modes.
+scale 4 put the text in the same place at the same moment. `gravity_angle` turns that pull, and
+because the angle is read on every tick an animated turn **bends** a letter that is already in the
+air: `0` is down, `90` is right, and the acceleration is the vector
+`gravity * (sin(angle), cos(angle))` in both modes - in the world `90` therefore pulls along +X and
+the letters slide along the floor they land on, on the HUD it drags them towards the right edge of the
+frame. The HUD's y grows **downwards**, so the same vector is applied with the sign of its y component
+flipped, and a **positive `exit_speed` still launches the letter upward first**; it falls back from
+there.
 
-**`flat` keeps the closed-form timeline, and that is deliberate.** A screen has no geometry to hit, so
-a 2D unit needs no body: its fall is still solved as an offset from the clock - `gravity / 8 * t² / 2 -
-exit_speed * t` in screen heights, folded against the frame - so the same tick always yields the same
-frame and there is no state to accumulate.
+**The `flat` exit is the same body as the world one, in screen pixels.** A unit that detaches is handed
+to the same `VFXTextBody` - same integrator, same step gate, same interpolation between ticks - with
+the four edges of the frame for its world: the bottom edge is the floor, the top edge the ceiling and
+the two sides are walls, each inset by the unit's own half-size so a landed letter stands on the frame
+with its box. It therefore inherits the whole physics for free: it **lands on the bottom edge**,
+rebounds once by `bounce`, is damped by `friction` on contact, comes to rest under the same four-still-
+ticks rule, and is **stopped and bounced back by the sides and the top** instead of being folded by a
+formula. `collision: 0` still means no edge at all: the body is bounded by nothing and the letter
+leaves the picture, fading on the way out. `hold` and `fade_out` start from the tick the body reports
+resting - which is now genuinely "the bounces have died down", not a solved impact time. `flat` turns a
+unit about its own centre, the only axis a 2D pose has, by the body's own roll: a seed from
+`spin_x`/`spin_y`/`spin_z` (signed per unit by `tumble`, in radians per tick) **plus the sideways speed
+over the glyph's own half-height**, capped at the same `0.5` rad/tick the world body uses. So a letter
+thrown sideways spins faster, and neither a hard drift nor a tall frame can spin a glyph absurdly.
+`rot_x`, `rot_y` and `rot_z` stay `world`-only, the block's own turn comes from `angle`, and
+`exit_stagger`, `collision`, `bounce`, `friction` and `gravity_angle` mean the same thing in both
+modes.
 
-**The one thing the `world` fall is not: a closed form of the clock.** Its state is accumulated per
-tick, so a replay from the effect's start matches the first run frame for frame - the same seeds,
-the same floor, the same order - while jumping into the middle of a run does not reproduce the same
-arrangement, because the motion that decided where each glyph stopped never happened. That is the
-trade the block particles make too, and it is stated here rather than hidden: the fade, the reveal,
-the scramble and the whole `flat` path stay pure functions of the clock.
+**Neither exit is a closed form of the clock any more, and that is deliberate.** A changing
+acceleration has no closed form: an animated `gravity_angle` - or an animated `gravity` - is integrated
+tick by tick, because the point of it is that a turn mid-fall bends the trajectory. So the flat path
+accumulates the same per-tick state the world path always did: a replay **from the effect's start**
+matches the first run frame for frame - the same seeds, the same floor, the same order - while jumping
+into the middle of a run does not reproduce the same arrangement, because the motion that decided where
+each glyph stopped never happened. That is the trade the block particles make too, and it is stated
+here rather than hidden. The fade, the reveal and the scramble stay pure functions of the clock.
 
 ## The scramble transitions
 
@@ -532,6 +534,45 @@ a decode is unaffected.
 
 Author it in **your own** namespace (`vfx_demos:` above) - a pack that writes `vfxweaver:<name>`
 would shadow a built-in rather than add one.
+
+### Dragging a landed HUD line sideways
+
+The angle is animatable, so a line can fall first and be pulled across the frame afterwards. This one
+falls onto the bottom edge of the HUD, then `gravity_angle` turns from `0` to `90` while the letters
+are already there: the body keeps them pinned to the floor and the horizontal part of the gravity
+drags them right, until the right edge of the frame stops them.
+
+```json
+{
+	"type": "text_overlay",
+	"duration": 120,
+	"persistent": true,
+	"text": { "content": "DRAGGED", "mode": "flat", "split": "char", "anchor": "center" },
+	"params": {
+		"x": 0.5,
+		"y": 0.15,
+		"scale": 2.0,
+		"reveal": { "start": 0.0, "end": 1.0 },
+		"exit_at": 1.0,
+		"exit_stagger": 0.03,
+		"exit": 1.0,
+		"gravity": 6.0,
+		"gravity_angle": {
+			"keyframes": [
+				{ "time": 0, "value": 0.0 },
+				{ "time": 40, "value": 0.0 },
+				{ "time": 60, "value": 90.0 },
+				{ "time": 120, "value": 90.0 }
+			]
+		},
+		"friction": 0.9,
+		"bounce": 0.2,
+		"collision": 1.0,
+		"hold": 0.2,
+		"fade_out": 0.5
+	}
+}
+```
 
 ## Code
 
