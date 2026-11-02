@@ -430,6 +430,10 @@ public final class VFXTextOverlayRenderer {
 			// The bottom edge this unit rests on: solved against the bottom of its own box, so a
 			// landed unit stands on the frame instead of having fallen through it.
 			final float floorY = guiHeight - unitHeight * scale;
+			final float impact = flatImpact(effect, u, restY, floorY, guiHeight);
+			// The radius the roll is derived from: the glyph's own half-height on screen, so a letter
+			// thrown sideways rolls over its own edge instead of spinning at a made-up rate.
+			final float spinRadius = halfHeight * Math.max(scale, 1.0e-4F);
 			final Vector2f exit = flatExitOffset(effect, u, since, restX, restY, floorY, guiWidth, guiHeight);
 			// Same wipe and scramble as the world path, both indexed by unit: 'reveal' is a
 			// fraction of the units, the single one at the boundary is caught mid-fade, the exit
@@ -450,7 +454,7 @@ public final class VFXTextOverlayRenderer {
 			// its place in the line and a resting line is exactly where 'angle' puts it.
 			pose.pushMatrix();
 			pose.translate(restX + exit.x + halfWidth * scale, restY + exit.y + halfHeight * scale);
-			pose.rotate((float) Math.toRadians(angle + flatSpin(effect, u, since)));
+			pose.rotate((float) Math.toRadians(angle + flatSpin(effect, u, since, guiHeight, spinRadius, impact)));
 			pose.scale(scale, scale);
 			if (noise > 0.0F) {
 				// One noise glyph for the whole unit, drawn from the unit's left edge: that is what
@@ -1287,10 +1291,13 @@ public final class VFXTextOverlayRenderer {
 		// Sideways: a small drift taken from the same jitter the world fall uses, so the characters of
 		// one line never leave in the same direction, folded back into the frame so the letter bounces
 		// off the left and right edges. Subtracting the fold of the rest position keeps the letter on
-		// its own spot at 'since' 0, whatever the author placed.
-		final float drift = (jitter(effect, index) - 1.0F) * guiHeight * since;
-		final float sideways = reflect(restX + drift, guiWidth) - reflect(restX, guiWidth);
+		// its own spot at 'since' 0, whatever the author placed. The drift is evaluated at the landing
+		// once the letter has landed, so a unit standing on the bottom edge holds still while 'hold'
+		// and 'fade_out' run instead of sliding out of the frame.
 		final float impact = flatImpact(effect, index, restY, floorY, guiHeight);
+		final float moving = impact < 0.0F ? since : Math.min(since, impact);
+		final float drift = (jitter(effect, index) - 1.0F) * guiHeight * moving;
+		final float sideways = reflect(restX + drift, guiWidth) - reflect(restX, guiWidth);
 		if (impact < 0.0F) {
 			// No frame to hit: the letter falls straight out through the bottom while it fades.
 			return new Vector2f(sideways, flatDrop(effect, index, since, guiHeight));
@@ -1304,18 +1311,22 @@ public final class VFXTextOverlayRenderer {
 		return new Vector2f(sideways, floorY - restY);
 	}
 
-	// How far a flat character has dropped 'since' seconds after it detached, in screen pixels: the
-	// same parabola the world fall uses, with its speed and gravity read in screen heights.
+	// How far a flat character has dropped 'since' seconds after it detached, in screen pixels,
+	// positive **downwards**: a GuiGraphics y grows down, while the world fall's convention is up, so
+	// the parabola is negated here. A positive 'exit_speed' therefore still launches the letter
+	// upward first and it falls back from there. Same speed, same gravity, same screen heights.
 	private static float flatDrop(final VFXActiveEffect effect, final int index, final float since,
 			final float guiHeight) {
 		final float speed = effect.getParam("exit_speed", 0.0F) * jitter(effect, index);
-		return (speed * since - 0.5F * gravityOf(effect) * since * since) * guiHeight;
+		return (0.5F * gravityOf(effect) * since * since - speed * since) * guiHeight;
 	}
 
 	// When a flat character reaches the bottom edge, in seconds since it detached, or -1 when there
 	// is nothing to reach: collision off, a letter that already rests on the edge, or a frame whose
 	// height would divide by zero. The drop is measured in screen heights, so the shared 'gravity' and
-	// 'exit_speed' keep their meaning at any GUI scale.
+	// 'exit_speed' keep their meaning at any GUI scale. It is the same quadratic 'flatDrop' solves,
+	// with the negated screen sign cancelling on both sides, so the position at 'impact' is exactly
+	// the edge - the letter lands there instead of jumping to it.
 	private static float flatImpact(final VFXActiveEffect effect, final int index,
 			final float restY, final float floorY, final float guiHeight) {
 		if (effect.getParam("collision", 1.0F) < 0.5F || !Float.isFinite(floorY) || guiHeight <= 0.0F) {
@@ -1351,18 +1362,43 @@ public final class VFXTextOverlayRenderer {
 		return fade(effect, since, impact + holdOf(effect));
 	}
 
-	// A flat character's extra rotation while it leaves, in degrees: a 2D pose can only turn about z,
-	// so the spin is spin_z * since. With 'tumble' the direction flips per character from the jitter,
-	// so the letters do not turn as one rigid sheet. It is added to 'angle' by the caller.
-	private static float flatSpin(final VFXActiveEffect effect, final int index, final float since) {
+	// Ticks per second the flat physics is expressed in: 'since' is in seconds, but the world body
+	// integrates its roll once per tick, so the flat rate is converted to the same unit to keep the
+	// two exits turning at the same speed for the same numbers.
+	private static final float TICKS_PER_SECOND = 20.0F;
+	// Floor for the roll radius, in screen pixels: a zero-sized glyph would divide by zero.
+	private static final float MIN_ROLL_RADIUS = 1.0e-3F;
+
+	// A flat character's extra rotation while it leaves, in degrees, about its own centre (the only
+	// axis a 2D pose can turn by). It is the world body's roll, in radians per tick: the authored
+	// 'spin_z' seed, its direction flipped per unit by 'tumble', plus the sideways speed over the
+	// glyph's own half-height, so a letter thrown sideways spins faster. The sum is capped at the
+	// world body's MAX_SPIN, so a huge 'spread' cannot spin a glyph absurdly. The angle freezes at
+	// the landing (min with 'impact'), so a landed unit holds still while 'hold' and 'fade_out' run.
+	//
+	// effect  - the running effect
+	// index   - the character's place in the line, for its share of the jitter
+	// since   - seconds since the character detached, or -1 while it still stands
+	// guiHeight - the frame height, the span the sideways speed is measured in
+	// radius  - the glyph's half-height on screen, the radius it rolls over
+	// impact  - when it reaches the bottom edge, or -1 when it never does
+	private static float flatSpin(final VFXActiveEffect effect, final int index, final float since,
+			final float guiHeight, final float radius, final float impact) {
 		if (since < 0.0F) {
 			return 0.0F;
 		}
-		final float spin = effect.getParam("spin_z", 0.0F) * since;
-		if (effect.getParam("tumble", 0.0F) < 0.5F) {
-			return spin;
-		}
-		return jitter(effect, index) >= 1.0F ? spin : -spin;
+		final float seed = (float) Math.toRadians(effect.getParam("spin_z", 0.0F)
+			* jitter(effect, index)) / TICKS_PER_SECOND;
+		final float signedSeed = effect.getParam("tumble", 0.0F) >= 0.5F && jitter(effect, index) < 1.0F
+			? -seed : seed;
+		// A fade exit never drifts, so only the authored seed turns it; the fall adds the roll.
+		final float roll = effect.getParam("exit", 0.0F) < 0.5F ? 0.0F
+			: (jitter(effect, index) - 1.0F) * guiHeight / TICKS_PER_SECOND
+				/ Math.max(radius, MIN_ROLL_RADIUS);
+		final float rate = Math.max(-VFXTextBody.MAX_SPIN,
+			Math.min(VFXTextBody.MAX_SPIN, signedSeed + roll));
+		final float moving = impact < 0.0F ? since : Math.min(since, impact);
+		return (float) Math.toDegrees(rate * moving * TICKS_PER_SECOND);
 	}
 
 	// Folds a coordinate back inside [0, size] as if it bounced off both edges. Closed form - a fold,

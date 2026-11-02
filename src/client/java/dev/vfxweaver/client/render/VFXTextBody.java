@@ -51,7 +51,7 @@ public final class VFXTextBody {
 	 * drift, so a letter thrown across the world would otherwise spin absurdly fast - a guard on a
 	 * rate, not a size, and it is the only number here that clips anything.
 	 */
-	private static final float MAX_SPIN = 0.5F;
+	static final float MAX_SPIN = 0.5F;
 	/** Floor for the roll radius, blocks: a zero-sized glyph would divide by zero. */
 	private static final float MIN_ROLL_RADIUS = 1.0e-3F;
 
