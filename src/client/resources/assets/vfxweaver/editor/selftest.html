@@ -1862,20 +1862,48 @@ window.__vfxSelftest = function () {
 		var mode = combos[0];
 		var button = findAllClass(mode, "vfx-combo-button")[0];
 		eq(button.textContent, "flat", "the mode button shows the current value");
+		// The headless document stub counts document-level listeners; the real page cannot be
+		// asked to, so the registration/cleanup pins only run under the stub.
+		var counted = typeof document.listenerCount === "function";
 		click(button);
 		ok(mode.className.indexOf("vfx-combo-open") >= 0, "the button opens the list");
+		if (counted) {
+			eq(document.listenerCount("mousedown"), 1, "opening registers the outside-click listener");
+			eq(document.listenerCount("keydown"), 1, "opening registers the Escape listener");
+		}
 		var items = findAllClass(mode, "vfx-combo-item");
 		eq(items.length, 2, "one row per mode");
 		var world = items.filter(function (item) {
 			return item.textContent === "world";
 		})[0];
 		ok(world != null, "the world row is drawn");
+		if (typeof world.focus === "function") {
+			world.focus();
+		}
 		click(world);
 		eq(effect.text.mode, "world", "the pick lands in the IR");
 		ok(mode.className.indexOf("vfx-combo-open") < 0, "the list closes on a pick");
+		eq(button.textContent, "world", "the button label follows the pick");
+		if (counted) {
+			eq(document.listenerCount("mousedown"), 0, "closing removes the outside-click listener");
+			eq(document.listenerCount("keydown"), 0, "closing removes the Escape listener");
+			ok(document.activeElement === button, "focus returns to the toggle");
+		}
 		eq(commits.length, 1, "the pick commits once");
 		eq(commits[0], true, "mode commits with a rebuild");
 		eq(parse(compileTab(tab)).text.mode, "world", "the pick reaches the definition");
+		// The four non-rebuilding controls must relabel their own button, not wait for a rebuild.
+		var font = combos[1];
+		var fontButton = findAllClass(font, "vfx-combo-button")[0];
+		click(fontButton);
+		var alt = findAllClass(font, "vfx-combo-item").filter(function (item) {
+			return item.textContent === "minecraft:default";
+		})[0];
+		click(alt);
+		eq(effect.text.font, "minecraft:default", "the font pick lands in the IR");
+		eq(fontButton.textContent, "minecraft:default", "the font button relabels without a rebuild");
+		eq(commits.length, 2, "font commits too");
+		eq(commits[1], false, "font commits in place (no rebuild)");
 	});
 	test("(MP1) a 200-definition pack opens lazily, not one tab per definition", function () {
 		var effects = {};

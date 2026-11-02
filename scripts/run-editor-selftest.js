@@ -24,9 +24,11 @@ var editorDir = path.join(__dirname, "..", "src", "client", "resources", "assets
 global.window = global;
 
 /*
- * inspector.js's text sub-editor is rendered for real by the TEXT4 test (the first edit must run
- * through its own `input` listener), so the page's document is stood in for by the smallest
- * element that supports appendChild/listeners/attributes. The browser page uses the real DOM.
+ * inspector.js's text sub-editor is rendered for real by the TEXT4/TEXT5 tests (the first edit runs
+ * through its own `input` listener, and the combo's outside-click/Escape listeners are registered on
+ * `document`), so the page's document is stood in for by the smallest element that supports
+ * appendChild/listeners/attributes plus document-level listener counters. The browser page uses the
+ * real DOM.
  */
 function fakeElement(tag) {
 	return {
@@ -46,6 +48,20 @@ function fakeElement(tag) {
 		setAttribute: function (name, value) {
 			this.attributes[name] = String(value);
 		},
+		contains: function (node) {
+			if (node === this) {
+				return true;
+			}
+			for (var i = 0; i < this.children.length; i++) {
+				if (this.children[i].contains && this.children[i].contains(node)) {
+					return true;
+				}
+			}
+			return false;
+		},
+		focus: function () {
+			document.activeElement = this;
+		},
 		addEventListener: function (type, fn) {
 			(this.listeners[type] = this.listeners[type] || []).push(fn);
 		},
@@ -57,8 +73,19 @@ function fakeElement(tag) {
 	};
 }
 global.document = {
+	activeElement: null,
+	listenerCounts: {},
 	createElement: function (tag) {
 		return fakeElement(tag);
+	},
+	addEventListener: function (type) {
+		this.listenerCounts[type] = (this.listenerCounts[type] || 0) + 1;
+	},
+	removeEventListener: function (type) {
+		this.listenerCounts[type] = Math.max(0, (this.listenerCounts[type] || 0) - 1);
+	},
+	listenerCount: function (type) {
+		return this.listenerCounts[type] || 0;
 	}
 };
 

@@ -1621,8 +1621,11 @@
 		 * absolutely positioned list of items. The native `<select>` popup hit a few pixels below
 		 * the drawn item in this panel even at 100% zoom / 96 dpi, so the list is drawn inside the
 		 * page, where every hit area is the row itself. Toggles on the button, closes on a second
-		 * click, an outside click or Escape, and reports the pick through `onPick`. Only the text
-		 * block uses this - every other control keeps the shared native `selectFor`.
+		 * click, an outside click or Escape, and reports the pick through `onPick`; the button label
+		 * follows every pick (only `mode` rebuilds the panel, the other four do not). Closing returns
+		 * focus to the button when an item held it, so Escape and the keyboard keep reaching the
+		 * panel. Only the text block uses this - every other control keeps the shared native
+		 * `selectFor`.
 		 *
 		 * @param {Array<string>} values the selectable values
 		 * @param {string} selected the value to show first
@@ -1656,6 +1659,12 @@
 				wrap.className = "vfx-combo";
 				unlisten("mousedown", onOutside);
 				unlisten("keydown", onKey);
+				// An item is a real button: removing the focused row from view would drop focus to
+				// `body` and stop Escape/keyboard reaching the panel, so hand it back to the toggle.
+				var active = document ? document.activeElement : null;
+				if (active && menu.contains && menu.contains(active) && typeof button.focus === "function") {
+					button.focus();
+				}
 			}
 
 			function onOutside(event) {
@@ -1680,6 +1689,9 @@
 					if (event && event.stopPropagation) {
 						event.stopPropagation();
 					}
+					// Only `mode` rebuilds the panel; the other four keep this node, so the label has
+					// to follow the pick here (the panel would otherwise still show the old value).
+					button.textContent = String(value);
 					close();
 					onPick(value);
 				});
