@@ -1616,33 +1616,18 @@
 			return vfxir.textDefaults(spec);
 		}
 
-		/** The imported `text` block: the chain child's own clone, else a single-effect tab's def. */
-		function importedTextBlock() {
-			var own = effect.source ? effect.source.text : null;
-			if (own != null && typeof own === "object" && !Array.isArray(own)) {
-				return own;
-			}
-			// A single-effect tab keeps the whole imported definition on the tab, not the entry
-			// (only a collection root fans out into per-child `effect.source` clones).
-			var tabText = tab && tab.source ? tab.source.text : null;
-			return tabText != null && typeof tabText === "object" && !Array.isArray(tabText)
-					? tabText : null;
-		}
-
 		/**
 		 * The `text` sub-editor (text_overlay): content plus the five structural selects. The shown
-		 * values come from the authored block, else the imported one, else the parser defaults - the
-		 * render writes nothing to the IR, so an untouched import still re-exports through the source
-		 * clone byte for byte (extra keys and original casing intact). The first actual edit copies
-		 * the shown values into `effect.text`. The mode select commits with a rebuild: the canvas
-		 * mode badges and the panel depend on it.
+		 * values come from `VFXIR.textBlock` (the authored block, else the imported one, else the
+		 * parser defaults) - the render writes nothing to the IR, so an untouched import still
+		 * re-exports through the source clone byte for byte (extra keys and original casing intact).
+		 * The first actual edit copies the shown values into `effect.text`. The mode select commits
+		 * with a rebuild: the canvas mode badges and the panel depend on it.
 		 */
 		function textSection(spec) {
 			var box = section("Text");
 			var defaults = textDefaults(spec);
-			var authored = effect.text;
-			var source = authored != null && typeof authored === "object" && !Array.isArray(authored)
-					? authored : importedTextBlock();
+			var source = vfxir.textBlock(tab, effect);
 			var shown = {};
 			Object.keys(defaults).forEach(function (key) {
 				shown[key] = source && source[key] != null ? String(source[key]) : defaults[key];

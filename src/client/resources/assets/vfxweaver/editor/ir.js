@@ -2008,6 +2008,48 @@
 	}
 
 	/**
+	 * The `text` block an effect displays, without writing anything to the IR: the authored block
+	 * (`effect.text`), else the imported one on the entry (`effect.source.text`), else a
+	 * single-effect tab's imported definition (`tab.source.text`). A rendered panel and the canvas
+	 * mode badges both go through this, so the two can never disagree about which block is current.
+	 *
+	 * @param {Object} tab the owning tab, or null
+	 * @param {Object} effect the effect entry, or null
+	 * @returns {Object|null} the displayed block, or null when the effect has none
+	 */
+	function textBlock(tab, effect) {
+		if (effect && effect.text != null && typeof effect.text === "object"
+				&& !Array.isArray(effect.text)) {
+			return effect.text;
+		}
+		var own = effect && effect.source ? effect.source.text : null;
+		if (own != null && typeof own === "object" && !Array.isArray(own)) {
+			return own;
+		}
+		// A single-effect tab keeps the whole imported definition on the tab, not the entry (only a
+		// collection root fans out into per-child `effect.source` clones).
+		var tabText = tab && tab.source ? tab.source.text : null;
+		return tabText != null && typeof tabText === "object" && !Array.isArray(tabText)
+				? tabText : null;
+	}
+
+	/**
+	 * The render mode the effect's text block currently uses: `"flat"` when it carries no block,
+	 * no `mode`, or an unreadable one (the parser's default). Read through {@link textBlock}, so an
+	 * untouched imported `world` block reads as `"world"` on the canvas badge exactly as it does in
+	 * the inspector.
+	 *
+	 * @param {Object} tab the owning tab, or null
+	 * @param {Object} effect the effect entry, or null
+	 * @returns {string} `"flat"` or `"world"`
+	 */
+	function textMode(tab, effect) {
+		var block = textBlock(tab, effect);
+		return block && typeof block.mode === "string" && block.mode !== ""
+				? block.mode.toLowerCase() : "flat";
+	}
+
+	/**
 	 * A fresh `text` block for a `text_overlay`, from the schema's `textFields.defaults` with the
 	 * starter content `"Text"` (mirrors what {@code VFXTextSpec.parse} reads when a key is absent).
 	 * Shared by the canvas-entry seed and the inspector's fallback, so the two cannot disagree.
@@ -3494,6 +3536,8 @@
 		textAffordance: textAffordance,
 		textFieldSpec: textFieldSpec,
 		textParamMode: textParamMode,
+		textBlock: textBlock,
+		textMode: textMode,
 		textDefaults: textDefaults,
 		hydrateStructural: hydrateStructural,
 		isMaskComposition: isMaskComposition,

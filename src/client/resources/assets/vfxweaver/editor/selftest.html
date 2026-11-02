@@ -63,6 +63,31 @@ window.__vfxSelftest = function () {
 		return JSON.parse(text);
 	}
 
+	/** The first descendant of `node` whose tag is `tag` (the rendered text panel's controls). */
+	function findTag(node, tag) {
+		var kids = node && node.children ? node.children : [];
+		for (var i = 0; i < kids.length; i++) {
+			if (kids[i] && String(kids[i].tagName).toLowerCase() === tag) {
+				return kids[i];
+			}
+			var found = findTag(kids[i], tag);
+			if (found) {
+				return found;
+			}
+		}
+		return null;
+	}
+
+	/** Fire an element's `input` listener (a stub records it, a real element needs an Event). */
+	function fireInput(input) {
+		if (typeof input.dispatch === "function") {
+			input.dispatch("input");
+			return;
+		}
+		var event = typeof Event === "function" ? new Event("input") : { type: "input" };
+		input.dispatchEvent(event);
+	}
+
 	function test(name, fn) {
 		try {
 			fn();
@@ -1700,7 +1725,8 @@ window.__vfxSelftest = function () {
 		ok(!("text" in cleared), "a blank content removes the block");
 	});
 
-	test("(TEXT4) an untouched import keeps its text block, and one edit normalises it", function () {
+	test("(TEXT4) an untouched import keeps its text block, and its first edit normalises it",
+			function () {
 		var imported = { content: "Imported", mode: "WORLD", font: "minecraft:default",
 			align: "right", anchor: "bottom", split: "block", flavour: "keep me" };
 		var def = { type: "text_overlay", duration: 40, text: imported };
@@ -1710,20 +1736,34 @@ window.__vfxSelftest = function () {
 		// The real import path: hydrateStructural must not copy the block into the IR.
 		VFXIR.hydrateStructural(effect, def);
 		ok(effect.text === undefined, "hydrate leaves the text block on the source");
+		eq(VFXIR.textMode(tab, effect), "world", "the canvas badge reads the imported mode");
 		var untouched = parse(compileTab(tab));
 		eq(JSON.stringify(untouched.text), JSON.stringify(imported),
 				"the imported block is byte-identical");
 		eq(untouched.text.mode, "WORLD", "the original casing survives an untouched export");
 		eq(untouched.text.flavour, "keep me", "the unknown key survives an untouched export");
-		// The inspector's first edit copies the shown values into the IR; the compiler then emits
-		// the normalised six-key block.
-		effect.text = { content: "Edited", mode: "WORLD", font: "minecraft:default",
-			align: "right", anchor: "bottom", split: "block" };
+		// The inspector's real panel, rendered from the same block, then its first edit through the
+		// listener `textSection` installed (`set()` seeds effect.text from the shown values).
+		var descriptor = { params: [],
+			structural: { supportsText: true, textFields: VFXIR.textFieldSpec({}) } };
+		var panel = window.VFXInspector.renderStructural(tab, descriptor, function () {});
+		var area = findTag(panel, "textarea");
+		ok(area != null, "the text panel renders a content textarea");
+		eq(area.value, "Imported", "the panel shows the imported content");
+		ok(effect.text === undefined, "rendering the panel writes nothing to the IR");
+		area.value = "Edited";
+		fireInput(area);
+		eq(effect.text.content, "Edited", "the first edit authors the block");
 		var edited = parse(compileTab(tab));
 		eq(edited.text.content, "Edited", "the edit lands");
 		eq(edited.text.mode, "world", "the enum is lowercased");
+		eq(edited.text.font, "minecraft:default", "the imported font is kept");
 		ok(!("flavour" in edited.text), "the unknown key is dropped once edited");
 		eq(Object.keys(edited.text).length, 6, "exactly the six known keys");
+		// The shared lookup order: an authored block wins, and no block at all reads as "flat".
+		effect.text = { content: "Edited", mode: "flat" };
+		eq(VFXIR.textMode(tab, effect), "flat", "the authored block wins over the imported one");
+		eq(VFXIR.textMode(null, null), "flat", "no block, no source: the parser default");
 	});
 	test("(MP1) a 200-definition pack opens lazily, not one tab per definition", function () {
 		var effects = {};
@@ -2247,7 +2287,9 @@ window.__vfxSelftest = function () {
 	}
 
 	load("ir.js", function () {
-		load("compiler.js", render);
+		load("compiler.js", function () {
+			load("inspector.js", render);
+		});
 	});
 })();
 </script>

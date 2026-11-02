@@ -1113,8 +1113,10 @@
 			}
 			var tab = node.__tab || null;
 			var entry = tab ? effectEntryOf(tab, node) : null;
-			var current = entry && entry.text && typeof entry.text.mode === "string"
-					&& entry.text.mode !== "" ? String(entry.text.mode).toLowerCase() : "flat";
+			// Same lookup as the inspector (`VFXIR.textMode`): authored block, else the imported
+			// one on the entry, else the tab's own imported definition, else "flat".
+			var current = entry && typeof vfxir.textMode === "function"
+					? vfxir.textMode(tab, entry) : "flat";
 			var rowH = LiteGraph.NODE_SLOT_HEIGHT;
 			ctx.save();
 			ctx.font = "bold 10px sans-serif";

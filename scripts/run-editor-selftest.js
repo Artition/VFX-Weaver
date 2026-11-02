@@ -23,6 +23,45 @@ var editorDir = path.join(__dirname, "..", "src", "client", "resources", "assets
 // inside render calls, which the DOM-free selftest never makes).
 global.window = global;
 
+/*
+ * inspector.js's text sub-editor is rendered for real by the TEXT4 test (the first edit must run
+ * through its own `input` listener), so the page's document is stood in for by the smallest
+ * element that supports appendChild/listeners/attributes. The browser page uses the real DOM.
+ */
+function fakeElement(tag) {
+	return {
+		tagName: String(tag).toUpperCase(),
+		children: [],
+		listeners: {},
+		attributes: {},
+		className: "",
+		textContent: "",
+		value: "",
+		placeholder: "",
+		checked: false,
+		appendChild: function (child) {
+			this.children.push(child);
+			return child;
+		},
+		setAttribute: function (name, value) {
+			this.attributes[name] = String(value);
+		},
+		addEventListener: function (type, fn) {
+			(this.listeners[type] = this.listeners[type] || []).push(fn);
+		},
+		dispatch: function (type) {
+			(this.listeners[type] || []).forEach(function (fn) {
+				fn({ type: type });
+			});
+		}
+	};
+}
+global.document = {
+	createElement: function (tag) {
+		return fakeElement(tag);
+	}
+};
+
 ["ir.js", "compiler.js", "inspector.js"].forEach(function (file) {
 	var source = fs.readFileSync(path.join(editorDir, file), "utf8");
 	vm.runInThisContext(source, { filename: file });
