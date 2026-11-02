@@ -44,10 +44,12 @@ public final class VFXTextLayout {
 
 	/**
 	 * One display entity's worth of the block and where it rests before anything animates: the text
-	 * it carries, the position of its first glyph, that glyph's index in {@link #glyphs()}, and how
-	 * many lines of the block it spans.
+	 * it carries, the position of its first glyph, that glyph's index in {@link #glyphs()}, how
+	 * many lines of the block it spans, and the width its text covers from its own origin - one
+	 * advance for a character, the measured width of the word, the widest line for a block. That
+	 * width is what puts a two-sided twin on the far edge of exactly the same rectangle.
 	 */
-	public record Unit(String text, float x, float y, int firstGlyph, int lines) {
+	public record Unit(String text, float x, float y, int firstGlyph, int lines, float width) {
 	}
 
 	private final List<Glyph> glyphs;
@@ -100,13 +102,14 @@ public final class VFXTextLayout {
 				final float glyphX = cursor;
 				cursor += advance * scale;
 				if (split == VFXTextSpec.Split.CHAR) {
-					units.add(new Unit(String.valueOf(ch), glyphX, restY, index, 1));
+					units.add(new Unit(String.valueOf(ch), glyphX, restY, index, 1, advance * scale));
 				} else if (split == VFXTextSpec.Split.WORD) {
 					// A space only advances the cursor: it is never a unit of its own, or two words
 					// would cost three entities.
 					if (ch == ' ') {
 						if (wordStart >= 0) {
-							units.add(new Unit(word.toString(), wordX, restY, wordStart, 1));
+							units.add(new Unit(word.toString(), wordX, restY, wordStart, 1,
+								font.width(word.toString()) * scale));
 							word.setLength(0);
 							wordStart = -1;
 						}
@@ -123,7 +126,8 @@ public final class VFXTextLayout {
 			// A word that ran to the end of the line - a soft break only ever happens at a space, so
 			// a word never spans two lines and every word unit is exactly one line tall.
 			if (wordStart >= 0) {
-				units.add(new Unit(word.toString(), wordX, restY, wordStart, 1));
+				units.add(new Unit(word.toString(), wordX, restY, wordStart, 1,
+					font.width(word.toString()) * scale));
 			}
 		}
 		if (split == VFXTextSpec.Split.BLOCK) {
@@ -131,7 +135,7 @@ public final class VFXTextLayout {
 			// is given, so the unit carries the content with its newlines. Its rest position is the
 			// start of its own text - line zero included, even when the content opens with '\n' -
 			// because the display lays the whole text out from the position it is given.
-			units.add(new Unit(content, 0.0F, 0.0F, 0, lines.size()));
+			units.add(new Unit(content, 0.0F, 0.0F, 0, lines.size(), widest));
 		}
 		final float totalHeight = Math.max(0.0F, (lines.size() - 1) * lineStep + scale);
 		return new VFXTextLayout(glyphs, units, widest, totalHeight);

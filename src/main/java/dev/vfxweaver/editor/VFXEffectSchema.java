@@ -208,10 +208,11 @@ public final class VFXEffectSchema {
 				Map.entry("billboard", new float[] {0.0F, 4.0F}),
 				// The light-level range, with -1 = "the world light": a spec range, not a cap.
 				Map.entry("brightness", new float[] {-1.0F, 15.0F}),
-				// A switch, not a size: below 0.5 is a one-sided block. Off by default, because the
-				// physical back is drawn by the see-through flag instead.
+				// A switch, not a size: below 0.5 is a one-sided block. On by default: the back of a
+				// pinned block is a second display glued to the front one.
 				Map.entry("two_sided", new float[] {0.0F, 1.0F}),
-				// The see-through flag: a switch, on by default. Drawn through blocks, as vanilla does.
+				// The see-through flag: a switch, off by default - it is vanilla's x-ray mode for the
+				// same quad, kept as an option, not the two-display back.
 				Map.entry("see_through", new float[] {0.0F, 1.0F})));
 	}
 

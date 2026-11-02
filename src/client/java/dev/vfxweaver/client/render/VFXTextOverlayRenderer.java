@@ -51,18 +51,19 @@ import org.slf4j.LoggerFactory;
  * {@code colour_r/g/b}, {@code shadow} and {@code brightness} are re-applied per frame, but only
  * written to the entities when the value changed.
  *
- * <p>The back of a letter is its physical back, so the block is drawn from both sides by vanilla's
- * own means: {@code see_through} (on unless it is below 0.5) ORs
- * {@code FLAG_SEE_THROUGH} into every display's flags, next to the shadow bit, so the glyph quads
- * are submitted from both sides instead of one. That is the see-through mode of the same pipeline,
- * which also draws the text through terrain - the price of showing a back that is not a copy.
- * {@code two_sided} is the older workaround, now off by default: it spawns one twin per unit - the
- * same text, flags, alignment, brightness and transformation scale, with the block rotation turned
- * 180 degrees about Y - so a readable copy stands behind the block, mirrored to read left to right.
- * A {@code center} billboard already faces the camera from every side, so a twin would only double
- * the entities for nothing; the twin shares its unit's position, exit, floor, spin and opacity,
- * is released with it, and counts against the entity cap, so a two-sided block spends two entities
- * per unit.
+ * <p>The back of a block pinned in world orientation is a <strong>second display glued to the
+ * first</strong>: {@code two_sided} (on unless it is below 0.5) spawns one twin per unit, placed at
+ * the far edge of that unit's own advance - the original position plus the block rotation applied to
+ * {@code (unitWidth, 0, 0)}, the layout's measured width for the unit - and turned 180 degrees about
+ * Y, so both copies cover the same rectangle with opposite normals. That is a real two-sided sign:
+ * the twin's text runs from the far edge back to the original origin, mirrored so it reads left to
+ * right for a viewer standing behind, and nothing is drawn through terrain. A {@code center}
+ * billboard already faces the camera from every side, so it needs no twin. Both copies are driven by
+ * one rotation per frame - block rotation plus spin plus tumble - and share the exit offset, the
+ * floor, the opacity, the brightness and the release, so a falling or tumbling pair never separates;
+ * the pair counts against the entity cap, so a two-sided block spends two entities per unit.
+ * {@code see_through} stays only as an option, for text meant to be seen through walls, and is
+ * <strong>off</strong> by default.
  *
  * <p>{@code wrap_width} and {@code line_height} shape the layout, which is measured once when the
  * block is spawned, so they are sampled at that moment and are not animatable.
@@ -504,11 +505,10 @@ public final class VFXTextOverlayRenderer {
 		final int colour = colour(effect);
 		final byte shadowFlag = effect.getParam("shadow", 1.0F) >= 0.5F
 			? Display.TextDisplay.FLAG_SHADOW : (byte) 0;
-		// 'see_through' is the only vanilla switch that makes the glyph quad visible from behind:
-		// the see-through mode tells the renderer to submit the same quads from both sides - and,
-		// as part of that same vanilla pipeline, it also draws them through terrain. On by default,
-		// because the back of a letter is its physical back, not a readable copy.
-		final byte seeThroughFlag = effect.getParam("see_through", 1.0F) >= 0.5F
+		// 'see_through' is vanilla's x-ray mode: it draws the same quads from both sides, and, as
+		// part of that same pipeline, through terrain. It is off by default, because the back of a
+		// pinned block is a second display glued to the front one, not a see-through quad.
+		final byte seeThroughFlag = effect.getParam("see_through", 0.0F) >= 0.5F
 			? Display.TextDisplay.FLAG_SEE_THROUGH : (byte) 0;
 		final Style style = Style.EMPTY.withColor(TextColor.fromRgb(colour));
 		// The rest pose of the block, built from exactly the maths placeBlock uses - minus the exit
@@ -534,13 +534,12 @@ public final class VFXTextOverlayRenderer {
 		// the layout counts the block's lines at this very width, so its height matches the display.
 		final float wrapFontPixels = wrapWidth / Math.max(scale, 1e-4F);
 		final int lineWidth = VFXTextLayout.lineWidth(wrapFontPixels);
-		// A text display's single-sided quad hides the back of a block pinned in the world, and
-		// 'see_through' (the default) is what shows it: the same quads, drawn from both sides.
-		// 'two_sided' is the older workaround kept as an option - a readable second copy behind the
-		// block - and it is off unless the author asks for it, so no twin is spawned by default.
-		// A 'center' billboard already turns to face the camera from every side, so it needs no twin
-		// and would only double the entities for nothing. Structural, read once here like 'billboard'.
-		final boolean twoSided = effect.getParam("two_sided", 0.0F) >= 0.5F
+		// A text display draws its single-sided quad one way round, so a block pinned in the world
+		// needs a second display facing the other way: 'two_sided' (the default) spawns one twin per
+		// unit, glued to the same rectangle and turned 180 degrees about Y. A 'center' billboard
+		// already turns to face the camera from every side, so it needs no twin and would only
+		// double the entities for nothing. Structural, read once here like 'billboard'.
+		final boolean twoSided = effect.getParam("two_sided", 1.0F) >= 0.5F
 			&& billboard != Display.BillboardConstraints.CENTER;
 		final Quaternionf twinRotation = new Quaternionf(spawnRotation)
 			.rotateY((float) Math.PI);
@@ -587,13 +586,12 @@ public final class VFXTextOverlayRenderer {
 			}
 			spawnedEntities++;
 			entities.add(display);
-			// The twin: the same unit through the same rest offset, with the block rotation turned
-			// 180 degrees about Y. That mirrors both the glyph order and the advance direction, so
-			// the word still reads left to right from behind, and the twin faces the other way.
+			// The twin: the same unit through its own origin, turned 180 degrees about Y, standing at
+			// the far edge of the original's advance - so the pair covers one rectangle, back to back.
 			if (twoSided) {
 				final Display.TextDisplay twin = spawnDisplay(effect, level, unit, spec.split(), style,
 					unitFlags, lineWidth, billboard, brightness, origin,
-					restOffset(unit.x(), unit.y(), scale, spawnAlignShift, spawnAnchorShiftY,
+					twinRestOffset(unit, spec.split(), scale, spawnAlignShift, spawnAnchorShiftY,
 						twinRotation));
 				if (twin == null) {
 					break;
@@ -807,9 +805,9 @@ public final class VFXTextOverlayRenderer {
 		final int colour = colour(effect);
 		final byte shadowFlag = effect.getParam("shadow", 1.0F) >= 0.5F
 			? Display.TextDisplay.FLAG_SHADOW : (byte) 0;
-		// The see-through bit is rebuilt here like the shadow one, but unlike a twin it costs no
-		// entity: it flips the same quad onto both sides. Vanilla draws that mode through terrain.
-		final byte seeThroughFlag = effect.getParam("see_through", 1.0F) >= 0.5F
+		// The see-through bit is rebuilt here like the shadow one. Off by default: it is vanilla's
+		// x-ray mode for the same quad, not the two-display back this effect builds.
+		final byte seeThroughFlag = effect.getParam("see_through", 0.0F) >= 0.5F
 			? Display.TextDisplay.FLAG_SEE_THROUGH : (byte) 0;
 		final Style style = Style.EMPTY.withColor(TextColor.fromRgb(colour));
 		final boolean restyle = colour != live.lastColour;
@@ -897,13 +895,15 @@ public final class VFXTextOverlayRenderer {
 			final byte opacity = (byte) Math.round(
 				clamp01(revealAlpha * exitAlpha * effect.getWeight()) * 255.0F);
 			display.setTextOpacity(opacity);
-			// The twin is the same unit seen from behind: the same position offset through the turned
-			// rotation, the same exit displacement, the same floor, the same spin and the same
-			// opacity. Its text and flags are written on exactly the conditions the original's are,
-			// so a standing line writes neither copy and a decode touches both where it touched one.
+			// The twin is the same unit seen from behind: its own origin at the far edge of this
+			// unit's advance, the block rotation turned 180 degrees about Y, and then exactly this
+			// frame's spin and tumble on top - the same rotation composition the original got - plus
+			// the same exit displacement, floor, brightness and opacity. Its text and flags are
+			// written on exactly the conditions the original's are, so a standing line writes neither
+			// copy and a decode touches both where it touched one.
 			if (twinRotation != null && i < live.twins.size()) {
 				final Display.TextDisplay twin = live.twins.get(i);
-				final Vector3f twinLocal = restOffset(unit.x(), unit.y(), scale, alignShift,
+				final Vector3f twinLocal = twinRestOffset(unit, spec.split(), scale, alignShift,
 					anchorShiftY, twinRotation);
 				twin.setPos(origin.x + twinLocal.x + exit.x, origin.y + twinLocal.y + exit.y,
 					origin.z + twinLocal.z + exit.z);
@@ -988,6 +988,21 @@ public final class VFXTextOverlayRenderer {
 			(x * scale + alignShift) * WORLD_UNITS_PER_FONT_PIXEL,
 			(y * scale + anchorShiftY) * WORLD_UNITS_PER_FONT_PIXEL, 0.0F)
 			.rotate(rotation);
+	}
+
+	// Where a two-sided twin stands, relative to the block origin: the original unit's own rest
+	// offset plus the block rotation applied to (unitWidth, 0, 0). A display draws its text from the
+	// position it is given along its local +X, so the twin's origin is the far edge of the
+	// original's advance - and, turned 180 degrees about Y, its text runs back over exactly the same
+	// rectangle, from that far edge to the original origin, with the opposite normal. A unit vanilla
+	// draws centred instead - a single-glyph 'char' unit owns no alignment bit - needs no shift: a
+	// centred quad is symmetric about its origin, so the turn alone lands it on the same rectangle.
+	// Shared by the spawn-time rest pose and the per-frame placement, so the pair cannot drift apart.
+	private static Vector3f twinRestOffset(final VFXTextLayout.Unit unit,
+			final VFXTextSpec.Split split, final float scale, final float alignShift,
+			final float anchorShiftY, final Quaternionf twinRotation) {
+		final float originX = alignFlags(unit, split) != 0 ? unit.x() + unit.width() : unit.x();
+		return restOffset(originX, unit.y(), scale, alignShift, anchorShiftY, twinRotation);
 	}
 
 	private static float alignOffset(final VFXTextSpec spec, final float width) {
