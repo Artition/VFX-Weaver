@@ -1617,6 +1617,93 @@
 		}
 
 		/**
+		 * A small non-native dropdown for the text panel: a button showing the current value plus an
+		 * absolutely positioned list of items. The native `<select>` popup hit a few pixels below
+		 * the drawn item in this panel even at 100% zoom / 96 dpi, so the list is drawn inside the
+		 * page, where every hit area is the row itself. Toggles on the button, closes on a second
+		 * click, an outside click or Escape, and reports the pick through `onPick`. Only the text
+		 * block uses this - every other control keeps the shared native `selectFor`.
+		 *
+		 * @param {Array<string>} values the selectable values
+		 * @param {string} selected the value to show first
+		 * @param {function(string)} onPick called with the picked value
+		 * @returns {HTMLElement} the `.vfx-combo` wrapper
+		 */
+		function comboFor(values, selected, onPick) {
+			var list = values.slice();
+			if (selected && list.indexOf(selected) < 0) {
+				list = [selected].concat(list);
+			}
+			var wrap = el("div", { class: "vfx-combo" });
+			var button = el("button", { type: "button", class: "vfx-combo-button", text: selected });
+			var menu = el("div", { class: "vfx-combo-list" });
+			var open = false;
+
+			function listen(type, handler) {
+				if (document && typeof document.addEventListener === "function") {
+					document.addEventListener(type, handler, true);
+				}
+			}
+
+			function unlisten(type, handler) {
+				if (document && typeof document.removeEventListener === "function") {
+					document.removeEventListener(type, handler, true);
+				}
+			}
+
+			function close() {
+				open = false;
+				wrap.className = "vfx-combo";
+				unlisten("mousedown", onOutside);
+				unlisten("keydown", onKey);
+			}
+
+			function onOutside(event) {
+				if (wrap.contains && event && event.target && wrap.contains(event.target)) {
+					return;
+				}
+				close();
+			}
+
+			function onKey(event) {
+				if (event && event.key === "Escape") {
+					if (event.preventDefault) {
+						event.preventDefault();
+					}
+					close();
+				}
+			}
+
+			list.forEach(function (value) {
+				var item = el("button", { type: "button", class: "vfx-combo-item", text: value });
+				item.addEventListener("click", function (event) {
+					if (event && event.stopPropagation) {
+						event.stopPropagation();
+					}
+					close();
+					onPick(value);
+				});
+				menu.appendChild(item);
+			});
+			button.addEventListener("click", function (event) {
+				if (event && event.stopPropagation) {
+					event.stopPropagation();
+				}
+				if (open) {
+					close();
+					return;
+				}
+				open = true;
+				wrap.className = "vfx-combo vfx-combo-open";
+				listen("mousedown", onOutside);
+				listen("keydown", onKey);
+			});
+			wrap.appendChild(button);
+			wrap.appendChild(menu);
+			return wrap;
+		}
+
+		/**
 		 * The `text` sub-editor (text_overlay): content plus the five structural selects. The shown
 		 * values come from `VFXIR.textBlock` (the authored block, else the imported one, else the
 		 * parser defaults) - the render writes nothing to the IR, so an untouched import still
@@ -1666,7 +1753,7 @@
 				var values = row[1];
 				var rebuild = row[2];
 				box.appendChild(el("label", { class: "vfx-field" }, [el("span", { text: key }),
-					selectFor(values, shown[key], function (value) {
+					comboFor(values, shown[key], function (value) {
 						set(key, value);
 						commit(rebuild);
 					})]));

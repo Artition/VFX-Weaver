@@ -88,6 +88,29 @@ window.__vfxSelftest = function () {
 		input.dispatchEvent(event);
 	}
 
+	/** Every descendant of `node` carrying the class token `cls`, in document order. */
+	function findAllClass(node, cls) {
+		var out = [];
+		var kids = node && node.children ? node.children : [];
+		for (var i = 0; i < kids.length; i++) {
+			var classes = String(kids[i].className || "").split(/\s+/);
+			if (classes.indexOf(cls) >= 0) {
+				out.push(kids[i]);
+			}
+			out = out.concat(findAllClass(kids[i], cls));
+		}
+		return out;
+	}
+
+	/** Fire a click on an element (a stub records listeners, a real element needs an Event). */
+	function click(element) {
+		if (typeof element.dispatch === "function") {
+			element.dispatch("click");
+			return;
+		}
+		element.dispatchEvent(typeof Event === "function" ? new Event("click") : { type: "click" });
+	}
+
 	function test(name, fn) {
 		try {
 			fn();
@@ -1801,6 +1824,58 @@ window.__vfxSelftest = function () {
 		eq(def.persistent, true, "persistent on");
 		eq(def.fade_ticks, 0, "no fade");
 		ok(!("gravity_angle" in def.params), "params stay the IR's, not the clone's");
+	});
+
+	test("(EXACT2) a chain child never borrows the collection root as its source", function () {
+		var compilePreviewSet = window.VFXCompiler && window.VFXCompiler.compilePreviewSet;
+		var tab = new VFXIR.Tab("chain", "text_overlay");
+		tab.source = { type: "collection", marker: "root-only", effects: [] };
+		tab.effects = [];
+		tab.addEffect("text_overlay");
+		tab.addEffect("text_overlay");
+		tab.effects.forEach(function (entry) {
+			ok(entry.source == null, "an authored chain child has no source");
+		});
+		var set = compilePreviewSet(tab);
+		var ids = Object.keys(set.definitions);
+		eq(ids.length, 2, "one Exact definition per chain node");
+		ids.forEach(function (id) {
+			var def = parse(set.definitions[id]);
+			eq(def.type, "text_overlay", "the child keeps its own type");
+			ok(!("marker" in def), "the collection root's key does not leak into a child");
+			ok(!("effects" in def), "the child is not the collection root");
+		});
+	});
+
+	test("(TEXT5) the text dropdowns are non-native and pick through the IR", function () {
+		var descriptor = { params: [],
+			structural: { supportsText: true, textFields: VFXIR.textFieldSpec({}) } };
+		var tab = new VFXIR.Tab("combo", "text_overlay");
+		var effect = tab.effect();
+		var commits = [];
+		var panel = window.VFXInspector.renderStructural(tab, descriptor, function (flag) {
+			commits.push(flag);
+		});
+		var combos = findAllClass(panel, "vfx-combo");
+		eq(combos.length, 5, "five non-native dropdowns (mode/font/align/anchor/split)");
+		eq(findAllClass(panel, "vfx-select").length, 0, "the text panel has no native select");
+		var mode = combos[0];
+		var button = findAllClass(mode, "vfx-combo-button")[0];
+		eq(button.textContent, "flat", "the mode button shows the current value");
+		click(button);
+		ok(mode.className.indexOf("vfx-combo-open") >= 0, "the button opens the list");
+		var items = findAllClass(mode, "vfx-combo-item");
+		eq(items.length, 2, "one row per mode");
+		var world = items.filter(function (item) {
+			return item.textContent === "world";
+		})[0];
+		ok(world != null, "the world row is drawn");
+		click(world);
+		eq(effect.text.mode, "world", "the pick lands in the IR");
+		ok(mode.className.indexOf("vfx-combo-open") < 0, "the list closes on a pick");
+		eq(commits.length, 1, "the pick commits once");
+		eq(commits[0], true, "mode commits with a rebuild");
+		eq(parse(compileTab(tab)).text.mode, "world", "the pick reaches the definition");
 	});
 	test("(MP1) a 200-definition pack opens lazily, not one tab per definition", function () {
 		var effects = {};

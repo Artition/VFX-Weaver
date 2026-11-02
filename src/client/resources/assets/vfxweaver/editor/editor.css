@@ -1954,3 +1954,74 @@ body {
 	flex-wrap: wrap;
 	margin-top: 4px;
 }
+
+/* Non-native dropdown for the Text panel (text_overlay). The native <select> popup hit a few
+   pixels below the drawn row there even at 100% zoom / 96 dpi, so the list is drawn in the page:
+   a button with the current value and an absolutely positioned list whose hit areas are the rows
+   themselves. Same look as .vfx-select, only .vfx-combo* controls use it. */
+.vfx-combo {
+	position: relative;
+	display: inline-block;
+	min-width: 0;
+	max-width: 100%;
+}
+
+.vfx-combo-button {
+	background: var(--vfx-bg);
+	color: var(--vfx-text);
+	border: 1px solid var(--vfx-border);
+	border-radius: 4px;
+	padding: 3px 6px;
+	font: inherit;
+	max-width: 100%;
+	min-width: 0;
+	box-sizing: border-box;
+	text-align: left;
+	cursor: pointer;
+}
+
+.vfx-combo-button::after {
+	content: "\25BE";
+	margin-left: 6px;
+	color: var(--vfx-text-dim);
+}
+
+.vfx-combo-list {
+	display: none;
+	position: absolute;
+	top: 100%;
+	left: 0;
+	z-index: 30;
+	min-width: 100%;
+	margin-top: 2px;
+	padding: 2px;
+	box-sizing: border-box;
+	background: var(--vfx-panel-alt);
+	border: 1px solid var(--vfx-border);
+	border-radius: 4px;
+	box-shadow: 0 6px 16px rgba(0, 0, 0, 0.45);
+}
+
+.vfx-combo-open .vfx-combo-list {
+	display: block;
+}
+
+.vfx-combo-item {
+	display: block;
+	width: 100%;
+	background: transparent;
+	color: var(--vfx-text);
+	border: 0;
+	border-radius: 3px;
+	padding: 4px 8px;
+	font: inherit;
+	text-align: left;
+	white-space: nowrap;
+	cursor: pointer;
+}
+
+.vfx-combo-item:hover,
+.vfx-combo-item:focus {
+	background: var(--vfx-accent);
+	color: #0c0f16;
+}
