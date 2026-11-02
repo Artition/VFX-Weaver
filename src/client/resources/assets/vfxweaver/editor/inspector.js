@@ -1181,8 +1181,9 @@
 	 * (ordered entries, each `[x,y,z]` or an entity-anchored object), `region` (six ints),
 	 * `entity_selector` and `sound` (+ optional `sound_pos` and the `volume`/`pitch` params), plus
 	 * the tail slice — the `particle`/`shape`/`block`/`item` strings, the `pattern`/`surface`
-	 * blocks, the `anchor` string, the window spec (`id`/shared `texture`/`titles`) and the
-	 * screen-image `texture`. Each section appears only when the descriptor's `structural`
+	 * blocks, the `anchor` string, the window spec (`id`/shared `texture`/`titles`), the
+	 * screen-image `texture` and the `text_overlay` `text` block. Each section appears only when
+	 * the descriptor's `structural`
 	 * section advertises the matching flag, so this function holds no per-effect-type branch
 	 * (forward-compat). The emitted JSON matches the datapack parser exactly (the parser is
 	 * the oracle).
@@ -1212,8 +1213,10 @@
 		var showAnchor = vfxir.anchorAffordance(descriptor);
 		var showWindow = vfxir.windowAffordance(descriptor);
 		var showImage = vfxir.screenImageAffordance(descriptor);
+		var showText = vfxir.textAffordance(descriptor);
 		if (!showPositions && !showRegion && !showEntity && !showSound && !showParticles
-				&& !showPattern && !showSurface && !showAnchor && !showWindow && !showImage) {
+				&& !showPattern && !showSurface && !showAnchor && !showWindow && !showImage
+				&& !showText) {
 			return null;
 		}
 
@@ -1608,6 +1611,60 @@
 			return box;
 		}
 
+		/** A fresh `text` block from the schema defaults (mirrors `VFXTextSpec.parse`). */
+		function textDefaults(spec) {
+			var defaults = (spec && spec.defaults) || {};
+			return {
+				content: "Text",
+				mode: defaults.mode == null ? "flat" : String(defaults.mode),
+				font: defaults.font == null ? "default" : String(defaults.font),
+				align: defaults.align == null ? "center" : String(defaults.align),
+				anchor: defaults.anchor == null ? "center" : String(defaults.anchor),
+				split: defaults.split == null ? "char" : String(defaults.split)
+			};
+		}
+
+		/**
+		 * The `text` sub-editor (text_overlay): content plus the five structural selects. Seeded on
+		 * first render (like the surface block), so an effect that never had a text block still
+		 * shows and emits a parseable one. The mode select commits with a rebuild: the canvas
+		 * mode badges and the panel depend on it.
+		 */
+		function textSection(spec) {
+			var box = section("Text");
+			var defaults = textDefaults(spec);
+			var target = effect.text;
+			if (!target || typeof target !== "object" || Array.isArray(target)) {
+				target = effect.text = defaults;
+			}
+			var area = el("textarea", { class: "vfx-text vfx-struct-text", rows: 3 });
+			area.value = target.content == null ? "" : String(target.content);
+			area.addEventListener("input", function () {
+				target.content = area.value;
+				commit(false);
+			});
+			box.appendChild(el("label", { class: "vfx-field" },
+					[el("span", { text: "content" }), area]));
+			[
+				["mode", spec.modeValues || ["flat", "world"], true],
+				["font", spec.fontValues || ["default"], false],
+				["align", spec.alignValues || ["center"], false],
+				["anchor", spec.anchorValues || ["center"], false],
+				["split", spec.splitValues || ["char"], false]
+			].forEach(function (row) {
+				var key = row[0];
+				var values = row[1];
+				var rebuild = row[2];
+				box.appendChild(el("label", { class: "vfx-field" }, [el("span", { text: key }),
+					selectFor(values, target[key] == null ? String(defaults[key]) : String(target[key]),
+							function (value) {
+								target[key] = value;
+								commit(rebuild);
+							})]));
+			});
+			return box;
+		}
+
 		var wrap = el("div", { class: "vfx-struct" });
 		if (showPositions) {
 			wrap.appendChild(positionsSection(descriptor));
@@ -1638,6 +1695,9 @@
 		}
 		if (showImage) {
 			wrap.appendChild(screenImageSection());
+		}
+		if (showText) {
+			wrap.appendChild(textSection(vfxir.textFieldSpec(descriptor)));
 		}
 		return wrap;
 	}

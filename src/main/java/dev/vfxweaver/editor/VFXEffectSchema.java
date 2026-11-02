@@ -419,12 +419,16 @@ public final class VFXEffectSchema {
 			structuralJson.put("supportsAnchor", structural.supportsAnchor());
 			structuralJson.put("supportsWindow", structural.supportsWindow());
 			structuralJson.put("supportsScreenImage", structural.supportsScreenImage());
+			// Additive text-overlay slice (design §13.4): the `text` block sub-editor and the
+			// flat/world mode badges on the mode-only param sockets.
+			structuralJson.put("supportsText", structural.supportsText());
 			structuralJson.put("particleFields", VFXStructuralDescriptor.particleFields());
 			structuralJson.put("patternFields", VFXStructuralDescriptor.patternFields());
 			structuralJson.put("surfaceFields", VFXStructuralDescriptor.surfaceFields());
 			structuralJson.put("anchorFields", VFXStructuralDescriptor.anchorFields());
 			structuralJson.put("windowFields", VFXStructuralDescriptor.windowFields());
 			structuralJson.put("screenImageFields", VFXStructuralDescriptor.screenImageFields());
+			structuralJson.put("textFields", VFXStructuralDescriptor.textFields());
 			descriptorJson.put("structural", structuralJson);
 			root.put(descriptor.type().getName(), descriptorJson);
 		}

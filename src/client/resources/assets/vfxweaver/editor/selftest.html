@@ -1651,6 +1651,66 @@ window.__vfxSelftest = function () {
 		ok(!("anchor" in cleared), "anchor removed");
 		ok(!("pattern" in cleared), "an emptied pattern removed");
 	});
+
+	test("(TEXT1) the text block is a schema affordance with its field spec", function () {
+		ok(VFXIR.textAffordance({ structural: { supportsText: true } }), "text offered");
+		ok(!VFXIR.textAffordance({ structural: { supportsScreenImage: true } }),
+				"no text without the flag");
+		var spec = VFXIR.textFieldSpec({});
+		eq(spec.fields.length, 6, "six text keys");
+		eq(JSON.stringify(spec.modeValues), JSON.stringify(["flat", "world"]), "mode values");
+		eq(JSON.stringify(spec.splitValues), JSON.stringify(["char", "word", "block"]), "split values");
+		eq(JSON.stringify(spec.fontValues), JSON.stringify(["default", "minecraft:default"]), "font values");
+		eq(spec.anchorValues.length, 9, "nine anchors");
+		eq(JSON.stringify(spec.defaults),
+				JSON.stringify({ mode: "flat", font: "default", align: "center", anchor: "center", split: "char" }),
+				"parser defaults");
+		ok(VFXIR.textFieldSpec({ structural: { textFields: spec } }) === spec,
+				"the schema's own spec is preferred over the fallback");
+	});
+
+	test("(TEXT2) textParamMode names the mode-only params of a text block", function () {
+		eq(VFXIR.textParamMode("x", {}), "flat", "x is flat");
+		eq(VFXIR.textParamMode("y", {}), "flat", "y is flat");
+		eq(VFXIR.textParamMode("angle", {}), "flat", "angle is flat");
+		eq(VFXIR.textParamMode("pos_z", {}), "world", "pos_z is world");
+		eq(VFXIR.textParamMode("rot_y", {}), "world", "rot_y is world");
+		eq(VFXIR.textParamMode("through_blocks", {}), "world", "through_blocks is world");
+		eq(VFXIR.textParamMode("reveal", {}), "", "a shared param has no mode");
+		var custom = { structural: { textFields: { flatOnly: ["u"], worldOnly: ["v"] } } };
+		eq(VFXIR.textParamMode("v", custom), "world", "the schema's own sets are used");
+		eq(VFXIR.textParamMode("x", custom), "", "no fallback once a spec is present");
+	});
+
+	test("(TEXT3) a text block emits its six keys, lowercase, and drops on a blank content",
+			function () {
+		var tab = new VFXIR.Tab("title", "text_overlay");
+		tab.effect().text = { content: "Hello World", mode: "WORLD", font: "minecraft:default",
+			align: "LEFT", anchor: "TOP_LEFT", split: "word", unknown: "dropped" };
+		var def = parse(compileTab(tab));
+		eq(def.text.content, "Hello World", "content kept verbatim");
+		eq(def.text.mode, "world", "mode lowercased");
+		eq(def.text.font, "minecraft:default", "font kept");
+		eq(def.text.align, "left", "align lowercased");
+		eq(def.text.anchor, "top_left", "anchor lowercased");
+		eq(def.text.split, "word", "split kept");
+		ok(!("unknown" in def.text), "only the six known keys are copied");
+		tab.effect().text = { content: "   ", mode: "flat" };
+		var cleared = parse(compileTab(tab));
+		ok(!("text" in cleared), "a blank content removes the block");
+	});
+
+	test("(TEXT4) an untouched imported text block round-trips via the source clone", function () {
+		var imported = { content: "Imported", mode: "world", font: "default", align: "right",
+			anchor: "bottom", split: "block" };
+		var tab = new VFXIR.Tab("imported", "text_overlay");
+		tab.source = { type: "text_overlay", duration: 40, text: imported };
+		var def = parse(compileTab(tab));
+		eq(JSON.stringify(def.text), JSON.stringify(imported), "the imported block is unchanged");
+		tab.effect().text = { content: "" };
+		var cleared = parse(compileTab(tab));
+		ok(!("text" in cleared), "an authored empty content drops the imported block");
+	});
 	test("(MP1) a 200-definition pack opens lazily, not one tab per definition", function () {
 		var effects = {};
 		for (var i = 0; i < 200; i++) {

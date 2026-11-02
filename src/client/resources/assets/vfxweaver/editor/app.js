@@ -1084,6 +1084,59 @@
 		} catch (e) {
 			// badge only: never break the frame
 		}
+		drawEffectModeBadges(node, ctx);
+	}
+
+	/**
+	 * Draw the flat/world mode badge of every visible mode-only param socket: "2D" beside a
+	 * flat-only param (`x`/`y`/`angle`), "3D" beside a world-only one (position/rotation/
+	 * billboard/brightness/...). The badge is full-strength when the param's mode is the block's
+	 * current `text.mode` and dimmed otherwise, so a row reads as "this value only matters in
+	 * that mode" without hiding it. The socket's name/label is never touched (a draw hook must
+	 * not mutate the model); the mode sets come from the schema via `VFXIR.textParamMode`.
+	 *
+	 * @param {Object} node the effect canvas node
+	 * @param {Object} ctx the node-foreground 2D context
+	 */
+	function drawEffectModeBadges(node, ctx) {
+		try {
+			var vfxir = typeof window !== "undefined" ? window.VFXIR : null;
+			if (!vfxir || typeof vfxir.textParamMode !== "function" || !node || !node.size
+					|| !ctx || !Array.isArray(node.inputs) || !node.inputs.length
+					|| (node.flags && node.flags.collapsed)
+					|| typeof LiteGraph === "undefined" || !LiteGraph.NODE_SLOT_HEIGHT) {
+				return;
+			}
+			var descriptor = effectNodeDescriptor(node);
+			if (!descriptor || !vfxir.textAffordance(descriptor)) {
+				return;
+			}
+			var tab = node.__tab || null;
+			var entry = tab ? effectEntryOf(tab, node) : null;
+			var current = entry && entry.text && typeof entry.text.mode === "string"
+					&& entry.text.mode !== "" ? String(entry.text.mode).toLowerCase() : "flat";
+			var rowH = LiteGraph.NODE_SLOT_HEIGHT;
+			ctx.save();
+			ctx.font = "bold 10px sans-serif";
+			ctx.textAlign = "right";
+			ctx.textBaseline = "middle";
+			for (var i = 0; i < node.inputs.length; i++) {
+				var slot = node.inputs[i];
+				if (!slot || isGroupHeaderSlot(slot) || slot.name == null) {
+					continue;
+				}
+				var mode = vfxir.textParamMode(slot.name, descriptor);
+				if (!mode) {
+					continue;
+				}
+				ctx.globalAlpha = mode === current ? 1 : 0.45;
+				ctx.fillStyle = mode === "world" ? "#8fd4ff" : "#e8d48f";
+				ctx.fillText(mode === "world" ? "3D" : "2D", node.size[0] - 8, i * rowH + rowH / 2);
+			}
+			ctx.restore();
+		} catch (e) {
+			// badges only: never break the frame
+		}
 	}
 
 	/**
@@ -8076,8 +8129,11 @@
 		effect.windowId = src && src.id != null ? String(src.id) : undefined;
 		effect.windowTitles = src && src.titles !== undefined ? snapshot(src.titles) : undefined;
 		// The top-level `texture` is shared by the window spec and the screen-image spec (one is
-		// visible at a time — the sub-editors are flag-gated per type), so one IR field serves both.
+		// visible at a time - the sub-editors are flag-gated per type), so one IR field serves both.
 		effect.texture = src && src.texture != null ? String(src.texture) : undefined;
+		// The `text_overlay` text block: carried so the inspector shows the imported line instead of
+		// seeding its defaults over it; `undefined` (not `{}`) keeps the compiler's clone in charge.
+		effect.text = src && src.text != null && typeof src.text === "object" ? snapshot(src.text) : undefined;
 	}
 
 	/**

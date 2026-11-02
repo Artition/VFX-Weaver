@@ -2,6 +2,7 @@ package dev.vfxweaver.editor;
 
 import dev.vfxweaver.effect.CelestialAnchor;
 import dev.vfxweaver.effect.VFXEffectType;
+import dev.vfxweaver.effect.VFXTextSpec;
 import dev.vfxweaver.effect.VFXWindowSpec;
 import dev.vfxweaver.field.VFXField;
 import dev.vfxweaver.field.VFXFieldFn;
@@ -57,12 +58,14 @@ import java.util.Objects;
  *                               {@code window_create}/{@code window_control} effects).
  * @param supportsScreenImage    whether the effect reads the {@code VFXScreenImageSpec} field
  *                               (required {@code texture} — the {@code screen_image} effect).
+ * @param supportsText           whether the effect reads a top-level {@code text} block
+ *                               ({@link VFXTextSpec} — the {@code text_overlay} effect only).
  */
 public record VFXStructuralDescriptor(boolean supportsMask, List<String> maskShapes,
 		boolean supportsPositions, boolean supportsRegion, boolean supportsEntitySelector,
 		boolean supportsSound, boolean supportsParticleIds, boolean supportsPattern,
 		boolean supportsSurface, boolean supportsAnchor, boolean supportsWindow,
-		boolean supportsScreenImage) {
+		boolean supportsScreenImage, boolean supportsText) {
 	/** The mask shape ids, derived once from the shared {@link VFXMaskShapeKind} enum. */
 	private static final List<String> SHAPE_IDS = shapeIds();
 
@@ -96,7 +99,7 @@ public record VFXStructuralDescriptor(boolean supportsMask, List<String> maskSha
 			entitySelector, true, particleIds, pattern, type == VFXEffectType.SURFACE_PATTERN,
 			type == VFXEffectType.SKY_PATTERN,
 			type == VFXEffectType.WINDOW_CREATE || type == VFXEffectType.WINDOW_CONTROL,
-			type == VFXEffectType.SCREEN_IMAGE);
+			type == VFXEffectType.SCREEN_IMAGE, type == VFXEffectType.TEXT_OVERLAY);
 	}
 
 	/**
@@ -112,7 +115,7 @@ public record VFXStructuralDescriptor(boolean supportsMask, List<String> maskSha
 	@Deprecated
 	public static VFXStructuralDescriptor of(final boolean post) {
 		return new VFXStructuralDescriptor(post, SHAPE_IDS, false, false, false, false,
-			false, false, false, false, false, false);
+			false, false, false, false, false, false, false);
 	}
 
 	/**
@@ -339,6 +342,51 @@ public record VFXStructuralDescriptor(boolean supportsMask, List<String> maskSha
 	public static Map<String, Object> screenImageFields() {
 		final Map<String, Object> spec = new LinkedHashMap<>();
 		spec.put("field", "texture");
+		return spec;
+	}
+
+	/**
+	 * The {@code VFXTextSpec} metadata (design §13.4): the six structural keys of the
+	 * {@code text_overlay} {@code text} block, the enum spellings, the parser's defaults and the
+	 * params each mode actually reads (mirrors {@code VFXTextSpec.parse}). {@code flatOnly} /
+	 * {@code worldOnly} name the params the editor badges with the mode they belong to.
+	 *
+	 * @return the text field spec
+	 */
+	public static Map<String, Object> textFields() {
+		final List<String> modes = new ArrayList<>();
+		for (final VFXTextSpec.Mode mode : VFXTextSpec.Mode.values()) {
+			modes.add(mode.name().toLowerCase(java.util.Locale.ROOT));
+		}
+		final List<String> aligns = new ArrayList<>();
+		for (final VFXTextSpec.Align align : VFXTextSpec.Align.values()) {
+			aligns.add(align.name().toLowerCase(java.util.Locale.ROOT));
+		}
+		final List<String> anchors = new ArrayList<>();
+		for (final VFXTextSpec.Anchor anchor : VFXTextSpec.Anchor.values()) {
+			anchors.add(anchor.name().toLowerCase(java.util.Locale.ROOT));
+		}
+		final List<String> splits = new ArrayList<>();
+		for (final VFXTextSpec.Split split : VFXTextSpec.Split.values()) {
+			splits.add(split.name().toLowerCase(java.util.Locale.ROOT));
+		}
+		final Map<String, Object> spec = new LinkedHashMap<>();
+		spec.put("fields", List.of("content", "mode", "font", "align", "anchor", "split"));
+		spec.put("modeValues", modes);
+		spec.put("fontValues", List.of("default", "minecraft:default"));
+		spec.put("alignValues", aligns);
+		spec.put("anchorValues", anchors);
+		spec.put("splitValues", splits);
+		final Map<String, Object> defaults = new LinkedHashMap<>();
+		defaults.put("mode", "flat");
+		defaults.put("font", "default");
+		defaults.put("align", "center");
+		defaults.put("anchor", "center");
+		defaults.put("split", "char");
+		spec.put("defaults", defaults);
+		spec.put("flatOnly", List.of("x", "y", "angle"));
+		spec.put("worldOnly", List.of("pos_x", "pos_y", "pos_z", "rot_x", "rot_y", "rot_z",
+			"billboard", "brightness", "two_sided", "through_blocks"));
 		return spec;
 	}
 

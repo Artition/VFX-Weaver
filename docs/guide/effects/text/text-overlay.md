@@ -72,6 +72,15 @@ call, through the optional `text "<string>"` argument described below. Every *pa
 number, so `setParam` and the param map never carry a string, and there is still no way to change a
 line while it is running.
 
+**In the visual editor the block has its own panel.** A `text_overlay` node's inspector shows a
+**Text** section - a `content` textarea plus `mode`, `font`, `align`, `anchor` and `split` selects
+populated from the schema, so the five structural spellings cannot drift from the parser. A node
+that never had a `text` block is seeded with `Text` and the defaults above on first render. The
+mode-only param sockets carry a badge on the canvas: **`2D`** on `x`/`y`/`angle`, **`3D`** on
+`pos_x`/`pos_y`/`pos_z`, `rot_x`/`rot_y`/`rot_z`, `billboard`, `brightness`, `two_sided` and
+`through_blocks`, dimmed when the badge's mode is not the block's current `mode`. Nothing is hidden -
+a dimmed badge only says the value is read in the other mode.
+
 ## Setting the text at play time
 
 `/vfx play`, `/vfx playat` and `/vfx playentity` take an optional `text "<string>"` argument that

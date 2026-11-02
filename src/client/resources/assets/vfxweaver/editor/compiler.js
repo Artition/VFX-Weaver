@@ -507,11 +507,16 @@
 		return typeof value === "string" && value.trim() !== "";
 	}
 
+	/** The keys a `text_overlay` `text` block may carry (mirrors {@code VFXTextSpec.parse}). */
+	var TEXT_KEYS = ["content", "mode", "font", "align", "anchor", "split"];
+
 	/**
 	 * Serialise the effect's authored structural fields (design §13.4): `positions`, `region`,
 	 * `entity_selector`, `sound` and `sound_pos`, plus the tail slice — the `particle`/`shape`/
 	 * `block`/`item` strings, the `pattern`/`surface` blocks, the `anchor` string, the window spec
-	 * fields (`id`/`texture`/`titles`) and the screen-image `texture`. Each is emitted only when
+	 * fields (`id`/`texture`/`titles`) and the screen-image `texture`. It also emits the
+	 * {@code text_overlay} {@code text} block (six structural keys, enum values lowercased). Each is
+	 * emitted only when
 	 * the IR carries it (`!== undefined`), so an imported definition's fields survive untouched
 	 * through the source clone when the editor did not touch them; an explicit empty/null value
 	 * removes the field. The shapes match {@code VFXDefinition.parse} exactly (the parser is the
@@ -595,12 +600,34 @@
 			}
 		}
 		// The top-level `texture` serves the window spec and the screen-image spec (only one
-		// sub-editor is ever visible — flag-gated per type), so one IR field emits it.
+		// sub-editor is ever visible - flag-gated per type), so one IR field emits it.
 		if (effect.texture !== undefined) {
 			if (isNonEmptyString(effect.texture)) {
 				def.texture = effect.texture;
 			} else {
 				delete def.texture;
+			}
+		}
+		// The `text_overlay` structural block: emitted only when the authored block has a non-blank
+		// `content`, and only the six keys VFXTextSpec parses (the enum spellings lowercased). An
+		// untouched block stays on the source clone (the IR field stays `undefined`), so an
+		// imported definition re-exports byte-identically.
+		if (effect.text !== undefined) {
+			var text = effect.text;
+			if (text != null && typeof text === "object" && !Array.isArray(text)
+					&& isNonEmptyString(text.content)) {
+				var builtText = {};
+				Object.keys(text).forEach(function (key) {
+					var value = text[key];
+					if (TEXT_KEYS.indexOf(key) < 0 || value == null) {
+						return;
+					}
+					builtText[key] = key === "content" || typeof value !== "string"
+							? String(value) : value.toLowerCase();
+				});
+				def.text = builtText;
+			} else {
+				delete def.text;
 			}
 		}
 	}

@@ -1913,6 +1913,11 @@
 		return Boolean(structuralSection(descriptor) && structuralSection(descriptor).supportsScreenImage === true);
 	}
 
+	/** Whether the effect reads a top-level `text` block (text_overlay only). */
+	function textAffordance(descriptor) {
+		return Boolean(structuralSection(descriptor) && structuralSection(descriptor).supportsText === true);
+	}
+
 	/** The parser's particle-id field shape (mirrors VFXStructuralDescriptor.particleFields). */
 	var PARTICLE_FIELD_FALLBACK = { fields: ["particle", "shape", "block", "item"] };
 	var PATTERN_FIELD_FALLBACK = { figureValues: ["circle", "ellipse", "rect", "polygon"],
@@ -1927,6 +1932,16 @@
 	var ANCHOR_FIELD_FALLBACK = { field: "anchor", values: ["dome", "sun", "moon", "stars"] };
 	var WINDOW_FIELD_FALLBACK = { fields: ["id", "texture", "titles"], maxTitles: 64 };
 	var SCREEN_IMAGE_FIELD_FALLBACK = { field: "texture" };
+	var TEXT_FIELD_FALLBACK = { fields: ["content", "mode", "font", "align", "anchor", "split"],
+		modeValues: ["flat", "world"], fontValues: ["default", "minecraft:default"],
+		alignValues: ["left", "center", "right"],
+		anchorValues: ["top_left", "top", "top_right", "left", "center", "right",
+			"bottom_left", "bottom", "bottom_right"],
+		splitValues: ["char", "word", "block"],
+		defaults: { mode: "flat", font: "default", align: "center", anchor: "center", split: "char" },
+		flatOnly: ["x", "y", "angle"],
+		worldOnly: ["pos_x", "pos_y", "pos_z", "rot_x", "rot_y", "rot_z", "billboard",
+			"brightness", "two_sided", "through_blocks"] };
 
 	/** The schema's particle-id field spec, or the parser-mirroring fallback when absent. */
 	function particleFieldSpec(descriptor) {
@@ -1962,6 +1977,34 @@
 	function screenImageFieldSpec(descriptor) {
 		var s = structuralSection(descriptor);
 		return s && s.screenImageFields ? s.screenImageFields : SCREEN_IMAGE_FIELD_FALLBACK;
+	}
+
+	/** The schema's text-block field spec, or the parser-mirroring fallback when absent. */
+	function textFieldSpec(descriptor) {
+		var s = structuralSection(descriptor);
+		return s && s.textFields ? s.textFields : TEXT_FIELD_FALLBACK;
+	}
+
+	/**
+	 * The render mode a `text_overlay` param belongs to: `"flat"` for a flat-only param (screen
+	 * x/y/angle), `"world"` for a world-only one (position/rotation/billboard/brightness/...), and
+	 * `""` for a param both modes read. The sets come from the schema (`textFields.flatOnly` /
+	 * `textFields.worldOnly`), so the canvas badge cannot drift from the parser.
+	 *
+	 * @param {string} name the param name
+	 * @param {Object} [descriptor] the effect's schema descriptor
+	 * @returns {string} `"flat"`, `"world"` or `""`
+	 */
+	function textParamMode(name, descriptor) {
+		var spec = textFieldSpec(descriptor);
+		var key = String(name);
+		if (Array.isArray(spec.flatOnly) && spec.flatOnly.indexOf(key) >= 0) {
+			return "flat";
+		}
+		if (Array.isArray(spec.worldOnly) && spec.worldOnly.indexOf(key) >= 0) {
+			return "world";
+		}
+		return "";
 	}
 
 	/** Whether a node is a composition (has an `op`). */
@@ -3390,6 +3433,9 @@
 		anchorFieldSpec: anchorFieldSpec,
 		windowFieldSpec: windowFieldSpec,
 		screenImageFieldSpec: screenImageFieldSpec,
+		textAffordance: textAffordance,
+		textFieldSpec: textFieldSpec,
+		textParamMode: textParamMode,
 		isMaskComposition: isMaskComposition,
 		maskLeaves: maskLeaves,
 		maskOps: maskOps,

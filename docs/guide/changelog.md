@@ -5,10 +5,13 @@ documentation changed. A guide revision is not a mod version — the two numbers
 released mod versions are recorded on the **[mod Changelog](../CHANGELOG.md)** instead. Where a guide
 revision shipped with a release, the entry says so (for example `v47 — released as 2.0.0`).
 
-Current guide revision: **v85**. Mod version it documents: **2.5.0**. Which jar
+Current guide revision: **v86**. Mod version it documents: **2.5.0**. Which jar
 to download is in the [download table](../index.md#download).
 
-### v85 — documents 2.5.0 (released as 2.5.0)
+### v86 - documents 2.5.0
+- **The [text_overlay](effects/text/text-overlay.md) page says what the visual editor offers for the block.** A `text_overlay` node's inspector draws a **Text** panel (a `content` textarea plus `mode`/`font`/`align`/`anchor`/`split` selects from the schema, seeded with the defaults when the effect had no block), and its mode-only param sockets carry a **`2D`**/`3D` badge (`x`/`y`/`angle` versus the world position/rotation/billboard/brightness/two_sided/through_blocks rows), dimmed when the badge's mode is not the block's current `mode`. Nothing is hidden.
+
+### v85 - documents 2.5.0 (released as 2.5.0)
 - **The [showcase datapack](showcase-datapack.md) now covers every 2.5.0 effect.** The eight new demos (`show_datamosh`, `show_torn_edge`, `show_spectral`, `show_hex_grid`, `show_heartbeat`, `show_hum`, `show_noise`, `show_volume_duck`) are listed on the page and in the pack's own cheat sheet, and the page now says where the pack's source lives.
 
 ### v84 — documents 2.5.0 (released as 2.5.0)
