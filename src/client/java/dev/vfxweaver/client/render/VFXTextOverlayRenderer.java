@@ -58,7 +58,7 @@ import org.slf4j.LoggerFactory;
  * its newlines and is handed {@code wrap_width} as the display's line width (200 font pixels when
  * wrapping is off), so vanilla breaks the lines itself; the layout counts that unit's lines with the
  * same {@code Font.split} call at the same width, so a long word breaks where the display breaks it
- * and the unit's height - the anchor, the landing lift and the flat block - agrees with the display.
+ * and the unit's height - the anchor and the flat block - agrees with the display.
  * The reveal is then all-or-nothing.
  *
  * <p>In {@code flat} mode the block is laid out at unit scale, cached by instance id, and drawn onto
@@ -130,6 +130,13 @@ public final class VFXTextOverlayRenderer {
 	// The pool a scrambled character draws its noise from: no lowercase, so a decode reads as machine
 	// output, and a fixed order, so the hash's index into it is stable between runs.
 	private static final String NOISE_GLYPHS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789#$%&*+=-<>/?";
+	// Independent salts for the per-character draws: the instance id and unit index are mixed with one
+	// of these, so the X scatter, the Z scatter and the gravity multiplier disagree. The zero salt is
+	// today's speed jitter, kept so an existing definition's fall timing is unchanged.
+	private static final long SALT_SPEED = 0L;
+	private static final long SALT_GRAVITY = 0x2545F4914F6CDD1DL;
+	private static final long SALT_SCATTER_X = 0xD6E8FEB86659FD93L;
+	private static final long SALT_SCATTER_Z = 0xA0761D6478BD642FL;
 
 	// Units of one live text effect, in layout order: one display entity each. 'signature' is the
 	// content plus the structural inputs, because an instance id can be reused by a replay with
@@ -715,12 +722,6 @@ public final class VFXTextOverlayRenderer {
 		live.lastColour = colour;
 		final int count = layout.units().size();
 		final float revealed = reveal(effect) * count;
-		// A display draws its glyph upwards from the entity position, so a unit whose position sits
-		// exactly on a surface has its lower part buried in the block. The landing is lifted by the
-		// unit's own height instead - one font line per line it spans, in pixels, in world units, at
-		// the current 'scale' - so a settled unit stands on the surface rather than in it.
-		final float unitLineHeight = Minecraft.getInstance().font.lineHeight
-			* WORLD_UNITS_PER_FONT_PIXEL * scale;
 		// Noise is only computed when 'scramble' is on: with it off every unit shows its own cached
 		// text, and the line costs no hash and no param lookup per frame.
 		final boolean scrambleOn = effect.getParam("scramble", 0.0F) > 0.0F;
@@ -732,11 +733,14 @@ public final class VFXTextOverlayRenderer {
 			final Display.TextDisplay display = live.entities.get(i);
 			final float since = exitSince(effect, i);
 			// The rest height is the anchor's Y plus the laid-out offset. The floor under this
-			// unit is resolved on its own column the first frame it leaves, then cached, and the
-			// settle point is that floor plus the unit's own height so it rests on top of it.
+			// unit is resolved on its own column the first frame it leaves, then cached. The entity
+			// position is the bottom of the glyph - a display draws it upward from there - so the
+			// settled position is the floor itself, with no lift. A unit drifts sideways as it falls,
+			// so it may come to rest over a different column than the one probed here: the floor stays
+			// the column it started on, a deliberate simplification that keeps the fall closed-form.
 			final float restY = (float) (origin.y + local.y);
 			final float floorY = floorFor(effect, live, level, i, since,
-				origin.x + local.x, restY, origin.z + local.z) + unitLineHeight * unit.lines();
+				origin.x + local.x, restY, origin.z + local.z);
 			final Vector3f exit = exitOffset(effect, i, restY, floorY);
 			// Position carries the offset (the rest pose plus the exit's displacement); the
 			// transformation's translation stays zero, otherwise the offset is applied twice and the
@@ -863,12 +867,19 @@ public final class VFXTextOverlayRenderer {
 	// yields the same frame - a replay and a screenshot agree.
 	private static Vector3f fallOffset(final VFXActiveEffect effect, final int index,
 			final float since, final float restY, final float floorY) {
-		final float gravity = gravityOf(effect);
+		final float gravity = gravityOf(effect) * gravityMultiplier(effect, index);
 		final float speed = effect.getParam("exit_speed", 0.0F) * jitter(effect, index);
+		// The horizontal drift is a constant velocity, scaled by 'since' like the drop, so it stays
+		// part of the closed form. The floor below is still the one probed on the rest column, so a
+		// drifting letter can settle over a neighbouring column - a deliberate simplification:
+		// re-probing a moving column would break the closed form and the fade's landing test.
+		final Vector3f scatter = scatterVelocity(effect, index);
+		final float driftX = scatter.x * since;
+		final float driftZ = scatter.z * since;
 		final float drop = restY - floorY;
 		// Without a floor, or with collision off, the letter simply falls for ever.
 		if (effect.getParam("collision", 1.0F) < 0.5F || !Float.isFinite(floorY)) {
-			return new Vector3f(0.0F, speed * since - 0.5F * gravity * since * since, 0.0F);
+			return new Vector3f(driftX, speed * since - 0.5F * gravity * since * since, driftZ);
 		}
 		// An animated pos_y can lift the rest height below the floor that was resolved when the
 		// character detached. There
@@ -880,7 +891,7 @@ public final class VFXTextOverlayRenderer {
 		// Time to reach the floor: the positive root of restY + v0 t - g t^2 / 2 = floorY.
 		final float impact = (speed + (float) Math.sqrt(speed * speed + 2.0F * gravity * drop)) / gravity;
 		if (since <= impact) {
-			return new Vector3f(0.0F, speed * since - 0.5F * gravity * since * since, 0.0F);
+			return new Vector3f(driftX, speed * since - 0.5F * gravity * since * since, driftZ);
 		}
 		// One rebound with restitution 'bounce', then settle: the hop is the same parabola with the
 		// reversed impact speed, so the landing still has a closed form and costs nothing.
@@ -889,9 +900,9 @@ public final class VFXTextOverlayRenderer {
 		final float hop = 2.0F * reboundSpeed / gravity;
 		final float after = since - impact;
 		if (after >= hop) {
-			return new Vector3f(0.0F, landing, 0.0F);
+			return new Vector3f(driftX, landing, driftZ);
 		}
-		return new Vector3f(0.0F, landing + reboundSpeed * after - 0.5F * gravity * after * after, 0.0F);
+		return new Vector3f(driftX, landing + reboundSpeed * after - 0.5F * gravity * after * after, driftZ);
 	}
 
 	// The one reading of 'gravity' both halves of the exit use: it divides the fall and the landing
@@ -901,11 +912,34 @@ public final class VFXTextOverlayRenderer {
 		return Math.max(effect.getParam("gravity", 18.0F), 1.0e-3F);
 	}
 
+	// Deterministic per-character draw in [0, 1], from the instance seed, the unit index and a salt:
+	// a different salt is an independent draw, so the X and the Z scatter point different ways.
+	private static float unitHash(final VFXActiveEffect effect, final int index, final long salt) {
+		final long h = effect.getInstanceId() * 0x9E3779B97F4A7C15L
+			^ (index * 0xBF58476D1CE4E5B9L) ^ salt;
+		final long mixed = h ^ (h >>> 31);
+		return (mixed & 0xFFFFL) / 65535.0F;
+	}
+
 	// Deterministic per-character jitter in [0.85, 1.15], from the instance seed and the index.
 	private static float jitter(final VFXActiveEffect effect, final int index) {
-		final long h = effect.getInstanceId() * 0x9E3779B97F4A7C15L ^ (index * 0xBF58476D1CE4E5B9L);
-		final int bits = (int) (h ^ (h >>> 31));
-		return 0.85F + 0.30F * ((bits & 0xFFFF) / 65535.0F);
+		return 0.85F + 0.30F * unitHash(effect, index, SALT_SPEED);
+	}
+
+	// A per-character multiplier on 'gravity' in [0.85, 1.15], from its own salt, so two letters of
+	// one line do not fall in lockstep even when their speed jitter happens to agree.
+	private static float gravityMultiplier(final VFXActiveEffect effect, final int index) {
+		return 0.85F + 0.30F * unitHash(effect, index, SALT_GRAVITY);
+	}
+
+	// A per-character horizontal scatter, in blocks per second: 'spread' is the half-range and two
+	// independent draws pick the direction on X and on Z. It is a distance per second, not a
+	// fraction, so 'spread' has no upper limit - it only widens the fan.
+	private static Vector3f scatterVelocity(final VFXActiveEffect effect, final int index) {
+		final float spread = effect.getParam("spread", 0.6F);
+		return new Vector3f(
+			spread * (2.0F * unitHash(effect, index, SALT_SCATTER_X) - 1.0F), 0.0F,
+			spread * (2.0F * unitHash(effect, index, SALT_SCATTER_Z) - 1.0F));
 	}
 
 	// Opacity of character 'index' from its exit timeline: 1 until it has started leaving, then the
@@ -942,7 +976,7 @@ public final class VFXTextOverlayRenderer {
 		if (effect.getParam("collision", 1.0F) < 0.5F || !Float.isFinite(floorY) || drop <= 0.0F) {
 			return -1.0F;
 		}
-		final float gravity = gravityOf(effect);
+		final float gravity = gravityOf(effect) * gravityMultiplier(effect, index);
 		final float speed = effect.getParam("exit_speed", 0.0F) * jitter(effect, index);
 		final float impact = (speed + (float) Math.sqrt(speed * speed + 2.0F * gravity * drop)) / gravity;
 		if (!Float.isFinite(impact)) {
@@ -1067,22 +1101,25 @@ public final class VFXTextOverlayRenderer {
 	}
 
 	// A character's orientation while it is leaving: the block's rot_* quaternion composed with a
-	// rotation of |spin| * since degrees about spin_x/y/z. 'tumble' replaces the axis with one taken
-	// from the per-character jitter, so the letters tumble off-axis instead of all wheeling about the
-	// same world axis, and leaves the speed at |spin|. A spin vector of length zero has no axis to
-	// rotate about - normalising it would be a NaN - so the rest orientation is handed back untouched.
+	// rotation of |spin| * jitter * since degrees about spin_x/y/z. 'tumble' replaces the axis with one
+	// taken from the per-character jitter, so the letters tumble off-axis instead of all wheeling about
+	// the same world axis, and leaves the speed at |spin| times the jitter. A spin vector of length
+	// zero has no axis to rotate about - normalising it would be a NaN - so the rest orientation is
+	// handed back untouched.
 	private static Quaternionf spin(final VFXActiveEffect effect, final int index, final float since,
 			final Quaternionf rotation) {
 		final Vector3f axis = new Vector3f(effect.getParam("spin_x", 0.0F),
 			effect.getParam("spin_y", 0.0F), effect.getParam("spin_z", 0.0F));
-		final float speed = axis.length();
-		if (speed < 1e-4F) {
+		// The spin speed carries the per-character jitter too, so letters do not turn in lockstep.
+		final float axisLength = axis.length();
+		if (axisLength < 1e-4F) {
 			return new Quaternionf(rotation);
 		}
+		final float speed = axisLength * jitter(effect, index);
 		if (effect.getParam("tumble", 0.0F) >= 0.5F) {
-			// Tumble swaps the axis only - the angular speed stays |spin|, so an authored
-			// 'spin_z 180' with tumble on still turns at 180 degrees per second, off-axis. Three
-			// readings of the same jitter give a deterministic direction.
+			// Tumble swaps the axis only - the angular speed stays |spin| times the jitter, so an
+			// authored 'spin_z 180' with tumble on still turns at 180 degrees per second, off-axis.
+			// Three readings of the same jitter give a deterministic direction.
 			final float j = jitter(effect, index);
 			axis.set(j - 1.0F, 1.0F - j, 0.5F * j - 0.5F);
 			if (axis.lengthSquared() < 1e-8F) {
@@ -1090,7 +1127,7 @@ public final class VFXTextOverlayRenderer {
 			}
 			axis.normalize();
 		} else {
-			axis.div(speed);
+			axis.div(axisLength);
 		}
 		return new Quaternionf(rotation)
 			.rotateAxis((float) Math.toRadians(speed * since), axis);

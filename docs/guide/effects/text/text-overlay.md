@@ -43,7 +43,7 @@ width (vanilla's default of 200 font pixels when wrapping is off), so **vanilla 
 itself**, including an over-long word, which it splits mid-word. The unit is measured with the same
 `Font.split` call at that same width, so its line count matches what the display draws, and `flat`
 draws those same lines - a `block` therefore wraps identically in both modes, and its height (the
-`anchor`, the lift when it lands) matches the drawn block. A unit is also pinned to its own left edge
+`anchor`) matches the drawn block. A unit is also pinned to its own left edge
 in the display's style flags (`FLAG_ALIGN_LEFT`), so vanilla draws it from the point the mod placed it
 at instead of centring it on that point and drifting it left by half its width: every `word` and
 `block` unit, a one-letter word included (its narrow glyph would otherwise sit half a cell left of its
@@ -161,8 +161,9 @@ surface - constant, `start`/`end`, `keyframes`, `bind`, `expr`, the `/vfx play` 
 | `exit_at` | -1 | yes | Seconds from the start of the effect when the **first** unit starts leaving. Negative = the text never leaves on its own and stays until the effect is stopped |
 | `exit_stagger` | 0 | yes | Seconds between one unit leaving and the next one |
 | `exit_speed` | 0 | yes | Initial downward speed of a leaving character, multiplied by a per-character jitter in `0.85..1.15`: blocks/s in `world`, screen heights/s in `flat`, so the same value moves the block the same fraction of the frame at any GUI scale |
-| `gravity` | 18 | yes | Downward acceleration: blocks/s² in `world`, screen heights/s² in `flat`. Floored at `1e-3` so it cannot divide by zero, **no upper limit** |
-| `spin_x` | 0 | yes (`world` only) | Angular velocity of a leaving character, degrees/s; the vector `(spin_x, spin_y, spin_z)` is an axis and its length the speed |
+| `spread` | 0.6 | yes (`world` only) | Horizontal scatter of a falling character, in blocks/s: each character gets its own sideways velocity on X and on Z, picked from a hash of the instance id and its index, so the letters of one line fan out instead of dropping straight down. **No upper limit** - a large value simply scatters them further |
+| `gravity` | 18 | yes | Downward acceleration: blocks/s² in `world`, screen heights/s² in `flat`. Floored at `1e-3` so it cannot divide by zero, and each `world` character multiplies it by its own factor in `0.85..1.15`, so letters do not fall in lockstep. **No upper limit** |
+| `spin_x` | 0 | yes (`world` only) | Angular velocity of a leaving character, degrees/s; the vector `(spin_x, spin_y, spin_z)` is an axis and its length the speed, which is multiplied by the same per-character jitter so letters do not rotate together |
 | `spin_y` | 0 | yes (`world` only) | Same, Y component of the spin axis |
 | `spin_z` | 0 | yes | Same, Z component of the spin axis. Also the only spin a `flat` character can turn by: a 2D pose rotates about Z |
 | `tumble` | 0 | yes | `>= 0.5` takes the spin axis from the per-character jitter instead, so the letters tumble off different axes while keeping `|spin|` as the speed; in `flat` it flips the direction of `spin_z` per character instead. Clamped `0..1` |
@@ -181,7 +182,7 @@ Notes on the numbers:
   mode, on the first measurement in `flat` mode, where the measured layout is then cached per effect
   instance. Animating either of them mid-flight changes nothing until the block is rebuilt; every
   other param is read again every frame.
-- **No upper limits on the motion.** `gravity`, `exit_speed`, `spin_*`, `scale`, `pos_*` and the
+- **No upper limits on the motion.** `gravity`, `exit_speed`, `spread`, `spin_*`, `scale`, `pos_*` and the
   delays accept any value: a huge `gravity` or `exit_speed` just makes the drop instant, a huge
   `spin_*` makes the letter a blur. Only the lower guards that avoid degenerate maths are applied
   (`gravity >= 1e-3`, `fade_out >= 1e-4`), plus the `0..1` fractions listed in the table. The three
@@ -233,8 +234,11 @@ a **fall**.
 - **Fade (`exit: 0`).** Unit `i` starts fading at `exit_at + i * exit_stagger` seconds and is gone
   `fade_out` seconds later. Nothing moves; only the opacity falls.
 - **Fall (`exit: 1`).** The same schedule detaches the units, but they also move: `exit_speed`
-  downwards, accelerated by `gravity`, spin from `spin_x`/`spin_y`/`spin_z` (with `tumble` mixing the
-  axis per unit). A falling unit stays opaque until it comes to rest and fades over
+  downwards plus a sideways `spread`, accelerated by `gravity`, spin from `spin_x`/`spin_y`/`spin_z`
+  (with `tumble` mixing the axis per unit). Every character jitters its own speed, its own `gravity`
+  in `0.85..1.15`, its own scatter direction and its own spin speed, all drawn from a hash of the
+  instance id and its index, so no two letters fall the same way and the same tick always looks the
+  same. A falling unit stays opaque until it comes to rest and fades over
   `fade_out` after that; with nothing to land on it fades from the moment it detaches, so a block
   always reaches zero - and in `world` mode its entities are released there (`flat` has no entities
   to release).
@@ -243,12 +247,14 @@ a **fall**.
 
 - **3D (`world`) collision is the world.** With `collision: 1` a unit stops on the top of the
   first block below its rest position, rebounds once by `bounce` and settles - **on** the surface,
-  not inside it: the glyph is drawn upwards from its entity position, so the landing point is lifted
-  by the unit's own height (`font line height * lines * 0.025 * scale`), which puts its feet on the
-  block instead of its lower half in it. Each unit probes its **own column**, on the frame it
-  detaches, walking down from its rest Y in quarter blocks with the same block-collision query, so a
-  `char` line over uneven ground stops letter by letter on the step under it rather than on one floor
-  taken for the whole line, while a `word` or `block` unit lands as one piece. Two rules come with
+  not inside it: the entity position is the bottom of the glyph, because a display draws its glyph
+  upward from there, so a settled unit's position is the floor itself and needs no lift. Each unit
+  probes its **own column**, on the frame it detaches, walking down from its rest Y in quarter
+  blocks with the same block-collision query, so a `char` line over uneven ground stops letter by
+  letter on the step under it rather than on one floor taken for the whole line, while a `word` or
+  `block` unit lands as one piece. A sideways `spread` can carry a letter over a different column as
+  it falls; it still lands on the floor of the column it detached over, a deliberate simplification
+  that keeps the fall closed-form. Two rules come with
   that: a unit whose rest point already sits inside a collider is embedded in terrain and does not
   fall at all, and a column with no surface within 64 blocks falls free, exactly as with no floor.
   `collision: 0` skips the probe and the text falls straight through the ground.
