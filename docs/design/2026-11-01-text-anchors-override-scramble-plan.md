@@ -63,6 +63,53 @@ Contract: `docs/design/2026-11-01-text-override-design.md`.
 
 **Checks:** all four nodes build, guard, schema check, and the existing demo keeps parsing.
 
+## Task E - real physics for the fall
+
+The analytic fall has been replaced piecemeal: a cached floor per column, a landing lift, a frozen
+spin, a forced tip-to-flat. Each of those was a patch over the same mistake - a rigid body cannot be
+described by a closed-form offset once it has to interact with geometry. The block-particle engine
+already models exactly what a text character needs, because a character is a flat rectangle and a
+particle is a cube.
+
+**Model.** One body per unit, in world space:
+
+| field | meaning |
+|---|---|
+| `pos`, `prev` | position, and where it was at the start of the tick |
+| `velocity` | blocks per tick |
+| `orientation`, `prevOrientation` | full rotation, slerped for display |
+| `angularVelocity` | radians per tick about a body-fixed axis |
+| `resting` | true once the body has settled and the physics stops touching it |
+
+**Step.** Once per client tick, 20 Hz, mirroring `VFXBlockParticleEngine.integrate`:
+
+1. `velocity.y -= GRAVITY_STEP * gravity`;
+2. `velocity *= friction` (the same tangential damping the engine applies);
+3. `next = pos + velocity`;
+4. with `collision` on, `VFXWorldCollision.resolve(level, next, padding, prev)`; on contact drop the
+   inward normal component of the velocity, damp what is left by `friction`, reflect the normal part
+   by `bounce`, and turn the tangential slip into roll about `n x v_t` exactly as the engine does;
+5. `pos = next`, then integrate the orientation about the angular-velocity axis.
+
+**Rest.** When both the linear and the angular speed fall under a small threshold for a few
+consecutive ticks, the body snaps its orientation to the flat, face-up one and stops being stepped.
+That is what "lies on the floor" means; no `settle`, no `flat_land`, no cached floor.
+
+**What goes away.** The per-column floor scan, the landing lift, the frozen spin, `settle`,
+`flat_land`, and the special case for a free fall - with no collision the body simply keeps being
+stepped until the effect stops, which is the honest version of "falls through the world".
+
+**What stays.** `exit_at`/`exit_stagger` decide when a body detaches and gets its initial state,
+`gravity`, `spread`, `bounce`, `friction`, `collision`, `spin_*` and `tumble` seed and shape that
+state, and `hold`/`fade_out` still drive the fade after the body comes to rest.
+
+**Determinism, stated honestly.** The frame is no longer a closed-form function of the effect clock:
+state accumulates per tick, so a replay from the effect's start matches frame for frame, while
+jumping into the middle of a run does not reproduce the same resting arrangement. The block particles
+already live with this, and the guide must say it instead of promising closed-form everywhere.
+
+---
+
 ## Done means
 
 `text_overlay` follows a played-at position and an entity anchor, `text "<string>"` overrides the
