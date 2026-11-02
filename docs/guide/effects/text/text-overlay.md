@@ -212,9 +212,16 @@ world effect.
 `collision` is the same switch in both modes; only the surface differs:
 
 - **3D (`world`) collision is the world.** With `collision: 1` a character stops on the top of the
-  first block below its rest position, rebounds once by `bounce` and settles. The floor is looked up
-  once per character when the block spawns with one block-collision query, so a moving `pos_*` does
-  not re-probe it. `collision: 0` skips the query and the letters fall straight through the ground.
+  first block below its rest position, rebounds once by `bounce` and settles - **on** the surface,
+  not inside it: the glyph is drawn upwards from its entity position, so the landing point is lifted
+  by the character's own height (`font line height * 0.025 * scale`), which puts its feet on the
+  block instead of its lower half in it. Each character probes its **own column**, on the frame it
+  detaches, walking down from its rest Y in quarter blocks with the same block-collision query, so a
+  word over uneven ground stops letter by letter on the step under it rather than on one floor taken
+  for the whole line. Two rules come with that: a character whose rest point already sits inside a
+  collider is embedded in terrain and does not fall at all, and a column with no surface within
+  64 blocks falls free, exactly as with no floor. `collision: 0` skips the probe and the letters fall
+  straight through the ground.
 - **2D (`flat`) collision is the frame.** The picture *is* the world there: the edges of the game
   window are the floor and the walls, and `collision: 0` lets a character leave the picture and fade
   where it went.

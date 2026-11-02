@@ -121,10 +121,12 @@ public final class VFXTextOverlayRenderer {
 	// 'lastTexts' is the character string last written to each display - its own glyph, or the noise
 	// glyph of the last swap - so a scrambled character is rewritten only when its noise changes and
 	// is handed its own character back when the band passes it, whatever the colour cache says.
-	// 'floors' is the one per-character value the exit stores: the top of the first collider below
-	// the character's rest position, or NEGATIVE_INFINITY when it has nothing to land on. It is a
-	// pure function of the world, so it is resolved once at spawn and the fall itself stays
-	// closed-form. 'finishedAt' is the age at which every character had faded out and been
+	// 'floors' is the one per-character value the exit stores: the top of the first collider found
+	// under that character's own column, the character's own rest Y when its rest point is already
+	// embedded in terrain (so it does not fall at all), or NEGATIVE_INFINITY when there is nothing
+	// to land on. An entry starts as NaN - unresolved - and is filled with one downward scan on the
+	// frame the character detaches, so the probe follows the world under the word instead of a
+	// single spawn-time query. 'finishedAt' is the age at which every character had faded out and been
 	// released, or -1 while the block is live; a record whose age is now below that value is
 	// stale, because a looping effect wraps 'elapsed' back to 0 and a replay reuses the instance id.
 	private static final class LiveText {
@@ -210,7 +212,7 @@ public final class VFXTextOverlayRenderer {
 		if (live == null || live.finishedAt >= 0.0F) {
 			return;
 		}
-		placeBlock(effect, live, spec, origin);
+		placeBlock(effect, level, live, spec, origin);
 	}
 
 	// The point the block is measured from. When the definition has a slot - a runtime move, a
@@ -486,59 +488,89 @@ public final class VFXTextOverlayRenderer {
 		// entry only when the character it should show changes, which is what a noise swap is.
 		final String[] lastTexts = ownTexts.clone();
 		final LiveText live = new LiveText(effect.getInstanceId(), signature, entities, layout,
-			floors(effect, level, spec, layout, entities.size(), origin), ownTexts, lastTexts,
-			colour, flags);
+			unresolvedFloors(entities.size()), ownTexts, lastTexts, colour, flags);
 		LIVE.put(effect.getInstanceId(), live);
 		return live;
 	}
 
-	// The top of the first collider below each character, looked up once when the block spawns: a
-	// floor never moves for the life of one block, so the fall can stay closed-form instead of
-	// running a collision query per character per frame. NEGATIVE_INFINITY means "nothing below";
-	// POSITIVE_INFINITY is not a valid sentinel here, because it reads as 'already landed'.
-	//
-	// effect - the running effect, for rot_* the rest pose is built from
-	// level  - the client level the colliders are queried from
-	// spec   - the authored block, for the align/anchor shifts
-	// layout - the unit-scale layout the characters come from
-	// count  - how many characters actually got an entity (the cap drops the tail)
-	// origin - the point the block is measured from this frame (the slot, or the absolute pos_*
-	//          when the definition has none)
-	private static float[] floors(final VFXActiveEffect effect, final ClientLevel level,
-			final VFXTextSpec spec, final VFXTextLayout layout, final int count, final Vec3 origin) {
-		final float scale = effect.getParam("scale", 1.0F);
-		final Quaternionf rotation = blockRotation(effect);
-		final float alignShift = alignOffset(spec, layout.width() * scale);
-		final float anchorShiftY = anchorOffset(spec, layout.height() * scale);
+	// Half-width of the shaft probed under a character: the glyph itself has no world footprint, so a
+	// narrow column is what a falling letter actually occupies.
+	private static final double FLOOR_PROBE_HALF_WIDTH = 0.05;
+	// The downward walk is sampled in quarter blocks. That step is the correctness of this scan - a
+	// collider is a box on a grid, so a quarter block cannot skip one the letter would have hit -
+	// not an arbitrary resolution.
+	private static final double FLOOR_SCAN_STEP = 0.25;
+	// How far down one scan looks before giving up: 64 blocks, the reach the old single query had.
+	// This is a perf bound (64 / 0.25 = 256 queries, once per character when it detaches), not a
+	// cap on anything a definition authors. Past it the character falls free, as it does over a void.
+	private static final double FLOOR_SCAN_DEPTH = 64.0;
+
+	// Every character starts with no floor: NaN marks "not resolved yet", because the scan runs when
+	// the character actually detaches - the ground under the word can differ from character to
+	// character (a step, a slope), and a spawn-time probe of the whole block cannot see that.
+	private static float[] unresolvedFloors(final int count) {
 		final float[] result = new float[count];
 		for (int i = 0; i < count; i++) {
-			final Vector3f local = restOffset(layout.glyphs().get(i), scale, alignShift,
-				anchorShiftY, rotation);
-			result[i] = groundBelow(level, origin.x + local.x, origin.y + local.y, origin.z + local.z);
+			result[i] = Float.NaN;
 		}
 		return result;
 	}
 
-	// Top of the first collider below a character's rest position, or NEGATIVE_INFINITY when there is
-	// nothing to land on. The query is the same one the collision helper makes: a narrow column from
-	// the character's feet down to -64 blocks, so a tall drop still finds the island.
-	private static float groundBelow(final ClientLevel level, final double x, final double restY,
+	// The floor of character 'index' this frame, resolved on first use and cached with the block, so
+	// the fall stays closed-form from then on and a still-standing line probes nothing. A fade exit
+	// and 'collision: 0' have no landing to find, so they never scan at all.
+	private static float floorFor(final VFXActiveEffect effect, final LiveText live, final ClientLevel level,
+			final int index, final float since, final double x, final float restY, final double z) {
+		if (since < 0.0F || effect.getParam("exit", 0.0F) < 0.5F
+			|| effect.getParam("collision", 1.0F) < 0.5F || index >= live.floors.length) {
+			return Float.NEGATIVE_INFINITY;
+		}
+		final float cached = live.floors[index];
+		if (!Float.isNaN(cached)) {
+			return cached;
+		}
+		final float resolved = resolveFloor(level, x, restY, z);
+		live.floors[index] = resolved;
+		return resolved;
+	}
+
+	// Top of the first surface under one character's own column, walking down from its rest point in
+	// quarter blocks and taking the first slab that holds a collider. A rest point already inside a
+	// collider means the letter is embedded in terrain (authored into a wall, or the ground rose
+	// under it): the character then does not fall at all, so its own rest Y is returned and the drop
+	// is zero. NEGATIVE_INFINITY means "nothing below within FLOOR_SCAN_DEPTH", and the character
+	// falls free exactly as it does with no floor.
+	private static float resolveFloor(final ClientLevel level, final double x, final float restY,
 			final double z) {
-		final AABB query = new AABB(x - 0.05, restY - 64.0, z - 0.05, x + 0.05, restY + 0.05, z + 0.05);
-		float top = Float.NEGATIVE_INFINITY;
-		for (final VoxelShape shape : level.getBlockCollisions(null, query)) {
-			if (shape.isEmpty()) {
-				continue;
-			}
-			for (final AABB box : shape.toAabbs()) {
-				// Only surfaces under the character can catch it; a block the glyph is already inside
-				// (a letter authored into the ground) has no landing at all.
-				if (box.maxY <= restY && box.maxY > top) {
-					top = (float) box.maxY;
-				}
+		final AABB at = new AABB(x - FLOOR_PROBE_HALF_WIDTH, restY - 0.001, z - FLOOR_PROBE_HALF_WIDTH,
+			x + FLOOR_PROBE_HALF_WIDTH, restY + 0.001, z + FLOOR_PROBE_HALF_WIDTH);
+		for (final VoxelShape shape : level.getBlockCollisions(null, at)) {
+			if (!shape.isEmpty()) {
+				return restY;
 			}
 		}
-		return top;
+		for (double y = restY; y >= restY - FLOOR_SCAN_DEPTH; y -= FLOOR_SCAN_STEP) {
+			// The slab covers everything between this step and the one above it, so a surface the
+			// walk crosses cannot be stepped over; only its top counts, because that is what catches
+			// the letter.
+			final AABB slab = new AABB(x - FLOOR_PROBE_HALF_WIDTH, y - FLOOR_SCAN_STEP,
+				z - FLOOR_PROBE_HALF_WIDTH, x + FLOOR_PROBE_HALF_WIDTH, y, z + FLOOR_PROBE_HALF_WIDTH);
+			float top = Float.NEGATIVE_INFINITY;
+			for (final VoxelShape shape : level.getBlockCollisions(null, slab)) {
+				if (shape.isEmpty()) {
+					continue;
+				}
+				for (final AABB box : shape.toAabbs()) {
+					if (box.maxY <= y && box.maxY > top) {
+						top = (float) box.maxY;
+					}
+				}
+			}
+			if (top > Float.NEGATIVE_INFINITY) {
+				return top;
+			}
+		}
+		return Float.NEGATIVE_INFINITY;
 	}
 
 	// The effect's colour_r/g/b (0..1 each) as one packed 0xRRGGBB integer, white when unset.
@@ -551,8 +583,8 @@ public final class VFXTextOverlayRenderer {
 
 	// Positions every character of the block: unit layout times the current 'scale', rotated by
 	// rot_*, anchored, displaced by the exit, and refreshed for the animatable colour and shadow.
-	private static void placeBlock(final VFXActiveEffect effect, final LiveText live,
-			final VFXTextSpec spec, final Vec3 origin) {
+	private static void placeBlock(final VFXActiveEffect effect, final ClientLevel level,
+			final LiveText live, final VFXTextSpec spec, final Vec3 origin) {
 		final float scale = effect.getParam("scale", 1.0F);
 		final VFXTextLayout layout = live.layout;
 		final float alignShift = alignOffset(spec, layout.width() * scale);
@@ -569,6 +601,12 @@ public final class VFXTextOverlayRenderer {
 		live.lastFlags = flags;
 		final int count = layout.glyphs().size();
 		final float revealed = reveal(effect) * count;
+		// A display draws its glyph upwards from the entity position, so a character whose position
+		// sits exactly on a surface has its lower part buried in the block. The landing is lifted by
+		// the character's own height instead - one font line in pixels, in world units, at the
+		// current 'scale' - so a settled character stands on the surface rather than in it.
+		final float glyphLift = Minecraft.getInstance().font.lineHeight
+			* WORLD_UNITS_PER_FONT_PIXEL * scale;
 		// Noise is only computed when 'scramble' is on: with it off every character shows its own
 		// cached one-character string, and the line costs no hash and no param lookup per frame.
 		final boolean scrambleOn = effect.getParam("scramble", 0.0F) > 0.0F;
@@ -578,12 +616,14 @@ public final class VFXTextOverlayRenderer {
 			final VFXTextLayout.Glyph glyph = layout.glyphs().get(i);
 			final Vector3f local = restOffset(glyph, scale, alignShift, anchorShiftY, rotation);
 			final Display.TextDisplay display = live.entities.get(i);
-			// The rest height is the anchor's Y plus the laid-out offset; the floor was resolved for
-			// that same pose when the block spawned, so the fall can be read straight off the clock.
-			final float restY = (float) (origin.y + local.y);
-			final float floorY = i < live.floors.length ? live.floors[i] : Float.NEGATIVE_INFINITY;
-			final Vector3f exit = exitOffset(effect, i, restY, floorY);
 			final float since = exitSince(effect, i);
+			// The rest height is the anchor's Y plus the laid-out offset. The floor under this
+			// character is resolved on its own column the first frame it leaves, then cached, and the
+			// settle point is that floor plus the glyph's own height so the letter rests on top of it.
+			final float restY = (float) (origin.y + local.y);
+			final float floorY = floorFor(effect, live, level, i, since,
+				origin.x + local.x, restY, origin.z + local.z) + glyphLift;
+			final Vector3f exit = exitOffset(effect, i, restY, floorY);
 			// Position carries the offset (the rest pose plus the exit's displacement); the
 			// transformation's translation stays zero, otherwise the offset is applied twice and the
 			// block flies away from its anchor.
@@ -638,9 +678,9 @@ public final class VFXTextOverlayRenderer {
 
 	// Where a character sits, relative to the block origin: the layout's font pixels times the current
 	// 'scale', shifted by the spec's align and anchor, turned into world units by
-	// WORLD_UNITS_PER_FONT_PIXEL, then turned by rot_*. Shared by the spawn-time rest pose, the
-	// per-frame placement and the one-off floor lookup, so all three agree on where the character is
-	// - the glyph itself is drawn at the renderer's own 0.025 scale, so only the spacing would drift
+	// WORLD_UNITS_PER_FONT_PIXEL, then turned by rot_*. Shared by the spawn-time rest pose and the
+	// per-frame placement, so both agree on where the character is - the glyph itself is drawn at the
+	// renderer's own 0.025 scale, so only the spacing would drift
 	// if this factor were skipped, and the shifts above must carry it too or a centred line would
 	// hang off its anchor.
 	private static Vector3f restOffset(final VFXTextLayout.Glyph glyph, final float scale,
@@ -713,7 +753,8 @@ public final class VFXTextOverlayRenderer {
 		if (effect.getParam("collision", 1.0F) < 0.5F || !Float.isFinite(floorY)) {
 			return new Vector3f(0.0F, speed * since - 0.5F * gravity * since * since, 0.0F);
 		}
-		// An animated pos_y can lift the rest height below the floor that was cached at spawn. There
+		// An animated pos_y can lift the rest height below the floor that was resolved when the
+		// character detached. There
 		// is no drop left to run then, and the square root below would take a negative and hand a
 		// NaN to setPos, so the character simply keeps its rest pose.
 		if (drop <= 0.0F) {
