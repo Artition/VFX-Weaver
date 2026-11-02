@@ -1393,13 +1393,34 @@
 	}
 
 	/**
+	 * The imported definition an Exact child must round-trip: the effect's own clone when it is a
+	 * chain child, and the tab's whole definition when the tab has a single effect (an imported tab
+	 * stores it on `tab.source` and leaves `effect.source` null - exactly as {@link compileTab}
+	 * reads it). A chain child never borrows `tab.source`: on a chain that is the collection root,
+	 * not this effect's definition.
+	 *
+	 * @param {Object} tab the owning tab
+	 * @param {Object} effect the effect entry
+	 * @returns {Object|null} the definition to clone, or null for an authored effect
+	 */
+	function exactSourceDef(tab, effect) {
+		if (effect && effect.source) {
+			return effect.source;
+		}
+		var count = (tab.effects || []).filter(function (entry) {
+			return entry && entry.type;
+		}).length;
+		return count <= 1 && tab.source ? tab.source : null;
+	}
+
+	/**
 	 * One Exact child definition for a concrete effect (the per-node timing overrides of
 	 * {@link compilePreviewSet}, shared by the plain and the reference-aware path).
 	 */
 	function exactChildDef(tab, effect, slug) {
 		var uuid = nodeUuid(effect);
 		var duration = childDurationTicks(tab, effect);
-		var exact = JSON.parse(compileSingle(tab, effect, effect.id, effect.source));
+		var exact = JSON.parse(compileSingle(tab, effect, effect.id, exactSourceDef(tab, effect)));
 		exact.duration = duration;
 		exact.fade_ticks = 0;
 		exact.loop = false;

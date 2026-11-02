@@ -1765,6 +1765,43 @@ window.__vfxSelftest = function () {
 		eq(VFXIR.textMode(tab, effect), "flat", "the authored block wins over the imported one");
 		eq(VFXIR.textMode(null, null), "flat", "no block, no source: the parser default");
 	});
+
+	test("(EXACT1) a single-effect tab keeps its imported source in the Exact preview",
+			function () {
+		var compilePreviewSet = window.VFXCompiler && window.VFXCompiler.compilePreviewSet;
+		ok(typeof compilePreviewSet === "function", "compilePreviewSet is exported");
+		// The `showcase/data/vfx_demos/vfx/show_text_slide.json` shape.
+		var imported = { type: "text_overlay", duration: 160, loop: true, persistent: false,
+			fade_ticks: 8,
+			text: { content: "VFX WEAVER", mode: "flat", font: "default", align: "center",
+				anchor: "center", split: "char" },
+			params: { x: 0.5, y: 0.35, scale: 2.0, reveal: 1.0, exit: 1.0, exit_at: 1.5,
+				exit_stagger: 0.03, bounce: 0.45, friction: 0.94, collision: 1.0, hold: 0.8,
+				fade_out: 1.2,
+				gravity_angle: { keyframes: [{ time: 0, value: 0.0 }, { time: 40, value: 0.0 },
+					{ time: 110, value: 90.0 }] } } };
+		var tab = new VFXIR.Tab("show_text_slide", "text_overlay");
+		tab.source = imported;
+		var effect = tab.effect();
+		ok(effect.source == null, "an imported tab leaves effect.source null");
+		var set = compilePreviewSet(tab);
+		var ids = Object.keys(set.definitions);
+		eq(ids.length, 1, "one Exact definition");
+		eq(ids[0].indexOf("vfxweaver:editor_preview/"), 0, "the private preview id");
+		var def = parse(set.definitions[ids[0]]);
+		eq(def.type, "text_overlay", "the type survives");
+		ok(def.text != null, "the imported text block survives the Exact compile");
+		eq(def.text.content, "VFX WEAVER", "the content is the imported line");
+		eq(def.text.mode, "flat", "the imported mode is kept");
+		ok(def.duration > 0, "the node duration is baked in");
+		ok(typeof def.duration === "number", "a parseable duration");
+		ok(def.params && typeof def.params === "object", "a params map is present");
+		// Exact forces its playback overrides on top of the clone.
+		eq(def.loop, false, "loop off");
+		eq(def.persistent, true, "persistent on");
+		eq(def.fade_ticks, 0, "no fade");
+		ok(!("gravity_angle" in def.params), "params stay the IR's, not the clone's");
+	});
 	test("(MP1) a 200-definition pack opens lazily, not one tab per definition", function () {
 		var effects = {};
 		for (var i = 0; i < 200; i++) {
