@@ -41,7 +41,7 @@ Require-Pattern $typePath 'this != TEXT_OVERLAY' "TEXT_OVERLAY is not excluded f
 
 # --- the structural spec --------------------------------------------------------------------
 Require-Pattern $specPath 'class VFXTextSpec' "VFXTextSpec is missing"
-foreach ($field in 'content', 'mode', 'font', 'align', 'anchor') {
+foreach ($field in 'content', 'mode', 'font', 'align', 'anchor', 'split') {
 	Require-Pattern $specPath ('"' + $field + '"') "the spec does not read '$field'"
 }
 
