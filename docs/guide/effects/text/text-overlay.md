@@ -177,7 +177,8 @@ surface - constant, `start`/`end`, `keyframes`, `bind`, `expr`, the `/vfx play` 
 | `rot_z` | 0 | yes (`world` only) | Baseline orientation of the whole block, degrees, Z. `flat` turns about Z with `angle` and `spin_z` instead, so this is not read there. It is part of the `billboard: 0` auto rule in `world`: only while all three are zero does the block face the camera |
 | `angle` | 0 | yes (`flat` only) | Turns the whole block about its anchor, degrees |
 | `billboard` | 0 | sampled, see below (`world` only) | Float code for how the block follows the camera, mapped straight onto the display's billboard constraint: `0` = **auto**, `1` = **fixed**, `2` = **center**, `3` = **vertical**, `4` = **horizontal**. `0` is the rule this effect always used - see [What the block faces, and how it is lit](#what-the-block-faces-and-how-it-is-lit). Read once per display at spawn, so changing it needs a respawn |
-| `two_sided` | 1 | sampled, see below (`world` only) | `>= 0.5` spawns a **second display per unit**, turned 180 degrees about Y, so the back of a pinned block reads too; `< 0.5` gives a strictly one-sided decal. Used only when the resolved `billboard` is not `center`, because a `center` billboard already faces you from every side - see [Showing the back of a pinned block](#showing-the-back-of-a-pinned-block). Read at spawn; each twin counts against the 256-display cap and is released with its unit |
+| `two_sided` | 0 | sampled, see below (`world` only) | `>= 0.5` spawns a **second display per unit**, turned 180 degrees about Y, so a **readable copy** stands behind a pinned block; that is a copy, not the physical back - the default see-through flag already shows the real back. `< 0.5` (the default) spawns no twin at all. Used only when the resolved `billboard` is not `center`, because a `center` billboard already faces you from every side - see [Showing the back of a pinned block](#showing-the-back-of-a-pinned-block). Read at spawn; each twin counts against the 256-display cap and is released with its unit |
+| `see_through` | 1 | yes (`world` only) | `>= 0.5` (the default) ORs vanilla's `FLAG_SEE_THROUGH` into every unit's flags, so the **same quads** are drawn from both sides and a letter shows its physical back, at any rotation - a mirror image, not a readable copy. Because that is what vanilla's see-through mode is, the text is then **drawn through terrain**: a line behind a hill is visible through it. `< 0.5` gives a one-sided quad, invisible from behind |
 
 Notes on the numbers:
 
@@ -185,8 +186,8 @@ Notes on the numbers:
   mode, on the first measurement in `flat` mode, where the measured layout is then cached per effect
   instance. `billboard` and `two_sided` are sampled the same way, at spawn, because a display's
   billboard constraint and the number of entities belong to the block rather than to a frame.
-  Animating any of them mid-flight changes nothing until the block is rebuilt; every other param is
-  read again every frame.
+  Animating any of them mid-flight changes nothing until the block is rebuilt; every other param -
+  `see_through` and `shadow` included - is read again every frame.
 - **No upper limits on the motion.** `gravity`, `exit_speed`, `spread`, `spin_*`, `scale`, `pos_*` and the
   delays accept any value: a huge `gravity` or `exit_speed` just makes the drop instant, a huge
   `spin_*` makes the letter a blur. Only the lower guards that avoid degenerate maths are applied
@@ -266,21 +267,30 @@ light do not exist.
 ### Showing the back of a pinned block
 
 A text display draws its glyphs on a **single-sided** quad, so a block pinned in world orientation is
-readable from one side and invisible from the other - vanilla gives no per-entity switch for it. The
-fix is a second entity: with `two_sided` on (the default, `>= 0.5`), every unit spawns a **twin** at
-the same unit slot with its block rotation **turned 180 degrees about Y**, carrying the same text,
-flags, alignment, brightness and transformation scale. The turn mirrors both the glyph order and the
-advance direction, so the word still reads left to right for a viewer standing behind it, and the twin
-is lit and revealed exactly like its original. The twin exists only while the block does: it shares
-its unit's position, exit, floor, spin and opacity, is released with it, and cannot outlive it.
+drawn from one side only. There are three states, and they are not the same thing:
 
-- It is used **only when the resolved `billboard` is not `center`**. A `center` billboard already turns
-  its quad to face the camera from every side, so it needs no twin.
-- It **costs a second entity per unit**, and it counts against the 256-display cap, so a long block
-  reaches the cap at half the units it would one-sided - the warning says so. A `center` billboard or
-  `two_sided: 0` spends one entity per unit.
-- `two_sided: 0` is for a block that is meant to be a **one-sided decal** - cheaper, and deliberately
-  showing nothing from the back.
+- **Nothing extra: one-sided.** With `see_through: 0` and `two_sided: 0` the block is the plain
+  single-sided decal - one quad per unit, visible from the front, gone from behind. It is the cheapest
+  state and the one to pick for a block that is meant to have a front.
+- **`see_through: 1` (the default): the same quads from both sides.** The flag is one bit of vanilla's
+  display style, ORed in next to the shadow bit, so the renderer submits each unit's quads from both
+  sides. A viewer behind the block sees the **physical back** of every letter - a mirror image, with
+  the word running right to left - at any rotation, including while the block tumbles. No second
+  entity is spawned. The honest cost: this is vanilla's see-through mode, and that mode also draws the
+  text **through terrain**, so a line standing behind a hill is still visible through it. Nothing in
+  the mod can separate the two - it is what the same pipeline does for every vanilla see-through text
+  display.
+- **`two_sided: 1`: a second readable copy.** This is the older workaround and it is **off by
+  default**. With it on (and only when the resolved `billboard` is not `center` - a `center` billboard
+  already turns its quad to face the camera from every side), every unit spawns a **twin** at the same
+  unit slot with its block rotation **turned 180 degrees about Y**, carrying the same text, flags,
+  alignment, brightness and transformation scale. The turn mirrors both the glyph order and the
+  advance direction, so the twin is a **readable copy** standing behind the block, not the physical
+  back of the original. It is lit and revealed exactly like its original: it shares its unit's
+  position, exit, floor, spin and opacity, is released with it, and cannot outlive it. It **costs a
+  second entity per unit** and counts against the 256-display cap, so a long two-sided block reaches
+  the cap at half the units - the warning says so. Combine it with `see_through: 0` when the copy is
+  wanted without drawing the text through the world.
 
 ## The two exits
 

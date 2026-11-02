@@ -51,15 +51,18 @@ import org.slf4j.LoggerFactory;
  * {@code colour_r/g/b}, {@code shadow} and {@code brightness} are re-applied per frame, but only
  * written to the entities when the value changed.
  *
- * <p>A {@code world} block whose resolved billboard is not {@code center} is drawn twice: a text
- * display's glyph quad is single-sided, so the block is invisible from behind. {@code two_sided}
- * (on unless it is below 0.5) spawns one twin per unit - the same text, flags, alignment,
- * brightness and transformation scale, with the block rotation turned 180 degrees about Y - so the
- * word also reads left to right for a viewer standing behind it. A {@code center} billboard already
- * faces the camera from every side, so it gets no twin. The twin shares its unit's position, exit,
- * floor, spin and opacity and is released with it, and it counts against the entity cap, so a
- * two-sided block spends two entities per unit; {@code two_sided: 0} gives a strictly one-sided
- * decal, which is cheaper and shows nothing from the back.
+ * <p>The back of a letter is its physical back, so the block is drawn from both sides by vanilla's
+ * own means: {@code see_through} (on unless it is below 0.5) ORs
+ * {@code FLAG_SEE_THROUGH} into every display's flags, next to the shadow bit, so the glyph quads
+ * are submitted from both sides instead of one. That is the see-through mode of the same pipeline,
+ * which also draws the text through terrain - the price of showing a back that is not a copy.
+ * {@code two_sided} is the older workaround, now off by default: it spawns one twin per unit - the
+ * same text, flags, alignment, brightness and transformation scale, with the block rotation turned
+ * 180 degrees about Y - so a readable copy stands behind the block, mirrored to read left to right.
+ * A {@code center} billboard already faces the camera from every side, so a twin would only double
+ * the entities for nothing; the twin shares its unit's position, exit, floor, spin and opacity,
+ * is released with it, and counts against the entity cap, so a two-sided block spends two entities
+ * per unit.
  *
  * <p>{@code wrap_width} and {@code line_height} shape the layout, which is measured once when the
  * block is spawned, so they are sampled at that moment and are not animatable.
@@ -501,6 +504,12 @@ public final class VFXTextOverlayRenderer {
 		final int colour = colour(effect);
 		final byte shadowFlag = effect.getParam("shadow", 1.0F) >= 0.5F
 			? Display.TextDisplay.FLAG_SHADOW : (byte) 0;
+		// 'see_through' is the only vanilla switch that makes the glyph quad visible from behind:
+		// the see-through mode tells the renderer to submit the same quads from both sides - and,
+		// as part of that same vanilla pipeline, it also draws them through terrain. On by default,
+		// because the back of a letter is its physical back, not a readable copy.
+		final byte seeThroughFlag = effect.getParam("see_through", 1.0F) >= 0.5F
+			? Display.TextDisplay.FLAG_SEE_THROUGH : (byte) 0;
 		final Style style = Style.EMPTY.withColor(TextColor.fromRgb(colour));
 		// The rest pose of the block, built from exactly the maths placeBlock uses - minus the exit
 		// displacement, because a character that has not started leaving stands in the line. A
@@ -525,12 +534,13 @@ public final class VFXTextOverlayRenderer {
 		// the layout counts the block's lines at this very width, so its height matches the display.
 		final float wrapFontPixels = wrapWidth / Math.max(scale, 1e-4F);
 		final int lineWidth = VFXTextLayout.lineWidth(wrapFontPixels);
-		// A text display's glyph quad is single-sided, so a block pinned in the world is invisible
-		// from behind. Unless the author turns it off, such a block gets a second display per unit -
-		// the same unit with its block rotation turned 180 degrees about Y - so the back reads too.
+		// A text display's single-sided quad hides the back of a block pinned in the world, and
+		// 'see_through' (the default) is what shows it: the same quads, drawn from both sides.
+		// 'two_sided' is the older workaround kept as an option - a readable second copy behind the
+		// block - and it is off unless the author asks for it, so no twin is spawned by default.
 		// A 'center' billboard already turns to face the camera from every side, so it needs no twin
 		// and would only double the entities for nothing. Structural, read once here like 'billboard'.
-		final boolean twoSided = effect.getParam("two_sided", 1.0F) >= 0.5F
+		final boolean twoSided = effect.getParam("two_sided", 0.0F) >= 0.5F
 			&& billboard != Display.BillboardConstraints.CENTER;
 		final Quaternionf twinRotation = new Quaternionf(spawnRotation)
 			.rotateY((float) Math.PI);
@@ -561,9 +571,10 @@ public final class VFXTextOverlayRenderer {
 						? "the block is dropped" : "the tail is dropped");
 				break;
 			}
-			// The shadow bit plus the alignment bit a unit needs in every split but 'char': the twin
-			// carries exactly the same flags, so it aligns the same way from the other side.
-			final byte unitFlags = (byte) (shadowFlag | alignFlags(unit, spec.split()));
+			// The shadow bit, the see-through bit plus the alignment bit a unit needs in every split
+			// but 'char': the twin carries exactly the same flags, so it aligns the same way from the
+			// other side.
+			final byte unitFlags = (byte) (shadowFlag | seeThroughFlag | alignFlags(unit, spec.split()));
 			final Display.TextDisplay display = spawnDisplay(effect, level, unit, spec.split(), style,
 				unitFlags, lineWidth, billboard, brightness, origin,
 				restOffset(unit.x(), unit.y(), scale, spawnAlignShift, spawnAnchorShiftY,
@@ -606,12 +617,13 @@ public final class VFXTextOverlayRenderer {
 		// What each display currently shows. Spawned with its own text; placeBlock rewrites an
 		// entry only when the text it should show changes, which is what a noise swap is.
 		final String[] lastTexts = ownTexts.clone();
-		// The flags each display was spawned with: the shadow bit plus the alignment bit a unit
-		// needs in every split but 'char'. placeBlock rewrites a display's flags only when the
-		// shadow param flips, so a standing line writes nothing.
+		// The flags each display was spawned with: the shadow bit, the see-through bit plus the
+		// alignment bit a unit needs in every split but 'char'. placeBlock rewrites a display's flags
+		// only when the shadow or see-through param flips, so a standing line writes nothing.
 		final byte[] lastFlags = new byte[entities.size()];
 		for (int i = 0; i < lastFlags.length; i++) {
-			lastFlags[i] = (byte) (shadowFlag | alignFlags(layout.units().get(i), spec.split()));
+			lastFlags[i] = (byte) (shadowFlag | seeThroughFlag
+				| alignFlags(layout.units().get(i), spec.split()));
 		}
 		final LiveText live = new LiveText(effect.getInstanceId(), signature, entities, twins, layout,
 			unresolvedFloors(entities.size()), ownTexts, lastTexts, colour, brightness, lastFlags);
@@ -795,6 +807,10 @@ public final class VFXTextOverlayRenderer {
 		final int colour = colour(effect);
 		final byte shadowFlag = effect.getParam("shadow", 1.0F) >= 0.5F
 			? Display.TextDisplay.FLAG_SHADOW : (byte) 0;
+		// The see-through bit is rebuilt here like the shadow one, but unlike a twin it costs no
+		// entity: it flips the same quad onto both sides. Vanilla draws that mode through terrain.
+		final byte seeThroughFlag = effect.getParam("see_through", 1.0F) >= 0.5F
+			? Display.TextDisplay.FLAG_SEE_THROUGH : (byte) 0;
 		final Style style = Style.EMPTY.withColor(TextColor.fromRgb(colour));
 		final boolean restyle = colour != live.lastColour;
 		live.lastColour = colour;
@@ -861,9 +877,10 @@ public final class VFXTextOverlayRenderer {
 				display.setText(Component.literal(text).withStyle(style));
 				live.lastTexts[i] = text;
 			}
-			// The shadow bit is animatable and the alignment bit is structural, so the pair is
-			// rebuilt per frame and written only when it differs from what this display carries.
-			final byte flags = (byte) (shadowFlag | alignFlags(unit, spec.split()));
+			// The shadow and see-through bits are animatable and the alignment bit is structural, so
+			// the set is rebuilt per frame and written only when it differs from what this display
+			// carries.
+			final byte flags = (byte) (shadowFlag | seeThroughFlag | alignFlags(unit, spec.split()));
 			final boolean flagsChanged = flags != live.lastFlags[i];
 			if (flagsChanged) {
 				display.setFlags(flags);

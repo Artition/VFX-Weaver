@@ -191,7 +191,7 @@ public final class VFXEffectSchema {
 				"per_char_anim", "stagger", "exit", "exit_at", "exit_stagger", "exit_speed", "spread",
 				"gravity", "spin_x", "spin_y", "spin_z", "tumble", "collision", "bounce", "friction",
 				"fade_out", "rot_x", "rot_y", "rot_z", "angle", "billboard", "brightness",
-				"two_sided"},
+				"two_sided", "see_through"},
 			Map.ofEntries(
 				Map.entry("reveal", new float[] {0.0F, 1.0F}),
 				// The only bounded scramble param: a switch. 'scramble_rate' (swaps per second),
@@ -208,8 +208,11 @@ public final class VFXEffectSchema {
 				Map.entry("billboard", new float[] {0.0F, 4.0F}),
 				// The light-level range, with -1 = "the world light": a spec range, not a cap.
 				Map.entry("brightness", new float[] {-1.0F, 15.0F}),
-				// A switch, not a size: below 0.5 is a one-sided block.
-				Map.entry("two_sided", new float[] {0.0F, 1.0F})));
+				// A switch, not a size: below 0.5 is a one-sided block. Off by default, because the
+				// physical back is drawn by the see-through flag instead.
+				Map.entry("two_sided", new float[] {0.0F, 1.0F}),
+				// The see-through flag: a switch, on by default. Drawn through blocks, as vanilla does.
+				Map.entry("see_through", new float[] {0.0F, 1.0F})));
 	}
 
 	/**
