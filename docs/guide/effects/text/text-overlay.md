@@ -7,9 +7,17 @@ client-side `TextDisplay` standing where you put the block; in `flat` mode the s
 drawn onto the HUD with the game's own font. The line can be revealed character by character and then
 leave - by fading in place, or by coming apart and falling.
 
-**Not verified in game.** Nothing on this page has been looked at with eyes yet: the layout, the
-orientation of the block in the world, the fall and the flat layer are all unverified. Treat the
-numbers below as the code's behaviour, not as a promise about the pixels.
+**Runs on every supported version.** One implementation, with the only per-version differences being
+internal: the entity type constant and the client-local entity id on 26.2, and the GUI class
+(`GuiGraphicsExtractor` from 26.1, `GuiGraphics` on 1.21.11) for the HUD layer. Params, modes and
+behaviour are the same everywhere.
+
+**Verified in game, and what is not.** On **26.2 Fabric**, in game: the world block renders and takes
+its place in the world, `flat` draws on the HUD, `reveal` and the `scramble` transients play, a
+falling line bounces and comes to rest, the back of a pinned block is its mirror image, and `billboard`
+and `brightness` behave as described. **Not yet looked at in game:** the 26.1.2 and 1.21.11 nodes
+(the port compiles and is deployed, but no one has run it), the `word` and `block` split modes, and an
+animated `gravity_angle`. Treat those as the code's behaviour, not as a promise about the pixels.
 
 ## The `text` block
 

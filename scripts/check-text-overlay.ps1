@@ -26,6 +26,7 @@ $specPath = Join-Path $repoRoot "src\main\java\dev\vfxweaver\effect\VFXTextSpec.
 $defPath = Join-Path $repoRoot "src\main\java\dev\vfxweaver\effect\VFXDefinition.java"
 $schemaPath = Join-Path $repoRoot "src\main\java\dev\vfxweaver\editor\VFXEffectSchema.java"
 $rendererPath = Join-Path $repoRoot "src\client\java\dev\vfxweaver\client\render\VFXTextOverlayRenderer.java"
+$hooksPath = Join-Path $repoRoot "src\client\java\dev\vfxweaver\client\platform\VFXClientRenderHooks.java"
 
 $failures = New-Object System.Collections.Generic.List[string]
 
@@ -78,6 +79,15 @@ foreach ($pattern in 'createFall\(', 'flatFall\(', 'VFXTextBody', 'Bounds\.frame
 # Fall at its creation.
 Require-Pattern $rendererPath 'gravity_angle' "the renderer no longer reads 'gravity_angle'"
 Require-Pattern $rendererPath 'fall\.body\.step\(physics\(' "the physics is not rebuilt per tick"
+
+# --- every node draws it ---------------------------------------------------
+# The project rule is that a feature works on every supported version, so the renderer must not be
+# wrapped in a `>=26.2` gate again: the GUI type is branched at 26.1 (GuiGraphicsExtractor versus
+# GuiGraphics) and the entity type at 26.2, and nothing else about the feature is version-gated.
+Require-Pattern $rendererPath '//\? if <26\.1' "the renderer lost the <26.1 GUI branch"
+Require-Pattern $rendererPath 'drawString' "the 1.21.11 text call is gone"
+Require-Pattern $hooksPath 'HudElementRegistry\.addLast' "the Fabric HUD registration is gone"
+Require-Pattern $hooksPath 'RenderGuiEvent\.Post' "the NeoForge HUD registration is gone"
 
 # --- the guide page is added in Task 6; until then the guard must not demand it ---------------
 
