@@ -1,0 +1,30 @@
+{
+  "type": "text_overlay",
+  "duration": 200,
+  "easing": "ease_in_out_cubic",
+  "persistent": false,
+  "loop": false,
+  "fade_ticks": 10,
+  "text": {
+    "content": "VFX WEAVER",
+    "mode": "world",
+    "font": "default",
+    "align": "center",
+    "anchor": "center"
+  },
+  "params": {
+    "pos_x": { "bind": "player_x" },
+    "pos_z": { "bind": "player_z" },
+    "pos_y": { "expr": "player_y + 2" },
+    "scale": 1.5,
+    "color_r": 1.0,
+    "color_g": 0.92,
+    "color_b": 0.62,
+    "shadow": 1.0,
+    "reveal": 1.0,
+    "scramble": 1.0,
+    "scramble_band": 4.0,
+    "scramble_rate": 15.0,
+    "scramble_time": 0.4
+  }
+}
