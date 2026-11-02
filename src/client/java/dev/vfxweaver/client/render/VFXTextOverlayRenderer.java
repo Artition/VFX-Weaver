@@ -94,8 +94,9 @@ import org.slf4j.LoggerFactory;
  * <p>The flat exit is the world exit's timeline in screen space: the same {@code exit_at},
  * {@code exit_stagger}, {@code exit}, {@code exit_speed}, {@code gravity}, {@code gravity_angle},
  * {@code bounce}, {@code friction}, {@code hold} and {@code fade_out}, but
- * {@code gravity} and the speeds are read in screen heights per second, so every offset is multiplied
- * by the GUI height and the fall looks the same at GUI scale 2 and 4. The body is the same
+ * {@code gravity} is read in screen heights per second squared at the 1/8 screen scale and the speeds
+ * in screen heights per second, so every offset is multiplied by the GUI height and the fall looks
+ * the same at GUI scale 2 and 4. The body is the same
  * {@link VFXTextBody} the world uses, in screen pixels, and the four edges of the frame are its
  * floor, walls and ceiling: with {@code collision} on a letter lands on the bottom edge, rebounds by
  * {@code bounce} and dies down there, is stopped by the sides instead of being folded by a formula,
@@ -263,10 +264,10 @@ public final class VFXTextOverlayRenderer {
 	//
 	// 'gravityUnit' converts the authored 'gravity' into the body's own unit (a multiple of
 	// GRAVITY_STEP) for this space: 1/(400*GRAVITY_STEP) in the world, where gravity is blocks per
-	// second squared, and GUI height/(400*GRAVITY_STEP) on the HUD, where the same number is screen
-	// heights per second squared. 'ySign' is the sign of "down" along the space's Y axis: -1 in the
-	// world (Y grows up) and +1 on the HUD (Y grows down). A unit without a Fall still stands in the
-	// line, or left by a fade, and is placed from its rest pose.
+	// second squared, and screenGravityUnit(guiHeight) on the HUD, where the same number is screen
+	// heights per second squared at the 1/8 screen scale. 'ySign' is the sign of "down" along the
+	// space's Y axis: -1 in the world (Y grows up) and +1 on the HUD (Y grows down). A unit without
+	// a Fall still stands in the line, or left by a fade, and is placed from its rest pose.
 	private static final class Fall {
 		private final VFXActiveEffect effect;
 		private final VFXTextBody body;
@@ -1351,12 +1352,27 @@ public final class VFXTextOverlayRenderer {
 	// nothing else. Pruned with the layouts by pruneFlat.
 	private static final Map<Long, Fall[]> FLAT_FALLS = new HashMap<>();
 
-	// One 'gravity' unit on the HUD as the body wants it: 'gravity' is screen heights per second
-	// squared, so multiplying by the GUI height makes it pixels per second squared, and the body
-	// integrates in twentieths of a second - 400 divides it, exactly the conversion the world makes
-	// for blocks. A constant per frame height, applied when the unit detaches.
-	private static final float SCREEN_GRAVITY_UNIT =
-		1.0F / (400.0F * VFXBlockParticleSpec.GRAVITY_STEP);
+	// How much of the authored 'gravity' a flat fall actually accelerates with. 'gravity' is tuned
+	// for a few-block drop in the world, and one screen stands in for roughly eight of those drops:
+	// read as screen heights per second squared, the same number crosses the whole frame in about a
+	// third of a second, so the exit reads as a cut rather than as a fall. Dividing by eight turns
+	// the world default of 18 into 2.25 screen heights per second squared - the default fall from
+	// the line to the bottom edge now takes about 0.8 s and the letter visibly speeds up on the way
+	// down. It is a scale and not a clamp: 'gravity' stays the only knob, so a smaller value is
+	// simply a longer fall.
+	private static final float SCREEN_GRAVITY_SCALE = 1.0F / 8.0F;
+
+	// The HUD 'gravity' as the multiplier of GRAVITY_STEP the body expects, for this frame height.
+	// The unit chain: 'gravity' is authored in screen heights per second squared, so
+	//   screen px/s^2 = gravity * guiHeight * SCREEN_GRAVITY_SCALE,
+	// the second-to-tick conversion divides by 20*20 (the body integrates in ticks), and the body
+	// applies GRAVITY_STEP per tick on top, so the multiplier is
+	//   guiHeight * SCREEN_GRAVITY_SCALE / (400 * GRAVITY_STEP).
+	// This is the world's own block conversion with the GUI height as the block size, plus the 1/8
+	// screen scale; the world path keeps its unscaled blocks-per-second-squared semantics.
+	private static float screenGravityUnit(final float guiHeight) {
+		return guiHeight * SCREEN_GRAVITY_SCALE / (400.0F * VFXBlockParticleSpec.GRAVITY_STEP);
+	}
 
 	// Builds the body of a flat unit that has just detached, in screen pixels. It is the world's body
 	// with the picture for its world: 'rest' is the centre of the unit's box - the point the pose
@@ -1400,7 +1416,7 @@ public final class VFXTextOverlayRenderer {
 		return new Fall(effect,
 			new VFXTextBody(rest, new Vec3(velX, velY, 0.0), initialSpin(effect, index), halfHeight,
 				bounds),
-			SCREEN_GRAVITY_UNIT * guiHeight, 1.0F);
+			screenGravityUnit(guiHeight), 1.0F);
 	}
 
 	// The block is over: every character has faded out. Its characters are released now, and the
