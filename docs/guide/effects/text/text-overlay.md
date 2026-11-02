@@ -177,14 +177,16 @@ surface - constant, `start`/`end`, `keyframes`, `bind`, `expr`, the `/vfx play` 
 | `rot_z` | 0 | yes (`world` only) | Baseline orientation of the whole block, degrees, Z. `flat` turns about Z with `angle` and `spin_z` instead, so this is not read there. It is part of the `billboard: 0` auto rule in `world`: only while all three are zero does the block face the camera |
 | `angle` | 0 | yes (`flat` only) | Turns the whole block about its anchor, degrees |
 | `billboard` | 0 | sampled, see below (`world` only) | Float code for how the block follows the camera, mapped straight onto the display's billboard constraint: `0` = **auto**, `1` = **fixed**, `2` = **center**, `3` = **vertical**, `4` = **horizontal**. `0` is the rule this effect always used - see [What the block faces, and how it is lit](#what-the-block-faces-and-how-it-is-lit). Read once per display at spawn, so changing it needs a respawn |
+| `two_sided` | 1 | sampled, see below (`world` only) | `>= 0.5` spawns a **second display per unit**, turned 180 degrees about Y, so the back of a pinned block reads too; `< 0.5` gives a strictly one-sided decal. Used only when the resolved `billboard` is not `center`, because a `center` billboard already faces you from every side - see [Showing the back of a pinned block](#showing-the-back-of-a-pinned-block). Read at spawn; each twin counts against the 256-display cap and is released with its unit |
 
 Notes on the numbers:
 
 - **`wrap_width` and `line_height` are sampled when the block is laid out** - at spawn in `world`
   mode, on the first measurement in `flat` mode, where the measured layout is then cached per effect
-  instance. `billboard` is sampled the same way, at spawn, because a display's billboard constraint
-  belongs to the entity rather than to a frame. Animating any of the three mid-flight changes nothing
-  until the block is rebuilt; every other param is read again every frame.
+  instance. `billboard` and `two_sided` are sampled the same way, at spawn, because a display's
+  billboard constraint and the number of entities belong to the block rather than to a frame.
+  Animating any of them mid-flight changes nothing until the block is rebuilt; every other param is
+  read again every frame.
 - **No upper limits on the motion.** `gravity`, `exit_speed`, `spread`, `spin_*`, `scale`, `pos_*` and the
   delays accept any value: a huge `gravity` or `exit_speed` just makes the drop instant, a huge
   `spin_*` makes the letter a blur. Only the lower guards that avoid degenerate maths are applied
@@ -199,7 +201,8 @@ Notes on the numbers:
 - **`world` mode is one entity per unit.** `split` decides the count: `char` is one per character,
   `word` one per word, `block` one for the whole text. A block longer than 256 characters keeps its
   leading characters and drops the tail, with one warning per definition - the cap is on glyphs, not
-  on entities, so it holds in every split. `flat` mode draws no entities at all.
+  on entities, so it holds in every split. A two-sided block spends **two** display entities per unit,
+  and those twins count against the 256-entity cap too. `flat` mode draws no entities at all.
 - **Opacity is three things multiplied**: `reveal` (per unit), the exit fade (per unit) and
   the effect's own weight - so `duration`/`fade_ticks` fade the whole block in and out on top of
   everything else, and stopping the effect never pops the text.
@@ -259,6 +262,25 @@ line.
 
 Both params are **`world` only**: `flat` text is drawn in GUI space, where the camera and the world
 light do not exist.
+
+### Showing the back of a pinned block
+
+A text display draws its glyphs on a **single-sided** quad, so a block pinned in world orientation is
+readable from one side and invisible from the other - vanilla gives no per-entity switch for it. The
+fix is a second entity: with `two_sided` on (the default, `>= 0.5`), every unit spawns a **twin** at
+the same unit slot with its block rotation **turned 180 degrees about Y**, carrying the same text,
+flags, alignment, brightness and transformation scale. The turn mirrors both the glyph order and the
+advance direction, so the word still reads left to right for a viewer standing behind it, and the twin
+is lit and revealed exactly like its original. The twin exists only while the block does: it shares
+its unit's position, exit, floor, spin and opacity, is released with it, and cannot outlive it.
+
+- It is used **only when the resolved `billboard` is not `center`**. A `center` billboard already turns
+  its quad to face the camera from every side, so it needs no twin.
+- It **costs a second entity per unit**, and it counts against the 256-display cap, so a long block
+  reaches the cap at half the units it would one-sided - the warning says so. A `center` billboard or
+  `two_sided: 0` spends one entity per unit.
+- `two_sided: 0` is for a block that is meant to be a **one-sided decal** - cheaper, and deliberately
+  showing nothing from the back.
 
 ## The two exits
 

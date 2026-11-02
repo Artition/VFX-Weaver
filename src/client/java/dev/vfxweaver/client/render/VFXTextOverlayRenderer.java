@@ -51,6 +51,16 @@ import org.slf4j.LoggerFactory;
  * {@code colour_r/g/b}, {@code shadow} and {@code brightness} are re-applied per frame, but only
  * written to the entities when the value changed.
  *
+ * <p>A {@code world} block whose resolved billboard is not {@code center} is drawn twice: a text
+ * display's glyph quad is single-sided, so the block is invisible from behind. {@code two_sided}
+ * (on unless it is below 0.5) spawns one twin per unit - the same text, flags, alignment,
+ * brightness and transformation scale, with the block rotation turned 180 degrees about Y - so the
+ * word also reads left to right for a viewer standing behind it. A {@code center} billboard already
+ * faces the camera from every side, so it gets no twin. The twin shares its unit's position, exit,
+ * floor, spin and opacity and is released with it, and it counts against the entity cap, so a
+ * two-sided block spends two entities per unit; {@code two_sided: 0} gives a strictly one-sided
+ * decal, which is cheaper and shows nothing from the back.
+ *
  * <p>{@code wrap_width} and {@code line_height} shape the layout, which is measured once when the
  * block is spawned, so they are sampled at that moment and are not animatable.
  *
@@ -122,7 +132,9 @@ public final class VFXTextOverlayRenderer {
 	// string than this would flood the frame with entities nobody asked for.
 	private static final int MAX_CHARS = 256;
 	// The entity count that actually matters is the unit count: 'word' and 'block' modes spawn far
-	// fewer entities than they have characters, so a long text has to be capped on its own.
+	// fewer entities than they have characters, so a long text has to be capped on its own. The cap
+	// is on display entities, not on units, because a two-sided block spends two per unit - a
+	// 256-unit block must not quietly become 512 entities.
 	private static final int MAX_UNITS = 256;
 	// The letters want nothing behind them. Display.TextDisplay.INITIAL_BACKGROUND is the vanilla
 	// translucent black plate; 0 is fully transparent, so the block reads as text floating in air.
@@ -156,13 +168,17 @@ public final class VFXTextOverlayRenderer {
 	// terrain (so it does not fall at all), or NEGATIVE_INFINITY when there is nothing to land on.
 	// An entry starts as NaN - unresolved - and is filled with one downward scan on the frame the
 	// unit detaches, so the probe follows the world under the word instead of a single spawn-time
-	// query. 'finishedAt' is the age at which every unit had faded out and been released, or -1
+	// query. 'twins' holds one extra display per unit when the block is two-sided - the same unit
+	// turned 180 degrees about Y - and is empty for a one-sided (or center-billboard) block, so the
+	// original and its twin are paired by index. 'finishedAt' is the age at which every unit had
+	// faded out and been released, or -1
 	// while the block is live; a record whose age is now below that value is stale, because a
 	// looping effect wraps 'elapsed' back to 0 and a replay reuses the instance id.
 	private static final class LiveText {
 		private final long instanceId;
 		private final String signature;
 		private final List<Display.TextDisplay> entities;
+		private final List<Display.TextDisplay> twins;
 		private final VFXTextLayout layout;
 		private final float[] floors;
 		private final String[] ownTexts;
@@ -173,12 +189,14 @@ public final class VFXTextOverlayRenderer {
 		private float finishedAt = -1.0F;
 
 		private LiveText(final long instanceId, final String signature,
-				final List<Display.TextDisplay> entities, final VFXTextLayout layout,
-				final float[] floors, final String[] ownTexts, final String[] lastTexts,
-				final int lastColour, final int lastBrightness, final byte[] lastFlags) {
+				final List<Display.TextDisplay> entities, final List<Display.TextDisplay> twins,
+				final VFXTextLayout layout, final float[] floors, final String[] ownTexts,
+				final String[] lastTexts, final int lastColour, final int lastBrightness,
+				final byte[] lastFlags) {
 			this.instanceId = instanceId;
 			this.signature = signature;
 			this.entities = entities;
+			this.twins = twins;
 			this.layout = layout;
 			this.floors = floors;
 			this.ownTexts = ownTexts;
@@ -507,15 +525,28 @@ public final class VFXTextOverlayRenderer {
 		// the layout counts the block's lines at this very width, so its height matches the display.
 		final float wrapFontPixels = wrapWidth / Math.max(scale, 1e-4F);
 		final int lineWidth = VFXTextLayout.lineWidth(wrapFontPixels);
+		// A text display's glyph quad is single-sided, so a block pinned in the world is invisible
+		// from behind. Unless the author turns it off, such a block gets a second display per unit -
+		// the same unit with its block rotation turned 180 degrees about Y - so the back reads too.
+		// A 'center' billboard already turns to face the camera from every side, so it needs no twin
+		// and would only double the entities for nothing. Structural, read once here like 'billboard'.
+		final boolean twoSided = effect.getParam("two_sided", 1.0F) >= 0.5F
+			&& billboard != Display.BillboardConstraints.CENTER;
+		final Quaternionf twinRotation = new Quaternionf(spawnRotation)
+			.rotateY((float) Math.PI);
 		// Glyphs spent so far: 'MAX_CHARS' still caps the characters even when they share entities,
 		// and a unit is only spawned whole, so a block never appears half cut off.
 		int spawnedGlyphs = 0;
+		// Display entities spent so far: the cap counts entities, because a two-sided block spends
+		// two per unit and must not slip past it as a pair.
+		int spawnedEntities = 0;
+		final List<Display.TextDisplay> twins = new ArrayList<>(twoSided ? layout.units().size() : 0);
 		for (int u = 0; u < layout.units().size(); u++) {
 			final VFXTextLayout.Unit unit = layout.units().get(u);
-			if (entities.size() >= MAX_UNITS) {
+			if (spawnedEntities + (twoSided ? 2 : 1) > MAX_UNITS) {
 				VFXLog.warnOnce(LOGGER, "text_overlay:units:" + effect.getId(),
-					"text_overlay '{}': more than {} units, the tail is dropped",
-					effect.getId(), MAX_UNITS);
+					"text_overlay '{}': more than {} display entities{}, the tail is dropped",
+					effect.getId(), MAX_UNITS, twoSided ? " (two_sided doubles each unit)" : "");
 				break;
 			}
 			final int unitGlyphs = glyphsInUnit(layout, u);
@@ -530,53 +561,42 @@ public final class VFXTextOverlayRenderer {
 						? "the block is dropped" : "the tail is dropped");
 				break;
 			}
-			final Display.TextDisplay display = new Display.TextDisplay(EntityTypes.TEXT_DISPLAY, level);
-			display.setText(Component.literal(unit.text()).withStyle(style));
-			display.setBackgroundColor(TRANSPARENT_BACKGROUND);
-			display.setFlags((byte) (shadowFlag | alignFlags(unit, spec.split())));
-			// A 'block' unit is the whole text in one display, so the line breaking vanilla does for
-			// it is the block's wrapping; every other mode already laid its units out here.
-			if (spec.split() == VFXTextSpec.Split.BLOCK) {
-				display.setLineWidth(lineWidth);
-			}
-			// The orientation is decided once, before the display is added: a billboard constraint is a
-			// synced-data value the renderer reads per frame, not something to rewrite sixty times a
-			// second for a value that only a respawn can change.
-			display.setBillboardConstraints(billboard);
-			applyBrightness(display, brightness);
-			// The transform is refreshed every frame by placeBlock, so the display must interpolate
-			// it over one tick; without this the render state is only rebuilt on the entity tick and
-			// a moved block renders stepped at ~20 Hz.
-			display.setTransformationInterpolationDuration(1);
-			display.setTransformationInterpolationDelay(0);
-			final Vector3f spawnLocal = restOffset(unit.x(), unit.y(), scale, spawnAlignShift,
-				spawnAnchorShiftY, spawnRotation);
-			display.setPos(origin.x + spawnLocal.x, origin.y + spawnLocal.y,
-				origin.z + spawnLocal.z);
-			// 26.2's ClientLevel.addEntity reads Entity.getId(), and a locally created entity has
-			// none (only ServerLevel overrides getNextEntityId), so the id must be set first.
-			display.setId(VFXBlockParticleEngine.nextLocalEntityId());
-			// The spawn position is the entity's starting position, not a move to interpolate from.
-			display.setOldPosAndRot();
-			try {
-				level.addEntity(display);
-			} catch (Exception e) {
-				VFXLog.warnOnce(LOGGER, "text_overlay:spawn:" + effect.getId(),
-					"text_overlay '{}': could not add a display to the client level; dropping the unit",
-					effect.getId(), e);
-				display.discard();
-				// Stop here rather than skipping one: the entities are paired with the layout by
-				// index, so a hole in the middle would shift every later unit onto the wrong text.
-				// Adding an entity is a whole-level operation, so the rest would fail too.
+			// The shadow bit plus the alignment bit a unit needs in every split but 'char': the twin
+			// carries exactly the same flags, so it aligns the same way from the other side.
+			final byte unitFlags = (byte) (shadowFlag | alignFlags(unit, spec.split()));
+			final Display.TextDisplay display = spawnDisplay(effect, level, unit, spec.split(), style,
+				unitFlags, lineWidth, billboard, brightness, origin,
+				restOffset(unit.x(), unit.y(), scale, spawnAlignShift, spawnAnchorShiftY,
+					spawnRotation));
+			// Stop here rather than skipping one: the entities are paired with the layout by index,
+			// so a hole in the middle would shift every later unit onto the wrong text. Adding an
+			// entity is a whole-level operation, so the rest would fail too.
+			if (display == null) {
 				break;
 			}
-			spawnedGlyphs += unitGlyphs;
+			spawnedEntities++;
 			entities.add(display);
+			// The twin: the same unit through the same rest offset, with the block rotation turned
+			// 180 degrees about Y. That mirrors both the glyph order and the advance direction, so
+			// the word still reads left to right from behind, and the twin faces the other way.
+			if (twoSided) {
+				final Display.TextDisplay twin = spawnDisplay(effect, level, unit, spec.split(), style,
+					unitFlags, lineWidth, billboard, brightness, origin,
+					restOffset(unit.x(), unit.y(), scale, spawnAlignShift, spawnAnchorShiftY,
+						twinRotation));
+				if (twin == null) {
+					break;
+				}
+				spawnedEntities++;
+				twins.add(twin);
+			}
+			spawnedGlyphs += unitGlyphs;
 		}
 		// One line per spawn, so the log says where the block actually went: a spawn that lands in
 		// the wrong place is then visible in the log instead of only on screen.
-		LOGGER.info("text_overlay '{}': spawned {} display(s) for {} unit(s) at ({}, {}, {})",
-			effect.getId(), entities.size(), layout.units().size(), origin.x, origin.y, origin.z);
+		LOGGER.info("text_overlay '{}': spawned {} display(s) for {} unit(s) ({} two-sided twin(s))"
+			+ " at ({}, {}, {})", effect.getId(), entities.size() + twins.size(),
+			layout.units().size(), twins.size(), origin.x, origin.y, origin.z);
 		// The text of each spawned unit, built once here instead of on every frame, then copied
 		// into the "what the display shows" array.
 		final String[] ownTexts = new String[entities.size()];
@@ -593,10 +613,58 @@ public final class VFXTextOverlayRenderer {
 		for (int i = 0; i < lastFlags.length; i++) {
 			lastFlags[i] = (byte) (shadowFlag | alignFlags(layout.units().get(i), spec.split()));
 		}
-		final LiveText live = new LiveText(effect.getInstanceId(), signature, entities, layout,
+		final LiveText live = new LiveText(effect.getInstanceId(), signature, entities, twins, layout,
 			unresolvedFloors(entities.size()), ownTexts, lastTexts, colour, brightness, lastFlags);
 		LIVE.put(effect.getInstanceId(), live);
 		return live;
+	}
+
+	// Builds one display of a unit and adds it to the client level at 'local' - the unit's rest
+	// offset from the block origin - carrying everything the entity must be born with: the text and
+	// its style, the alignment and shadow flags, the block's line width, the billboard constraint,
+	// the brightness and the one-tick interpolation. Shared by a unit and its two-sided twin, so the
+	// pair cannot disagree about any of it. Returns null when the level refused the entity; the
+	// caller stops the whole spawn, because the rest would fail for the same reason.
+	private static Display.TextDisplay spawnDisplay(final VFXActiveEffect effect,
+			final ClientLevel level, final VFXTextLayout.Unit unit, final VFXTextSpec.Split split,
+			final Style style, final byte flags, final int lineWidth,
+			final Display.BillboardConstraints billboard, final int brightness, final Vec3 origin,
+			final Vector3f local) {
+		final Display.TextDisplay display = new Display.TextDisplay(EntityTypes.TEXT_DISPLAY, level);
+		display.setText(Component.literal(unit.text()).withStyle(style));
+		display.setBackgroundColor(TRANSPARENT_BACKGROUND);
+		display.setFlags(flags);
+		// A 'block' unit is the whole text in one display, so the line breaking vanilla does for
+		// it is the block's wrapping; every other mode already laid its units out here.
+		if (split == VFXTextSpec.Split.BLOCK) {
+			display.setLineWidth(lineWidth);
+		}
+		// The orientation is decided once, before the display is added: a billboard constraint is a
+		// synced-data value the renderer reads per frame, not something to rewrite sixty times a
+		// second for a value that only a respawn can change.
+		display.setBillboardConstraints(billboard);
+		applyBrightness(display, brightness);
+		// The transform is refreshed every frame by placeBlock, so the display must interpolate
+		// it over one tick; without this the render state is only rebuilt on the entity tick and
+		// a moved block renders stepped at ~20 Hz.
+		display.setTransformationInterpolationDuration(1);
+		display.setTransformationInterpolationDelay(0);
+		display.setPos(origin.x + local.x, origin.y + local.y, origin.z + local.z);
+		// 26.2's ClientLevel.addEntity reads Entity.getId(), and a locally created entity has
+		// none (only ServerLevel overrides getNextEntityId), so the id must be set first.
+		display.setId(VFXBlockParticleEngine.nextLocalEntityId());
+		// The spawn position is the entity's starting position, not a move to interpolate from.
+		display.setOldPosAndRot();
+		try {
+			level.addEntity(display);
+		} catch (Exception e) {
+			VFXLog.warnOnce(LOGGER, "text_overlay:spawn:" + effect.getId(),
+				"text_overlay '{}': could not add a display to the client level; dropping the unit",
+				effect.getId(), e);
+			display.discard();
+			return null;
+		}
+		return display;
 	}
 
 	// How many glyphs one unit covers: up to the next unit's first glyph, so the spaces between
@@ -738,8 +806,16 @@ public final class VFXTextOverlayRenderer {
 			for (final Display.TextDisplay display : live.entities) {
 				applyBrightness(display, brightness);
 			}
+			// The twins carry the same light as their originals, in the same one-shot refresh.
+			for (final Display.TextDisplay twin : live.twins) {
+				applyBrightness(twin, brightness);
+			}
 			live.lastBrightness = brightness;
 		}
+		// The two-sided twin's own rest rotation: the block's rotation turned 180 degrees about Y.
+		// Null when this block has no twins, so a one-sided or center-billboard line never builds it.
+		final Quaternionf twinRotation = live.twins.isEmpty()
+			? null : new Quaternionf(rotation).rotateY((float) Math.PI);
 		final int count = layout.units().size();
 		final float revealed = reveal(effect) * count;
 		// Noise is only computed when 'scramble' is on: with it off every unit shows its own cached
@@ -780,14 +856,16 @@ public final class VFXTextOverlayRenderer {
 			// standing line costs nothing and a decode only touches the units that are swapping.
 			final float noise = scrambleOn ? scrambleAmount(effect, i, count) : 0.0F;
 			final String text = noise > 0.0F ? noiseGlyph(effect, i) : live.ownTexts[i];
-			if (restyle || !text.equals(live.lastTexts[i])) {
+			final boolean textChanged = restyle || !text.equals(live.lastTexts[i]);
+			if (textChanged) {
 				display.setText(Component.literal(text).withStyle(style));
 				live.lastTexts[i] = text;
 			}
 			// The shadow bit is animatable and the alignment bit is structural, so the pair is
 			// rebuilt per frame and written only when it differs from what this display carries.
 			final byte flags = (byte) (shadowFlag | alignFlags(unit, spec.split()));
-			if (flags != live.lastFlags[i]) {
+			final boolean flagsChanged = flags != live.lastFlags[i];
+			if (flagsChanged) {
 				display.setFlags(flags);
 				live.lastFlags[i] = flags;
 			}
@@ -799,8 +877,33 @@ public final class VFXTextOverlayRenderer {
 			final float exitAlpha = exitAlpha(effect, i, restY, floorY);
 			final float revealAlpha = noise > 0.0F ? noise : clamp01(revealed - i);
 			brightest = Math.max(brightest, exitAlpha);
-			display.setTextOpacity((byte) Math.round(
-				clamp01(revealAlpha * exitAlpha * effect.getWeight()) * 255.0F));
+			final byte opacity = (byte) Math.round(
+				clamp01(revealAlpha * exitAlpha * effect.getWeight()) * 255.0F);
+			display.setTextOpacity(opacity);
+			// The twin is the same unit seen from behind: the same position offset through the turned
+			// rotation, the same exit displacement, the same floor, the same spin and the same
+			// opacity. Its text and flags are written on exactly the conditions the original's are,
+			// so a standing line writes neither copy and a decode touches both where it touched one.
+			if (twinRotation != null && i < live.twins.size()) {
+				final Display.TextDisplay twin = live.twins.get(i);
+				final Vector3f twinLocal = restOffset(unit.x(), unit.y(), scale, alignShift,
+					anchorShiftY, twinRotation);
+				twin.setPos(origin.x + twinLocal.x + exit.x, origin.y + twinLocal.y + exit.y,
+					origin.z + twinLocal.z + exit.z);
+				twin.setOldPosAndRot();
+				final Quaternionf twinOrientation = since < 0.0F ? twinRotation
+					: spin(effect, i, since, twinRotation);
+				twin.setTransformation(new Transformation(new Vector3f(),
+					new Quaternionf(twinOrientation), new Vector3f(scale, scale, scale),
+					new Quaternionf()));
+				if (textChanged) {
+					twin.setText(Component.literal(text).withStyle(style));
+				}
+				if (flagsChanged) {
+					twin.setFlags(flags);
+				}
+				twin.setTextOpacity(opacity);
+			}
 		}
 		// Every character has faded and there is still an exit pending: the block is gone. Only an
 		// authored exit can get here, so a block with 'reveal' 0 (invisible, not leaving) is not
@@ -1198,6 +1301,7 @@ public final class VFXTextOverlayRenderer {
 		live.finishedAt = age(effect);
 		release(live);
 		live.entities.clear();
+		live.twins.clear();
 	}
 
 
@@ -1267,9 +1371,13 @@ public final class VFXTextOverlayRenderer {
 	}
 
 	// Discards an effect's display entities; the level forgets them, only the pool needs clearing.
+	// The two-sided twins die with the units they belong to, in the same pass.
 	private static void release(final LiveText live) {
 		for (final Display.TextDisplay display : live.entities) {
 			VFXBlockParticleEngine.removeDisplay(display);
+		}
+		for (final Display.TextDisplay twin : live.twins) {
+			VFXBlockParticleEngine.removeDisplay(twin);
 		}
 	}
 

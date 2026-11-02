@@ -190,23 +190,26 @@ public final class VFXEffectSchema {
 				"scramble", "scramble_rate", "scramble_band", "scramble_time",
 				"per_char_anim", "stagger", "exit", "exit_at", "exit_stagger", "exit_speed", "spread",
 				"gravity", "spin_x", "spin_y", "spin_z", "tumble", "collision", "bounce", "friction",
-				"fade_out", "rot_x", "rot_y", "rot_z", "angle", "billboard", "brightness"},
-			Map.of(
-				"reveal", new float[] {0.0F, 1.0F},
+				"fade_out", "rot_x", "rot_y", "rot_z", "angle", "billboard", "brightness",
+				"two_sided"},
+			Map.ofEntries(
+				Map.entry("reveal", new float[] {0.0F, 1.0F}),
 				// The only bounded scramble param: a switch. 'scramble_rate' (swaps per second),
 				// 'scramble_band' (characters ahead of the frontier) and 'scramble_time' (seconds
 				// before the detach) are unbounded above - a large band or rate only costs overdraw.
-				"scramble", new float[] {0.0F, 1.0F},
-				"collision", new float[] {0.0F, 1.0F},
-				"tumble", new float[] {0.0F, 1.0F},
-				"bounce", new float[] {0.0F, 1.0F},
-				"friction", new float[] {0.0F, 1.0F},
-				"per_char_anim", new float[] {0.0F, 3.0F},
-				"exit", new float[] {0.0F, 1.0F},
+				Map.entry("scramble", new float[] {0.0F, 1.0F}),
+				Map.entry("collision", new float[] {0.0F, 1.0F}),
+				Map.entry("tumble", new float[] {0.0F, 1.0F}),
+				Map.entry("bounce", new float[] {0.0F, 1.0F}),
+				Map.entry("friction", new float[] {0.0F, 1.0F}),
+				Map.entry("per_char_anim", new float[] {0.0F, 3.0F}),
+				Map.entry("exit", new float[] {0.0F, 1.0F}),
 				// The four BillboardConstraints, plus 0 = "decide from rot_*". An enum, so 0..4.
-				"billboard", new float[] {0.0F, 4.0F},
+				Map.entry("billboard", new float[] {0.0F, 4.0F}),
 				// The light-level range, with -1 = "the world light": a spec range, not a cap.
-				"brightness", new float[] {-1.0F, 15.0F}));
+				Map.entry("brightness", new float[] {-1.0F, 15.0F}),
+				// A switch, not a size: below 0.5 is a one-sided block.
+				Map.entry("two_sided", new float[] {0.0F, 1.0F})));
 	}
 
 	/**

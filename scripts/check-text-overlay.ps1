@@ -55,13 +55,13 @@ Require-Pattern $schemaPath 'TEXT_OVERLAY' "the schema does not register TEXT_OV
 foreach ($param in 'reveal', 'exit', 'exit_at', 'exit_stagger', 'exit_speed', 'gravity',
 		'spin_x', 'spin_y', 'spin_z', 'tumble', 'collision', 'bounce', 'friction', 'fade_out',
 		'rot_x', 'rot_y', 'rot_z', 'angle', 'per_char_anim', 'stagger', 'wrap_width', 'gradient',
-		'shadow', 'outline', 'billboard', 'brightness') {
+		'shadow', 'outline', 'billboard', 'brightness', 'two_sided') {
 	Require-Pattern $schemaPath ('"' + $param + '"') "the schema is missing param '$param'"
 }
 
 # --- the exit wiring in the renderer ----------------------------------------------------------
 foreach ($pattern in 'fallOffset', 'detachTime', 'exit_stagger', 'finished', 'setBillboardConstraints',
-		'setBrightnessOverride', 'billboard\(', 'brightnessLevel\(') {
+		'setBrightnessOverride', 'billboard\(', 'brightnessLevel\(', 'two_sided') {
 	Require-Pattern $rendererPath $pattern "the renderer lost '$pattern' from the per-character exit"
 }
 
