@@ -1311,6 +1311,24 @@ public final class VFXTextOverlayRenderer {
 		return new Vector2f(sideways, floorY - restY);
 	}
 
+	// How much of the authored 'gravity' the flat fall actually accelerates with. 'gravity' is tuned
+	// for a few-block drop in the world, and one screen stands in for roughly eight of those drops:
+	// read as screen heights per second squared, the same number crosses the whole frame in about a
+	// third of a second, so the exit reads as a cut rather than as a fall. Dividing by eight turns
+	// the world default of 18 into 2.25 screen heights per second squared - the default fall from
+	// the line to the bottom edge now takes about 0.8 s and the letter visibly speeds up on the way
+	// down. It is a scale and not a clamp: 'gravity' stays the only knob, so doubling it halves the
+	// duration and halving it doubles it.
+	private static final float SCREEN_GRAVITY_SCALE = 1.0F / 8.0F;
+
+	// The screen-space acceleration of a flat fall, in screen heights per second squared: the same
+	// authored 'gravity' the world body reads, scaled for the screen (see SCREEN_GRAVITY_SCALE). The
+	// drop and the impact solve both use this one reading, so the letter lands exactly where the
+	// curve puts it instead of a step away from it.
+	private static float flatGravity(final VFXActiveEffect effect) {
+		return gravityOf(effect) * SCREEN_GRAVITY_SCALE;
+	}
+
 	// How far a flat character has dropped 'since' seconds after it detached, in screen pixels,
 	// positive **downwards**: a GuiGraphics y grows down, while the world fall's convention is up, so
 	// the parabola is negated here. A positive 'exit_speed' therefore still launches the letter
@@ -1318,15 +1336,17 @@ public final class VFXTextOverlayRenderer {
 	private static float flatDrop(final VFXActiveEffect effect, final int index, final float since,
 			final float guiHeight) {
 		final float speed = effect.getParam("exit_speed", 0.0F) * jitter(effect, index);
-		return (0.5F * gravityOf(effect) * since * since - speed * since) * guiHeight;
+		return (0.5F * flatGravity(effect) * since * since - speed * since) * guiHeight;
 	}
 
 	// When a flat character reaches the bottom edge, in seconds since it detached, or -1 when there
 	// is nothing to reach: collision off, a letter that already rests on the edge, or a frame whose
-	// height would divide by zero. The drop is measured in screen heights, so the shared 'gravity' and
-	// 'exit_speed' keep their meaning at any GUI scale. It is the same quadratic 'flatDrop' solves,
-	// with the negated screen sign cancelling on both sides, so the position at 'impact' is exactly
-	// the edge - the letter lands there instead of jumping to it.
+	// height would divide by zero. The drop is measured in screen heights and accelerated by the same
+	// scaled reading of 'gravity' the drop uses (SCREEN_GRAVITY_SCALE), so the shared 'gravity' and
+	// 'exit_speed' keep their meaning at any GUI scale while the fall lasts about 0.8 s instead of a
+	// third of a second. It is the same quadratic 'flatDrop' solves, with the negated screen sign
+	// cancelling on both sides, so the position at 'impact' is exactly the edge - the letter lands
+	// there instead of jumping to it.
 	private static float flatImpact(final VFXActiveEffect effect, final int index,
 			final float restY, final float floorY, final float guiHeight) {
 		if (effect.getParam("collision", 1.0F) < 0.5F || !Float.isFinite(floorY) || guiHeight <= 0.0F) {
@@ -1336,7 +1356,7 @@ public final class VFXTextOverlayRenderer {
 		if (drop <= 0.0F) {
 			return -1.0F;
 		}
-		final float gravity = gravityOf(effect);
+		final float gravity = flatGravity(effect);
 		final float speed = effect.getParam("exit_speed", 0.0F) * jitter(effect, index);
 		final float impact = (speed + (float) Math.sqrt(speed * speed + 2.0F * gravity * drop)) / gravity;
 		return Float.isFinite(impact) ? impact : -1.0F;

@@ -54,6 +54,13 @@ public final class VFXTextBody {
 	static final float MAX_SPIN = 0.5F;
 	/** Floor for the roll radius, blocks: a zero-sized glyph would divide by zero. */
 	private static final float MIN_ROLL_RADIUS = 1.0e-3F;
+	/**
+	 * How far, in blocks, a landed glyph rests above the surface it hit: two centimetres. Landing
+	 * exactly in the surface plane puts the glyph's quad coplanar with the block's top face, so the
+	 * two fight for the same depth values and the letter shimmers with z-fighting from a shallow
+	 * angle. The lift is a rendering fix, not a physics one, and far too small to read as hovering.
+	 */
+	private static final double LANDING_LIFT = 0.02;
 
 	private final Vec3 rest;
 	/** The Y the unit lands on, or NaN when there is nothing under it (no raycast hit, or no collision). */
@@ -73,6 +80,7 @@ public final class VFXTextBody {
 	private float prevRot;
 	private float spin;
 	private boolean touched;
+	private boolean pinned;
 	private boolean resting;
 	private int stillTicks;
 
@@ -156,8 +164,13 @@ public final class VFXTextBody {
 	 * offsets are integrated by them. When the raycast found a floor and the glyph has reached it,
 	 * the first touch <strong>bounces once</strong> ({@code velY = -velY * bounce}), and every
 	 * contact - the first one included - damps the horizontal drift by {@code friction} and stops
-	 * the roll, because a letter lying on the ground does not keep turning. After the first touch
-	 * the vertical velocity is simply dropped, so one `bounce` is one hop and not a trampoline.
+	 * the roll, because a letter lying on the ground does not keep turning. The next contact after
+	 * that rebound <strong>pins</strong> the body: from then on it gets no gravity and no vertical
+	 * integration at all and simply holds the floor, kept there until the horizontal drift and the
+	 * roll have died down and the rest rule settles it. That is what removes the tremble - a pinned
+	 * body can no longer be pushed a tick's worth of fall below the surface and snapped back up on
+	 * the next frame. It lands {@link #LANDING_LIFT} above the surface rather than in it, so the
+	 * glyph is never coplanar with the block face it hit.
 	 *
 	 * <p>The roll is derived from the horizontal velocity the way the reference model does - a glyph
 	 * rolling over its own half-height turns by {@code drift / radius} radians per block travelled -
@@ -173,15 +186,29 @@ public final class VFXTextBody {
 		this.prevExtraX = this.extraX;
 		this.prevExtraY = this.extraY;
 		this.prevRot = this.rot;
+		if (this.pinned) {
+			// In contact: no gravity, no vertical integration. The offset is written back to the
+			// landing height every tick, so 'prev' and 'extra' agree and the drawn glyph is a still
+			// letter instead of one wobbling across the surface.
+			this.velY = 0.0;
+			this.extraY = landingOffset();
+			this.velX *= params.friction();
+			this.extraX += this.velX;
+			this.spin = 0.0F;
+			settle();
+			return;
+		}
 		this.velY -= VFXBlockParticleSpec.GRAVITY_STEP * params.gravity();
 		final double drag = params.friction();
 		this.velX *= drag;
 		this.velY *= drag;
 		this.extraX += this.velX;
 		this.extraY += this.velY;
-		if (!Double.isNaN(this.floorY) && this.rest.y + this.extraY <= this.floorY) {
-			this.extraY = this.floorY - this.rest.y;
+		if (!Double.isNaN(this.floorY) && this.rest.y + this.extraY <= this.floorY + LANDING_LIFT) {
+			this.extraY = landingOffset();
 			if (this.touched) {
+				// The rebound is over and the body is back on the floor: pin it there.
+				this.pinned = true;
 				this.velY = 0.0;
 			} else {
 				this.touched = true;
@@ -196,6 +223,12 @@ public final class VFXTextBody {
 		}
 		this.rot += this.spin;
 		settle();
+	}
+
+	// The vertical offset of the glyph while it stands on its floor: the floor itself plus
+	// LANDING_LIFT, measured from the rest position the offsets are relative to.
+	private double landingOffset() {
+		return this.floorY + LANDING_LIFT - this.rest.y;
 	}
 
 	/**
