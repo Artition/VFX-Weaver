@@ -479,6 +479,17 @@ would shadow a built-in rather than add one.
 /vfx play vfx_demos:show_text_overlay
 ```
 
+Tuning it without editing the file - every param can be overridden at play time. The param map is
+`{[name:value],[name:value],...}`: square brackets around each pair, a comma between pairs, all of it
+inside braces:
+
+```
+/vfx play vfx_demos:show_text_overlay {[scale:8],[spread:1],[billboard:1],[through_blocks:1],[fade_out:0]}
+/vfx play vfx_demos:show_text_overlay {[scale:8],[hold:2],[fade_out:2]}
+/vfx play vfx_demos:show_text_overlay {[scale:8],[scramble:1],[scramble_rate:8],[scramble_band:6]}
+/vfx playat vfx_demos:show_text_overlay 100 66 200 text "Area 2" {[scale:12],[brightness:15]}
+```
+
 Its datapack definition:
 
 ```json

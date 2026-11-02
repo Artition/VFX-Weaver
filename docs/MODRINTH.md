@@ -84,11 +84,11 @@ All mutating commands require operator rights (`/vfx list` is open to all).
 
 ```
 /vfx play vfxweaver:screen_flash
-/vfx play vfxweaver:speed_lines {count:80, length:0.8, seed:"t * 2.0"}
+/vfx play vfxweaver:speed_lines {[count:80],[length:0.8],[seed:"t * 2.0"]}
 /vfx playat vfxweaver:block_outline 100 64 200
 /vfx playentity vfxweaver:entity_outline @e[type=!player,distance=..10]
 /vfx stop vfxweaver:speed_lines
-/vfx set vfxweaver:motion_blur {intensity:0.8}     # live override a running effect
+/vfx set vfxweaver:motion_blur {[intensity:0.8]}     # live override a running effect
 /vfx list
 ```
 
