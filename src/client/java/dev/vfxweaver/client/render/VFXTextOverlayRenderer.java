@@ -411,6 +411,14 @@ public final class VFXTextOverlayRenderer {
 		final int colour = colour(effect);
 		final byte flags = effect.getParam("shadow", 1.0F) >= 0.5F ? Display.TextDisplay.FLAG_SHADOW : (byte) 0;
 		final Style style = Style.EMPTY.withColor(TextColor.fromRgb(colour));
+		// The rest pose of the block, built from exactly the maths placeBlock uses - minus the exit
+		// displacement, because a character that has not started leaving stands in the line. A
+		// display is registered by the client level at the position it carries when it is added, so
+		// it must be spawned where it stands: added at the origin it is tracked far from the camera
+		// and the first per-frame transform drags it in from there.
+		final float spawnAlignShift = alignOffset(spec, layout.width() * scale);
+		final float spawnAnchorShiftY = anchorOffset(spec, layout.height() * scale);
+		final Quaternionf spawnRotation = blockRotation(effect);
 		for (final VFXTextLayout.Glyph glyph : layout.glyphs()) {
 			if (entities.size() >= MAX_CHARS) {
 				VFXLog.warnOnce(LOGGER, "text_overlay:cap:" + effect.getId(),
@@ -422,13 +430,38 @@ public final class VFXTextOverlayRenderer {
 			display.setText(Component.literal(String.valueOf(glyph.ch())).withStyle(style));
 			display.setBackgroundColor(TRANSPARENT_BACKGROUND);
 			display.setFlags(flags);
-			display.setPos(0.0, 0.0, 0.0);
+			// The transform is refreshed every frame by placeBlock, so the display must interpolate
+			// it over one tick; without this the render state is only rebuilt on the entity tick and
+			// a moved block renders stepped at ~20 Hz.
+			display.setTransformationInterpolationDuration(1);
+			display.setTransformationInterpolationDelay(0);
+			final Vector3f spawnLocal = restOffset(glyph, scale, spawnAlignShift,
+				spawnAnchorShiftY, spawnRotation);
+			display.setPos(origin.x + spawnLocal.x, origin.y + spawnLocal.y,
+				origin.z + spawnLocal.z);
 			// 26.2's ClientLevel.addEntity reads Entity.getId(), and a locally created entity has
 			// none (only ServerLevel overrides getNextEntityId), so the id must be set first.
 			display.setId(VFXBlockParticleEngine.nextLocalEntityId());
-			level.addEntity(display);
+			// The spawn position is the entity's starting position, not a move to interpolate from.
+			display.setOldPosAndRot();
+			try {
+				level.addEntity(display);
+			} catch (Exception e) {
+				VFXLog.warnOnce(LOGGER, "text_overlay:spawn:" + effect.getId(),
+					"text_overlay '{}': could not add a character display to the client level; dropping the character",
+					effect.getId(), e);
+				display.discard();
+				// Stop here rather than skipping one: the entities are paired with the layout by
+				// index, so a hole in the middle would shift every later character onto the wrong
+				// glyph. Adding an entity is a whole-level operation, so the rest would fail too.
+				break;
+			}
 			entities.add(display);
 		}
+		// One line per spawn, so the log says where the block actually went: a spawn that lands in
+		// the wrong place is then visible in the log instead of only on screen.
+		LOGGER.info("text_overlay '{}': spawned {} character display(s) at ({}, {}, {})",
+			effect.getId(), entities.size(), origin.x, origin.y, origin.z);
 		// The one-character string of each spawned glyph, built once here instead of on every frame
 		// (the flat path caches the same thing), then copied into the "what the display shows" array.
 		final String[] ownTexts = new String[entities.size()];
