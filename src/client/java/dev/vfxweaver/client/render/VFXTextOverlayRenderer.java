@@ -34,10 +34,11 @@ import org.slf4j.LoggerFactory;
 
 /**
  * Draws a {@code text_overlay} effect: {@code world} mode as one client-side
- * {@code Display.TextDisplay} per character standing where the author put the block, {@code flat}
- * mode as the same laid-out block drawn onto the HUD through the GUI graphics.
+ * {@code Display.TextDisplay} per <em>unit</em> of the block standing where the author put it -
+ * a unit being one character, one word or the whole block, as the spec's {@code split} says -
+ * {@code flat} mode as the same laid-out block drawn onto the HUD through the GUI graphics.
  *
- * <p>The characters are laid out once by {@link VFXTextLayout} at unit scale and then placed every
+ * <p>The units are laid out once by {@link VFXTextLayout} at unit scale and then placed every
  * frame from the animatable params - the frame's first world slot (a runtime move, a {@code positions}
  * entry or an entity anchor) as the origin, or {@code pos_x/pos_y/pos_z} alone as absolute
  * coordinates when the definition has no slot at all - {@code rot_x/rot_y/rot_z}
@@ -48,6 +49,14 @@ import org.slf4j.LoggerFactory;
  *
  * <p>{@code wrap_width} and {@code line_height} shape the layout, which is measured once when the
  * block is spawned, so they are sampled at that moment and are not animatable.
+ *
+ * <p>The spec's {@code split} decides what a display entity is: one per character ({@code char},
+ * the historical behaviour), one per word ({@code word}) or one for the whole text ({@code block}).
+ * Everything below that animates a display - the reveal wipe, the scramble band, the exit schedule,
+ * the physics and the landing - is computed per unit, so a coarse mode animates its words or its
+ * single block instead of its characters. In {@code block} mode the unit carries the content with
+ * its newlines and is handed {@code wrap_width} as the display's line width (200 font pixels when
+ * wrapping is off), so vanilla breaks the lines itself; the reveal is then all-or-nothing.
  *
  * <p>In {@code flat} mode the block is laid out at unit scale, cached by instance id, and drawn onto
  * the HUD: {@code x} and {@code y} are fractions of the GUI size and place the block's anchor,
@@ -63,27 +72,28 @@ import org.slf4j.LoggerFactory;
  * it falls straight out through the bottom while fading. A leaving character may only turn about z, so
  * its own rotation is {@code angle + spin_z * since}, applied about the middle of its own font box.
  *
- * <p>{@code reveal} is a fraction of the characters that are visible: character {@code i} is opaque
- * while {@code i < reveal * count} and fades over the single character at the boundary, which is what
- * gives a typed-in / wiped-in line instead of a hard pop.
+ * <p>{@code reveal} is a fraction of the units that are visible: unit {@code i} is opaque
+ * while {@code i < reveal * count} and fades over the single unit at the boundary, which is what
+ * gives a typed-in / wiped-in line instead of a hard pop. In {@code char} mode that is one character
+ * at a time; a coarse split reveals a whole word, or the whole block at once.
  *
- * <p>{@code scramble} turns both transitions into a decode. While it is above half, the characters
- * inside the {@code scramble_band} window ahead of the reveal frontier, and the characters inside the
- * {@code scramble_time} seconds before they detach, draw a noise glyph instead of their own character:
- * a hash of the instance id, the character index and the swap number into {@code A-Z 0-9 #$%&*+=-<>/?},
+ * <p>{@code scramble} turns both transitions into a decode. While it is above half, the units
+ * inside the {@code scramble_band} window ahead of the reveal frontier, and the units inside the
+ * {@code scramble_time} seconds before they detach, draw a noise glyph instead of their own text:
+ * a hash of the instance id, the unit index and the swap number into {@code A-Z 0-9 #$%&*+=-<>/?},
  * so the same tick always draws the same noise and a replay agrees with a screenshot. The glyph swaps
  * {@code scramble_rate} times a second, the noise fades out towards the far end of the band - rising
- * towards the frontier - and a character snaps back to itself the moment the frontier passes it or the
+ * towards the frontier - and a unit snaps back to itself the moment the frontier passes it or the
  * exit takes over. Both windows are read from the clock and the params, never accumulated. The world
  * path rewrites a display's text only when the glyph it shows actually changed; the flat path simply
  * draws the noise character. With {@code scramble} at 0 every frame is the one it was before.
  *
  * <p>The exit is computed from the clock, never accumulated, so the same tick always yields the same
- * frame. Character {@code index} starts leaving at {@code exit_at + index * exit_stagger} seconds;
+ * frame. Unit {@code index} starts leaving at {@code exit_at + index * exit_stagger} seconds;
  * with {@code exit < 0.5} it only fades in place, with {@code exit >= 0.5} it falls, spins and - when
  * {@code collision} is on - lands on the first block below it, rebounds once and settles - or, in
  * {@code flat} mode, on the bottom edge of the frame and holds there. Once every
- * character has faded, the block is marked finished at the age it finished and its entities are
+ * unit has faded, the block is marked finished at the age it finished and its entities are
  * released; when the effect loops or is replayed and the clock goes back, the block is rebuilt.
  *
  * <p>The whole body is gated on {@code >=26.2}: {@code Display.TextDisplay}'s setters are only
@@ -99,9 +109,15 @@ public final class VFXTextOverlayRenderer {
 
 	//? if >=26.2 {
 	/*private static final Logger LOGGER = LoggerFactory.getLogger("vfxweaver/text-overlay");
-	// Hard cap on the display entities of one effect: every character is a real entity, and a
-	// longer string than this would flood the frame with entities nobody asked for.
+	// Hard cap on the display entities of one effect: every unit is a real entity, and a longer
+	// string than this would flood the frame with entities nobody asked for.
 	private static final int MAX_CHARS = 256;
+	// The entity count that actually matters is the unit count: 'word' and 'block' modes spawn far
+	// fewer entities than they have characters, so a long text has to be capped on its own.
+	private static final int MAX_UNITS = 256;
+	// Display.TextDisplay's own default line width, in font pixels. Used when a 'block' unit is
+	// spawned without wrapping, so vanilla lays the block out exactly as it would by default.
+	private static final int DEFAULT_LINE_WIDTH = 200;
 	// The letters want nothing behind them. Display.TextDisplay.INITIAL_BACKGROUND is the vanilla
 	// translucent black plate; 0 is fully transparent, so the block reads as text floating in air.
 	private static final int TRANSPARENT_BACKGROUND = 0;
@@ -113,22 +129,22 @@ public final class VFXTextOverlayRenderer {
 	// output, and a fixed order, so the hash's index into it is stable between runs.
 	private static final String NOISE_GLYPHS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789#$%&*+=-<>/?";
 
-	// Characters of one live text effect, in layout order. 'signature' is the content plus the
-	// structural inputs, because an instance id can be reused by a replay with different text.
-	// 'layout' is measured at unit scale; placeBlock multiplies it by the current 'scale'.
-	// 'lastColour' and 'lastFlags' are the values last written to the entities, so the per-frame
-	// colour and shadow refresh only touches a display when the value actually changed.
-	// 'lastTexts' is the character string last written to each display - its own glyph, or the noise
-	// glyph of the last swap - so a scrambled character is rewritten only when its noise changes and
-	// is handed its own character back when the band passes it, whatever the colour cache says.
-	// 'floors' is the one per-character value the exit stores: the top of the first collider found
-	// under that character's own column, the character's own rest Y when its rest point is already
-	// embedded in terrain (so it does not fall at all), or NEGATIVE_INFINITY when there is nothing
-	// to land on. An entry starts as NaN - unresolved - and is filled with one downward scan on the
-	// frame the character detaches, so the probe follows the world under the word instead of a
-	// single spawn-time query. 'finishedAt' is the age at which every character had faded out and been
-	// released, or -1 while the block is live; a record whose age is now below that value is
-	// stale, because a looping effect wraps 'elapsed' back to 0 and a replay reuses the instance id.
+	// Units of one live text effect, in layout order: one display entity each. 'signature' is the
+	// content plus the structural inputs, because an instance id can be reused by a replay with
+	// other text. 'layout' is measured at unit scale; placeBlock multiplies it by the current
+	// 'scale'. 'lastColour' and 'lastFlags' are the values last written to the entities, so the
+	// per-frame colour and shadow refresh only touches a display when the value actually changed.
+	// 'lastTexts' is the string last written to each display - its unit's own text, or the noise
+	// glyph of the last swap - so a scrambled unit is rewritten only when its noise changes and is
+	// handed its own text back when the band passes it, whatever the colour cache says.
+	// 'floors' is the one per-unit value the exit stores: the top of the first collider found under
+	// that unit's own column, the unit's own rest Y when its rest point is already embedded in
+	// terrain (so it does not fall at all), or NEGATIVE_INFINITY when there is nothing to land on.
+	// An entry starts as NaN - unresolved - and is filled with one downward scan on the frame the
+	// unit detaches, so the probe follows the world under the word instead of a single spawn-time
+	// query. 'finishedAt' is the age at which every unit had faded out and been released, or -1
+	// while the block is live; a record whose age is now below that value is stale, because a
+	// looping effect wraps 'elapsed' back to 0 and a replay reuses the instance id.
 	private static final class LiveText {
 		private final long instanceId;
 		private final String signature;
@@ -392,10 +408,10 @@ public final class VFXTextOverlayRenderer {
 		final float lineHeight = effect.getParam("line_height", 1.2F);
 		final float wrapWidth = effect.getParam("wrap_width", 0.0F);
 		// A replay can hand out an instance id again with other text or other structural inputs, so
-		// the pooled characters are only reused when they were built from the same ones. 'scale' is
+		// the pooled units are only reused when they were built from the same ones. 'scale' is
 		// deliberately absent: it is animatable and applied per frame instead of baked in here.
-		final String signature = spec.content() + '\u0000' + spec.mode() + '\u0000' + spec.align()
-			+ '\u0000' + spec.anchor();
+		final String signature = spec.content() + '\u0000' + spec.mode() + '\u0000' + spec.split()
+			+ '\u0000' + spec.align() + '\u0000' + spec.anchor();
 		final LiveText existing = LIVE.get(effect.getInstanceId());
 		if (existing != null) {
 			// A finished record that the clock has gone back past is stale: a looping effect wraps
@@ -412,8 +428,8 @@ public final class VFXTextOverlayRenderer {
 		// Measured once at unit scale so an animated 'scale' grows the block including its spacing
 		// without respawning; the wrap width is expressed in the same units, hence the division.
 		final VFXTextLayout layout = VFXTextLayout.measure(font, spec.content(), 1.0F, lineHeight,
-			wrapWidth / Math.max(scale, 1e-4F));
-		final List<Display.TextDisplay> entities = new ArrayList<>(layout.glyphs().size());
+			wrapWidth / Math.max(scale, 1e-4F), spec.split());
+		final List<Display.TextDisplay> entities = new ArrayList<>(layout.units().size());
 		final int colour = colour(effect);
 		final byte flags = effect.getParam("shadow", 1.0F) >= 0.5F ? Display.TextDisplay.FLAG_SHADOW : (byte) 0;
 		final Style style = Style.EMPTY.withColor(TextColor.fromRgb(colour));
@@ -432,17 +448,40 @@ public final class VFXTextOverlayRenderer {
 		final boolean cameraFacing = Math.abs(effect.getParam("rot_x", 0.0F)) < 1e-4F
 			&& Math.abs(effect.getParam("rot_y", 0.0F)) < 1e-4F
 			&& Math.abs(effect.getParam("rot_z", 0.0F)) < 1e-4F;
-		for (final VFXTextLayout.Glyph glyph : layout.glyphs()) {
-			if (entities.size() >= MAX_CHARS) {
+		// 'wrap_width' is a layout-unit width, and the layout measures in font pixels (scale 1), so
+		// the same width in font pixels is the param divided by the current 'scale'. Without
+		// wrapping, vanilla's own default width is used, which is what a 'block' unit is laid out at.
+		final float wrapFontPixels = wrapWidth / Math.max(scale, 1e-4F);
+		final int lineWidth = wrapWidth > 0.0F
+			? Math.max(1, Math.round(wrapFontPixels))
+			: DEFAULT_LINE_WIDTH;
+		// Glyphs spent so far: 'MAX_CHARS' still caps the characters even when they share entities,
+		// and a unit is only spawned whole, so a block never appears half cut off.
+		int spawnedGlyphs = 0;
+		for (int u = 0; u < layout.units().size(); u++) {
+			final VFXTextLayout.Unit unit = layout.units().get(u);
+			if (entities.size() >= MAX_UNITS) {
+				VFXLog.warnOnce(LOGGER, "text_overlay:units:" + effect.getId(),
+					"text_overlay '{}': more than {} units, the tail is dropped",
+					effect.getId(), MAX_UNITS);
+				break;
+			}
+			final int unitGlyphs = glyphsInUnit(layout, u);
+			if (spawnedGlyphs + unitGlyphs > MAX_CHARS) {
 				VFXLog.warnOnce(LOGGER, "text_overlay:cap:" + effect.getId(),
 					"text_overlay '{}': more than {} characters, the tail is dropped",
 					effect.getId(), MAX_CHARS);
 				break;
 			}
 			final Display.TextDisplay display = new Display.TextDisplay(EntityTypes.TEXT_DISPLAY, level);
-			display.setText(Component.literal(String.valueOf(glyph.ch())).withStyle(style));
+			display.setText(Component.literal(unit.text()).withStyle(style));
 			display.setBackgroundColor(TRANSPARENT_BACKGROUND);
 			display.setFlags(flags);
+			// A 'block' unit is the whole text in one display, so the line breaking vanilla does for
+			// it is the block's wrapping; every other mode already laid its units out here.
+			if (spec.split() == VFXTextSpec.Split.BLOCK) {
+				display.setLineWidth(lineWidth);
+			}
 			if (cameraFacing) {
 				display.setBillboardConstraints(Display.BillboardConstraints.CENTER);
 			}
@@ -451,7 +490,7 @@ public final class VFXTextOverlayRenderer {
 			// a moved block renders stepped at ~20 Hz.
 			display.setTransformationInterpolationDuration(1);
 			display.setTransformationInterpolationDelay(0);
-			final Vector3f spawnLocal = restOffset(glyph, scale, spawnAlignShift,
+			final Vector3f spawnLocal = restOffset(unit.x(), unit.y(), scale, spawnAlignShift,
 				spawnAnchorShiftY, spawnRotation);
 			display.setPos(origin.x + spawnLocal.x, origin.y + spawnLocal.y,
 				origin.z + spawnLocal.z);
@@ -464,33 +503,44 @@ public final class VFXTextOverlayRenderer {
 				level.addEntity(display);
 			} catch (Exception e) {
 				VFXLog.warnOnce(LOGGER, "text_overlay:spawn:" + effect.getId(),
-					"text_overlay '{}': could not add a character display to the client level; dropping the character",
+					"text_overlay '{}': could not add a display to the client level; dropping the unit",
 					effect.getId(), e);
 				display.discard();
 				// Stop here rather than skipping one: the entities are paired with the layout by
-				// index, so a hole in the middle would shift every later character onto the wrong
-				// glyph. Adding an entity is a whole-level operation, so the rest would fail too.
+				// index, so a hole in the middle would shift every later unit onto the wrong text.
+				// Adding an entity is a whole-level operation, so the rest would fail too.
 				break;
 			}
+			spawnedGlyphs += unitGlyphs;
 			entities.add(display);
 		}
 		// One line per spawn, so the log says where the block actually went: a spawn that lands in
 		// the wrong place is then visible in the log instead of only on screen.
-		LOGGER.info("text_overlay '{}': spawned {} character display(s) at ({}, {}, {})",
-			effect.getId(), entities.size(), origin.x, origin.y, origin.z);
-		// The one-character string of each spawned glyph, built once here instead of on every frame
-		// (the flat path caches the same thing), then copied into the "what the display shows" array.
+		LOGGER.info("text_overlay '{}': spawned {} display(s) for {} unit(s) at ({}, {}, {})",
+			effect.getId(), entities.size(), layout.units().size(), origin.x, origin.y, origin.z);
+		// The text of each spawned unit, built once here instead of on every frame, then copied
+		// into the "what the display shows" array.
 		final String[] ownTexts = new String[entities.size()];
 		for (int i = 0; i < ownTexts.length; i++) {
-			ownTexts[i] = String.valueOf(layout.glyphs().get(i).ch());
+			ownTexts[i] = layout.units().get(i).text();
 		}
-		// What each display currently shows. Spawned with its own character; placeBlock rewrites an
-		// entry only when the character it should show changes, which is what a noise swap is.
+		// What each display currently shows. Spawned with its own text; placeBlock rewrites an
+		// entry only when the text it should show changes, which is what a noise swap is.
 		final String[] lastTexts = ownTexts.clone();
 		final LiveText live = new LiveText(effect.getInstanceId(), signature, entities, layout,
 			unresolvedFloors(entities.size()), ownTexts, lastTexts, colour, flags);
 		LIVE.put(effect.getInstanceId(), live);
 		return live;
+	}
+
+	// How many glyphs one unit covers: up to the next unit's first glyph, so the spaces between
+	// words and the characters of a block are counted where they belong. 'MAX_CHARS' caps characters,
+	// and it has to see the whole text even in a mode that spawns fewer entities than it has glyphs.
+	private static int glyphsInUnit(final VFXTextLayout layout, final int unitIndex) {
+		final int start = layout.units().get(unitIndex).firstGlyph();
+		final int end = unitIndex + 1 < layout.units().size()
+			? layout.units().get(unitIndex + 1).firstGlyph() : layout.glyphs().size();
+		return Math.max(0, end - start);
 	}
 
 	// Half-width of the shaft probed under a character: the glyph itself has no world footprint, so a
@@ -581,8 +631,10 @@ public final class VFXTextOverlayRenderer {
 		return (red << 16) | (green << 8) | blue;
 	}
 
-	// Positions every character of the block: unit layout times the current 'scale', rotated by
-	// rot_*, anchored, displaced by the exit, and refreshed for the animatable colour and shadow.
+	// Positions every unit of the block: unit layout times the current 'scale', rotated by rot_*,
+	// anchored, displaced by the exit, and refreshed for the animatable colour and shadow. The
+	// schedule that drives the exit is indexed by unit, so a coarse split moves whole words (or the
+	// whole block) instead of its characters.
 	private static void placeBlock(final VFXActiveEffect effect, final ClientLevel level,
 			final LiveText live, final VFXTextSpec spec, final Vec3 origin) {
 		final float scale = effect.getParam("scale", 1.0F);
@@ -599,30 +651,30 @@ public final class VFXTextOverlayRenderer {
 		final boolean reflag = flags != live.lastFlags;
 		live.lastColour = colour;
 		live.lastFlags = flags;
-		final int count = layout.glyphs().size();
+		final int count = layout.units().size();
 		final float revealed = reveal(effect) * count;
-		// A display draws its glyph upwards from the entity position, so a character whose position
-		// sits exactly on a surface has its lower part buried in the block. The landing is lifted by
-		// the character's own height instead - one font line in pixels, in world units, at the
-		// current 'scale' - so a settled character stands on the surface rather than in it.
-		final float glyphLift = Minecraft.getInstance().font.lineHeight
+		// A display draws its glyph upwards from the entity position, so a unit whose position sits
+		// exactly on a surface has its lower part buried in the block. The landing is lifted by the
+		// unit's own height instead - one font line per line it spans, in pixels, in world units, at
+		// the current 'scale' - so a settled unit stands on the surface rather than in it.
+		final float unitLineHeight = Minecraft.getInstance().font.lineHeight
 			* WORLD_UNITS_PER_FONT_PIXEL * scale;
-		// Noise is only computed when 'scramble' is on: with it off every character shows its own
-		// cached one-character string, and the line costs no hash and no param lookup per frame.
+		// Noise is only computed when 'scramble' is on: with it off every unit shows its own cached
+		// text, and the line costs no hash and no param lookup per frame.
 		final boolean scrambleOn = effect.getParam("scramble", 0.0F) > 0.0F;
-		// The block only finishes when every character has faded out; until then this stays above 0.
+		// The block only finishes when every unit has faded out; until then this stays above 0.
 		float brightest = 0.0F;
 		for (int i = 0; i < live.entities.size(); i++) {
-			final VFXTextLayout.Glyph glyph = layout.glyphs().get(i);
-			final Vector3f local = restOffset(glyph, scale, alignShift, anchorShiftY, rotation);
+			final VFXTextLayout.Unit unit = layout.units().get(i);
+			final Vector3f local = restOffset(unit.x(), unit.y(), scale, alignShift, anchorShiftY, rotation);
 			final Display.TextDisplay display = live.entities.get(i);
 			final float since = exitSince(effect, i);
 			// The rest height is the anchor's Y plus the laid-out offset. The floor under this
-			// character is resolved on its own column the first frame it leaves, then cached, and the
-			// settle point is that floor plus the glyph's own height so the letter rests on top of it.
+			// unit is resolved on its own column the first frame it leaves, then cached, and the
+			// settle point is that floor plus the unit's own height so it rests on top of it.
 			final float restY = (float) (origin.y + local.y);
 			final float floorY = floorFor(effect, live, level, i, since,
-				origin.x + local.x, restY, origin.z + local.z) + glyphLift;
+				origin.x + local.x, restY, origin.z + local.z) + unitLineHeight * unit.lines();
 			final Vector3f exit = exitOffset(effect, i, restY, floorY);
 			// Position carries the offset (the rest pose plus the exit's displacement); the
 			// transformation's translation stays zero, otherwise the offset is applied twice and the
@@ -636,10 +688,10 @@ public final class VFXTextOverlayRenderer {
 			final Quaternionf orientation = since < 0.0F ? rotation : spin(effect, i, since, rotation);
 			display.setTransformation(new Transformation(new Vector3f(), new Quaternionf(orientation),
 				new Vector3f(scale, scale, scale), new Quaternionf()));
-			// A scrambled character shows a noise glyph instead of its own, and is handed its own
-			// character back as soon as the band has passed it. The text is written when the style
-			// changed or when the character it should show changed - never once per frame - so a
-			// standing line costs nothing and a decode only touches the glyphs that are swapping.
+			// A scrambled unit shows a noise glyph instead of its own text, and is handed its own
+			// text back as soon as the band has passed it. The text is written when the style
+			// changed or when the text it should show changed - never once per frame - so a
+			// standing line costs nothing and a decode only touches the units that are swapping.
 			final float noise = scrambleOn ? scrambleAmount(effect, i, count) : 0.0F;
 			final String text = noise > 0.0F ? noiseGlyph(effect, i) : live.ownTexts[i];
 			if (restyle || !text.equals(live.lastTexts[i])) {
@@ -649,11 +701,11 @@ public final class VFXTextOverlayRenderer {
 			if (reflag) {
 				display.setFlags(flags);
 			}
-			// reveal is a fraction of the characters, so this character is fully shown, hidden, or
-			// the single one at the wipe boundary caught mid-fade; the exit fades a character that is
-			// leaving, and the effect weight fades the whole block instead of popping it at the stop.
-			// A scrambled character is drawn at the noise's own opacity, which rises towards the
-			// frontier, so it lights up as the sweep reaches it instead of waiting at zero.
+			// reveal is a fraction of the units, so this unit is fully shown, hidden, or the single
+			// one at the wipe boundary caught mid-fade; the exit fades a unit that is leaving, and
+			// the effect weight fades the whole block instead of popping it at the stop. A scrambled
+			// unit is drawn at the noise's own opacity, which rises towards the frontier, so it
+			// lights up as the sweep reaches it instead of waiting at zero.
 			final float exitAlpha = exitAlpha(effect, i, restY, floorY);
 			final float revealAlpha = noise > 0.0F ? noise : clamp01(revealed - i);
 			brightest = Math.max(brightest, exitAlpha);
@@ -676,18 +728,17 @@ public final class VFXTextOverlayRenderer {
 			.rotateZ((float) Math.toRadians(effect.getParam("rot_z", 0.0F)));
 	}
 
-	// Where a character sits, relative to the block origin: the layout's font pixels times the current
+	// Where a unit sits, relative to the block origin: the layout's font pixels times the current
 	// 'scale', shifted by the spec's align and anchor, turned into world units by
 	// WORLD_UNITS_PER_FONT_PIXEL, then turned by rot_*. Shared by the spawn-time rest pose and the
-	// per-frame placement, so both agree on where the character is - the glyph itself is drawn at the
-	// renderer's own 0.025 scale, so only the spacing would drift
-	// if this factor were skipped, and the shifts above must carry it too or a centred line would
-	// hang off its anchor.
-	private static Vector3f restOffset(final VFXTextLayout.Glyph glyph, final float scale,
+	// per-frame placement, so both agree on where the unit is - the text itself is drawn at the
+	// renderer's own 0.025 scale, so only the spacing would drift if this factor were skipped, and
+	// the shifts above must carry it too or a centred line would hang off its anchor.
+	private static Vector3f restOffset(final float x, final float y, final float scale,
 			final float alignShift, final float anchorShiftY, final Quaternionf rotation) {
 		return new Vector3f(
-			(glyph.x() * scale + alignShift) * WORLD_UNITS_PER_FONT_PIXEL,
-			(glyph.y() * scale + anchorShiftY) * WORLD_UNITS_PER_FONT_PIXEL, 0.0F)
+			(x * scale + alignShift) * WORLD_UNITS_PER_FONT_PIXEL,
+			(y * scale + anchorShiftY) * WORLD_UNITS_PER_FONT_PIXEL, 0.0F)
 			.rotate(rotation);
 	}
 
@@ -994,15 +1045,15 @@ public final class VFXTextOverlayRenderer {
 		return clamp01(effect.getParam("reveal", 1.0F));
 	}
 
-	// How much of character 'index' is noise this frame, in 0..1: zero when it shows its own
-	// character, which is every character of every frame while 'scramble' is off. Two windows produce
-	// noise - the band just ahead of the reveal frontier, fading out as the character is further from
-	// it, and the 'scramble_time' seconds before the character detaches. Both are read from the clock
-	// and the params alone, so nothing accumulates and the same tick always yields the same frame.
+	// How much of unit 'index' is noise this frame, in 0..1: zero when it shows its own text, which
+	// is every unit of every frame while 'scramble' is off. Two windows produce noise - the band just
+	// ahead of the reveal frontier, fading out as the unit is further from it, and the 'scramble_time'
+	// seconds before the unit detaches. Both are read from the clock and the params alone, so nothing
+	// accumulates and the same tick always yields the same frame.
 	//
 	// effect - the running effect
-	// index  - the character's place in the line
-	// count  - the characters in the block, the span 'reveal' is a fraction of
+	// index  - the unit's place in the block
+	// count  - the units in the block, the span 'reveal' is a fraction of
 	private static float scrambleAmount(final VFXActiveEffect effect, final int index,
 			final int count) {
 		final float on = clamp01(effect.getParam("scramble", 0.0F));

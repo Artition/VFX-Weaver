@@ -7,7 +7,8 @@ import com.google.gson.JsonObject;
  * The structural half of a {@code text_overlay} effect: what the text says and how it is shaped as a
  * block of characters. The animatable numbers (position, scale, reveal, exit) stay in ordinary
  * {@code params}. Kept structural on purpose - {@code mode} selects a different render path, and a
- * render path cannot be interpolated between two values.
+ * render path cannot be interpolated between two values; {@code split} selects how many entities the
+ * text becomes, which is fixed for the life of a block for the same reason.
  */
 public final class VFXTextSpec {
 	/** Where the characters live. */
@@ -19,19 +20,28 @@ public final class VFXTextSpec {
 	/** Which point of the block sits on the anchor position. */
 	public enum Anchor { TOP_LEFT, TOP, TOP_RIGHT, LEFT, CENTER, RIGHT, BOTTOM_LEFT, BOTTOM, BOTTOM_RIGHT }
 
+	/**
+	 * How the text becomes display entities: one per character, one per word, or one for the whole
+	 * block. Everything that animates a display - reveal, scramble, exit, physics - then works per
+	 * unit, never per glyph, because a coarse mode has fewer entities than characters.
+	 */
+	public enum Split { CHAR, WORD, BLOCK }
+
 	private final String content;
 	private final Mode mode;
 	private final String font;
 	private final Align align;
 	private final Anchor anchor;
+	private final Split split;
 
 	private VFXTextSpec(final String content, final Mode mode, final String font,
-			final Align align, final Anchor anchor) {
+			final Align align, final Anchor anchor, final Split split) {
 		this.content = content;
 		this.mode = mode;
 		this.font = font;
 		this.align = align;
 		this.anchor = anchor;
+		this.split = split;
 	}
 
 	/**
@@ -40,8 +50,8 @@ public final class VFXTextSpec {
 	 * @param json the effect object
 	 * @return the parsed spec, never {@code null}
 	 * @throws IllegalArgumentException when {@code text} is missing, {@code content} is blank, or a
-	 *                                  structural value ({@code mode}, {@code font}, {@code align},
-	 *                                  {@code anchor}) is unknown
+	 *                                  structural value ({@code mode}, {@code font}, {@code split},
+	 *                                  {@code align}, {@code anchor}) is unknown
 	 */
 	public static VFXTextSpec parse(final JsonObject json) {
 		if (json == null) {
@@ -63,9 +73,11 @@ public final class VFXTextSpec {
 		}
 		final String mode = str(obj, "mode", "flat");
 		final String font = str(obj, "font", "default");
+		final String split = str(obj, "split", "char");
 		final String align = str(obj, "align", "center");
 		final String anchor = str(obj, "anchor", "center");
-		return new VFXTextSpec(content, parseMode(mode), parseFont(font), parseAlign(align), parseAnchor(anchor));
+		return new VFXTextSpec(content, parseMode(mode), parseFont(font), parseAlign(align),
+			parseAnchor(anchor), parseSplit(split));
 	}
 
 	private static String str(final JsonObject obj, final String key, final String fallback) {
@@ -91,6 +103,18 @@ public final class VFXTextSpec {
 			default -> throw new IllegalArgumentException("text_overlay: text.font '" + raw
 				+ "' is not supported - only 'default' / 'minecraft:default' is drawn "
 				+ "(a resource-pack font is not supported yet)");
+		};
+	}
+
+	// 'split' decides how many entities the text becomes, so an unknown value would silently draw
+	// the block as something the definition did not ask for. Rejected at parse, like 'mode'.
+	private static Split parseSplit(final String raw) {
+		return switch (raw.toLowerCase(java.util.Locale.ROOT)) {
+			case "char" -> Split.CHAR;
+			case "word" -> Split.WORD;
+			case "block" -> Split.BLOCK;
+			default -> throw new IllegalArgumentException("text_overlay: unknown text.split '" + raw
+				+ "' (expected 'char', 'word' or 'block')");
 		};
 	}
 
@@ -123,15 +147,17 @@ public final class VFXTextSpec {
 	public String font() { return this.font; }
 	public Align align() { return this.align; }
 	public Anchor anchor() { return this.anchor; }
+	public Split split() { return this.split; }
 
 	/**
-	 * Returns a spec with the same {@code mode}, {@code font}, {@code align} and {@code anchor} and
-	 * the given content - the call-time text override keeps every layout decision from the file.
+	 * Returns a spec with the same {@code mode}, {@code font}, {@code split}, {@code align} and
+	 * {@code anchor} and the given content - the call-time text override keeps every layout decision
+	 * from the file.
 	 *
 	 * @param content the replacement line (one line; the command language has no newline escape)
 	 * @return a new spec, never {@code null}
 	 */
 	public VFXTextSpec withContent(final String content) {
-		return new VFXTextSpec(content, this.mode, this.font, this.align, this.anchor);
+		return new VFXTextSpec(content, this.mode, this.font, this.align, this.anchor, this.split);
 	}
 }
