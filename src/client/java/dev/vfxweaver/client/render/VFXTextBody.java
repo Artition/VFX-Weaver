@@ -20,7 +20,7 @@ import org.joml.Vector3f;
  *
  * <p>The body holds no level and no effect of its own, so a renderer owns one per unit and drives
  * it directly: the constructor seeds position, velocity, orientation and angular velocity,
- * {@link #step} takes the level and the physics in {@link Params}, and {@link #pos()},
+ * {@link #step} takes the level and the physics in {@link Params}, and {@link #pos(float)},
  * {@link #orientation(float)} and {@link #resting()} are all the renderer reads back.
  *
  * <p><b>Not verified in game.</b>
@@ -77,9 +77,20 @@ public final class VFXTextBody {
 		this.angularVelocity = new Vector3f(angularVelocity);
 	}
 
-	/** @return the position at the end of the last step (the position the body should be drawn at) */
-	public Vec3 pos() {
-		return this.pos;
+	/**
+	 * The position to display this frame: a lerp from where the body was at the start of its last
+	 * tick to where it ended, exactly as {@link VFXBlockParticleEngine} interpolates a block
+	 * particle, so 20 Hz physics still moves smoothly. A resting body has no tick to interpolate
+	 * and hands its settled position back.
+	 *
+	 * @param fraction the frame's leftover tick fraction, {@code 0..1} (clamped)
+	 * @return a fresh vector; the caller may keep or mutate it
+	 */
+	public Vec3 pos(final float fraction) {
+		final float t = fraction < 0.0F ? 0.0F : (fraction > 1.0F ? 1.0F : fraction);
+		return new Vec3(this.prev.x + (this.pos.x - this.prev.x) * t,
+			this.prev.y + (this.pos.y - this.prev.y) * t,
+			this.prev.z + (this.pos.z - this.prev.z) * t);
 	}
 
 	/**
@@ -193,6 +204,10 @@ public final class VFXTextBody {
 				this.angularVelocity.set(0.0F, 0.0F, 0.0F);
 				this.orientation.set(FLAT);
 				this.prevOrientation.set(FLAT);
+				// The rest pose is the final one: a settled body is no longer stepped, so 'prev'
+				// would otherwise stay one step behind and every frame would interpolate the body
+				// back and forth across that last move.
+				this.prev = this.pos;
 			}
 		} else {
 			this.stillTicks = 0;

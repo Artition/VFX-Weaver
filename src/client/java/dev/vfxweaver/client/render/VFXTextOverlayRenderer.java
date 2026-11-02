@@ -6,6 +6,7 @@ import java.util.Set;
 import net.minecraft.client.multiplayer.ClientLevel;
 //? if >=26.2 {
 /*import com.mojang.math.Transformation;
+import dev.vfxweaver.effect.VFXBlockParticleSpec;
 import dev.vfxweaver.effect.VFXTextSpec;
 import dev.vfxweaver.util.VFXLog;
 import java.util.ArrayList;
@@ -21,9 +22,7 @@ import net.minecraft.network.chat.TextColor;
 import net.minecraft.util.Brightness;
 import net.minecraft.world.entity.Display;
 import net.minecraft.world.entity.EntityTypes;
-import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
-import net.minecraft.world.phys.shapes.VoxelShape;
 import org.joml.Matrix3x2fStack;
 import org.joml.Quaternionf;
 import org.joml.Vector2f;
@@ -61,8 +60,8 @@ import org.slf4j.LoggerFactory;
  * where it fills exactly the same rectangle and reads the letter reversed - the back of a solid
  * sign, never a readable second copy - and nothing is drawn through terrain. A {@code center}
  * billboard already faces the camera from every side, so it needs no twin. Both copies are driven by
- * the same rotation every frame - block rotation plus spin plus tumble, composed identically - and
- * share the exit offset, the floor, the opacity, the brightness and the release, so a falling or
+ * the same pose every frame - the block rotation while the unit stands, its body's position and
+ * orientation once it falls - and share the opacity, the brightness and the release, so a falling or
  * tumbling pair never separates; the pair counts against the entity cap, so a two-sided block spends
  * two entities per unit.
  * {@code through_blocks} stays only as an option, for text meant to be seen through walls, and is
@@ -115,13 +114,29 @@ import org.slf4j.LoggerFactory;
  * path rewrites a display's text only when the glyph it shows actually changed; the flat path simply
  * draws the noise character. With {@code scramble} at 0 every frame is the one it was before.
  *
- * <p>The exit is computed from the clock, never accumulated, so the same tick always yields the same
- * frame. Unit {@code index} starts leaving at {@code exit_at + index * exit_stagger} seconds;
- * with {@code exit < 0.5} it only fades in place, with {@code exit >= 0.5} it falls, spins and - when
- * {@code collision} is on - lands on the first block below it, rebounds once and settles - or, in
- * {@code flat} mode, on the bottom edge of the frame and holds there. Once every
- * unit has faded, the block is marked finished at the age it finished and its entities are
- * released; when the effect loops or is replayed and the clock goes back, the block is rebuilt.
+ * <p>A fading exit is computed from the clock, never accumulated, so the same tick always yields the
+ * same frame: unit {@code index} starts leaving at {@code exit_at + index * exit_stagger} seconds,
+ * and with {@code exit < 0.5} it only fades in place. With {@code exit >= 0.5} the unit is handed to
+ * a {@link VFXTextBody} the moment it detaches - one rigid rectangle per unit, seeded with the rest
+ * pose it had then, the {@code spread} scatter and {@code exit_speed} upward as its velocity, and
+ * the {@code spin_*} / {@code tumble} angular velocity with its per-unit jitter - and from then on it
+ * <strong>falls, bounces and settles in real world geometry</strong>: the body is integrated once per
+ * client tick by the same step {@link VFXBlockParticleEngine} uses and drawn at the interpolation
+ * between the last two ticks, so 20 Hz physics still looks smooth. That per-tick state is the one
+ * place this renderer is not a closed form of the clock: a replay from the effect's start matches
+ * frame for frame, while jumping into the middle of a run does not reproduce the same resting
+ * arrangement - the trade the block particles make.
+ *
+ * <p>{@code flat} mode keeps the closed-form timeline of the same params: the HUD has no geometry to
+ * hit, so a 2D block keeps the analytic fall and needs no body.
+ *
+ * <p>A unit that falls stays opaque while it is in the air: once its body reports resting, {@code
+ * hold} seconds pass and then {@code fade_out} runs. Free fall never rests, so with {@code
+ * collision} off the fade runs from the detach (and with {@code fade_out} 0 the letters simply keep
+ * falling until the effect stops), and a drop with nothing under it keeps falling at full opacity the
+ * same way. Once every unit has faded, the block is marked finished at the age it finished and its
+ * entities are released; when the effect loops or is replayed and the clock goes back, the block is
+ * rebuilt. An effect that stops always releases its units, whatever the physics was doing.
  *
  * <p>The whole body is gated on {@code >=26.2}: {@code Display.TextDisplay}'s setters are only
  * public there, and {@link VFXBlockParticleEngine#nextLocalEntityId()} (needed because 26.2's
@@ -155,10 +170,9 @@ public final class VFXTextOverlayRenderer {
 	// output, and a fixed order, so the hash's index into it is stable between runs.
 	private static final String NOISE_GLYPHS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789#$%&*+=-<>/?";
 	// Independent salts for the per-character draws: the instance id and unit index are mixed with one
-	// of these, so the X scatter, the Z scatter and the gravity multiplier disagree. The zero salt is
-	// today's speed jitter, kept so an existing definition's fall timing is unchanged.
+	// of these, so the X scatter and the Z scatter disagree. The zero salt is today's speed jitter,
+	// kept so an existing definition's fall speed and spin are unchanged.
 	private static final long SALT_SPEED = 0L;
-	private static final long SALT_GRAVITY = 0x2545F4914F6CDD1DL;
 	private static final long SALT_SCATTER_X = 0xD6E8FEB86659FD93L;
 	private static final long SALT_SCATTER_Z = 0xA0761D6478BD642FL;
 
@@ -171,13 +185,10 @@ public final class VFXTextOverlayRenderer {
 	// 'lastTexts' is the string last written to each display - its unit's own text, or the noise
 	// glyph of the last swap - so a scrambled unit is rewritten only when its noise changes and is
 	// handed its own text back when the band passes it, whatever the colour cache says.
-	// 'floors' is the one per-unit value the exit stores: the top of the first collider found under
-	// that unit's own column, the unit's own rest Y when its rest point is already embedded in
-	// terrain (so it does not fall at all), or NEGATIVE_INFINITY when there is nothing to land on.
-	// An entry starts as NaN - unresolved - and is filled with one downward scan on the frame the
-	// unit detaches, so the probe follows the world under the word instead of a single spawn-time
-	// query. 'twins' holds one extra display per unit when the block is two-sided - the same unit
-	// mirrored by a negative X transformation scale - and is empty for a one-sided (or
+	// 'falls' is the one per-unit state the exit keeps: the body a falling unit was handed when it
+	// detached (null while the unit stands in the line), and the 'since' at which that body came to
+	// rest (-1 until it has). 'twins' holds one extra display per unit when the block is two-sided -
+	// the same unit mirrored by a negative X transformation scale - and is empty for a one-sided (or
 	// center-billboard) block, so the original and its twin are paired by index. 'finishedAt' is the
 	// age at which every unit had
 	// faded out and been released, or -1
@@ -189,7 +200,7 @@ public final class VFXTextOverlayRenderer {
 		private final List<Display.TextDisplay> entities;
 		private final List<Display.TextDisplay> twins;
 		private final VFXTextLayout layout;
-		private final float[] floors;
+		private final Fall[] falls;
 		private final String[] ownTexts;
 		private final String[] lastTexts;
 		private int lastColour;
@@ -199,7 +210,7 @@ public final class VFXTextOverlayRenderer {
 
 		private LiveText(final long instanceId, final String signature,
 				final List<Display.TextDisplay> entities, final List<Display.TextDisplay> twins,
-				final VFXTextLayout layout, final float[] floors, final String[] ownTexts,
+				final VFXTextLayout layout, final String[] ownTexts,
 				final String[] lastTexts, final int lastColour, final int lastBrightness,
 				final byte[] lastFlags) {
 			this.instanceId = instanceId;
@@ -207,12 +218,26 @@ public final class VFXTextOverlayRenderer {
 			this.entities = entities;
 			this.twins = twins;
 			this.layout = layout;
-			this.floors = floors;
+			this.falls = new Fall[entities.size()];
 			this.ownTexts = ownTexts;
 			this.lastTexts = lastTexts;
 			this.lastColour = lastColour;
 			this.lastBrightness = lastBrightness;
 			this.lastFlags = lastFlags;
+		}
+	}
+
+	// One unit's fall: the body that carries it and the physics it is stepped with, both built once
+	// when the unit detaches, plus the 'since' at which it came to rest. A unit without a Fall still
+	// stands in the line, or left by a fade, and is placed from its rest pose.
+	private static final class Fall {
+		private final VFXTextBody body;
+		private final VFXTextBody.Params params;
+		private float restSince = -1.0F;
+
+		private Fall(final VFXTextBody body, final VFXTextBody.Params params) {
+			this.body = body;
+			this.params = params;
 		}
 	}
 
@@ -233,6 +258,16 @@ public final class VFXTextOverlayRenderer {
 	private static final Map<Long, LiveText> LIVE = new HashMap<>();
 	private static final Map<Long, FlatText> FLAT = new HashMap<>();
 	private static @Nullable ClientLevel lastLevel;
+	// The fall is stepped at 20 Hz from the shared effect clock, exactly like VFXBlockParticleEngine:
+	// 'lastClock' is the clock of the previous frame, 'accumulator' the ticks it owes, and
+	// 'lastFraction' the leftover fraction of the last one - the value the displays interpolate by.
+	// A hitch drops the backlog instead of replaying it, and at most MAX_STEPS_PER_FRAME ticks are
+	// integrated per frame, so a slow frame cannot spend the whole budget on physics.
+	private static final int MAX_STEPS_PER_FRAME = 4;
+	private static final float MAX_CATCHUP_TICKS = 8.0F;
+	private static float lastClock = Float.NaN;
+	private static float accumulator;
+	private static float lastFraction;
 
 	// Draws (and on the first frame spawns) the world-mode block of one text effect. Called from the
 	// world overlay dispatch; a no-op for a faded-out effect or one without a text block.
@@ -272,7 +307,7 @@ public final class VFXTextOverlayRenderer {
 		if (live == null || live.finishedAt >= 0.0F) {
 			return;
 		}
-		placeBlock(effect, level, live, spec, origin);
+		placeBlock(effect, live, spec, origin);
 	}
 
 	// The point the block is measured from. When the definition has a slot - a runtime move, a
@@ -446,12 +481,14 @@ public final class VFXTextOverlayRenderer {
 	}
 
 	// Per-frame housekeeping for the text pool: drops the characters of effects that are no longer
-	// running and the whole pool when the client level changes. The per-character exit is placed by
-	// placeBlock from the effect clock; this only owns the lifecycle.
+	// running, the whole pool when the client level changes, and steps every falling unit's body by
+	// the ticks the shared clock owes - once per client tick, never once per frame, so the physics is
+	// the 20 Hz integration the block particles get and the frames in between only interpolate.
 	//
 	// level           - the client level being drawn
+	// clock           - the shared effect clock, in ticks
 	// activeInstances - instance ids of the running world-mode text effects
-	public static void tick(final ClientLevel level, final Set<Long> activeInstances) {
+	public static void tick(final ClientLevel level, final float clock, final Set<Long> activeInstances) {
 		handleLevelChange(level);
 		LIVE.entrySet().removeIf(entry -> {
 			if (activeInstances.contains(entry.getKey())) {
@@ -460,6 +497,41 @@ public final class VFXTextOverlayRenderer {
 			release(entry.getValue());
 			return true;
 		});
+		if (Float.isNaN(lastClock)) {
+			lastClock = clock;
+			return;
+		}
+		final float delta = clock - lastClock;
+		lastClock = clock;
+		if (delta > 0.0F) {
+			accumulator += delta;
+			if (delta > MAX_CATCHUP_TICKS) {
+				// A hitch: the backlog is stale motion nobody saw, so it is dropped rather than
+				// replayed as a burst of steps.
+				accumulator = 0.0F;
+			}
+			final int steps = Math.min((int) accumulator, MAX_STEPS_PER_FRAME);
+			accumulator -= steps;
+			for (int step = 0; step < steps; step++) {
+				for (final LiveText live : LIVE.values()) {
+					stepBodies(level, live);
+				}
+			}
+		}
+		// What the displays interpolate by this frame: the fraction of a tick the clock is into its
+		// last one. It is kept on the class because placeBlock - which runs after this in the same
+		// frame - is what positions the displays.
+		lastFraction = clamp01(accumulator);
+	}
+
+	// Integrates every body of one block by one tick. A settled body is not stepped at all (the body
+	// itself refuses), so a line that has come to rest costs nothing.
+	private static void stepBodies(final ClientLevel level, final LiveText live) {
+		for (final Fall fall : live.falls) {
+			if (fall != null) {
+				fall.body.step(level, fall.params);
+			}
+		}
 	}
 
 	// Removes one effect's characters, by instance id.
@@ -632,7 +704,7 @@ public final class VFXTextOverlayRenderer {
 				| alignFlags(layout.units().get(i), spec.split()));
 		}
 		final LiveText live = new LiveText(effect.getInstanceId(), signature, entities, twins, layout,
-			unresolvedFloors(entities.size()), ownTexts, lastTexts, colour, brightness, lastFlags);
+			ownTexts, lastTexts, colour, brightness, lastFlags);
 		LIVE.put(effect.getInstanceId(), live);
 		return live;
 	}
@@ -709,84 +781,61 @@ public final class VFXTextOverlayRenderer {
 			? Display.TextDisplay.FLAG_ALIGN_LEFT : (byte) 0;
 	}
 
-	// Half-width of the shaft probed under a character: the glyph itself has no world footprint, so a
-	// narrow column is what a falling letter actually occupies.
-	private static final double FLOOR_PROBE_HALF_WIDTH = 0.05;
-	// The downward walk is sampled in quarter blocks. That step is the correctness of this scan - a
-	// collider is a box on a grid, so a quarter block cannot skip one the letter would have hit -
-	// not an arbitrary resolution.
-	private static final double FLOOR_SCAN_STEP = 0.25;
-	// How far down one scan looks before giving up: 64 blocks, the reach the old single query had.
-	// This is a perf bound (64 / 0.25 = 256 queries, once per character when it detaches), not a
-	// cap on anything a definition authors. Past it the character falls free, as it does over a void.
-	private static final double FLOOR_SCAN_DEPTH = 64.0;
-
-	// Every character starts with no floor: NaN marks "not resolved yet", because the scan runs when
-	// the character actually detaches - the ground under the word can differ from character to
-	// character (a step, a slope), and a spawn-time probe of the whole block cannot see that.
-	private static float[] unresolvedFloors(final int count) {
-		final float[] result = new float[count];
-		for (int i = 0; i < count; i++) {
-			result[i] = Float.NaN;
-		}
-		return result;
+	// Builds the body of a unit that has just detached: a rigid rectangle standing at the rest pose
+	// the display carries this frame - a move or an animated rot_* lands here, so the fall starts
+	// exactly where the letter stood - moving the way 'exit_speed' (upward) and 'spread' (sideways)
+	// say. Both are authored in blocks per second and the body integrates in blocks per tick, hence
+	// the division by 20. 'gravity' is blocks per second squared, and the body reads it in the
+	// block-particle unit (a multiple of GRAVITY_STEP, i.e. 400 * GRAVITY_STEP per second squared),
+	// so the two engines agree on what a gravity of 18 means. The padding is half the glyph's own
+	// height in blocks: the letter's footprint, which is what a collider has to catch.
+	private static Fall createFall(final VFXActiveEffect effect, final int index,
+			final VFXTextLayout.Unit unit, final Vec3 origin, final Vector3f local,
+			final Quaternionf rotation, final float scale) {
+		final Vec3 rest = new Vec3(origin.x + local.x, origin.y + local.y, origin.z + local.z);
+		final Vector3f scatter = scatterVelocity(effect, index);
+		final Vec3 velocity = new Vec3(scatter.x / 20.0,
+			effect.getParam("exit_speed", 0.0F) * jitter(effect, index) / 20.0, scatter.z / 20.0);
+		final double glyphHeight = Minecraft.getInstance().font.lineHeight * unit.lines() * scale
+			* WORLD_UNITS_PER_FONT_PIXEL;
+		// 'friction' is air drag per tick and the tangential velocity kept on contact, exactly as in
+		// the block-particle spec - and it has to be below 1 for a glyph that lands skidding to stop
+		// skidding, which is what lets the body come to rest and the fade start.
+		final VFXTextBody.Params params = new VFXTextBody.Params(
+			gravityOf(effect) / (400.0F * VFXBlockParticleSpec.GRAVITY_STEP),
+			effect.getParam("friction", 0.94F),
+			effect.getParam("bounce", 0.15F),
+			effect.getParam("collision", 1.0F) >= 0.5F,
+			0.5 * glyphHeight,
+			effect.getParam("tumble", 0.0F) >= 0.5F);
+		return new Fall(new VFXTextBody(rest, velocity, rotation,
+			initialAngularVelocity(effect, index)), params);
 	}
 
-	// The floor of character 'index' this frame, resolved on first use and cached with the block, so
-	// the fall stays closed-form from then on and a still-standing line probes nothing. A fade exit
-	// and 'collision: 0' have no landing to find, so they never scan at all.
-	private static float floorFor(final VFXActiveEffect effect, final LiveText live, final ClientLevel level,
-			final int index, final float since, final double x, final float restY, final double z) {
-		if (since < 0.0F || effect.getParam("exit", 0.0F) < 0.5F
-			|| effect.getParam("collision", 1.0F) < 0.5F || index >= live.floors.length) {
-			return Float.NEGATIVE_INFINITY;
+	// The angular velocity a unit starts its fall with, in radians per tick: the authored
+	// 'spin_x/y/z' axis at |spin| times the unit's own jitter (degrees per second, so a twentieth of
+	// that per tick). 'tumble' replaces the axis with the same per-unit off-axis direction the
+	// closed form used, at the same speed, so the letters do not all wheel about one world axis. A
+	// spin of zero has no axis to turn about, so the body keeps its detach orientation.
+	private static Vector3f initialAngularVelocity(final VFXActiveEffect effect, final int index) {
+		final Vector3f axis = new Vector3f(effect.getParam("spin_x", 0.0F),
+			effect.getParam("spin_y", 0.0F), effect.getParam("spin_z", 0.0F));
+		final float length = axis.length();
+		final float speed = length * jitter(effect, index);
+		if (speed < 1e-4F) {
+			return new Vector3f();
 		}
-		final float cached = live.floors[index];
-		if (!Float.isNaN(cached)) {
-			return cached;
-		}
-		final float resolved = resolveFloor(level, x, restY, z);
-		live.floors[index] = resolved;
-		return resolved;
-	}
-
-	// Top of the first surface under one character's own column, walking down from its rest point in
-	// quarter blocks and taking the first slab that holds a collider. A rest point already inside a
-	// collider means the letter is embedded in terrain (authored into a wall, or the ground rose
-	// under it): the character then does not fall at all, so its own rest Y is returned and the drop
-	// is zero. NEGATIVE_INFINITY means "nothing below within FLOOR_SCAN_DEPTH", and the character
-	// falls free exactly as it does with no floor.
-	private static float resolveFloor(final ClientLevel level, final double x, final float restY,
-			final double z) {
-		final AABB at = new AABB(x - FLOOR_PROBE_HALF_WIDTH, restY - 0.001, z - FLOOR_PROBE_HALF_WIDTH,
-			x + FLOOR_PROBE_HALF_WIDTH, restY + 0.001, z + FLOOR_PROBE_HALF_WIDTH);
-		for (final VoxelShape shape : level.getBlockCollisions(null, at)) {
-			if (!shape.isEmpty()) {
-				return restY;
+		if (effect.getParam("tumble", 0.0F) >= 0.5F) {
+			final float j = jitter(effect, index);
+			axis.set(j - 1.0F, 1.0F - j, 0.5F * j - 0.5F);
+			if (axis.lengthSquared() < 1e-8F) {
+				return new Vector3f();
 			}
+			axis.normalize();
+		} else {
+			axis.div(length);
 		}
-		for (double y = restY; y >= restY - FLOOR_SCAN_DEPTH; y -= FLOOR_SCAN_STEP) {
-			// The slab covers everything between this step and the one above it, so a surface the
-			// walk crosses cannot be stepped over; only its top counts, because that is what catches
-			// the letter.
-			final AABB slab = new AABB(x - FLOOR_PROBE_HALF_WIDTH, y - FLOOR_SCAN_STEP,
-				z - FLOOR_PROBE_HALF_WIDTH, x + FLOOR_PROBE_HALF_WIDTH, y, z + FLOOR_PROBE_HALF_WIDTH);
-			float top = Float.NEGATIVE_INFINITY;
-			for (final VoxelShape shape : level.getBlockCollisions(null, slab)) {
-				if (shape.isEmpty()) {
-					continue;
-				}
-				for (final AABB box : shape.toAabbs()) {
-					if (box.maxY <= y && box.maxY > top) {
-						top = (float) box.maxY;
-					}
-				}
-			}
-			if (top > Float.NEGATIVE_INFINITY) {
-				return top;
-			}
-		}
-		return Float.NEGATIVE_INFINITY;
+		return axis.mul((float) Math.toRadians(speed) / 20.0F);
 	}
 
 	// The effect's colour_r/g/b (0..1 each) as one packed 0xRRGGBB integer, white when unset.
@@ -801,7 +850,7 @@ public final class VFXTextOverlayRenderer {
 	// anchored, displaced by the exit, and refreshed for the animatable colour and shadow. The
 	// schedule that drives the exit is indexed by unit, so a coarse split moves whole words (or the
 	// whole block) instead of its characters.
-	private static void placeBlock(final VFXActiveEffect effect, final ClientLevel level,
+	private static void placeBlock(final VFXActiveEffect effect,
 			final LiveText live, final VFXTextSpec spec, final Vec3 origin) {
 		final float scale = effect.getParam("scale", 1.0F);
 		final VFXTextLayout layout = live.layout;
@@ -850,28 +899,48 @@ public final class VFXTextOverlayRenderer {
 			final Vector3f local = restOffset(unit.x(), unit.y(), scale, alignShift, anchorShiftY, rotation);
 			final Display.TextDisplay display = live.entities.get(i);
 			final float since = exitSince(effect, i);
-			// The rest height is the anchor's Y plus the laid-out offset. The floor under this
-			// unit is resolved on its own column the first frame it leaves, then cached. The entity
-			// position is the bottom of the glyph - a display draws it upward from there - so the
-			// settled position is the floor itself, with no lift. A unit drifts sideways as it falls,
-			// so it may come to rest over a different column than the one probed here: the floor stays
-			// the column it started on, a deliberate simplification that keeps the fall closed-form.
-			final float restY = (float) (origin.y + local.y);
-			final float floorY = floorFor(effect, live, level, i, since,
-				origin.x + local.x, restY, origin.z + local.z);
-			final Vector3f exit = exitOffset(effect, i, restY, floorY);
-			// Position carries the offset (the rest pose plus the exit's displacement); the
-			// transformation's translation stays zero, otherwise the offset is applied twice and the
-			// block flies away from its anchor.
-			display.setPos(origin.x + local.x + exit.x, origin.y + local.y + exit.y,
-				origin.z + local.z + exit.z);
+			// The unit's body, built on the first frame it has detached and kept from then on. It is
+			// seeded with the rest pose that frame gives it - a move or an animated rot_* lands here,
+			// so the fall starts exactly where the letter stood - and its own state takes over from
+			// there: the exit's offset is no longer a function of the clock at all. A unit that is
+			// standing again - a looping effect wrapped the clock, or 'exit' was animated away from
+			// a fall - hands its body back, so the line comes back whole and the next detach seeds a
+			// fresh fall from wherever it then stands.
+			Fall fall = live.falls[i];
+			if (since < 0.0F || effect.getParam("exit", 0.0F) < 0.5F) {
+				live.falls[i] = null;
+				fall = null;
+			} else if (fall == null) {
+				fall = createFall(effect, i, unit, origin, local, rotation, scale);
+				live.falls[i] = fall;
+			}
+			// The pose this frame: the rest pose while the unit stands, and the body's interpolated
+			// pose once it falls - the position lerped and the orientation slerped by the leftover
+			// tick fraction, so 20 Hz physics is drawn smoothly.
+			final Vec3 rest = new Vec3(origin.x + local.x, origin.y + local.y, origin.z + local.z);
+			final Vec3 position = fall == null ? rest : fall.body.pos(lastFraction);
+			final Quaternionf orientation = fall == null ? new Quaternionf(rotation)
+				: fall.body.orientation(lastFraction);
+			// How far the body has carried the unit away from its rest pose. The twin is placed from
+			// its own rest offset plus this same displacement, so the pair cannot separate.
+			final double exitX = position.x - rest.x;
+			final double exitY = position.y - rest.y;
+			final double exitZ = position.z - rest.z;
+			// Position carries the pose; the transformation's translation stays zero, otherwise the
+			// offset is applied twice and the block flies away from its anchor.
+			display.setPos(position.x, position.y, position.z);
 			// The pose above is this frame's, not a move to interpolate from: pinning the previous
 			// position to it makes the render state draw exactly the computed spot instead of
 			// sweeping from the stale tick position, which read as stepping.
 			display.setOldPosAndRot();
-			final Quaternionf orientation = since < 0.0F ? rotation : spin(effect, i, since, rotation);
 			display.setTransformation(new Transformation(new Vector3f(), new Quaternionf(orientation),
 				new Vector3f(scale, scale, scale), new Quaternionf()));
+			if (fall != null) {
+				// Re-anchor the one-tick interpolation window to this frame, as the block-particle
+				// engine's updateDisplay does, so the display slerps from the pose it last rendered
+				// to this one instead of holding it until the next entity tick.
+				display.setTransformationInterpolationDelay(0);
+			}
 			// A scrambled unit shows a noise glyph instead of its own text, and is handed its own
 			// text back as soon as the band has passed it. The text is written when the style
 			// changed or when the text it should show changed - never once per frame - so a
@@ -897,33 +966,34 @@ public final class VFXTextOverlayRenderer {
 			// the effect weight fades the whole block instead of popping it at the stop. A scrambled
 			// unit is drawn at the noise's own opacity, which rises towards the frontier, so it
 			// lights up as the sweep reaches it instead of waiting at zero.
-			final float exitAlpha = exitAlpha(effect, i, restY, floorY);
+			final float exitAlpha = exitAlpha(effect, fall, since);
 			final float revealAlpha = noise > 0.0F ? noise : clamp01(revealed - i);
 			brightest = Math.max(brightest, exitAlpha);
 			final byte opacity = (byte) Math.round(
 				clamp01(revealAlpha * exitAlpha * effect.getWeight()) * 255.0F);
 			display.setTextOpacity(opacity);
 			// The twin is the same unit seen from behind: it stands at the far edge of this unit's
-			// advance, takes exactly this frame's rotation - block rotation, then spin, then tumble,
-			// the same composition the original got - and differs only in its transformation scale,
-			// (-scale, scale, scale). That negative X scale is the mirror: it flips the glyph and the
-			// triangle winding, so the copy is culled from the front and drawn from behind, showing
-			// the letter reversed exactly where the original stands. It shares the same exit
-			// displacement, floor, brightness and opacity, and its text and flags are written on
-			// exactly the conditions the original's are, so a standing line writes neither copy and a
-			// decode touches both where it touched one.
+			// advance, takes exactly this frame's pose - the body's position and orientation once the
+			// unit falls, its block rotation while it stands - and differs only in its transformation
+			// scale, (-scale, scale, scale). That negative X scale is the mirror: it flips the glyph
+			// and the triangle winding, so the copy is culled from the front and drawn from behind,
+			// showing the letter reversed exactly where the original stands. It shares the same
+			// displacement, brightness and opacity, and its text and flags are written on exactly the
+			// conditions the original's are, so a standing line writes neither copy and a decode
+			// touches both where it touched one.
 			if (hasTwin && i < live.twins.size()) {
 				final Display.TextDisplay twin = live.twins.get(i);
 				final Vector3f twinLocal = twinRestOffset(unit, spec.split(), scale, alignShift,
 					anchorShiftY, rotation);
-				twin.setPos(origin.x + twinLocal.x + exit.x, origin.y + twinLocal.y + exit.y,
-					origin.z + twinLocal.z + exit.z);
+				twin.setPos(origin.x + twinLocal.x + exitX, origin.y + twinLocal.y + exitY,
+					origin.z + twinLocal.z + exitZ);
 				twin.setOldPosAndRot();
-				final Quaternionf twinOrientation = since < 0.0F ? rotation
-					: spin(effect, i, since, rotation);
 				twin.setTransformation(new Transformation(new Vector3f(),
-					new Quaternionf(twinOrientation), new Vector3f(-scale, scale, scale),
+					new Quaternionf(orientation), new Vector3f(-scale, scale, scale),
 					new Quaternionf()));
+				if (fall != null) {
+					twin.setTransformationInterpolationDelay(0);
+				}
 				if (textChanged) {
 					twin.setText(Component.literal(text).withStyle(style));
 				}
@@ -1057,59 +1127,6 @@ public final class VFXTextOverlayRenderer {
 		return since < 0.0F ? -1.0F : since;
 	}
 
-	// Where character 'index' is this frame, relative to its rest pose: zero while it is standing,
-	// and zero for a fade exit - the two exits differ in this one branch and nothing else.
-	private static Vector3f exitOffset(final VFXActiveEffect effect, final int index,
-			final float restY, final float floorY) {
-		final float since = exitSince(effect, index);
-		if (since < 0.0F || effect.getParam("exit", 0.0F) < 0.5F) {
-			return new Vector3f();
-		}
-		return fallOffset(effect, index, since, restY, floorY);
-	}
-
-	// Where the character is 'since' seconds after it detached. Closed form, so the same tick always
-	// yields the same frame - a replay and a screenshot agree.
-	private static Vector3f fallOffset(final VFXActiveEffect effect, final int index,
-			final float since, final float restY, final float floorY) {
-		final float gravity = gravityOf(effect) * gravityMultiplier(effect, index);
-		final float speed = effect.getParam("exit_speed", 0.0F) * jitter(effect, index);
-		// The horizontal drift is a constant velocity, scaled by 'since' like the drop, so it stays
-		// part of the closed form. The floor below is still the one probed on the rest column, so a
-		// drifting letter can settle over a neighbouring column - a deliberate simplification:
-		// re-probing a moving column would break the closed form and the fade's landing test.
-		final Vector3f scatter = scatterVelocity(effect, index);
-		final float driftX = scatter.x * since;
-		final float driftZ = scatter.z * since;
-		final float drop = restY - floorY;
-		// Without a floor, or with collision off, the letter simply falls for ever.
-		if (effect.getParam("collision", 1.0F) < 0.5F || !Float.isFinite(floorY)) {
-			return new Vector3f(driftX, speed * since - 0.5F * gravity * since * since, driftZ);
-		}
-		// An animated pos_y can lift the rest height below the floor that was resolved when the
-		// character detached. There
-		// is no drop left to run then, and the square root below would take a negative and hand a
-		// NaN to setPos, so the character simply keeps its rest pose.
-		if (drop <= 0.0F) {
-			return new Vector3f();
-		}
-		// Time to reach the floor: the positive root of restY + v0 t - g t^2 / 2 = floorY.
-		final float impact = (speed + (float) Math.sqrt(speed * speed + 2.0F * gravity * drop)) / gravity;
-		if (since <= impact) {
-			return new Vector3f(driftX, speed * since - 0.5F * gravity * since * since, driftZ);
-		}
-		// One rebound with restitution 'bounce', then settle: the hop is the same parabola with the
-		// reversed impact speed, so the landing still has a closed form and costs nothing.
-		final float landing = -drop;
-		final float reboundSpeed = Math.max(0.0F, -speed + gravity * impact) * Math.min(1.0F, effect.getParam("bounce", 0.15F));
-		final float hop = 2.0F * reboundSpeed / gravity;
-		final float after = since - impact;
-		if (after >= hop) {
-			return new Vector3f(driftX, landing, driftZ);
-		}
-		return new Vector3f(driftX, landing + reboundSpeed * after - 0.5F * gravity * after * after, driftZ);
-	}
-
 	// The one reading of 'gravity' both halves of the exit use: it divides the fall and the landing
 	// test, so zero would divide by zero. A lower bound only - there is no upper limit, a huge
 	// gravity just makes the drop instant.
@@ -1131,12 +1148,6 @@ public final class VFXTextOverlayRenderer {
 		return 0.85F + 0.30F * unitHash(effect, index, SALT_SPEED);
 	}
 
-	// A per-character multiplier on 'gravity' in [0.85, 1.15], from its own salt, so two letters of
-	// one line do not fall in lockstep even when their speed jitter happens to agree.
-	private static float gravityMultiplier(final VFXActiveEffect effect, final int index) {
-		return 0.85F + 0.30F * unitHash(effect, index, SALT_GRAVITY);
-	}
-
 	// A per-character horizontal scatter, in blocks per second: 'spread' is the half-range and two
 	// independent draws pick the direction on X and on Z. It is a distance per second, not a
 	// fraction, so 'spread' has no upper limit - it only widens the fan.
@@ -1147,25 +1158,31 @@ public final class VFXTextOverlayRenderer {
 			spread * (2.0F * unitHash(effect, index, SALT_SCATTER_Z) - 1.0F));
 	}
 
-	// Opacity of character 'index' from its exit timeline: 1 until it has started leaving, then the
-	// fade exit's ramp, or - for a fall - 1 until it has landed and held for 'hold' and the ramp
-	// after that.
-	private static float exitAlpha(final VFXActiveEffect effect, final int index,
-			final float restY, final float floorY) {
-		final float since = exitSince(effect, index);
+	// Opacity of unit 'index' from its exit timeline: 1 while it stands, then the fade exit's ramp,
+	// or - for a fall - 1 until the body reports resting, the 'hold' seconds after that, and then
+	// 'fade_out'. The rest time is recorded from the body itself, on the first frame it reports
+	// settled, so the hold and the ramp are timed from the tick the physics actually stopped - there
+	// is no closed form left to ask. A body that never rests (free fall, or a drop over a void) never
+	// reaches the ramp, so the letter stays fully opaque until the effect stops and 'tick' releases
+	// it; with 'collision' off there is no floor at all, so 'fade_out' runs from the detach instead
+	// (and 0 keeps it opaque), which is the free-fall rule this renderer has always had.
+	private static float exitAlpha(final VFXActiveEffect effect, final Fall fall, final float since) {
 		if (since < 0.0F) {
 			return 1.0F;
 		}
 		if (effect.getParam("exit", 0.0F) < 0.5F) {
 			return fade(effect, since, 0.0F);
 		}
-		// Without a floor, or with collision off, there is no landing to wait for, so the letter
-		// fades from the moment it detaches unless 'fade_out' is 0, where it simply keeps falling.
-		final float landing = landedAt(effect, index, restY, floorY);
-		if (landing < 0.0F) {
+		if (fall == null || effect.getParam("collision", 1.0F) < 0.5F) {
 			return fade(effect, since, 0.0F);
 		}
-		return fade(effect, since, landing + holdOf(effect));
+		if (fall.restSince < 0.0F && fall.body.resting()) {
+			fall.restSince = since;
+		}
+		if (fall.restSince < 0.0F) {
+			return 1.0F;
+		}
+		return fade(effect, since, fall.restSince + holdOf(effect));
 	}
 
 	// The fade ramp itself, shared by both modes and both exits: fully opaque up to 'from' seconds
@@ -1186,26 +1203,6 @@ public final class VFXTextOverlayRenderer {
 	// floored at zero.
 	private static float holdOf(final VFXActiveEffect effect) {
 		return Math.max(effect.getParam("hold", 0.0F), 0.0F);
-	}
-
-	// When the fall comes to rest, in seconds since it detached: the impact plus the rebound hop, or
-	// -1 when there is nothing to land on. Mirrors the landing test inside fallOffset, so the fade
-	// and the position always agree on where and when the letter stopped.
-	private static float landedAt(final VFXActiveEffect effect, final int index,
-			final float restY, final float floorY) {
-		final float drop = restY - floorY;
-		if (effect.getParam("collision", 1.0F) < 0.5F || !Float.isFinite(floorY) || drop <= 0.0F) {
-			return -1.0F;
-		}
-		final float gravity = gravityOf(effect) * gravityMultiplier(effect, index);
-		final float speed = effect.getParam("exit_speed", 0.0F) * jitter(effect, index);
-		final float impact = (speed + (float) Math.sqrt(speed * speed + 2.0F * gravity * drop)) / gravity;
-		if (!Float.isFinite(impact)) {
-			return -1.0F;
-		}
-		final float reboundSpeed = Math.max(0.0F, -speed + gravity * impact)
-			* Math.min(1.0F, effect.getParam("bounce", 0.15F));
-		return reboundSpeed > 0.0F ? impact + 2.0F * reboundSpeed / gravity : impact;
 	}
 
 	// Where a flat character is this frame, relative to its rest position on the HUD: zero while it
@@ -1320,39 +1317,6 @@ public final class VFXTextOverlayRenderer {
 		return folded > span ? 2.0F * span - folded : folded;
 	}
 
-	// A character's orientation while it is leaving: the block's rot_* quaternion composed with a
-	// rotation of |spin| * jitter * since degrees about spin_x/y/z. 'tumble' replaces the axis with one
-	// taken from the per-character jitter, so the letters tumble off-axis instead of all wheeling about
-	// the same world axis, and leaves the speed at |spin| times the jitter. A spin vector of length
-	// zero has no axis to rotate about - normalising it would be a NaN - so the rest orientation is
-	// handed back untouched.
-	private static Quaternionf spin(final VFXActiveEffect effect, final int index, final float since,
-			final Quaternionf rotation) {
-		final Vector3f axis = new Vector3f(effect.getParam("spin_x", 0.0F),
-			effect.getParam("spin_y", 0.0F), effect.getParam("spin_z", 0.0F));
-		// The spin speed carries the per-character jitter too, so letters do not turn in lockstep.
-		final float axisLength = axis.length();
-		if (axisLength < 1e-4F) {
-			return new Quaternionf(rotation);
-		}
-		final float speed = axisLength * jitter(effect, index);
-		if (effect.getParam("tumble", 0.0F) >= 0.5F) {
-			// Tumble swaps the axis only - the angular speed stays |spin| times the jitter, so an
-			// authored 'spin_z 180' with tumble on still turns at 180 degrees per second, off-axis.
-			// Three readings of the same jitter give a deterministic direction.
-			final float j = jitter(effect, index);
-			axis.set(j - 1.0F, 1.0F - j, 0.5F * j - 0.5F);
-			if (axis.lengthSquared() < 1e-8F) {
-				return new Quaternionf(rotation);
-			}
-			axis.normalize();
-		} else {
-			axis.div(axisLength);
-		}
-		return new Quaternionf(rotation)
-			.rotateAxis((float) Math.toRadians(speed * since), axis);
-	}
-
 	// The block is over: every character has faded out. Its characters are released now, and the
 	// pool entry stays behind carrying the age it finished at, so 'ensure' neither respawns the line
 	// next frame nor keeps it dead once the effect loops or is replayed.
@@ -1445,12 +1409,17 @@ public final class VFXTextOverlayRenderer {
 		}
 	}
 
-	// Drops the pool when the client level changes: the old level's entities went with it.
+	// Drops the pool when the client level changes: the old level's entities went with it. The clock
+	// baseline goes too, so the first tick on the new level does not integrate a backlog of ticks
+	// that belong to the level that is gone - the same reset the block-particle engine makes.
 	private static void handleLevelChange(final ClientLevel level) {
 		if (lastLevel == level) {
 			return;
 		}
 		lastLevel = level;
+		lastClock = Float.NaN;
+		accumulator = 0.0F;
+		lastFraction = 0.0F;
 		clear();
 	}
 	*///?} else {
@@ -1460,7 +1429,7 @@ public final class VFXTextOverlayRenderer {
 	public static void renderWorld(final VFXActiveEffect effect, final ClientLevel level, final PoseStack pose) {
 	}
 
-	public static void tick(final ClientLevel level, final Set<Long> activeInstances) {
+	public static void tick(final ClientLevel level, final float clock, final Set<Long> activeInstances) {
 	}
 
 	public static void remove(final long instanceId) {

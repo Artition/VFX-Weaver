@@ -1103,9 +1103,10 @@ public final class VFXWorldOverlayRenderer {
 		VFXBlockParticleEngine.tick(level, manager.getClock(), blockInstances);
 		VFXSparkEngine.tick(level, manager.getClock(), sparkInstances);
 		// Text characters are real client entities, so they need the same per-frame life as the
-		// particle displays: stepped here every frame and released the moment their effect leaves
-		// the world list (pruned by instance id, the same way the engines prune their buckets).
-		VFXTextOverlayRenderer.tick(level, textInstances);
+		// particle displays: stepped here from the shared clock - once per tick, not once per frame,
+		// exactly as the block particles are - and released the moment their effect leaves the world
+		// list (pruned by instance id, the same way the engines prune their buckets).
+		VFXTextOverlayRenderer.tick(level, manager.getClock(), textInstances);
 		// A text effect that stopped between two frames can still be listed for one more pass
 		// (a stopped effect that is still fading is listed with weight 0). Its characters are
 		// released through the direct hook, so a stop never leaves them standing.

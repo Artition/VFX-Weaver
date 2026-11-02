@@ -8,9 +8,9 @@
 #     loses its spec when params are merged renders nothing;
 #   * the schema registers the type with exactly the params the renderer reads, and bounds the
 #     enum-like ones so the editor cannot send nonsense;
-#   * the renderer keeps the per-character exit wiring - the fall, the detach schedule, the
-#     per-character stagger and the finished-record lifecycle - because none of it compiles into
-#     anything a build would notice if it went missing;
+#   * the renderer keeps the per-character exit wiring - the body a falling unit is handed, the
+#     detach schedule, the per-character stagger and the finished-record lifecycle - because none of
+#     it compiles into anything a build would notice if it went missing;
 #   * the call-time text override stays wired: the payload's textOverride field, the
 #     VFXTextSpec.withContent() method, the command's MAX_TEXT_OVERRIDE cap and the one place the
 #     manager applies it.
@@ -61,7 +61,10 @@ foreach ($param in 'reveal', 'exit', 'exit_at', 'exit_stagger', 'exit_speed', 'g
 }
 
 # --- the exit wiring in the renderer ----------------------------------------------------------
-foreach ($pattern in 'fallOffset', 'detachTime', 'exit_stagger', 'finished', 'setBillboardConstraints',
+# 'createFall' is what hands a detaching unit to its body; the body itself is what the fall is now,
+# so both names are pinned along with the interpolation fraction that draws the 20 Hz step smoothly.
+foreach ($pattern in 'createFall\(', 'VFXTextBody', 'lastFraction', 'detachTime', 'exit_stagger',
+		'finished', 'setBillboardConstraints',
 		'setBrightnessOverride', 'billboard\(', 'brightnessLevel\(', 'two_sided',
 		'FLAG_SEE_THROUGH', 'through_blocks', 'holdOf\(') {
 	Require-Pattern $rendererPath $pattern "the renderer lost '$pattern' from the per-character exit"
