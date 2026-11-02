@@ -171,7 +171,8 @@ surface - constant, `start`/`end`, `keyframes`, `bind`, `expr`, the `/vfx play` 
 | `collision` | 1 | yes | `>= 0.5` lets a falling character stop on a surface, `< 0.5` lets it fall straight through. Clamped `0..1` |
 | `bounce` | 0.15 | yes (`world` only) | Restitution of the single rebound after landing, `0..1`. `0` lands and stays down. `flat` has no rebound: a character that reaches the bottom edge holds there and fades |
 | `friction` | 0.4 | **not read yet** | Would be the tangential damping on impact; the fall is vertical only, so there is nothing to damp |
-| `fade_out` | 0.5 | yes | Seconds a character takes to fade once it has left (fade exit) or once it has come to rest (fall exit). Floored at `1e-4` |
+| `hold` | 0 | yes | Seconds a character stays **fully opaque after it lands**, before its fade starts: the landing time (the impact plus the rebound hop in `world`, the bottom edge in `flat`) plus `hold` is when the opacity begins to fall. A duration, so **no upper limit**; floored at `0`, because a negative value would run the fade backwards. It is the fall exit's wait - a fade exit has no landing to hold on |
+| `fade_out` | 0.5 | yes | Seconds the fade takes once it has started. **`0` means never fade**: the character stays fully opaque until the effect stops instead of vanishing the instant it lands (or detaches). Above `0` the division is floored at `1e-4`, so a tiny non-zero value is a very fast fade and only `0` is read as "keep it" |
 | `rot_x` | 0 | yes | Baseline orientation of the whole block, degrees. This is the `billboard: 0` (auto) rule: with `rot_x`, `rot_y` and `rot_z` all at zero the block is a **billboard facing the camera**, so it is readable from any side; setting any of the three pins it in world orientation |
 | `rot_y` | 0 | yes | Baseline orientation of the whole block, degrees, Y. It takes part in the billboard rule above: any non-zero value pins the block in the world |
 | `rot_z` | 0 | yes (`world` only) | Baseline orientation of the whole block, degrees, Z. `flat` turns about Z with `angle` and `spin_z` instead, so this is not read there. It is part of the `billboard: 0` auto rule in `world`: only while all three are zero does the block face the camera |
@@ -190,8 +191,9 @@ Notes on the numbers:
   `through_blocks` and `shadow` included - is read again every frame.
 - **No upper limits on the motion.** `gravity`, `exit_speed`, `spread`, `spin_*`, `scale`, `pos_*` and the
   delays accept any value: a huge `gravity` or `exit_speed` just makes the drop instant, a huge
-  `spin_*` makes the letter a blur. Only the lower guards that avoid degenerate maths are applied
-  (`gravity >= 1e-3`, `fade_out >= 1e-4`), plus the `0..1` fractions listed in the table. The three
+  `spin_*` makes the letter a blur, a huge `hold` just keeps the letters standing. Only the lower
+  guards that avoid degenerate maths are applied (`gravity >= 1e-3`, `hold >= 0`, and the `1e-4` floor
+  on the division when `fade_out` is above `0`), plus the `0..1` fractions listed in the table. The three
   scramble shapes follow the same rule: `scramble_rate`, `scramble_band` and `scramble_time` have only
   floors (`>= 0`) and no ceiling, and `scramble` itself is the one bounded value, an intensity read
   as `0..1`.
@@ -209,7 +211,9 @@ Notes on the numbers:
   the effect's own weight - so `duration`/`fade_ticks` fade the whole block in and out on top of
   everything else, and stopping the effect never pops the text.
 - **Only `world` has a finished state.** Once every unit has faded out, its entities are
-  released; when the effect loops or is replayed the block is rebuilt from the definition. `flat` has
+  released; when the effect loops or is replayed the block is rebuilt from the definition. A block
+  with `fade_out: 0` never gets there and leaks nothing: its characters are released when the effect
+  stops being active or the level changes, and a looping effect reuses them. `flat` has
   no finished state at all: it draws from a layout cached per instance and keeps drawing - with
   nothing visible - until the effect stops being active, which is when `VFXClientRenderHooks` prunes
   that cache entry.
@@ -315,16 +319,41 @@ mirrored copy of the first - from behind the letters read reversed, like the bac
 a **fall**.
 
 - **Fade (`exit: 0`).** Unit `i` starts fading at `exit_at + i * exit_stagger` seconds and is gone
-  `fade_out` seconds later. Nothing moves; only the opacity falls.
+  `fade_out` seconds later. Nothing moves; only the opacity falls. There is no landing in a fade, so
+  `hold` is not read by it.
 - **Fall (`exit: 1`).** The same schedule detaches the units, but they also move: `exit_speed`
   downwards plus a sideways `spread`, accelerated by `gravity`, spin from `spin_x`/`spin_y`/`spin_z`
   (with `tumble` mixing the axis per unit). Every character jitters its own speed, its own `gravity`
   in `0.85..1.15`, its own scatter direction and its own spin speed, all drawn from a hash of the
   instance id and its index, so no two letters fall the same way and the same tick always looks the
-  same. A falling unit stays opaque until it comes to rest and fades over
-  `fade_out` after that; with nothing to land on it fades from the moment it detaches, so a block
-  always reaches zero - and in `world` mode its entities are released there (`flat` has no entities
-  to release).
+  same.
+
+**Three levers time the fall, and each one does a different job:**
+
+- **`exit_at` and `exit_stagger` say *when* a unit leaves.** Unit `i` detaches at
+  `exit_at + i * exit_stagger`, so a stagger above `0` takes the line apart letter by letter instead
+  of all at once. `exit_at` is `-1` by default, which means the block never leaves on its own and
+  stands until the effect is stopped.
+- **`hold` says *how long a landed unit stays whole*.** The fade starts at the landing time (the
+  impact plus the one rebound) **plus `hold`** seconds, so `hold: 2` is two seconds of a crisp, fully
+  opaque letter sitting where it fell before anything starts to disappear. `0` (the default) fades
+  from the instant it lands, which is what the effect always did.
+- **`fade_out` says *how long that fade takes*.** Unit opacity is
+  `1 - clamp01((since - landing - hold) / fade_out)`, so a larger value is a longer, softer dissolve.
+
+`fade_out: 0` is the fourth state, and the one for letters that must not go anywhere: it means
+**never fade**, not "vanish instantly". The unit stays fully opaque until the effect stops, so a fall
+with `hold` and `fade_out: 0` is a pile of letters that simply stays. Nothing leaks: a `world` block
+that never reaches zero keeps its display entities and they are released when the effect stops being
+active or the level changes, and a looping effect reuses them, `since` turning negative again and the
+standing line coming back at full opacity. A non-zero `fade_out` still always reaches zero, and a
+fully faded `world` block releases its entities right there (`flat` has no entities to release).
+
+**A free fall has no landing.** With nothing to land on - `collision: 0`, or a column with no surface
+within 64 blocks - `hold` never starts, because it is measured from a landing that never happens: the
+fade begins the moment the unit detaches, and `fade_out` is what decides whether it disappears on the
+way down. Unless `fade_out` is `0`: then there is no fade at all and the letter keeps falling, fully
+opaque, until the effect stops.
 
 `collision` is the same switch in both modes; only the surface differs:
 
@@ -346,14 +375,15 @@ a **fall**.
   where it went.
 
 That second half is the code, not only the design: **both exits run in both modes, on one timeline.**
-`flat` reads the same `exit_at` + `index * exit_stagger` schedule, the same `exit` code and the same
-`fade_out`; what differs is the space the motion is measured in. A `flat` fall moves the unit in
-**screen heights** - `exit_speed` is screen heights per second and `gravity` screen heights per second
-squared, multiplied by the GUI height - so GUI scale 2 and GUI scale 4 put the text in the same place
-at the same moment. The sideways drift a leaving unit gets from the per-unit jitter is folded back
-inside the frame width, so a unit bounces off the left and right edges, and one that reaches the
-bottom edge stops there and fades: a `flat` landing does not rebound, so `bounce` is a `world`-only
-param. `flat` spins a unit about its own centre, which a 2D pose can only do about Z, so it reads
+`flat` reads the same `exit_at` + `index * exit_stagger` schedule, the same `exit` code, the same
+`hold` and the same `fade_out`; what differs is the space the motion is measured in. A `flat` fall
+moves the unit in **screen heights** - `exit_speed` is screen heights per second and `gravity` screen
+heights per second squared, multiplied by the GUI height - so GUI scale 2 and GUI scale 4 put the
+text in the same place at the same moment. The sideways drift a leaving unit gets from the per-unit
+jitter is folded back inside the frame width, so a unit bounces off the left and right edges, and one
+that reaches the bottom edge stops there, holds for `hold` and fades: a `flat` landing does not
+rebound, so `bounce` is a `world`-only param. `flat` spins a unit about its own centre, which a 2D
+pose can only do about Z, so it reads
 `spin_z` alone (with `tumble` flipping its direction per unit instead of moving its axis), and the
 block's own turn comes from `angle` - `rot_x`, `rot_y` and `rot_z` stay `world`-only. `exit_stagger` and
 `collision` mean the same thing in both modes.

@@ -53,7 +53,8 @@ Require-Pattern $defPath 'getText\(' "VFXDefinition has no getText()"
 # --- the schema ------------------------------------------------------------------------------
 Require-Pattern $schemaPath 'TEXT_OVERLAY' "the schema does not register TEXT_OVERLAY"
 foreach ($param in 'reveal', 'exit', 'exit_at', 'exit_stagger', 'exit_speed', 'gravity',
-		'spin_x', 'spin_y', 'spin_z', 'tumble', 'collision', 'bounce', 'friction', 'fade_out',
+		'spin_x', 'spin_y', 'spin_z', 'tumble', 'collision', 'bounce', 'friction', 'hold',
+		'fade_out',
 		'rot_x', 'rot_y', 'rot_z', 'angle', 'per_char_anim', 'stagger', 'wrap_width', 'gradient',
 		'shadow', 'outline', 'billboard', 'brightness', 'two_sided', 'through_blocks') {
 	Require-Pattern $schemaPath ('"' + $param + '"') "the schema is missing param '$param'"
@@ -62,7 +63,7 @@ foreach ($param in 'reveal', 'exit', 'exit_at', 'exit_stagger', 'exit_speed', 'g
 # --- the exit wiring in the renderer ----------------------------------------------------------
 foreach ($pattern in 'fallOffset', 'detachTime', 'exit_stagger', 'finished', 'setBillboardConstraints',
 		'setBrightnessOverride', 'billboard\(', 'brightnessLevel\(', 'two_sided',
-		'FLAG_SEE_THROUGH', 'through_blocks') {
+		'FLAG_SEE_THROUGH', 'through_blocks', 'holdOf\(') {
 	Require-Pattern $rendererPath $pattern "the renderer lost '$pattern' from the per-character exit"
 }
 

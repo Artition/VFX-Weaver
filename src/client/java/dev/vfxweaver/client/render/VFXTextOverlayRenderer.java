@@ -90,7 +90,8 @@ import org.slf4j.LoggerFactory;
  * block) as one piece, and its glyphs are drawn inside that one pose.
  *
  * <p>The flat exit is the world exit's timeline in screen space: the same {@code exit_at},
- * {@code exit_stagger}, {@code exit}, {@code exit_speed}, {@code gravity} and {@code fade_out}, but
+ * {@code exit_stagger}, {@code exit}, {@code exit_speed}, {@code gravity}, {@code hold} and
+ * {@code fade_out}, but
  * {@code gravity} and the speeds are read in screen heights per second, so every offset is multiplied
  * by the GUI height and the fall looks the same at GUI scale 2 and 4. With {@code collision} on, a
  * falling character is stopped by the bottom edge and fades out holding there, and its sideways drift
@@ -1147,28 +1148,44 @@ public final class VFXTextOverlayRenderer {
 	}
 
 	// Opacity of character 'index' from its exit timeline: 1 until it has started leaving, then the
-	// fade exit's ramp, or - for a fall - 1 until it has landed and the ramp after that.
+	// fade exit's ramp, or - for a fall - 1 until it has landed and held for 'hold' and the ramp
+	// after that.
 	private static float exitAlpha(final VFXActiveEffect effect, final int index,
 			final float restY, final float floorY) {
 		final float since = exitSince(effect, index);
 		if (since < 0.0F) {
 			return 1.0F;
 		}
-		// A zero fade would divide by zero; the lower bound is the only guard needed here.
-		final float fadeOut = Math.max(effect.getParam("fade_out", 0.5F), 1e-4F);
 		if (effect.getParam("exit", 0.0F) < 0.5F) {
-			return 1.0F - clamp01(since / fadeOut);
+			return fade(effect, since, 0.0F);
 		}
-		// The rule: without a floor, or with collision off, there is no landing to wait for, so the
-		// letter fades from the moment it detaches over 'fade_out' instead of holding until impact.
+		// Without a floor, or with collision off, there is no landing to wait for, so the letter
+		// fades from the moment it detaches unless 'fade_out' is 0, where it simply keeps falling.
 		final float landing = landedAt(effect, index, restY, floorY);
 		if (landing < 0.0F) {
-			// Nothing to land on: the letter falls through the world, so it fades with the fall
-			// instead of waiting for a landing that never comes - and still reaches zero, or the
-			// block would never be released.
-			return 1.0F - clamp01(since / fadeOut);
+			return fade(effect, since, 0.0F);
 		}
-		return since <= landing ? 1.0F : 1.0F - clamp01((since - landing) / fadeOut);
+		return fade(effect, since, landing + holdOf(effect));
+	}
+
+	// The fade ramp itself, shared by both modes and both exits: fully opaque up to 'from' seconds
+	// after the detach, then falling linearly to zero over 'fade_out'. A 'fade_out' of 0 is not a
+	// fade: the character never reaches zero and stays visible until the effect stops, which is what
+	// keeps the letters on screen. The small lower bound is applied to the division only, so it
+	// guards against a divide by zero without ever reinterpreting an authored 0 as "instant".
+	private static float fade(final VFXActiveEffect effect, final float since, final float from) {
+		final float fadeOut = effect.getParam("fade_out", 0.5F);
+		if (fadeOut <= 0.0F) {
+			return 1.0F;
+		}
+		return 1.0F - clamp01((since - from) / Math.max(fadeOut, 1.0e-4F));
+	}
+
+	// Seconds a landed character stays fully opaque before its fade starts. A duration, so it has
+	// no upper limit; a negative value would run the fade backwards before the landing, so it is
+	// floored at zero.
+	private static float holdOf(final VFXActiveEffect effect) {
+		return Math.max(effect.getParam("hold", 0.0F), 0.0F);
 	}
 
 	// When the fall comes to rest, in seconds since it detached: the impact plus the rebound hop, or
@@ -1262,24 +1279,23 @@ public final class VFXTextOverlayRenderer {
 	}
 
 	// Opacity of flat character 'index' from the same timeline: 1 until it detaches, then the fade
-	// exit's ramp, or - for a fall - 1 until it has hit the bottom edge and the ramp while it holds.
+	// exit's ramp, or - for a fall - 1 until it has hit the bottom edge, held for 'hold', and the
+	// ramp while it holds there.
 	private static float flatExitAlpha(final VFXActiveEffect effect, final int index,
 			final float since, final float restY, final float floorY, final float guiHeight) {
 		if (since < 0.0F) {
 			return 1.0F;
 		}
-		// A zero fade would divide by zero; the lower bound is the only guard needed here.
-		final float fadeOut = Math.max(effect.getParam("fade_out", 0.5F), 1e-4F);
 		if (effect.getParam("exit", 0.0F) < 0.5F) {
-			return 1.0F - clamp01(since / fadeOut);
+			return fade(effect, since, 0.0F);
 		}
 		final float impact = flatImpact(effect, index, restY, floorY, guiHeight);
 		if (impact < 0.0F) {
 			// Nothing to land on: there is no impact to wait for, so the letter fades with the fall
-			// and still reaches zero instead of hanging in the frame for ever.
-			return 1.0F - clamp01(since / fadeOut);
+			// unless 'fade_out' is 0, where it falls on until the effect stops.
+			return fade(effect, since, 0.0F);
 		}
-		return since <= impact ? 1.0F : 1.0F - clamp01((since - impact) / fadeOut);
+		return fade(effect, since, impact + holdOf(effect));
 	}
 
 	// A flat character's extra rotation while it leaves, in degrees: a 2D pose can only turn about z,
@@ -1340,6 +1356,11 @@ public final class VFXTextOverlayRenderer {
 	// The block is over: every character has faded out. Its characters are released now, and the
 	// pool entry stays behind carrying the age it finished at, so 'ensure' neither respawns the line
 	// next frame nor keeps it dead once the effect loops or is replayed.
+	//
+	// A block that never fades ('fade_out' 0) never gets here, and that is fine: it is not leaked.
+	// Its characters are released by 'tick' when the effect stops being active and by
+	// 'handleLevelChange' when the level goes away, and a looping effect simply reuses them - the
+	// clock wraps, 'since' turns negative again and the standing line comes back at full opacity.
 	private static void finish(final VFXActiveEffect effect, final LiveText live) {
 		live.finishedAt = age(effect);
 		release(live);
