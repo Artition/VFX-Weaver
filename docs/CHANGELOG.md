@@ -3,7 +3,7 @@
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 **This page is the authoritative record of released mod versions.** The newest entry is the current
-mod version (`2.5.0`, read from `mod_version` in the build). Each `##` heading names a release; where
+mod version (`2.6.0`, read from `mod_version` in the build). Each `##` heading names a release; where
 a release shipped with a guide revision the heading shows both numbers (`v1.2.0 / Guide v32`), and a
 heading titled only `Guide vN` is a guide change that shipped without a mod version bump. The two
 numbers are independent: the **mod version** is what you download, the **guide revision** is how many
@@ -12,7 +12,7 @@ times this documentation has been revised. The authoritative record of guide rev
 the [download table](index.md#download). Add new entries at the top, in the same PR as the behaviour
 change.
 
-## Unreleased
+## 2.6.0 - 2026-11-02
 
 ### Added
 - **The editor edits a `text_overlay` block and badges its mode-only sockets.** The visual node editor now has a **Text** panel on a `text_overlay` node - a `content` textarea and `mode`/`font`/`align`/`anchor`/`split` selects generated from the schema (`structural.supportsText` + `structural.textFields`, all six keys and their enum spellings derived from `VFXTextSpec`, including its `FONT_IDS` constant for the font spellings). A new node carries a seeded block (`Text` plus the parser defaults `flat`/`default`/`center`/`center`/`char`) as soon as it is created, so it compiles to a valid definition before the inspector ever renders; an imported block is read from the definition and written into the IR only on the first actual edit, so an untouched import round-trips byte for byte (unknown keys and original casing included). The compiler emits only the six known keys, enum values lowercased, and drops the block on a blank `content`. The canvas draws **`2D`** on the flat-only sockets (`x`/`y`/`angle`) and **`3D`** on the world-only ones (`pos_x`/`pos_y`/`pos_z`, `rot_x`/`rot_y`/`rot_z`, `billboard`, `brightness`, `two_sided`, `through_blocks`), dimmed when the badge's mode is not the block's current `mode` - nothing is hidden, show-all stays the only mode. No renderer, parser or wire change, `PROTOCOL_VERSION` unchanged. Pinned by `scripts/run-editor-selftest.js` (TEXT1-4) and documented on the [text_overlay](guide/effects/text/text-overlay.md) page. **Not verified in game** (the badges are canvas pixels; the compiler selftest is headless).

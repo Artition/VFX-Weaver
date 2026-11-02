@@ -5,8 +5,11 @@ documentation changed. A guide revision is not a mod version — the two numbers
 released mod versions are recorded on the **[mod Changelog](../CHANGELOG.md)** instead. Where a guide
 revision shipped with a release, the entry says so (for example `v47 — released as 2.0.0`).
 
-Current guide revision: **v86**. Mod version it documents: **2.5.0**. Which jar
+Current guide revision: **v87**. Mod version it documents: **2.6.0**. Which jar
 to download is in the [download table](../index.md#download).
+
+### v87 - documents 2.6.0
+- **2.6.0 release: `text_overlay` now ships on all six nodes, and the editor documents how to author it.** The release carries the `text_overlay` effect on every (Minecraft line, loader) node - 26.2, 26.1.2 and 1.21.11, Fabric and NeoForge - in **both** modes: `world` draws the block in the world and `flat` draws it on the HUD, the HUD path no longer being 26.2-only. The [text_overlay](effects/text/text-overlay.md) page documents the block in full, including the HUD exit that runs on the same body as the world fall. The [editor page](editor.md) documents what the visual editor offers for it: a **Text** panel on a `text_overlay` node (a `content` textarea plus the `mode`/`font`/`align`/`anchor`/`split` selects, with the editor's own dropdowns rather than the browser's native popups) and the **`2D`**/**`3D`** badges on the mode-only sockets.
 
 ### v86 - documents 2.5.0
 - **The [text_overlay](effects/text/text-overlay.md) page says what the visual editor offers for the block.** A `text_overlay` node's inspector draws a **Text** panel (a `content` textarea plus `mode`/`font`/`align`/`anchor`/`split` selects from the schema; a new node is created with the defaults, and an imported block is written into the editor's model only on the first edit, so an untouched import re-exports unchanged), and its mode-only param sockets carry a **`2D`**/`3D` badge (`x`/`y`/`angle` versus the world position/rotation/billboard/brightness/two_sided/through_blocks rows), dimmed when the badge's mode is not the block's current `mode`. Nothing is hidden.
