@@ -39,8 +39,8 @@ import org.slf4j.LoggerFactory;
  *
  * <p>The characters are laid out once by {@link VFXTextLayout} at unit scale and then placed every
  * frame from the animatable params - the frame's first world slot (a runtime move, a {@code positions}
- * entry or an entity anchor) plus {@code pos_x/pos_y/pos_z} as an offset from it, or those params
- * alone as absolute coordinates when the definition has no slot - {@code rot_x/rot_y/rot_z}
+ * entry or an entity anchor) as the origin, or {@code pos_x/pos_y/pos_z} alone as absolute
+ * coordinates when the definition has no slot at all - {@code rot_x/rot_y/rot_z}
  * for the orientation, {@code scale} for the size of the whole block, the spec's {@code align} and
  * {@code anchor} for which point of the block sits on that origin - so moving, rotating or scaling an
  * already-running effect moves the whole block without respawning anything. {@code colour_r/g/b} and
@@ -209,12 +209,12 @@ public final class VFXTextOverlayRenderer {
 		placeBlock(effect, live, spec, origin);
 	}
 
-	// The point the block is measured from. A definition with a slot (a move, a 'positions' entry
-	// or an entity anchor) is measured from that slot, and pos_x/pos_y/pos_z become an offset from
-	// it, so pos_y 2 is two blocks above whatever block the effect was played at. A definition
-	// without a slot keeps the old absolute pos_* - 'slot' is then only the resolver's echo of those
-	// same params, centred on X/Z for the other effects, and using it here would move every block
-	// that already exists.
+	// The point the block is measured from. When the definition has a slot - a runtime move, a
+	// 'positions' entry, an entity anchor or the play-time position - that slot IS the origin and
+	// pos_x/pos_y/pos_z are ignored, exactly the rule every other world effect follows: a played-at
+	// position wins over the authored coordinates instead of adding to them. A definition with no
+	// slot at all keeps the absolute pos_*; 'slot' is then only the resolver's echo of those same
+	// params, centred on X/Z for the other effects, so it is not used here.
 	private static Vec3 origin(final VFXActiveEffect effect, final Vec3 slot) {
 		final boolean hasSlot = effect.getMovePosition() != null || !effect.getPositions().isEmpty()
 			|| !effect.getAnchors().isEmpty();
@@ -222,8 +222,7 @@ public final class VFXTextOverlayRenderer {
 			return new Vec3(effect.getParam("pos_x", 0.0F), effect.getParam("pos_y", 0.0F),
 				effect.getParam("pos_z", 0.0F));
 		}
-		return new Vec3(slot.x + effect.getParam("pos_x", 0.0F),
-			slot.y + effect.getParam("pos_y", 0.0F), slot.z + effect.getParam("pos_z", 0.0F));
+		return slot;
 	}
 
 	// Draws the flat-mode block of one text effect onto the HUD. Called once per frame per flat
@@ -456,7 +455,8 @@ public final class VFXTextOverlayRenderer {
 	// spec   - the authored block, for the align/anchor shifts
 	// layout - the unit-scale layout the characters come from
 	// count  - how many characters actually got an entity (the cap drops the tail)
-	// origin - the point the block is measured from this frame (a slot plus the pos_* offset)
+	// origin - the point the block is measured from this frame (the slot, or the absolute pos_*
+	//          when the definition has none)
 	private static float[] floors(final VFXActiveEffect effect, final ClientLevel level,
 			final VFXTextSpec spec, final VFXTextLayout layout, final int count, final Vec3 origin) {
 		final float scale = effect.getParam("scale", 1.0F);
