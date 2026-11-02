@@ -22,7 +22,11 @@ import net.minecraft.network.chat.TextColor;
 import net.minecraft.util.Brightness;
 import net.minecraft.world.entity.Display;
 import net.minecraft.world.entity.EntityTypes;
+import net.minecraft.world.level.ClipContext;
+import net.minecraft.world.phys.BlockHitResult;
+import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
+import net.minecraft.world.phys.shapes.CollisionContext;
 import org.joml.Matrix3x2fStack;
 import org.joml.Quaternionf;
 import org.joml.Vector2f;
@@ -117,15 +121,18 @@ import org.slf4j.LoggerFactory;
  * <p>A fading exit is computed from the clock, never accumulated, so the same tick always yields the
  * same frame: unit {@code index} starts leaving at {@code exit_at + index * exit_stagger} seconds,
  * and with {@code exit < 0.5} it only fades in place. With {@code exit >= 0.5} the unit is handed to
- * a {@link VFXTextBody} the moment it detaches - one rigid rectangle per unit, seeded with the rest
- * pose it had then, the {@code spread} scatter and {@code exit_speed} upward as its velocity, and
- * the {@code spin_*} / {@code tumble} angular velocity with its per-unit jitter - and from then on it
- * <strong>falls, bounces and settles in real world geometry</strong>: the body is integrated once per
- * client tick by the same step {@link VFXBlockParticleEngine} uses and drawn at the interpolation
- * between the last two ticks, so 20 Hz physics still looks smooth. That per-tick state is the one
- * place this renderer is not a closed form of the clock: a replay from the effect's start matches
- * frame for frame, while jumping into the middle of a run does not reproduce the same resting
- * arrangement - the trade the block particles make.
+ * a {@link VFXTextBody} the moment it detaches - a light per-unit body seeded with the rest pose it
+ * had then, the {@code spread} scatter and {@code exit_speed} upward as its velocity, and the
+ * {@code spin_*} / {@code tumble} angular velocity with its per-unit jitter - and from then on it
+ * <strong>falls, bounces once and settles</strong>. One downward raycast, taken at that moment, is
+ * the only thing the body knows about the world: it is the Y the glyph lands on, so a letter comes
+ * to rest on the ground under the spot it detached from and never tips over an edge, slides down a
+ * slope or tumbles through a gap. The body is integrated once per client tick by the same step
+ * {@link VFXBlockParticleEngine} uses and drawn at the interpolation between the last two ticks, so
+ * 20 Hz physics still looks smooth. That per-tick state is the one place this renderer is not a
+ * closed form of the clock: a replay from the effect's start matches frame for frame, while jumping
+ * into the middle of a run does not reproduce the same resting arrangement - the trade the block
+ * particles make.
  *
  * <p>{@code flat} mode keeps the closed-form timeline of the same params: the HUD has no geometry to
  * hit, so a 2D block keeps the analytic fall and needs no body.
@@ -177,14 +184,12 @@ public final class VFXTextOverlayRenderer {
 	// reaches zero, lets 'finish' run and releases its displays. Chosen well above any fall a level
 	// can produce, and raised only if a level can honestly outlast it.
 	private static final float RELEASE_SECONDS = 10.0F;
-	// The collision padding a falling glyph is resolved with, in blocks: its half-thickness, not its
-	// half-height. A glyph is a flat quad a few millimetres deep, and VFXWorldCollision.resolve
-	// depenetrates a point box of this radius, so the padding becomes the height at which the body
-	// comes to rest above the surface - passing half the glyph's height would leave every landed
-	// letter floating at half its own size over the floor. Two centimetres is the quad's own depth
-	// with a little margin, so the letter lies on the surface instead of sinking into it. The body
-	// floors it at its own minimum, so this value only has to be honest, not tiny-proof.
-	private static final double COLLISION_PADDING = 0.02;
+	// How far down the one raycast taken when a unit detaches looks for the ground, in blocks. The
+	// body never queries the world again after that, so this is the whole of its knowledge of the
+	// terrain: a glyph whose column has nothing within this distance under it has no floor and keeps
+	// falling until the release guarantees pick it up. Deep enough for a letter dropped off a cliff
+	// to catch the valley below it, short enough that a void drop is not a raycast into nothing.
+	private static final double FLOOR_RAY_LENGTH = 32.0;
 	// The pool a scrambled character draws its noise from: no lowercase, so a decode reads as machine
 	// output, and a fixed order, so the hash's index into it is stable between runs.
 	private static final String NOISE_GLYPHS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789#$%&*+=-<>/?";
@@ -247,9 +252,9 @@ public final class VFXTextOverlayRenderer {
 	}
 
 	// One unit's fall: the body that carries it and the physics it is stepped with, both built once
-	// when the unit detaches, plus the 'since' at which it finished lying down or was released for
-	// falling out of sight. A unit without a Fall still stands in the line, or left by a fade, and
-	// is placed from its rest pose.
+	// when the unit detaches, plus the 'since' at which it came to rest or was released for falling
+	// out of sight. A unit without a Fall still stands in the line, or left by a fade, and is placed
+	// from its rest pose.
 	private static final class Fall {
 		private final VFXTextBody body;
 		private final VFXTextBody.Params params;
@@ -535,7 +540,7 @@ public final class VFXTextOverlayRenderer {
 			accumulator -= steps;
 			for (int step = 0; step < steps; step++) {
 				for (final LiveText live : LIVE.values()) {
-					stepBodies(level, live);
+					stepBodies(live);
 				}
 			}
 		}
@@ -547,10 +552,10 @@ public final class VFXTextOverlayRenderer {
 
 	// Integrates every body of one block by one tick. A settled body is not stepped at all (the body
 	// itself refuses), so a line that has come to rest costs nothing.
-	private static void stepBodies(final ClientLevel level, final LiveText live) {
+	private static void stepBodies(final LiveText live) {
 		for (final Fall fall : live.falls) {
 			if (fall != null) {
-				fall.body.step(level, fall.params);
+				fall.body.step(fall.params);
 			}
 		}
 	}
@@ -802,57 +807,73 @@ public final class VFXTextOverlayRenderer {
 			? Display.TextDisplay.FLAG_ALIGN_LEFT : (byte) 0;
 	}
 
-	// Builds the body of a unit that has just detached: a rigid rectangle standing at the rest pose
+	// Builds the body of a unit that has just detached: a light fall body standing at the rest pose
 	// the display carries this frame - a move or an animated rot_* lands here, so the fall starts
 	// exactly where the letter stood - moving the way 'exit_speed' (upward) and 'spread' (sideways)
 	// say. Both are authored in blocks per second and the body integrates in blocks per tick, hence
 	// the division by 20. 'gravity' is blocks per second squared, and the body reads it in the
 	// block-particle unit (a multiple of GRAVITY_STEP, i.e. 400 * GRAVITY_STEP per second squared),
 	// so the two engines agree on what a gravity of 18 means.
+	//
+	// The one thing the body is told about the world is the floor under it, taken here - once per
+	// unit, at the moment it detaches - with a single downward raycast against collider blocks. NaN
+	// (nothing under it, or 'collision' off) means no floor at all, so the unit keeps falling and the
+	// release guarantees end it.
 	private static Fall createFall(final VFXActiveEffect effect, final int index,
-			final Vec3 origin, final Vector3f local, final Quaternionf rotation) {
+			final Vec3 origin, final Vector3f local, final VFXTextLayout.Unit unit) {
 		final Vec3 rest = new Vec3(origin.x + local.x, origin.y + local.y, origin.z + local.z);
 		final Vector3f scatter = scatterVelocity(effect, index);
 		final Vec3 velocity = new Vec3(scatter.x / 20.0,
 			effect.getParam("exit_speed", 0.0F) * jitter(effect, index) / 20.0, scatter.z / 20.0);
-		// 'friction' is air drag per tick and the tangential velocity kept on contact, exactly as in
-		// the block-particle spec - and it has to be below 1 for a glyph that lands skidding to stop
-		// skidding, which is what lets the body come to rest and the fade start.
+		// 'friction' is air drag per tick and the share of the horizontal drift kept on a contact,
+		// exactly as in the block-particle spec - and it has to be below 1 for a glyph that lands
+		// skidding to stop skidding, which is what lets the body come to rest and the fade start.
 		final VFXTextBody.Params params = new VFXTextBody.Params(
 			gravityOf(effect) / (400.0F * VFXBlockParticleSpec.GRAVITY_STEP),
 			effect.getParam("friction", 0.94F),
-			effect.getParam("bounce", 0.15F),
-			effect.getParam("collision", 1.0F) >= 0.5F,
-			COLLISION_PADDING,
-			effect.getParam("tumble", 0.0F) >= 0.5F);
-		return new Fall(new VFXTextBody(rest, velocity, rotation,
-			initialAngularVelocity(effect, index)), params);
+			effect.getParam("bounce", 0.15F));
+		// The radius the roll is derived from: the glyph's own half-height in world units, so a
+		// letter rolls over its own edge instead of spinning at a made-up rate, and a tall block
+		// rolls slower than a small one at the same drift.
+		final float radius = Minecraft.getInstance().font.lineHeight * unit.lines() * 0.5F
+			* Math.max(effect.getParam("scale", 1.0F), 1.0e-4F) * WORLD_UNITS_PER_FONT_PIXEL;
+		final boolean collide = effect.getParam("collision", 1.0F) >= 0.5F;
+		return new Fall(new VFXTextBody(rest, velocity, initialSpin(effect, index), radius,
+			collide ? floorBelow(rest) : Double.NaN), params);
 	}
 
-	// The angular velocity a unit starts its fall with, in radians per tick: the authored
-	// 'spin_x/y/z' axis at |spin| times the unit's own jitter (degrees per second, so a twentieth of
-	// that per tick). 'tumble' replaces the axis with the same per-unit off-axis direction the
-	// closed form used, at the same speed, so the letters do not all wheel about one world axis. A
-	// spin of zero has no axis to turn about, so the body keeps its detach orientation.
-	private static Vector3f initialAngularVelocity(final VFXActiveEffect effect, final int index) {
-		final Vector3f axis = new Vector3f(effect.getParam("spin_x", 0.0F),
-			effect.getParam("spin_y", 0.0F), effect.getParam("spin_z", 0.0F));
-		final float length = axis.length();
-		final float speed = length * jitter(effect, index);
+	// The Y the glyph of a detaching unit lands on: one downward raycast from where it stands,
+	// against the level's collider blocks only (a plant or a torch is not a floor), over
+	// 'FLOOR_RAY_LENGTH' blocks. NaN when there is no level, no hit at all or a miss - the body then
+	// has no floor and falls until the release guarantees end it. This is the whole of the body's
+	// knowledge of the world, which is why a letter lands on the ground under the spot it detached
+	// from.
+	private static double floorBelow(final Vec3 from) {
+		if (lastLevel == null) {
+			return Double.NaN;
+		}
+		final Vec3 to = from.subtract(0.0, FLOOR_RAY_LENGTH, 0.0);
+		final BlockHitResult hit = lastLevel.clip(new ClipContext(from, to,
+			ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, CollisionContext.empty()));
+		return hit == null || hit.getType() != HitResult.Type.BLOCK
+			? Double.NaN : hit.getLocation().y;
+	}
+
+	// The spin a unit starts its fall with, in radians per tick: 'spin_x/y/z' give an axis whose
+	// length is the speed in degrees per second (a twentieth of that per tick), multiplied by the
+	// unit's own jitter so the letters do not turn together. The angle itself is always about the
+	// glyph's own plane normal, so the axis only supplies the speed; 'tumble' takes the direction
+	// from the same jitter, so the letters roll opposite ways instead of as one sheet.
+	private static float initialSpin(final VFXActiveEffect effect, final int index) {
+		final float axis = new Vector3f(effect.getParam("spin_x", 0.0F),
+			effect.getParam("spin_y", 0.0F), effect.getParam("spin_z", 0.0F)).length();
+		final float speed = axis * jitter(effect, index);
 		if (speed < 1e-4F) {
-			return new Vector3f();
+			return 0.0F;
 		}
-		if (effect.getParam("tumble", 0.0F) >= 0.5F) {
-			final float j = jitter(effect, index);
-			axis.set(j - 1.0F, 1.0F - j, 0.5F * j - 0.5F);
-			if (axis.lengthSquared() < 1e-8F) {
-				return new Vector3f();
-			}
-			axis.normalize();
-		} else {
-			axis.div(length);
-		}
-		return axis.mul((float) Math.toRadians(speed) / 20.0F);
+		final float radians = (float) Math.toRadians(speed) / 20.0F;
+		return effect.getParam("tumble", 0.0F) >= 0.5F && jitter(effect, index) < 1.0F
+			? -radians : radians;
 	}
 
 	// The effect's colour_r/g/b (0..1 each) as one packed 0xRRGGBB integer, white when unset.
@@ -928,16 +949,17 @@ public final class VFXTextOverlayRenderer {
 				live.falls[i] = null;
 				fall = null;
 			} else if (fall == null) {
-				fall = createFall(effect, i, origin, local, rotation);
+				fall = createFall(effect, i, origin, local, unit);
 				live.falls[i] = fall;
 			}
 			// The pose this frame: the rest pose while the unit stands, and the body's interpolated
-			// pose once it falls - the position lerped and the orientation slerped by the leftover
-			// tick fraction, so 20 Hz physics is drawn smoothly.
+			// pose once it falls - the position lerped and the roll lerped by the leftover tick
+			// fraction, so 20 Hz physics is drawn smoothly. The roll turns the glyph about its own
+			// plane normal, so a spinning letter is never edge-on.
 			final Vec3 rest = new Vec3(origin.x + local.x, origin.y + local.y, origin.z + local.z);
 			final Vec3 position = fall == null ? rest : fall.body.pos(lastFraction);
 			final Quaternionf orientation = fall == null ? new Quaternionf(rotation)
-				: fall.body.orientation(lastFraction);
+				: new Quaternionf(rotation).rotateZ(fall.body.angle(lastFraction));
 			// How far the body has carried the unit away from its rest pose. The twin is placed from
 			// its own rest offset plus this same displacement, so the pair cannot separate.
 			final double exitX = position.x - rest.x;
@@ -1176,19 +1198,18 @@ public final class VFXTextOverlayRenderer {
 	}
 
 	// Opacity of unit 'index' from its exit timeline: 1 while it stands, then the fade exit's ramp,
-	// or - for a fall - 1 until the body reports that its lie-down has finished, the 'hold' seconds
-	// after that, and then 'fade_out'. The time is recorded from the body itself, on the first frame
-	// it reports settled, so the hold and the ramp are timed from the tick the letter actually came
-	// to rest flat on its face - there is no closed form left to ask, and no guessed delay in front
-	// of the tip. A body that cannot rest (free fall, a bounce of 1 or a friction so close to 1 it
-	// never sheds its drift) would otherwise never reach the ramp, so the same hold + ramp starts the
-	// moment it is released: when it has left the world (below the level's minimum build height,
-	// where nothing can catch it) or when 'RELEASE_SECONDS' have passed without it coming to rest.
-	// Both are release guarantees, not gameplay limits - an honest fall lands or leaves the world
-	// long before either fires - and they let the block reach zero so 'finish' releases it whatever
-	// the physics is doing. With 'collision' off there is no floor at all, so 'fade_out' runs from
-	// the detach instead (and 0 keeps it opaque), which is the free-fall rule this renderer has
-	// always had.
+	// or - for a fall - 1 until the body reports resting, the 'hold' seconds after that, and then
+	// 'fade_out'. The time is recorded from the body itself, on the first frame it reports resting,
+	// so the hold and the ramp are timed from the tick the letter actually came to rest - there is no
+	// closed form left to ask. A body that cannot rest (free fall, a bounce of 1 or a friction so
+	// close to 1 it never sheds its drift) would otherwise never reach the ramp, so the same hold +
+	// ramp starts the moment it is released: when it has left the world (below the level's minimum
+	// build height, where nothing can catch it) or when 'RELEASE_SECONDS' have passed without it
+	// coming to rest. Both are release guarantees, not gameplay limits - an honest fall lands or
+	// leaves the world long before either fires - and they let the block reach zero so 'finish'
+	// releases it whatever the physics is doing. With 'collision' off there is no floor at all, so
+	// 'fade_out' runs from the detach instead (and 0 keeps it opaque), which is the free-fall rule
+	// this renderer has always had.
 	private static float exitAlpha(final VFXActiveEffect effect, final Fall fall, final float since) {
 		if (since < 0.0F) {
 			return 1.0F;
@@ -1203,7 +1224,7 @@ public final class VFXTextOverlayRenderer {
 			&& (stranded(fall.body) || since >= RELEASE_SECONDS)) {
 			fall.releaseSince = since;
 		}
-		if (fall.restSince < 0.0F && fall.body.settled()) {
+		if (fall.restSince < 0.0F && fall.body.resting()) {
 			fall.restSince = since;
 		}
 		final float from = fall.releaseSince >= 0.0F ? fall.releaseSince : fall.restSince;
