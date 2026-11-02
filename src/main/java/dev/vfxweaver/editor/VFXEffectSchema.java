@@ -190,7 +190,7 @@ public final class VFXEffectSchema {
 				"scramble", "scramble_rate", "scramble_band", "scramble_time",
 				"per_char_anim", "stagger", "exit", "exit_at", "exit_stagger", "exit_speed", "spread",
 				"gravity", "spin_x", "spin_y", "spin_z", "tumble", "collision", "bounce", "friction",
-				"fade_out", "rot_x", "rot_y", "rot_z", "angle"},
+				"fade_out", "rot_x", "rot_y", "rot_z", "angle", "billboard", "brightness"},
 			Map.of(
 				"reveal", new float[] {0.0F, 1.0F},
 				// The only bounded scramble param: a switch. 'scramble_rate' (swaps per second),
@@ -202,7 +202,11 @@ public final class VFXEffectSchema {
 				"bounce", new float[] {0.0F, 1.0F},
 				"friction", new float[] {0.0F, 1.0F},
 				"per_char_anim", new float[] {0.0F, 3.0F},
-				"exit", new float[] {0.0F, 1.0F}));
+				"exit", new float[] {0.0F, 1.0F},
+				// The four BillboardConstraints, plus 0 = "decide from rot_*". An enum, so 0..4.
+				"billboard", new float[] {0.0F, 4.0F},
+				// The light-level range, with -1 = "the world light": a spec range, not a cap.
+				"brightness", new float[] {-1.0F, 15.0F}));
 	}
 
 	/**

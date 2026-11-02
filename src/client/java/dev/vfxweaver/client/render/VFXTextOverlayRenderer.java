@@ -18,6 +18,7 @@ import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.Style;
 import net.minecraft.network.chat.TextColor;
+import net.minecraft.util.Brightness;
 import net.minecraft.world.entity.Display;
 import net.minecraft.world.entity.EntityTypes;
 import net.minecraft.world.phys.AABB;
@@ -44,8 +45,11 @@ import org.slf4j.LoggerFactory;
  * coordinates when the definition has no slot at all - {@code rot_x/rot_y/rot_z}
  * for the orientation, {@code scale} for the size of the whole block, the spec's {@code align} and
  * {@code anchor} for which point of the block sits on that origin - so moving, rotating or scaling an
- * already-running effect moves the whole block without respawning anything. {@code colour_r/g/b} and
- * {@code shadow} are re-applied per frame, but only written to the entities when the value changed.
+ * already-running effect moves the whole block without respawning anything. {@code billboard} picks
+ * how the block follows the camera (a fixed code, read once per display) and {@code brightness} picks
+ * the light the text is drawn in ({@code -1} = the world light, {@code 0..15} = an override).
+ * {@code colour_r/g/b}, {@code shadow} and {@code brightness} are re-applied per frame, but only
+ * written to the entities when the value changed.
  *
  * <p>{@code wrap_width} and {@code line_height} shape the layout, which is measured once when the
  * block is spawned, so they are sampled at that moment and are not animatable.
@@ -164,13 +168,14 @@ public final class VFXTextOverlayRenderer {
 		private final String[] ownTexts;
 		private final String[] lastTexts;
 		private int lastColour;
+		private int lastBrightness;
 		private final byte[] lastFlags;
 		private float finishedAt = -1.0F;
 
 		private LiveText(final long instanceId, final String signature,
 				final List<Display.TextDisplay> entities, final VFXTextLayout layout,
 				final float[] floors, final String[] ownTexts, final String[] lastTexts,
-				final int lastColour, final byte[] lastFlags) {
+				final int lastColour, final int lastBrightness, final byte[] lastFlags) {
 			this.instanceId = instanceId;
 			this.signature = signature;
 			this.entities = entities;
@@ -179,6 +184,7 @@ public final class VFXTextOverlayRenderer {
 			this.ownTexts = ownTexts;
 			this.lastTexts = lastTexts;
 			this.lastColour = lastColour;
+			this.lastBrightness = lastBrightness;
 			this.lastFlags = lastFlags;
 		}
 	}
@@ -486,13 +492,15 @@ public final class VFXTextOverlayRenderer {
 		final float spawnAlignShift = alignOffset(spec, layout.width() * scale);
 		final float spawnAnchorShiftY = anchorOffset(spec, layout.height() * scale);
 		final Quaternionf spawnRotation = blockRotation(effect);
-		// A display's billboard defaults to FIXED, which is one one-sided quad: a block that lies in
-		// the player's own XZ plane is then seen edge-on and reads as no text at all. With no authored
-		// rotation there is no orientation to preserve, so the characters are left facing the camera;
-		// any rot_* pins the block in world orientation, which is what those params mean.
-		final boolean cameraFacing = Math.abs(effect.getParam("rot_x", 0.0F)) < 1e-4F
-			&& Math.abs(effect.getParam("rot_y", 0.0F)) < 1e-4F
-			&& Math.abs(effect.getParam("rot_z", 0.0F)) < 1e-4F;
+		// The orientation rule is a param now, not a side effect of rot_*: 'billboard' names what the
+		// display does, and 0 keeps the historical rule - face the camera unless a rot_* pins the
+		// block. Structural, so it is read here with the rest pose: a display carries it while the
+		// block lives, and a change rebuilds nothing until the effect is respawned.
+		final Display.BillboardConstraints billboard = billboard(effect);
+		// The world light darkens the text in a shadow, and a title usually has to read anywhere, so
+		// 'brightness' defaults to full block and sky light; -1 hands the text back to the world
+		// light. It is animatable, so placeBlock re-reads it per frame and only writes a change.
+		final int brightness = brightnessLevel(effect);
 		// 'wrap_width' is a layout-unit width, and the layout measures in font pixels (scale 1), so
 		// the same width in font pixels is the param divided by the current 'scale'. Without
 		// wrapping, vanilla's own default width is used, which is what a 'block' unit is laid out at -
@@ -531,9 +539,11 @@ public final class VFXTextOverlayRenderer {
 			if (spec.split() == VFXTextSpec.Split.BLOCK) {
 				display.setLineWidth(lineWidth);
 			}
-			if (cameraFacing) {
-				display.setBillboardConstraints(Display.BillboardConstraints.CENTER);
-			}
+			// The orientation is decided once, before the display is added: a billboard constraint is a
+			// synced-data value the renderer reads per frame, not something to rewrite sixty times a
+			// second for a value that only a respawn can change.
+			display.setBillboardConstraints(billboard);
+			applyBrightness(display, brightness);
 			// The transform is refreshed every frame by placeBlock, so the display must interpolate
 			// it over one tick; without this the render state is only rebuilt on the entity tick and
 			// a moved block renders stepped at ~20 Hz.
@@ -584,7 +594,7 @@ public final class VFXTextOverlayRenderer {
 			lastFlags[i] = (byte) (shadowFlag | alignFlags(layout.units().get(i), spec.split()));
 		}
 		final LiveText live = new LiveText(effect.getInstanceId(), signature, entities, layout,
-			unresolvedFloors(entities.size()), ownTexts, lastTexts, colour, lastFlags);
+			unresolvedFloors(entities.size()), ownTexts, lastTexts, colour, brightness, lastFlags);
 		LIVE.put(effect.getInstanceId(), live);
 		return live;
 	}
@@ -720,6 +730,16 @@ public final class VFXTextOverlayRenderer {
 		final Style style = Style.EMPTY.withColor(TextColor.fromRgb(colour));
 		final boolean restyle = colour != live.lastColour;
 		live.lastColour = colour;
+		// 'brightness' is animatable, so it is re-read here like the colour and written to every
+		// display of the block only when the level actually changed - a standing line writes nothing,
+		// and a keyframed brightness costs one synced-data write per step instead of per frame.
+		final int brightness = brightnessLevel(effect);
+		if (brightness != live.lastBrightness) {
+			for (final Display.TextDisplay display : live.entities) {
+				applyBrightness(display, brightness);
+			}
+			live.lastBrightness = brightness;
+		}
 		final int count = layout.units().size();
 		final float revealed = reveal(effect) * count;
 		// Noise is only computed when 'scramble' is on: with it off every unit shows its own cached
@@ -796,6 +816,44 @@ public final class VFXTextOverlayRenderer {
 			.rotateX((float) Math.toRadians(effect.getParam("rot_x", 0.0F)))
 			.rotateY((float) Math.toRadians(effect.getParam("rot_y", 0.0F)))
 			.rotateZ((float) Math.toRadians(effect.getParam("rot_z", 0.0F)));
+	}
+
+	// What the block does with the camera, from the float code of 'billboard': 0 decides from the
+	// rest of the definition, 1..4 name one constraint outright. 0 is the historical rule, so a
+	// definition that never mentions the param renders exactly as it did: a display's billboard
+	// defaults to FIXED - one one-sided quad, which a block lying in the player's own XZ plane is
+	// seen edge-on and reads as no text at all - and with no authored rotation there is no
+	// orientation to preserve, so the block faces the camera; any rot_* pins it in world orientation,
+	// which is what those params mean.
+	private static Display.BillboardConstraints billboard(final VFXActiveEffect effect) {
+		return switch (Math.round(effect.getParam("billboard", 0.0F))) {
+			case 1 -> Display.BillboardConstraints.FIXED;
+			case 2 -> Display.BillboardConstraints.CENTER;
+			case 3 -> Display.BillboardConstraints.VERTICAL;
+			case 4 -> Display.BillboardConstraints.HORIZONTAL;
+			default -> {
+				final boolean pinned = Math.abs(effect.getParam("rot_x", 0.0F)) >= 1e-4F
+					|| Math.abs(effect.getParam("rot_y", 0.0F)) >= 1e-4F
+					|| Math.abs(effect.getParam("rot_z", 0.0F)) >= 1e-4F;
+				yield pinned ? Display.BillboardConstraints.FIXED : Display.BillboardConstraints.CENTER;
+			}
+		};
+	}
+
+	// The 'brightness' param as a light level, with exactly the block-particle convention: -1 means
+	// the world light at the text's own position, and 0..15 is an override of both the block and the
+	// sky light. The bounds are the light-level range itself, not a cap on an authored value, and
+	// the default is full so a title reads in a dark room.
+	private static int brightnessLevel(final VFXActiveEffect effect) {
+		final int level = Math.round(effect.getParam("brightness", 15.0F));
+		return level < 0 ? -1 : Math.min(level, 15);
+	}
+
+	// Writes one brightness level to a display: a packed block/sky override for 0..15, and no
+	// override at all for -1, which is what hands the text back to the world light. Shared by the
+	// spawn and the per-frame refresh so the two cannot disagree about what -1 means.
+	private static void applyBrightness(final Display.TextDisplay display, final int level) {
+		display.setBrightnessOverride(level >= 0 ? new Brightness(level, level) : null);
 	}
 
 	// Where a unit sits, relative to the block origin: the layout's font pixels times the current

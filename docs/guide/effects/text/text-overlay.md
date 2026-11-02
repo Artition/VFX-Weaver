@@ -146,6 +146,7 @@ surface - constant, `start`/`end`, `keyframes`, `bind`, `expr`, the `/vfx play` 
 | `gradient_g` | 0.6 | **not read yet** | Second colour of that ramp, green |
 | `gradient_b` | 0.3 | **not read yet** | Second colour of that ramp, blue |
 | `shadow` | 1 | yes | `>= 0.5` draws the drop shadow under the glyphs, `< 0.5` draws them flat |
+| `brightness` | 15 | yes (`world` only) | Light the glyphs are drawn in, the block-display convention: `-1` = the **world light** at the text's own position, so the line darkens in a shadow like a block; `0..15` = an override of **both** block and sky light at that level (packed as a `Brightness` of `(level, level)`), so `15` is full-bright and `0` is nearly black. Floored at `-1` and clamped to `15` because that is the light-level range itself, not a cap on an authored value. Re-applied per frame, but written to the entities only when the level changed, so it animates |
 | `outline` | 0 | **not read yet** | Would be the outline width |
 | `outline_r` | 0 | **not read yet** | Outline colour, red |
 | `outline_g` | 0 | **not read yet** | Outline colour, green |
@@ -171,17 +172,19 @@ surface - constant, `start`/`end`, `keyframes`, `bind`, `expr`, the `/vfx play` 
 | `bounce` | 0.15 | yes (`world` only) | Restitution of the single rebound after landing, `0..1`. `0` lands and stays down. `flat` has no rebound: a character that reaches the bottom edge holds there and fades |
 | `friction` | 0.4 | **not read yet** | Would be the tangential damping on impact; the fall is vertical only, so there is nothing to damp |
 | `fade_out` | 0.5 | yes | Seconds a character takes to fade once it has left (fade exit) or once it has come to rest (fall exit). Floored at `1e-4` |
-| `rot_x` | 0 | yes | Baseline orientation of the whole block, degrees. With `rot_x`, `rot_y` and `rot_z` all at zero the block is a **billboard facing the camera**, so it is readable from any side; setting any of the three pins it in world orientation |
+| `rot_x` | 0 | yes | Baseline orientation of the whole block, degrees. This is the `billboard: 0` (auto) rule: with `rot_x`, `rot_y` and `rot_z` all at zero the block is a **billboard facing the camera**, so it is readable from any side; setting any of the three pins it in world orientation |
 | `rot_y` | 0 | yes | Baseline orientation of the whole block, degrees, Y. It takes part in the billboard rule above: any non-zero value pins the block in the world |
-| `rot_z` | 0 | yes (`world` only) | Baseline orientation of the whole block, degrees, Z. `flat` turns about Z with `angle` and `spin_z` instead, so this is not read there. It is part of the billboard rule in `world`: only while all three are zero does the block face the camera |
+| `rot_z` | 0 | yes (`world` only) | Baseline orientation of the whole block, degrees, Z. `flat` turns about Z with `angle` and `spin_z` instead, so this is not read there. It is part of the `billboard: 0` auto rule in `world`: only while all three are zero does the block face the camera |
 | `angle` | 0 | yes (`flat` only) | Turns the whole block about its anchor, degrees |
+| `billboard` | 0 | sampled, see below (`world` only) | Float code for how the block follows the camera, mapped straight onto the display's billboard constraint: `0` = **auto**, `1` = **fixed**, `2` = **center**, `3` = **vertical**, `4` = **horizontal**. `0` is the rule this effect always used - see [What the block faces, and how it is lit](#what-the-block-faces-and-how-it-is-lit). Read once per display at spawn, so changing it needs a respawn |
 
 Notes on the numbers:
 
 - **`wrap_width` and `line_height` are sampled when the block is laid out** - at spawn in `world`
   mode, on the first measurement in `flat` mode, where the measured layout is then cached per effect
-  instance. Animating either of them mid-flight changes nothing until the block is rebuilt; every
-  other param is read again every frame.
+  instance. `billboard` is sampled the same way, at spawn, because a display's billboard constraint
+  belongs to the entity rather than to a frame. Animating any of the three mid-flight changes nothing
+  until the block is rebuilt; every other param is read again every frame.
 - **No upper limits on the motion.** `gravity`, `exit_speed`, `spread`, `spin_*`, `scale`, `pos_*` and the
   delays accept any value: a huge `gravity` or `exit_speed` just makes the drop instant, a huge
   `spin_*` makes the letter a blur. Only the lower guards that avoid degenerate maths are applied
@@ -225,6 +228,37 @@ spawned yet) resolves to no slot, and the block draws nothing that frame, exactl
 world effect.
 
 `flat` mode does not read slots or `pos_*`: it is placed by `x`/`y` on the frame.
+
+### What the block faces, and how it is lit
+
+`billboard` turns the orientation rule into a choice instead of a consequence of `rot_*`. It is the
+float code of the display's own billboard constraint, and it is read **once per display**, so changing
+it changes nothing until the block is rebuilt:
+
+- **`0` (default) is auto**, and it is the rule this effect has always used: with `rot_x`, `rot_y` and
+  `rot_z` all at zero the block **faces the camera**; setting **any** of the three pins it in world
+  orientation. So the common case - a title you have not rotated - stays readable from every side, and
+  the moment you author a rotation you get exactly that rotation with no surprise turn.
+- **`1` is fixed**: the block never turns, and `rot_*` still rotates it. Use it to say "world
+  orientation" with no rotation at all.
+- **`2` is center**: the block always turns to face you, but `rot_*` still rotates its glyphs about
+  the anchor - the whole quad follows the camera, the line inside it keeps your rotation.
+- **`3` is vertical**: it turns about Y to face you but never tilts, so the line stays upright and
+  reads from any horizontal direction.
+- **`4` is horizontal**: it stays level in the world's plane and tilts with your pitch, the way text
+  lying on the floor reads when you look down at it.
+
+`brightness` decides the light the glyphs are drawn in, with exactly the block-particle convention:
+**`-1` means the world light** at the text's own position, so the line darkens in a shadow the way a
+block-display does, and **`0..15` overrides both the block and the sky light** with that level - the
+light is packed as `Brightness(level, level)`, so `15` is full-bright and `0` is nearly black. The
+default is `15`, because a title is usually meant to be readable in a dark room; set `-1` when the
+text should belong to the place it stands in. It is re-applied every frame and written to the
+entities only when the level changes, so a keyframed `brightness` pulses without touching a standing
+line.
+
+Both params are **`world` only**: `flat` text is drawn in GUI space, where the camera and the world
+light do not exist.
 
 ## The two exits
 
