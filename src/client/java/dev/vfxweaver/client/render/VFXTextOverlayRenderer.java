@@ -105,6 +105,10 @@ public final class VFXTextOverlayRenderer {
 	// The letters want nothing behind them. Display.TextDisplay.INITIAL_BACKGROUND is the vanilla
 	// translucent black plate; 0 is fully transparent, so the block reads as text floating in air.
 	private static final int TRANSPARENT_BACKGROUND = 0;
+	// The world size of one font pixel. net.minecraft.client.renderer.entity
+	// .DisplayRenderer$TextDisplayRenderer scales a glyph by -0.025f before it draws it, so a layout
+	// measured in font pixels is only in world units once it is multiplied by this.
+	private static final float WORLD_UNITS_PER_FONT_PIXEL = 0.025F;
 	// The pool a scrambled character draws its noise from: no lowercase, so a decode reads as machine
 	// output, and a fixed order, so the hash's index into it is stable between runs.
 	private static final String NOISE_GLYPHS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789#$%&*+=-<>/?";
@@ -585,6 +589,10 @@ public final class VFXTextOverlayRenderer {
 			// block flies away from its anchor.
 			display.setPos(origin.x + local.x + exit.x, origin.y + local.y + exit.y,
 				origin.z + local.z + exit.z);
+			// The pose above is this frame's, not a move to interpolate from: pinning the previous
+			// position to it makes the render state draw exactly the computed spot instead of
+			// sweeping from the stale tick position, which read as stepping.
+			display.setOldPosAndRot();
 			final Quaternionf orientation = since < 0.0F ? rotation : spin(effect, i, since, rotation);
 			display.setTransformation(new Transformation(new Vector3f(), new Quaternionf(orientation),
 				new Vector3f(scale, scale, scale), new Quaternionf()));
@@ -628,12 +636,18 @@ public final class VFXTextOverlayRenderer {
 			.rotateZ((float) Math.toRadians(effect.getParam("rot_z", 0.0F)));
 	}
 
-	// Where a character sits, relative to the block origin: unit layout times the current 'scale',
-	// shifted by the spec's align and anchor, then turned by rot_*. Shared by the per-frame placement
-	// and the one-off floor lookup, so the floor is always probed under the pose it will fall from.
+	// Where a character sits, relative to the block origin: the layout's font pixels times the current
+	// 'scale', shifted by the spec's align and anchor, turned into world units by
+	// WORLD_UNITS_PER_FONT_PIXEL, then turned by rot_*. Shared by the spawn-time rest pose, the
+	// per-frame placement and the one-off floor lookup, so all three agree on where the character is
+	// - the glyph itself is drawn at the renderer's own 0.025 scale, so only the spacing would drift
+	// if this factor were skipped, and the shifts above must carry it too or a centred line would
+	// hang off its anchor.
 	private static Vector3f restOffset(final VFXTextLayout.Glyph glyph, final float scale,
 			final float alignShift, final float anchorShiftY, final Quaternionf rotation) {
-		return new Vector3f(glyph.x() * scale + alignShift, glyph.y() * scale + anchorShiftY, 0.0F)
+		return new Vector3f(
+			(glyph.x() * scale + alignShift) * WORLD_UNITS_PER_FONT_PIXEL,
+			(glyph.y() * scale + anchorShiftY) * WORLD_UNITS_PER_FONT_PIXEL, 0.0F)
 			.rotate(rotation);
 	}
 
