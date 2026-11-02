@@ -35,23 +35,28 @@ whole block by the width of the widest line rather than aligning each line by it
 **`split` changes what a step of the animation is, and what an entity is.** With the default `char`
 the block decodes, wipes and falls letter by letter; `word` makes every word one piece, so its
 letters appear, scramble and leave together; `block` makes the whole text one piece, so the reveal is
-all-or-nothing and the block falls or fades as a single body. The **layout does not change** - the
-characters are still measured and placed by the mod, so a line reads the same in all three settings -
-only the granularity of the animation does. In `world` mode a `block` unit is one display entity
-holding the content with its newlines, handed `wrap_width` as the display's own line width (vanilla's
-default of 200 font pixels when wrapping is off), so **vanilla breaks the lines itself**; the other
-two splits are already laid out here and only `block` gets that width. A multi-glyph unit is also
-pinned to its own left edge in the display's style flags (`FLAG_ALIGN_LEFT`), so vanilla draws it
-from the point the mod placed it at instead of centring it on that point and drifting it left by half
-its width - which for a `block` unit would be half the block's width. A single-glyph unit fills its
-own cell and needs no bit.
+all-or-nothing and the block falls or fades as a single body. In `char` and `word` the layout does
+not change - the characters are still measured and placed by the mod, so a line reads the same in
+both settings - only the granularity of the animation does. In `world` mode a `block` unit is one
+display entity holding the content with its newlines, handed `wrap_width` as the display's own line
+width (vanilla's default of 200 font pixels when wrapping is off), so **vanilla breaks the lines
+itself**, including an over-long word, which it splits mid-word. The unit is measured with the same
+`Font.split` call at that same width, so its line count matches what the display draws, and `flat`
+draws those same lines - a `block` therefore wraps identically in both modes, and its height (the
+`anchor`, the lift when it lands) matches the drawn block. A unit is also pinned to its own left edge
+in the display's style flags (`FLAG_ALIGN_LEFT`), so vanilla draws it from the point the mod placed it
+at instead of centring it on that point and drifting it left by half its width: every `word` and
+`block` unit, a one-letter word included (its narrow glyph would otherwise sit half a cell left of its
+slot), and a multi-glyph unit in `char` mode. A single character in `char` mode fills its own cell and
+needs no bit.
 
 **`split` trades animation detail for entities.** `world` mode spawns **one entity per unit**, so
 `word` and `block` cut the entity count of a long line instead of adding a feature: a 30-word line is
 30 entities in `word` mode and one in `block`. The glyph cap does not move with it - `MAX_CHARS` (256)
-still bounds the characters that are drawn at all, so a block longer than that keeps its leading
-characters and drops the tail. `flat` mode spawns nothing; there the split only decides how the block
-animates.
+still bounds the characters that are drawn at all, so in `char` and `word` a longer text keeps its
+leading characters and drops the tail. A unit is spawned whole or not at all, so a `block` longer
+than that is dropped entirely, and the warning names whichever of the two happened. `flat` mode
+spawns nothing; there the split only decides how the block animates.
 
 **The block is structural, and at play time only `content` can be replaced.** `mode`, `font`, `split`,
 `align` and `anchor` are layout decisions that always come from the file; the words can be chosen per

@@ -56,7 +56,10 @@ import org.slf4j.LoggerFactory;
  * the physics and the landing - is computed per unit, so a coarse mode animates its words or its
  * single block instead of its characters. In {@code block} mode the unit carries the content with
  * its newlines and is handed {@code wrap_width} as the display's line width (200 font pixels when
- * wrapping is off), so vanilla breaks the lines itself; the reveal is then all-or-nothing.
+ * wrapping is off), so vanilla breaks the lines itself; the layout counts that unit's lines with the
+ * same {@code Font.split} call at the same width, so a long word breaks where the display breaks it
+ * and the unit's height - the anchor, the landing lift and the flat block - agrees with the display.
+ * The reveal is then all-or-nothing.
  *
  * <p>In {@code flat} mode the block is laid out at unit scale, cached by instance id, and drawn onto
  * the HUD: {@code x} and {@code y} are fractions of the GUI size and place the block's anchor,
@@ -117,9 +120,6 @@ public final class VFXTextOverlayRenderer {
 	// The entity count that actually matters is the unit count: 'word' and 'block' modes spawn far
 	// fewer entities than they have characters, so a long text has to be capped on its own.
 	private static final int MAX_UNITS = 256;
-	// Display.TextDisplay's own default line width, in font pixels. Used when a 'block' unit is
-	// spawned without wrapping, so vanilla lays the block out exactly as it would by default.
-	private static final int DEFAULT_LINE_WIDTH = 200;
 	// The letters want nothing behind them. Display.TextDisplay.INITIAL_BACKGROUND is the vanilla
 	// translucent black plate; 0 is fully transparent, so the block reads as text floating in air.
 	private static final int TRANSPARENT_BACKGROUND = 0;
@@ -358,7 +358,9 @@ public final class VFXTextOverlayRenderer {
 					-Math.round(halfHeight), argb, shadow);
 			} else {
 				// The unit's own glyphs, each at its laid-out offset inside the unit and all under
-				// the one pose above, so the cached strings are reused and nothing is allocated.
+				// the one pose above, so the cached strings are reused and nothing is allocated. A
+				// 'block' unit's offsets already carry vanilla's line breaks, because its layout was
+				// measured with the same 'Font.split' call the world display draws with.
 				for (int g = first; g < end; g++) {
 					final VFXTextLayout.Glyph glyph = glyphs.get(g);
 					graphics.text(font, flat.texts().get(glyph.index()),
@@ -486,11 +488,10 @@ public final class VFXTextOverlayRenderer {
 			&& Math.abs(effect.getParam("rot_z", 0.0F)) < 1e-4F;
 		// 'wrap_width' is a layout-unit width, and the layout measures in font pixels (scale 1), so
 		// the same width in font pixels is the param divided by the current 'scale'. Without
-		// wrapping, vanilla's own default width is used, which is what a 'block' unit is laid out at.
+		// wrapping, vanilla's own default width is used, which is what a 'block' unit is laid out at -
+		// the layout counts the block's lines at this very width, so its height matches the display.
 		final float wrapFontPixels = wrapWidth / Math.max(scale, 1e-4F);
-		final int lineWidth = wrapWidth > 0.0F
-			? Math.max(1, Math.round(wrapFontPixels))
-			: DEFAULT_LINE_WIDTH;
+		final int lineWidth = VFXTextLayout.lineWidth(wrapFontPixels);
 		// Glyphs spent so far: 'MAX_CHARS' still caps the characters even when they share entities,
 		// and a unit is only spawned whole, so a block never appears half cut off.
 		int spawnedGlyphs = 0;
@@ -504,15 +505,20 @@ public final class VFXTextOverlayRenderer {
 			}
 			final int unitGlyphs = glyphsInUnit(layout, u);
 			if (spawnedGlyphs + unitGlyphs > MAX_CHARS) {
+				// A unit is spawned whole or not at all, so what the cap drops depends on the split:
+				// the remaining units in 'char' and 'word' - the tail of the text - or the single
+				// unit that is the whole block.
 				VFXLog.warnOnce(LOGGER, "text_overlay:cap:" + effect.getId(),
-					"text_overlay '{}': more than {} characters, the tail is dropped",
-					effect.getId(), MAX_CHARS);
+					"text_overlay '{}': more than {} characters, {}",
+					effect.getId(), MAX_CHARS,
+					spec.split() == VFXTextSpec.Split.BLOCK
+						? "the block is dropped" : "the tail is dropped");
 				break;
 			}
 			final Display.TextDisplay display = new Display.TextDisplay(EntityTypes.TEXT_DISPLAY, level);
 			display.setText(Component.literal(unit.text()).withStyle(style));
 			display.setBackgroundColor(TRANSPARENT_BACKGROUND);
-			display.setFlags((byte) (shadowFlag | alignFlags(unit)));
+			display.setFlags((byte) (shadowFlag | alignFlags(unit, spec.split())));
 			// A 'block' unit is the whole text in one display, so the line breaking vanilla does for
 			// it is the block's wrapping; every other mode already laid its units out here.
 			if (spec.split() == VFXTextSpec.Split.BLOCK) {
@@ -563,12 +569,12 @@ public final class VFXTextOverlayRenderer {
 		// What each display currently shows. Spawned with its own text; placeBlock rewrites an
 		// entry only when the text it should show changes, which is what a noise swap is.
 		final String[] lastTexts = ownTexts.clone();
-		// The flags each display was spawned with: the shadow bit plus the alignment bit a
-		// multi-glyph unit needs. placeBlock rewrites a display's flags only when the shadow
-		// param flips, so a standing line writes nothing.
+		// The flags each display was spawned with: the shadow bit plus the alignment bit a unit
+		// needs in every split but 'char'. placeBlock rewrites a display's flags only when the
+		// shadow param flips, so a standing line writes nothing.
 		final byte[] lastFlags = new byte[entities.size()];
 		for (int i = 0; i < lastFlags.length; i++) {
-			lastFlags[i] = (byte) (shadowFlag | alignFlags(layout.units().get(i)));
+			lastFlags[i] = (byte) (shadowFlag | alignFlags(layout.units().get(i), spec.split()));
 		}
 		final LiveText live = new LiveText(effect.getInstanceId(), signature, entities, layout,
 			unresolvedFloors(entities.size()), ownTexts, lastTexts, colour, lastFlags);
@@ -590,12 +596,14 @@ public final class VFXTextOverlayRenderer {
 	// vanilla centres the whole cached block on it, FLAG_ALIGN_LEFT (0x08) starts a line at the
 	// entity and FLAG_ALIGN_RIGHT (0x10) ends it there. The mod already places a unit at the left
 	// edge of its own first glyph - 'align' shifts the whole block by half or all of its widest
-	// line, never a single unit - so a multi-glyph unit drawn with vanilla's centred default would
-	// sit half its own width to the left of where it belongs, a 'block' unit by half the block's
-	// width. Pinning such a unit to its left edge is what lines it up with the block anchor again.
-	// A single glyph fills its own cell, so it needs no bit and keeps vanilla's default.
-	private static byte alignFlags(final VFXTextLayout.Unit unit) {
-		return unit.text().length() > 1 ? Display.TextDisplay.FLAG_ALIGN_LEFT : (byte) 0;
+	// line, never a single unit - so a unit drawn with vanilla's centred default would sit half its
+	// own width to the left of where it belongs: a 'block' unit by half the block's width, every
+	// word (a one-letter word included - its glyph is narrower than the unit cell) by half its own.
+	// Pinning such a unit to its left edge is what lines it up with the block anchor again. Only a
+	// single-glyph 'char' unit fills its own cell and keeps vanilla's default.
+	private static byte alignFlags(final VFXTextLayout.Unit unit, final VFXTextSpec.Split split) {
+		return split != VFXTextSpec.Split.CHAR || unit.text().length() > 1
+			? Display.TextDisplay.FLAG_ALIGN_LEFT : (byte) 0;
 	}
 
 	// Half-width of the shaft probed under a character: the glyph itself has no world footprint, so a
@@ -754,7 +762,7 @@ public final class VFXTextOverlayRenderer {
 			}
 			// The shadow bit is animatable and the alignment bit is structural, so the pair is
 			// rebuilt per frame and written only when it differs from what this display carries.
-			final byte flags = (byte) (shadowFlag | alignFlags(unit));
+			final byte flags = (byte) (shadowFlag | alignFlags(unit, spec.split()));
 			if (flags != live.lastFlags[i]) {
 				display.setFlags(flags);
 				live.lastFlags[i] = flags;

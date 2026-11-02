@@ -4,6 +4,8 @@ import dev.vfxweaver.effect.VFXTextSpec;
 import java.util.ArrayList;
 import java.util.List;
 import net.minecraft.client.gui.Font;
+import net.minecraft.network.chat.Component;
+import net.minecraft.util.FormattedCharSequence;
 
 /**
  * Measures a text block once and hands back one entry per visible character with its rest position,
@@ -12,7 +14,10 @@ import net.minecraft.client.gui.Font;
  * <p>Minecraft's own wrapping lives in {@code Font.split} and returns {@code FormattedCharSequence},
  * which discards the per-character positions we need for per-character physics. So the block is laid
  * out here instead: hard breaks on {@code \n}, soft breaks on spaces when {@code wrapWidth > 0}, one
- * {@link Glyph} per character in reading order.
+ * {@link Glyph} per character in reading order. A {@code block} unit is the exception, because the
+ * display draws it with vanilla's wrapping at its own line width: its lines are taken from
+ * {@code Font.split} at that same width - so an over-long word breaks where vanilla breaks it and
+ * the unit's line count matches the display - and its glyphs are placed on those lines.
  *
  * <p>A unit is the granularity of every animation: {@link VFXTextSpec.Split#CHAR} makes one unit per
  * character (the block's layout is exactly the same as with no units at all), {@code WORD} makes one
@@ -25,6 +30,13 @@ import net.minecraft.client.gui.Font;
  * {@code width} and {@code height} are consistent with each other.
  */
 public final class VFXTextLayout {
+
+	/**
+	 * {@code Display.TextDisplay}'s own default line width, in font pixels: what a {@code block} unit
+	 * is wrapped at when the definition does not set {@code wrap_width}, so vanilla lays it out
+	 * exactly as it would by default.
+	 */
+	public static final int DEFAULT_LINE_WIDTH = 200;
 
 	/** One visible character and where it rests before anything animates. */
 	public record Glyph(char ch, int index, float x, float y, float advance) {
@@ -62,7 +74,12 @@ public final class VFXTextLayout {
 			final VFXTextSpec.Split split) {
 		final List<Glyph> glyphs = new ArrayList<>(content.length());
 		final List<Unit> units = new ArrayList<>();
-		final List<String> lines = wrap(font, content, wrapWidth, scale);
+		// A 'block' unit is drawn by the display at the line width it is handed, so its lines come from
+		// that same wrapping - 'Font.split' breaks an over-long word and handles newlines exactly as the
+		// display does. The other splits are laid out here, where wrapping never splits a word.
+		final List<String> lines = split == VFXTextSpec.Split.BLOCK
+			? splitLines(font, content, lineWidth(wrapWidth / Math.max(scale, 1e-4F)))
+			: wrap(font, content, wrapWidth, scale);
 		final float lineStep = scale * lineHeight;
 		int index = 0;
 		float widest = 0.0F;
@@ -111,14 +128,45 @@ public final class VFXTextLayout {
 		}
 		if (split == VFXTextSpec.Split.BLOCK) {
 			// One entity for the whole block: vanilla's own wrapping breaks it at the line width it
-			// is given, so the unit carries the content with its newlines and the block's first glyph
-			// as its rest position.
-			final float restX = glyphs.isEmpty() ? 0.0F : glyphs.get(0).x();
-			final float restY = glyphs.isEmpty() ? 0.0F : glyphs.get(0).y();
-			units.add(new Unit(content, restX, restY, 0, lines.size()));
+			// is given, so the unit carries the content with its newlines. Its rest position is the
+			// start of its own text - line zero included, even when the content opens with '\n' -
+			// because the display lays the whole text out from the position it is given.
+			units.add(new Unit(content, 0.0F, 0.0F, 0, lines.size()));
 		}
 		final float totalHeight = Math.max(0.0F, (lines.size() - 1) * lineStep + scale);
 		return new VFXTextLayout(glyphs, units, widest, totalHeight);
+	}
+
+	/**
+	 * The line width a display is handed for a {@code block} unit, in font pixels: {@code wrap_width}
+	 * when it is set, vanilla's own default otherwise. Shared with the renderer, so the layout counts
+	 * lines at exactly the width the display is told to wrap at.
+	 */
+	public static int lineWidth(final float wrapFontPixels) {
+		return wrapFontPixels > 0.0F
+			? Math.max(1, Math.round(wrapFontPixels)) : DEFAULT_LINE_WIDTH;
+	}
+
+	/**
+	 * The lines vanilla's own wrapping produces for a {@code block} unit at {@code lineWidth}: the
+	 * styled sequences are flattened back to plain strings, because the layout needs the characters
+	 * and their positions, not the styles. An empty block keeps one empty line.
+	 */
+	private static List<String> splitLines(final Font font, final String content,
+			final int lineWidth) {
+		final List<String> lines = new ArrayList<>();
+		for (final FormattedCharSequence sequence : font.split(Component.literal(content), lineWidth)) {
+			final StringBuilder line = new StringBuilder();
+			sequence.accept((position, style, codePoint) -> {
+				line.appendCodePoint(codePoint);
+				return true;
+			});
+			lines.add(line.toString());
+		}
+		if (lines.isEmpty()) {
+			lines.add("");
+		}
+		return lines;
 	}
 
 	/**
