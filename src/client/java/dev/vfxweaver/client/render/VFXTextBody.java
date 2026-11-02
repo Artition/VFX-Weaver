@@ -49,15 +49,15 @@ public final class VFXTextBody {
 	 */
 	private static final int REST_ORIENT_TICKS = 3;
 	/**
-	 * How far, in blocks, a still-falling body may drop below the Y it detached at before it is
-	 * released whether or not it ever rests. Thirty-two blocks is deep below any surface the letter
-	 * was standing on and far outside the view of the text: at that point the fall is no longer part
-	 * of the effect, and a body that cannot rest - dropped into the void, or bouncing forever with
-	 * {@code bounce} 1 - must not stay a fully opaque display entity until someone stops the effect.
-	 * The renderer starts the same {@code hold} + {@code fade_out} ramp from that moment, so the
-	 * block always reaches zero and releases its units.
+	 * Margin, in blocks, below the level's minimum build height at which a still-falling body counts
+	 * as having left the world. Nothing exists below that floor - there is no block to land on and
+	 * no surface to see - so the margin only keeps a borderline tick from flickering the release; it
+	 * is not a distance the effect authors and it is never measured against a surface the letter
+	 * stood on. The renderer starts the same {@code hold} + {@code fade_out} ramp from that moment,
+	 * so a body that cannot rest - dropped out of the world, or bouncing forever with {@code bounce}
+	 * 1 - still reaches zero and releases its units.
 	 */
-	private static final double RELEASE_DROP = 32.0;
+	private static final double RELEASE_BELOW_WORLD = 8.0;
 	/**
 	 * The lying pose: the glyph plane horizontal with its face turned to the sky (local +Z, the
 	 * display's front, rotated onto +Y). Shared and never mutated — it is copied into the body's own
@@ -71,8 +71,6 @@ public final class VFXTextBody {
 	private final Quaternionf orientation;
 	private final Quaternionf prevOrientation;
 	private final Vector3f angularVelocity;
-	/** The Y the body detached at, its own rest height; the release drop is measured from it. */
-	private final double restY;
 	private boolean resting;
 	private int stillTicks;
 	private int restOrientTicks;
@@ -96,7 +94,6 @@ public final class VFXTextBody {
 		this.orientation = new Quaternionf(orientation);
 		this.prevOrientation = new Quaternionf(orientation);
 		this.angularVelocity = new Vector3f(angularVelocity);
-		this.restY = position.y;
 	}
 
 	/**
@@ -133,15 +130,16 @@ public final class VFXTextBody {
 	}
 
 	/**
-	 * Whether the body has fallen far enough below the Y it detached at that it must be released
-	 * whether or not it can rest. A resting body is never stranded: its landing, however low, is a
-	 * landing and the normal rest rule already starts its fade.
+	 * Whether the body has left the world: it fell below the level's minimum build height (plus
+	 * {@link #RELEASE_BELOW_WORLD}) and so can never land. A resting body is never stranded: its
+	 * landing, however low, is a landing and the normal rest rule already starts its fade.
 	 *
-	 * @return {@code true} once a non-resting body is more than {@link #RELEASE_DROP} blocks below
-	 *         its own rest Y
+	 * @param minY the level's minimum build height, which is the lowest Y anything can rest at
+	 * @return {@code true} once a non-resting body is further than {@link #RELEASE_BELOW_WORLD}
+	 *         blocks below {@code minY}
 	 */
-	public boolean stranded() {
-		return !this.resting && this.pos.y < this.restY - RELEASE_DROP;
+	public boolean stranded(final double minY) {
+		return !this.resting && this.pos.y < minY - RELEASE_BELOW_WORLD;
 	}
 
 	/**
@@ -229,8 +227,8 @@ public final class VFXTextBody {
 	 * {@link #FLAT} (face up) over {@link #REST_ORIENT_TICKS} ticks - see {@link #lieDown}. That is
 	 * what "lies on the floor" means here - there is no floor scan, no landing lift and no frozen
 	 * spin to patch it. A body that never slows down (free fall, or a perfectly elastic,
-	 * frictionless bounce) keeps being stepped until it is either released by its effect or falls
-	 * past {@link #RELEASE_DROP}.
+	 * frictionless bounce) keeps being stepped until its effect stops it or it leaves the world -
+	 * {@link #stranded} for the depth, the renderer's own release time for a fall that never ends.
 	 */
 	private void settle() {
 		if (this.velocity.length() < REST_LINEAR_SPEED

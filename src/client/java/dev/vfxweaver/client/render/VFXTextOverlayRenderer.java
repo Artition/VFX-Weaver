@@ -133,9 +133,10 @@ import org.slf4j.LoggerFactory;
  * <p>A unit that falls stays opaque while it is in the air: once its body reports resting, {@code
  * hold} seconds pass and then {@code fade_out} runs. Free fall never rests, so with {@code
  * collision} off the fade runs from the detach (and with {@code fade_out} 0 the letters simply keep
- * falling until the effect stops). A body that has collision but cannot rest - dropped into the void,
- * or bouncing forever - is released the same way once it is more than its release drop below the Y it
- * detached at, so no unit can stay spawned and fully opaque until someone stops the effect. Once
+ * falling until the effect stops). A body that has collision but cannot rest - dropped out of the
+ * world, or bouncing forever - is released the same way when it falls below the level's minimum build
+ * height or after ten seconds without coming to rest, so no unit can stay spawned and fully opaque
+ * until someone stops the effect. Once
  * every unit has faded, the block is marked finished at the age it finished and its entities are
  * released; when the effect loops or is replayed and the clock goes back, the block is rebuilt. An
  * effect that stops always releases its units, whatever the physics was doing.
@@ -168,6 +169,14 @@ public final class VFXTextOverlayRenderer {
 	// .DisplayRenderer$TextDisplayRenderer scales a glyph by -0.025f before it draws it, so a layout
 	// measured in font pixels is only in world units once it is multiplied by this.
 	private static final float WORLD_UNITS_PER_FONT_PIXEL = 0.025F;
+	// Release guarantee, not a gameplay limit: how long a fall may go on without the body coming to
+	// rest before the block is released anyway. Ten seconds is several times the longest honest drop
+	// in a world - the build range is a few hundred blocks and a body at the block-particle terminal
+	// speed crosses it in a couple of seconds - so no real fall reaches it; it exists only so a fall
+	// that can never land (a bounce of 1, a friction all but 1, a slow drift out of the world) still
+	// reaches zero, lets 'finish' run and releases its displays. Chosen well above any fall a level
+	// can produce, and raised only if a level can honestly outlast it.
+	private static final float RELEASE_SECONDS = 10.0F;
 	// The pool a scrambled character draws its noise from: no lowercase, so a decode reads as machine
 	// output, and a fixed order, so the hash's index into it is stable between runs.
 	private static final String NOISE_GLYPHS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789#$%&*+=-<>/?";
@@ -1166,12 +1175,15 @@ public final class VFXTextOverlayRenderer {
 	// or - for a fall - 1 until the body reports resting, the 'hold' seconds after that, and then
 	// 'fade_out'. The rest time is recorded from the body itself, on the first frame it reports
 	// settled, so the hold and the ramp are timed from the tick the physics actually stopped - there
-	// is no closed form left to ask. A body that cannot rest (free fall, a drop over a void, a bounce
-	// of 1 or a friction so close to 1 it never sheds its drift) would otherwise never reach the
-	// ramp, so the same hold + ramp starts the moment it is more than its release drop below the Y it
-	// detached at: long out of sight, it fades to zero and 'finish' releases it whatever the physics
-	// is doing. With 'collision' off there is no floor at all, so 'fade_out' runs from the detach
-	// instead (and 0 keeps it opaque), which is the free-fall rule this renderer has always had.
+	// is no closed form left to ask. A body that cannot rest (free fall, a bounce of 1 or a friction
+	// so close to 1 it never sheds its drift) would otherwise never reach the ramp, so the same hold
+	// + ramp starts the moment it is released: when it has left the world (below the level's minimum
+	// build height, where nothing can catch it) or when 'RELEASE_SECONDS' have passed without it
+	// coming to rest. Both are release guarantees, not gameplay limits - an honest fall lands or
+	// leaves the world long before either fires - and they let the block reach zero so 'finish'
+	// releases it whatever the physics is doing. With 'collision' off there is no floor at all, so
+	// 'fade_out' runs from the detach instead (and 0 keeps it opaque), which is the free-fall rule
+	// this renderer has always had.
 	private static float exitAlpha(final VFXActiveEffect effect, final Fall fall, final float since) {
 		if (since < 0.0F) {
 			return 1.0F;
@@ -1182,7 +1194,8 @@ public final class VFXTextOverlayRenderer {
 		if (fall == null || effect.getParam("collision", 1.0F) < 0.5F) {
 			return fade(effect, since, 0.0F);
 		}
-		if (fall.releaseSince < 0.0F && fall.restSince < 0.0F && fall.body.stranded()) {
+		if (fall.releaseSince < 0.0F && fall.restSince < 0.0F
+			&& (stranded(fall.body) || since >= RELEASE_SECONDS)) {
 			fall.releaseSince = since;
 		}
 		if (fall.restSince < 0.0F && fall.body.resting()) {
@@ -1193,6 +1206,13 @@ public final class VFXTextOverlayRenderer {
 			return 1.0F;
 		}
 		return fade(effect, since, from + holdOf(effect));
+	}
+
+	// Whether this body has left the world, i.e. is below the level's minimum build height and can
+	// no longer land on anything. Read from the level the pool is stepped with, so a level change
+	// (which clears the pool anyway) cannot leave a stale floor behind.
+	private static boolean stranded(final VFXTextBody body) {
+		return lastLevel != null && body.stranded(lastLevel.getMinY());
 	}
 
 	// The fade ramp itself, shared by both modes and both exits: fully opaque up to 'from' seconds

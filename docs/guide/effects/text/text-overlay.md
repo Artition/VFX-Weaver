@@ -349,11 +349,14 @@ a **fall**.
 - **Then `fade_out` seconds of fade.** Unit opacity is
   `1 - clamp01((since - rest - hold) / fade_out)`, so a larger value is a longer, softer dissolve.
 
-A body from which no floor can ever be reached is not stranded: with `collision` on but a fall into
-the void, `bounce: 1` or a `friction` almost at `1`, the body never rests, so once it is **32 blocks
-below the Y it detached at** - far below any surface and long out of sight - the same `hold` and
-`fade_out` ramp starts from that moment. The block always reaches zero and is released; no unit stays
-spawned and fully opaque until someone stops the effect.
+A body that can never land is still released, not left hanging: with `collision` on but a fall out of
+the world, `bounce: 1` or a `friction` almost at `1`, the body never rests, so the same `hold` and
+`fade_out` ramp starts from the first of two moments - it fell **below the level's own minimum build
+height** (plus an eight-block margin), where there is no surface left to catch it, or **ten seconds**
+have passed since it detached without it coming to rest. Both are release guarantees, not gameplay
+limits: a real fall, however long, is still inside the build range and lands long before either
+fires. The block always reaches zero and is released; no unit stays spawned and fully opaque until
+someone stops the effect.
 
 **`exit_at` and `exit_stagger` are the *when*, and they are separate from all of that.** Unit `i`
 detaches at `exit_at + i * exit_stagger`, so a stagger above `0` takes the line apart letter by letter
