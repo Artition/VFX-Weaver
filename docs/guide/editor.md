@@ -49,6 +49,12 @@ row to collapse/expand (wired sockets stay as stubs so wires survive); `in`/`out
 outside groups. The per-group state is undoable and survives tab switches, and never reaches
 the compiled definition.
 
+A node whose type has a structural block also gets a section in the inspector for it. For
+`text_overlay` that section is **Text** (`content`, `mode`, `font`, `align`, `anchor`, `split`), and
+the sockets that only one mode reads carry a **`2D`** or **`3D`** badge - dimmed when the badge's
+mode is not the block's current `mode`. The badge is a label, not a filter: no socket is ever hidden,
+so the node always shows the full parameter set of the type.
+
 ## Editing and live playback
 
 Every change goes to the running game through the local bridge:
