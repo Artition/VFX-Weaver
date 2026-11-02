@@ -1,0 +1,36 @@
+{
+	"type": "text_overlay",
+	"duration": 160,
+	"loop": true,
+	"persistent": false,
+	"fade_ticks": 8,
+	"text": {
+		"content": "VFX WEAVER",
+		"mode": "flat",
+		"font": "default",
+		"align": "center",
+		"anchor": "center",
+		"split": "char"
+	},
+	"params": {
+		"x": 0.5,
+		"y": 0.35,
+		"scale": 2.0,
+		"reveal": 1.0,
+		"exit": 1.0,
+		"exit_at": 1.5,
+		"exit_stagger": 0.03,
+		"bounce": 0.45,
+		"friction": 0.94,
+		"collision": 1.0,
+		"hold": 0.8,
+		"fade_out": 1.2,
+		"gravity_angle": {
+			"keyframes": [
+				{ "time": 0, "value": 0.0 },
+				{ "time": 40, "value": 0.0 },
+				{ "time": 110, "value": 90.0 }
+			]
+		}
+	}
+}
