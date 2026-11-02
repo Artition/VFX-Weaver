@@ -146,9 +146,9 @@ public final class VFXTextBody {
 	 * Advances the body by one client tick, mirroring {@link VFXBlockParticleEngine}: gravity, air
 	 * drag, the move, an optional collision response (drop the inward normal velocity, damp the rest
 	 * by friction, reflect the normal part by bounce, turn the tangential slip into roll about
-	 * {@code n x v_t}, let the touched block's own friction damp the spin), then the orientation about
-	 * the angular-velocity axis. A resting body keeps no physics, but it still runs the short turn
-	 * into the lying pose.
+	 * {@code n x v_t}), let the touched block's own friction damp the spin on <em>every</em> contact
+	 * whatever {@code tumble} says, then the orientation about the angular-velocity axis. A resting
+	 * body keeps no physics, but it still runs the short turn into the lying pose.
 	 *
 	 * @param level  the client level the body moves through (collision source)
 	 * @param params the physics for this tick
@@ -185,9 +185,10 @@ public final class VFXTextBody {
 					vx = tx * retain - normal.x * vn * bounce;
 					vy = ty * retain - normal.y * vn * bounce;
 					vz = tz * retain - normal.z * vn * bounce;
+					// The tangential slip becomes roll about n x v_t, capped so a fast slide cannot
+					// spin a glyph up absurdly; zero slip adds nothing. This gain is tumble-only: a
+					// glyph that does not tumble must not gain spin from sliding.
 					if (params.tumble()) {
-						// The tangential slip becomes roll about n x v_t, capped so a fast slide
-						// cannot spin a glyph up absurdly; zero slip adds nothing.
 						final double slip = Math.sqrt(tx * tx + ty * ty + tz * tz);
 						if (slip > 1.0e-4) {
 							final float invSlip = (float) (1.0 / slip);
@@ -199,13 +200,15 @@ public final class VFXTextBody {
 							this.angularVelocity.y += gain * ay;
 							this.angularVelocity.z += gain * az;
 						}
-						// The touched block's own friction damps the spin (stone grips, ice glides),
-						// so a tumbling glyph settles instead of spinning on the floor for ever.
-						final float surfaceFriction = (float) VFXWorldOverlayRenderer
-							.contactFriction(level, resolved, normal);
-						this.angularVelocity.mul(surfaceFriction);
 					}
 				}
+				// The touched block's own friction damps the spin (stone grips, ice glides) on every
+				// contact, whatever 'tumble' says: a letter whose spin is left alone never reaches
+				// the angular rest threshold, so it would keep turning on the floor for ever and
+				// never be declared resting - and so never lie down.
+				final float surfaceFriction = (float) VFXWorldOverlayRenderer
+					.contactFriction(level, resolved, normal);
+				this.angularVelocity.mul(surfaceFriction);
 				next = resolved;
 			}
 		}
@@ -290,8 +293,10 @@ public final class VFXTextBody {
 	 * @param collide  whether the world is resolved at all; off means the body falls through it
 	 * @param padding  the gap kept between the body and a collision surface — half the glyph's own
 	 *                 size in blocks, floored so a tiny glyph still depenetrates
-	 * @param tumble   whether contact turns slip into roll and the surface damps the spin; off keeps
-	 *                 the angular velocity untouched by contact, like the engine's yaw/none modes
+	 * @param tumble   whether contact turns slip into roll; off keeps the body from gaining spin by
+	 *                 sliding, like the engine's yaw/none modes. The touched surface damps the spin
+	 *                 either way - otherwise a landed letter never reaches the angular rest
+	 *                 threshold and would turn on the floor for ever
 	 */
 	public record Params(float gravity, float friction, float bounce, boolean collide,
 			double padding, boolean tumble) {

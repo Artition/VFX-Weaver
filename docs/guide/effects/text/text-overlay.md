@@ -167,7 +167,7 @@ surface - constant, `start`/`end`, `keyframes`, `bind`, `expr`, the `/vfx play` 
 | `spin_x` | 0 | yes (`world` only) | Angular velocity of a leaving character, degrees/s; the vector `(spin_x, spin_y, spin_z)` is an axis and its length the speed, which is multiplied by the same per-character jitter so letters do not rotate together |
 | `spin_y` | 0 | yes (`world` only) | Same, Y component of the spin axis |
 | `spin_z` | 0 | yes | Same, Z component of the spin axis. Also the only spin a `flat` character can turn by: a 2D pose rotates about Z |
-| `tumble` | 0 | yes | `>= 0.5` takes the spin axis from the per-character jitter instead, so the letters tumble off different axes while keeping `|spin|` as the speed; in `flat` it flips the direction of `spin_z` per character instead. Clamped `0..1` |
+| `tumble` | 0 | yes | `>= 0.5` takes the spin axis from the per-character jitter instead, so the letters tumble off different axes while keeping `|spin|` as the speed; in `flat` it flips the direction of `spin_z` per character instead. In `world` it also decides whether contact turns the tangential slip into roll - off, a sliding letter gains no spin - but the touched surface's own friction damps the spin on **every** contact either way, because a spin that is never damped never reaches the rest threshold and the letter would keep turning on the floor instead of lying down. Clamped `0..1` |
 | `collision` | 1 | yes | `>= 0.5` lets a falling character stop on a surface, `< 0.5` lets it fall straight through. Clamped `0..1` |
 | `bounce` | 0.15 | yes (`world` only) | Restitution of the contact response, `0..1`: the share of the inward normal velocity the body keeps when it hits a surface, applied at **every** contact rather than once. `0` lands with no rebound at all; `1` gives the normal component back in full, so a drop can keep hopping. `flat` has no rebound: its closed-form fall stops at the bottom edge, holds for `hold` and fades |
 | `friction` | 0.94 | yes | Per-tick air drag **and** the tangential velocity kept on contact, `0..1`, `1` = no drag - the block-particle default is the same `0.94`. It is what makes a landing glyph stop skidding so the body can be declared resting, and set too close to `1` a drifting unit slides for ever, never settles and so never starts its fade. Clamped `0..1` because it is a fraction, not a size. `flat` does not read it: the closed-form fall has no drag |
@@ -330,7 +330,8 @@ a **fall**.
   is resolved against the world's real collision set, and the contact is answered the way the
   block-particle engine answers it - the inward normal velocity is dropped, the tangential part is
   kept at `friction`, the normal part is reflected by `bounce`, and with `tumble` on the tangential
-  slip becomes roll about `n x v_t` while the touched block's own friction damps the spin. The
+  slip becomes roll about `n x v_t`; the touched block's own friction damps the spin on **every**
+  contact, with or without `tumble`, so a letter that lands spinning slows down and stops. The
   orientation is integrated about that angular-velocity axis on the same tick, and the displays are
   drawn at the interpolation between the last two ticks, so 20 Hz physics still looks smooth. The
   body then comes to rest **on its own**: after four consecutive ticks under the rest thresholds its
