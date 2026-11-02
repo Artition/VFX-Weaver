@@ -178,7 +178,7 @@ surface - constant, `start`/`end`, `keyframes`, `bind`, `expr`, the `/vfx play` 
 | `angle` | 0 | yes (`flat` only) | Turns the whole block about its anchor, degrees |
 | `billboard` | 0 | sampled, see below (`world` only) | Float code for how the block follows the camera, mapped straight onto the display's billboard constraint: `0` = **auto**, `1` = **fixed**, `2` = **center**, `3` = **vertical**, `4` = **horizontal**. `0` is the rule this effect always used - see [What the block faces, and how it is lit](#what-the-block-faces-and-how-it-is-lit). Read once per display at spawn, so changing it needs a respawn |
 | `two_sided` | 1 | sampled, see below (`world` only) | `>= 0.5` (the default) spawns a **second display per unit that is the mirror image of the first**: its origin is the original position plus the block rotation applied to `(unitWidth, 0, 0)` - one advance for a character, the measured width for a word, the widest line for a block - it carries **the same block rotation as the original**, and its transformation scale has a **negative X** (`-scale, scale, scale`), so its text runs from the far edge back to the original origin. That scale mirrors the glyph and flips the triangle winding, so the copy covers exactly the same rectangle and is drawn only from behind: the **back of the sign**, the letter reversed, never a readable second copy - and not through blocks, because the plane is drawn once per side. `< 0.5` spawns no twin at all, a strictly one-sided decal. Used only when the resolved `billboard` is not `center`, because a `center` billboard already faces you from every side - see [Showing the back of a pinned block](#showing-the-back-of-a-pinned-block). Read at spawn; each twin counts against the 256-display cap and is released with its unit |
-| `see_through` | 0 | yes (`world` only) | `>= 0.5` ORs vanilla's `FLAG_SEE_THROUGH` into every unit's flags, so the **same quads** are drawn from both sides - the physical back of a letter, a mirror image rather than a readable second copy. It is **off by default** and stays as the option for text that should be seen through walls: see-through is exactly vanilla's x-ray mode, so the text is then **drawn through terrain** - a line behind a hill is visible through it. `< 0.5` (the default) draws each quad on its one side, and the back of a pinned block comes from its `two_sided` twin instead |
+| `through_blocks` | 0 | yes (`world` only) | `>= 0.5` ORs vanilla's `FLAG_SEE_THROUGH` into every unit's flags, so the **same quads** are drawn from both sides - the physical back of a letter, a mirror image rather than a readable second copy. It is **off by default** and stays as the option for text that should be seen through walls: see-through is exactly vanilla's x-ray mode, so the text is then **drawn through terrain** - a line behind a hill is visible through it. `< 0.5` (the default) draws each quad on its one side, and the back of a pinned block comes from its `two_sided` twin instead |
 
 Notes on the numbers:
 
@@ -187,7 +187,7 @@ Notes on the numbers:
   instance. `billboard` and `two_sided` are sampled the same way, at spawn, because a display's
   billboard constraint and the number of entities belong to the block rather than to a frame.
   Animating any of them mid-flight changes nothing until the block is rebuilt; every other param -
-  `see_through` and `shadow` included - is read again every frame.
+  `through_blocks` and `shadow` included - is read again every frame.
 - **No upper limits on the motion.** `gravity`, `exit_speed`, `spread`, `spin_*`, `scale`, `pos_*` and the
   delays accept any value: a huge `gravity` or `exit_speed` just makes the drop instant, a huge
   `spin_*` makes the letter a blur. Only the lower guards that avoid degenerate maths are applied
@@ -300,7 +300,7 @@ mirrored copy of the first - from behind the letters read reversed, like the bac
   double the entities for nothing.
 - **`two_sided: 0`: a one-sided decal.** One display per unit, visible from the front, gone from
   behind. The cheapest state, and the one to pick for a block that is meant to have a front.
-- **`see_through: 1` (off by default): vanilla's x-ray mode, kept as an option.** The flag is one bit
+- **`through_blocks: 1` (off by default): vanilla's x-ray mode, kept as an option.** The flag is one bit
   of vanilla's display style, ORed in next to the shadow bit, so the renderer submits each unit's
   quads from **both sides** - the physical back of the same quad, a mirror image with the word running
   right to left - at any rotation, including while the block tumbles. No second entity is spawned. It

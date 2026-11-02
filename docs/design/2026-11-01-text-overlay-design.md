@@ -140,7 +140,7 @@ for block/item display particles.
 velocity, transform interpolation between ticks, a hard cap on live entities, and guaranteed removal
 when the effect stops or the level changes. The work is to add a *text* variant of its spec and
 particle: the entity is a `TextDisplay` whose `text` is a single glyph, with `background` transparent,
-`shadow`, `see_through` and opacity from the parameters, and whose transform is driven by the same
+`shadow`, `through_blocks` and opacity from the parameters, and whose transform is driven by the same
 interpolation path. Characters before `exit_at` are kinematic (they sit in the laid-out line);
 characters after it are handed to the simulation with their initial velocity and spin.
 

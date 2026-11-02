@@ -191,7 +191,7 @@ public final class VFXEffectSchema {
 				"per_char_anim", "stagger", "exit", "exit_at", "exit_stagger", "exit_speed", "spread",
 				"gravity", "spin_x", "spin_y", "spin_z", "tumble", "collision", "bounce", "friction",
 				"fade_out", "rot_x", "rot_y", "rot_z", "angle", "billboard", "brightness",
-				"two_sided", "see_through"},
+				"two_sided", "through_blocks"},
 			Map.ofEntries(
 				Map.entry("reveal", new float[] {0.0F, 1.0F}),
 				// The only bounded scramble param: a switch. 'scramble_rate' (swaps per second),
@@ -211,9 +211,10 @@ public final class VFXEffectSchema {
 				// A switch, not a size: below 0.5 is a one-sided block. On by default: the back of a
 				// pinned block is a second display glued to the front one.
 				Map.entry("two_sided", new float[] {0.0F, 1.0F}),
-				// The see-through flag: a switch, off by default - it is vanilla's x-ray mode for the
-				// same quad, kept as an option, not the two-display back.
-				Map.entry("see_through", new float[] {0.0F, 1.0F})));
+				// The see-through flag, named like every other depth switch in the mod: a switch, off
+				// by default - it is vanilla's x-ray mode for the same quad, kept as an option, not
+				// the two-display back.
+				Map.entry("through_blocks", new float[] {0.0F, 1.0F})));
 	}
 
 	/**

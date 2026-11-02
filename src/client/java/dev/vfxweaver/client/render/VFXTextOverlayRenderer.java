@@ -65,7 +65,7 @@ import org.slf4j.LoggerFactory;
  * share the exit offset, the floor, the opacity, the brightness and the release, so a falling or
  * tumbling pair never separates; the pair counts against the entity cap, so a two-sided block spends
  * two entities per unit.
- * {@code see_through} stays only as an option, for text meant to be seen through walls, and is
+ * {@code through_blocks} stays only as an option, for text meant to be seen through walls, and is
  * <strong>off</strong> by default.
  *
  * <p>{@code wrap_width} and {@code line_height} shape the layout, which is measured once when the
@@ -509,10 +509,10 @@ public final class VFXTextOverlayRenderer {
 		final int colour = colour(effect);
 		final byte shadowFlag = effect.getParam("shadow", 1.0F) >= 0.5F
 			? Display.TextDisplay.FLAG_SHADOW : (byte) 0;
-		// 'see_through' is vanilla's x-ray mode: it draws the same quads from both sides, and, as
+		// 'through_blocks' is vanilla's x-ray mode: it draws the same quads from both sides, and, as
 		// part of that same pipeline, through terrain. It is off by default, because the back of a
 		// pinned block is a second display glued to the front one, not a see-through quad.
-		final byte seeThroughFlag = effect.getParam("see_through", 0.0F) >= 0.5F
+		final byte throughFlag = effect.getParam("through_blocks", 0.0F) >= 0.5F
 			? Display.TextDisplay.FLAG_SEE_THROUGH : (byte) 0;
 		final Style style = Style.EMPTY.withColor(TextColor.fromRgb(colour));
 		// The rest pose of the block, built from exactly the maths placeBlock uses - minus the exit
@@ -579,7 +579,7 @@ public final class VFXTextOverlayRenderer {
 			// The shadow bit, the see-through bit plus the alignment bit a unit needs in every split
 			// but 'char': the twin carries exactly the same flags, so it aligns the same way from the
 			// other side.
-			final byte unitFlags = (byte) (shadowFlag | seeThroughFlag | alignFlags(unit, spec.split()));
+			final byte unitFlags = (byte) (shadowFlag | throughFlag | alignFlags(unit, spec.split()));
 			final Display.TextDisplay display = spawnDisplay(effect, level, unit, spec.split(), style,
 				unitFlags, lineWidth, billboard, brightness, origin,
 				restOffset(unit.x(), unit.y(), scale, spawnAlignShift, spawnAnchorShiftY,
@@ -627,7 +627,7 @@ public final class VFXTextOverlayRenderer {
 		// only when the shadow or see-through param flips, so a standing line writes nothing.
 		final byte[] lastFlags = new byte[entities.size()];
 		for (int i = 0; i < lastFlags.length; i++) {
-			lastFlags[i] = (byte) (shadowFlag | seeThroughFlag
+			lastFlags[i] = (byte) (shadowFlag | throughFlag
 				| alignFlags(layout.units().get(i), spec.split()));
 		}
 		final LiveText live = new LiveText(effect.getInstanceId(), signature, entities, twins, layout,
@@ -814,7 +814,7 @@ public final class VFXTextOverlayRenderer {
 			? Display.TextDisplay.FLAG_SHADOW : (byte) 0;
 		// The see-through bit is rebuilt here like the shadow one. Off by default: it is vanilla's
 		// x-ray mode for the same quad, not the two-display back this effect builds.
-		final byte seeThroughFlag = effect.getParam("see_through", 0.0F) >= 0.5F
+		final byte throughFlag = effect.getParam("through_blocks", 0.0F) >= 0.5F
 			? Display.TextDisplay.FLAG_SEE_THROUGH : (byte) 0;
 		final Style style = Style.EMPTY.withColor(TextColor.fromRgb(colour));
 		final boolean restyle = colour != live.lastColour;
@@ -885,7 +885,7 @@ public final class VFXTextOverlayRenderer {
 			// The shadow and see-through bits are animatable and the alignment bit is structural, so
 			// the set is rebuilt per frame and written only when it differs from what this display
 			// carries.
-			final byte flags = (byte) (shadowFlag | seeThroughFlag | alignFlags(unit, spec.split()));
+			final byte flags = (byte) (shadowFlag | throughFlag | alignFlags(unit, spec.split()));
 			final boolean flagsChanged = flags != live.lastFlags[i];
 			if (flagsChanged) {
 				display.setFlags(flags);
