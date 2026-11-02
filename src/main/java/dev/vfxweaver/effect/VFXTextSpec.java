@@ -2,6 +2,7 @@ package dev.vfxweaver.effect;
 
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
+import java.util.List;
 
 /**
  * The structural half of a {@code text_overlay} effect: what the text says and how it is shaped as a
@@ -11,6 +12,14 @@ import com.google.gson.JsonObject;
  * text becomes, which is fixed for the life of a block for the same reason.
  */
 public final class VFXTextSpec {
+	/**
+	 * The font id spellings the renderer accepts. Only Minecraft's built-in font is ever drawn (the
+	 * renderer always uses {@code Minecraft.getInstance().font}), so any other name would silently
+	 * be ignored - the parser rejects it instead. The editor's font combo is generated from this
+	 * constant, so the two cannot drift.
+	 */
+	public static final List<String> FONT_IDS = List.of("default", "minecraft:default");
+
 	/** Where the characters live. */
 	public enum Mode { FLAT, WORLD }
 
@@ -98,12 +107,12 @@ public final class VFXTextSpec {
 	// time instead of drawing something other than what the definition asked for.
 	private static String parseFont(final String raw) {
 		final String font = raw.toLowerCase(java.util.Locale.ROOT);
-		return switch (font) {
-			case "default", "minecraft:default" -> "default";
-			default -> throw new IllegalArgumentException("text_overlay: text.font '" + raw
-				+ "' is not supported - only 'default' / 'minecraft:default' is drawn "
-				+ "(a resource-pack font is not supported yet)");
-		};
+		if (FONT_IDS.contains(font)) {
+			return "default";
+		}
+		throw new IllegalArgumentException("text_overlay: text.font '" + raw
+			+ "' is not supported - only " + FONT_IDS + " is drawn "
+			+ "(a resource-pack font is not supported yet)");
 	}
 
 	// 'split' decides how many entities the text becomes, so an unknown value would silently draw

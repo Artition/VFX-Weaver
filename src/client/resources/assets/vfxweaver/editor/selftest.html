@@ -1700,16 +1700,30 @@ window.__vfxSelftest = function () {
 		ok(!("text" in cleared), "a blank content removes the block");
 	});
 
-	test("(TEXT4) an untouched imported text block round-trips via the source clone", function () {
-		var imported = { content: "Imported", mode: "world", font: "default", align: "right",
-			anchor: "bottom", split: "block" };
+	test("(TEXT4) an untouched import keeps its text block, and one edit normalises it", function () {
+		var imported = { content: "Imported", mode: "WORLD", font: "minecraft:default",
+			align: "right", anchor: "bottom", split: "block", flavour: "keep me" };
+		var def = { type: "text_overlay", duration: 40, text: imported };
 		var tab = new VFXIR.Tab("imported", "text_overlay");
-		tab.source = { type: "text_overlay", duration: 40, text: imported };
-		var def = parse(compileTab(tab));
-		eq(JSON.stringify(def.text), JSON.stringify(imported), "the imported block is unchanged");
-		tab.effect().text = { content: "" };
-		var cleared = parse(compileTab(tab));
-		ok(!("text" in cleared), "an authored empty content drops the imported block");
+		tab.source = def;
+		var effect = tab.effect();
+		// The real import path: hydrateStructural must not copy the block into the IR.
+		VFXIR.hydrateStructural(effect, def);
+		ok(effect.text === undefined, "hydrate leaves the text block on the source");
+		var untouched = parse(compileTab(tab));
+		eq(JSON.stringify(untouched.text), JSON.stringify(imported),
+				"the imported block is byte-identical");
+		eq(untouched.text.mode, "WORLD", "the original casing survives an untouched export");
+		eq(untouched.text.flavour, "keep me", "the unknown key survives an untouched export");
+		// The inspector's first edit copies the shown values into the IR; the compiler then emits
+		// the normalised six-key block.
+		effect.text = { content: "Edited", mode: "WORLD", font: "minecraft:default",
+			align: "right", anchor: "bottom", split: "block" };
+		var edited = parse(compileTab(tab));
+		eq(edited.text.content, "Edited", "the edit lands");
+		eq(edited.text.mode, "world", "the enum is lowercased");
+		ok(!("flavour" in edited.text), "the unknown key is dropped once edited");
+		eq(Object.keys(edited.text).length, 6, "exactly the six known keys");
 	});
 	test("(MP1) a 200-definition pack opens lazily, not one tab per definition", function () {
 		var effects = {};

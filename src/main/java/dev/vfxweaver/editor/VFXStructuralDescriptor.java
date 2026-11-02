@@ -373,7 +373,7 @@ public record VFXStructuralDescriptor(boolean supportsMask, List<String> maskSha
 		final Map<String, Object> spec = new LinkedHashMap<>();
 		spec.put("fields", List.of("content", "mode", "font", "align", "anchor", "split"));
 		spec.put("modeValues", modes);
-		spec.put("fontValues", List.of("default", "minecraft:default"));
+		spec.put("fontValues", VFXTextSpec.FONT_IDS);
 		spec.put("alignValues", aligns);
 		spec.put("anchorValues", anchors);
 		spec.put("splitValues", splits);

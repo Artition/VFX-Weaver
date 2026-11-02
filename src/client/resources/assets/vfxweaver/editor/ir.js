@@ -2007,6 +2007,64 @@
 		return "";
 	}
 
+	/**
+	 * A fresh `text` block for a `text_overlay`, from the schema's `textFields.defaults` with the
+	 * starter content `"Text"` (mirrors what {@code VFXTextSpec.parse} reads when a key is absent).
+	 * Shared by the canvas-entry seed and the inspector's fallback, so the two cannot disagree.
+	 *
+	 * @param {Object} [spec] the schema's text field spec
+	 * @returns {Object} a mutable `text` block
+	 */
+	function textDefaults(spec) {
+		var defaults = (spec && spec.defaults) || {};
+		return {
+			content: "Text",
+			mode: defaults.mode == null ? "flat" : String(defaults.mode),
+			font: defaults.font == null ? "default" : String(defaults.font),
+			align: defaults.align == null ? "center" : String(defaults.align),
+			anchor: defaults.anchor == null ? "center" : String(defaults.anchor),
+			split: defaults.split == null ? "char" : String(defaults.split)
+		};
+	}
+
+	/**
+	 * Carry the top-level structural fields a definition may carry (design §13.4) into an effect IR
+	 * entry, so the positions/region/entity-selector/sound sub-editors show them and the compiler
+	 * re-emits them identically. A field the source does not carry stays `undefined` (not an empty
+	 * list), which keeps the compiler's pass-through clone in charge for imported definitions.
+	 *
+	 * <p>The `text` block is deliberately <b>not</b> carried: the inspector reads it from
+	 * {@code effect.source}/{@code tab.source} and writes it into the IR only on the first edit, so an
+	 * untouched import keeps its block exactly as the source clone produced it (extra keys and the
+	 * original casing included).
+	 *
+	 * @param {Object} effect the effect entry (mutated)
+	 * @param {Object|null} src the imported definition (or a resolved chain child)
+	 */
+	function hydrateStructural(effect, src) {
+		if (!effect) {
+			return;
+		}
+		effect.positions = src && src.positions !== undefined ? cloneJson(src.positions) : undefined;
+		effect.region = src && src.region !== undefined ? cloneJson(src.region) : undefined;
+		effect.entitySelector = src && src.entity_selector != null ? String(src.entity_selector) : undefined;
+		effect.sound = src && src.sound != null ? String(src.sound) : undefined;
+		effect.soundPos = src && src.sound_pos !== undefined ? cloneJson(src.sound_pos) : undefined;
+		// Tail slice (design §13.4): the same carry, so the new sub-editors show imported values.
+		effect.particle = src && src.particle != null ? String(src.particle) : undefined;
+		effect.shape = src && src.shape != null ? String(src.shape) : undefined;
+		effect.block = src && src.block != null ? String(src.block) : undefined;
+		effect.item = src && src.item != null ? String(src.item) : undefined;
+		effect.pattern = src && src.pattern !== undefined ? cloneJson(src.pattern) : undefined;
+		effect.surface = src && src.surface !== undefined ? cloneJson(src.surface) : undefined;
+		effect.anchor = src && src.anchor != null ? String(src.anchor) : undefined;
+		effect.windowId = src && src.id != null ? String(src.id) : undefined;
+		effect.windowTitles = src && src.titles !== undefined ? cloneJson(src.titles) : undefined;
+		// The top-level `texture` is shared by the window spec and the screen-image spec (one is
+		// visible at a time - the sub-editors are flag-gated per type), so one IR field serves both.
+		effect.texture = src && src.texture != null ? String(src.texture) : undefined;
+	}
+
 	/** Whether a node is a composition (has an `op`). */
 	function isMaskComposition(node) {
 		return Boolean(node && typeof node === "object" && node.op != null);
@@ -3436,6 +3494,8 @@
 		textAffordance: textAffordance,
 		textFieldSpec: textFieldSpec,
 		textParamMode: textParamMode,
+		textDefaults: textDefaults,
+		hydrateStructural: hydrateStructural,
 		isMaskComposition: isMaskComposition,
 		maskLeaves: maskLeaves,
 		maskOps: maskOps,

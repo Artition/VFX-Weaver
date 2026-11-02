@@ -1613,34 +1613,59 @@
 
 		/** A fresh `text` block from the schema defaults (mirrors `VFXTextSpec.parse`). */
 		function textDefaults(spec) {
-			var defaults = (spec && spec.defaults) || {};
-			return {
-				content: "Text",
-				mode: defaults.mode == null ? "flat" : String(defaults.mode),
-				font: defaults.font == null ? "default" : String(defaults.font),
-				align: defaults.align == null ? "center" : String(defaults.align),
-				anchor: defaults.anchor == null ? "center" : String(defaults.anchor),
-				split: defaults.split == null ? "char" : String(defaults.split)
-			};
+			return vfxir.textDefaults(spec);
+		}
+
+		/** The imported `text` block: the chain child's own clone, else a single-effect tab's def. */
+		function importedTextBlock() {
+			var own = effect.source ? effect.source.text : null;
+			if (own != null && typeof own === "object" && !Array.isArray(own)) {
+				return own;
+			}
+			// A single-effect tab keeps the whole imported definition on the tab, not the entry
+			// (only a collection root fans out into per-child `effect.source` clones).
+			var tabText = tab && tab.source ? tab.source.text : null;
+			return tabText != null && typeof tabText === "object" && !Array.isArray(tabText)
+					? tabText : null;
 		}
 
 		/**
-		 * The `text` sub-editor (text_overlay): content plus the five structural selects. Seeded on
-		 * first render (like the surface block), so an effect that never had a text block still
-		 * shows and emits a parseable one. The mode select commits with a rebuild: the canvas
+		 * The `text` sub-editor (text_overlay): content plus the five structural selects. The shown
+		 * values come from the authored block, else the imported one, else the parser defaults - the
+		 * render writes nothing to the IR, so an untouched import still re-exports through the source
+		 * clone byte for byte (extra keys and original casing intact). The first actual edit copies
+		 * the shown values into `effect.text`. The mode select commits with a rebuild: the canvas
 		 * mode badges and the panel depend on it.
 		 */
 		function textSection(spec) {
 			var box = section("Text");
 			var defaults = textDefaults(spec);
-			var target = effect.text;
-			if (!target || typeof target !== "object" || Array.isArray(target)) {
-				target = effect.text = defaults;
+			var authored = effect.text;
+			var source = authored != null && typeof authored === "object" && !Array.isArray(authored)
+					? authored : importedTextBlock();
+			var shown = {};
+			Object.keys(defaults).forEach(function (key) {
+				shown[key] = source && source[key] != null ? String(source[key]) : defaults[key];
+			});
+
+			/** The mutable IR block: seeded from the shown values on the first actual edit. */
+			function set(key, value) {
+				if (!effect.text || typeof effect.text !== "object" || Array.isArray(effect.text)) {
+					var block = {};
+					Object.keys(shown).forEach(function (name) {
+						block[name] = shown[name];
+					});
+					effect.text = block;
+				}
+				effect.text[key] = value;
+				shown[key] = value;
+				return effect.text;
 			}
+
 			var area = el("textarea", { class: "vfx-text vfx-struct-text", rows: 3 });
-			area.value = target.content == null ? "" : String(target.content);
+			area.value = shown.content;
 			area.addEventListener("input", function () {
-				target.content = area.value;
+				set("content", area.value);
 				commit(false);
 			});
 			box.appendChild(el("label", { class: "vfx-field" },
@@ -1656,11 +1681,10 @@
 				var values = row[1];
 				var rebuild = row[2];
 				box.appendChild(el("label", { class: "vfx-field" }, [el("span", { text: key }),
-					selectFor(values, target[key] == null ? String(defaults[key]) : String(target[key]),
-							function (value) {
-								target[key] = value;
-								commit(rebuild);
-							})]));
+					selectFor(values, shown[key], function (value) {
+						set(key, value);
+						commit(rebuild);
+					})]));
 			});
 			return box;
 		}

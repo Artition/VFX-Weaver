@@ -74,8 +74,10 @@ line while it is running.
 
 **In the visual editor the block has its own panel.** A `text_overlay` node's inspector shows a
 **Text** section - a `content` textarea plus `mode`, `font`, `align`, `anchor` and `split` selects
-populated from the schema, so the five structural spellings cannot drift from the parser. A node
-that never had a `text` block is seeded with `Text` and the defaults above on first render. The
+populated from the schema, so the five structural spellings cannot drift from the parser. A fresh
+node is created with `Text` and the defaults above already in its block, so it compiles before the
+panel is ever opened; an imported block is shown as it was written and reaches the editor's model
+only on the first edit, so a definition nobody touches exports byte for byte. The
 mode-only param sockets carry a badge on the canvas: **`2D`** on `x`/`y`/`angle`, **`3D`** on
 `pos_x`/`pos_y`/`pos_z`, `rot_x`/`rot_y`/`rot_z`, `billboard`, `brightness`, `two_sided` and
 `through_blocks`, dimmed when the badge's mode is not the block's current `mode`. Nothing is hidden -
