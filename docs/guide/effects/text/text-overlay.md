@@ -143,9 +143,9 @@ surface - constant, `start`/`end`, `keyframes`, `bind`, `expr`, the `/vfx play` 
 | `bounce` | 0.15 | yes (`world` only) | Restitution of the single rebound after landing, `0..1`. `0` lands and stays down. `flat` has no rebound: a character that reaches the bottom edge holds there and fades |
 | `friction` | 0.4 | **not read yet** | Would be the tangential damping on impact; the fall is vertical only, so there is nothing to damp |
 | `fade_out` | 0.5 | yes | Seconds a character takes to fade once it has left (fade exit) or once it has come to rest (fall exit). Floored at `1e-4` |
-| `rot_x` | 0 | yes | Baseline orientation of the whole block, degrees |
-| `rot_y` | 0 | yes | Baseline orientation of the whole block, degrees, Y |
-| `rot_z` | 0 | yes (`world` only) | Baseline orientation of the whole block, degrees, Z. `flat` turns about Z with `angle` and `spin_z` instead, so this is not read there |
+| `rot_x` | 0 | yes | Baseline orientation of the whole block, degrees. With `rot_x`, `rot_y` and `rot_z` all at zero the block is a **billboard facing the camera**, so it is readable from any side; setting any of the three pins it in world orientation |
+| `rot_y` | 0 | yes | Baseline orientation of the whole block, degrees, Y. It takes part in the billboard rule above: any non-zero value pins the block in the world |
+| `rot_z` | 0 | yes (`world` only) | Baseline orientation of the whole block, degrees, Z. `flat` turns about Z with `angle` and `spin_z` instead, so this is not read there. It is part of the billboard rule in `world`: only while all three are zero does the block face the camera |
 | `angle` | 0 | yes (`flat` only) | Turns the whole block about its anchor, degrees |
 
 Notes on the numbers:

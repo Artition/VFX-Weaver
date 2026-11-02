@@ -60,7 +60,7 @@ foreach ($param in 'reveal', 'exit', 'exit_at', 'exit_stagger', 'exit_speed', 'g
 }
 
 # --- the exit wiring in the renderer ----------------------------------------------------------
-foreach ($pattern in 'fallOffset', 'detachTime', 'exit_stagger', 'finished') {
+foreach ($pattern in 'fallOffset', 'detachTime', 'exit_stagger', 'finished', 'setBillboardConstraints') {
 	Require-Pattern $rendererPath $pattern "the renderer lost '$pattern' from the per-character exit"
 }
 

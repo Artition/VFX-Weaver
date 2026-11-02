@@ -419,6 +419,13 @@ public final class VFXTextOverlayRenderer {
 		final float spawnAlignShift = alignOffset(spec, layout.width() * scale);
 		final float spawnAnchorShiftY = anchorOffset(spec, layout.height() * scale);
 		final Quaternionf spawnRotation = blockRotation(effect);
+		// A display's billboard defaults to FIXED, which is one one-sided quad: a block that lies in
+		// the player's own XZ plane is then seen edge-on and reads as no text at all. With no authored
+		// rotation there is no orientation to preserve, so the characters are left facing the camera;
+		// any rot_* pins the block in world orientation, which is what those params mean.
+		final boolean cameraFacing = Math.abs(effect.getParam("rot_x", 0.0F)) < 1e-4F
+			&& Math.abs(effect.getParam("rot_y", 0.0F)) < 1e-4F
+			&& Math.abs(effect.getParam("rot_z", 0.0F)) < 1e-4F;
 		for (final VFXTextLayout.Glyph glyph : layout.glyphs()) {
 			if (entities.size() >= MAX_CHARS) {
 				VFXLog.warnOnce(LOGGER, "text_overlay:cap:" + effect.getId(),
@@ -430,6 +437,9 @@ public final class VFXTextOverlayRenderer {
 			display.setText(Component.literal(String.valueOf(glyph.ch())).withStyle(style));
 			display.setBackgroundColor(TRANSPARENT_BACKGROUND);
 			display.setFlags(flags);
+			if (cameraFacing) {
+				display.setBillboardConstraints(Display.BillboardConstraints.CENTER);
+			}
 			// The transform is refreshed every frame by placeBlock, so the display must interpolate
 			// it over one tick; without this the render state is only rebuilt on the entity tick and
 			// a moved block renders stepped at ~20 Hz.
