@@ -1,11 +1,8 @@
 package dev.vfxweaver.client.render;
 
 import com.mojang.blaze3d.vertex.PoseStack;
+import com.mojang.math.Transformation;
 import dev.vfxweaver.effect.VFXActiveEffect;
-import java.util.Set;
-import net.minecraft.client.multiplayer.ClientLevel;
-//? if >=26.2 {
-/*import com.mojang.math.Transformation;
 import dev.vfxweaver.effect.VFXBlockParticleSpec;
 import dev.vfxweaver.effect.VFXTextSpec;
 import dev.vfxweaver.util.VFXLog;
@@ -13,15 +10,25 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
+//? if <26.1 {
+/*import net.minecraft.client.gui.GuiGraphics;
+*///?} else {
 import net.minecraft.client.gui.GuiGraphicsExtractor;
+//?}
+import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.Style;
 import net.minecraft.network.chat.TextColor;
 import net.minecraft.util.Brightness;
 import net.minecraft.world.entity.Display;
-import net.minecraft.world.entity.EntityTypes;
+//? if <26.2 {
+import net.minecraft.world.entity.EntityType;
+//?} else {
+/*import net.minecraft.world.entity.EntityTypes;
+*///?}
 import net.minecraft.world.level.ClipContext;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.HitResult;
@@ -33,7 +40,6 @@ import org.joml.Vector3f;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-*///?}
 
 /**
  * Draws a {@code text_overlay} effect: {@code world} mode as one client-side
@@ -153,10 +159,12 @@ import org.slf4j.LoggerFactory;
  * released; when the effect loops or is replayed and the clock goes back, the block is rebuilt. An
  * effect that stops always releases its units, whatever the physics was doing.
  *
- * <p>The whole body is gated on {@code >=26.2}: {@code Display.TextDisplay}'s setters are only
- * public there, and {@link VFXBlockParticleEngine#nextLocalEntityId()} (needed because 26.2's
- * {@code ClientLevel.addEntity} reads {@code Entity.getId()}) only exists there. On older nodes this
- * class compiles to empty no-ops.
+ * <p>The renderer compiles on every node. Two things differ and are branched: 26.2 renamed the
+ * registry holder to {@code EntityTypes} and made {@code ClientLevel.addEntity} read
+ * {@code Entity.getId()} - so only there the id comes from
+ * {@link VFXBlockParticleEngine#nextLocalEntityId()}; below 26.1 the HUD graphics is
+ * {@code GuiGraphics} ({@code drawString}) instead of {@code GuiGraphicsExtractor}
+ * ({@code text}).
  *
  * <p><b>Not verified in game.</b>
  */
@@ -164,8 +172,7 @@ public final class VFXTextOverlayRenderer {
 	private VFXTextOverlayRenderer() {
 	}
 
-	//? if >=26.2 {
-	/*private static final Logger LOGGER = LoggerFactory.getLogger("vfxweaver/text-overlay");
+	private static final Logger LOGGER = LoggerFactory.getLogger("vfxweaver/text-overlay");
 	// Hard cap on the display entities of one effect: every unit is a real entity, and a longer
 	// string than this would flood the frame with entities nobody asked for.
 	private static final int MAX_CHARS = 256;
@@ -378,7 +385,11 @@ public final class VFXTextOverlayRenderer {
 	//
 	// effect   - the running effect, its 'flat' text already resolved into a spec
 	// graphics - the HUD graphics of the current frame (also its size, and its pose)
+	//? if <26.1 {
+	/*public static void renderFlat(final VFXActiveEffect effect, final GuiGraphics graphics) {
+	*///?} else {
 	public static void renderFlat(final VFXActiveEffect effect, final GuiGraphicsExtractor graphics) {
+	//?}
 		if (effect.getWeight() <= 0.0F) {
 			return;
 		}
@@ -506,8 +517,13 @@ public final class VFXTextOverlayRenderer {
 			if (noise > 0.0F) {
 				// One noise glyph for the whole unit, drawn from the unit's left edge: that is what
 				// the world path does with a display's text, so both modes decode the same way.
+				//? if <26.1 {
+				/*graphics.drawString(font, noiseGlyph(effect, u), -Math.round(halfWidth),
+					-Math.round(halfHeight), argb, shadow);
+				*///?} else {
 				graphics.text(font, noiseGlyph(effect, u), -Math.round(halfWidth),
 					-Math.round(halfHeight), argb, shadow);
+				//?}
 			} else {
 				// The unit's own glyphs, each at its laid-out offset inside the unit and all under
 				// the one pose above, so the cached strings are reused and nothing is allocated. A
@@ -515,9 +531,15 @@ public final class VFXTextOverlayRenderer {
 				// measured with the same 'Font.split' call the world display draws with.
 				for (int g = first; g < end; g++) {
 					final VFXTextLayout.Glyph glyph = glyphs.get(g);
+					//? if <26.1 {
+					/*graphics.drawString(font, flat.texts().get(glyph.index()),
+						-Math.round(halfWidth - (glyph.x() - unit.x())),
+						-Math.round(halfHeight - (glyph.y() - unit.y())), argb, shadow);
+					*///?} else {
 					graphics.text(font, flat.texts().get(glyph.index()),
 						-Math.round(halfWidth - (glyph.x() - unit.x())),
 						-Math.round(halfHeight - (glyph.y() - unit.y())), argb, shadow);
+					//?}
 				}
 			}
 			pose.popMatrix();
@@ -832,7 +854,11 @@ public final class VFXTextOverlayRenderer {
 			final Style style, final byte flags, final int lineWidth,
 			final Display.BillboardConstraints billboard, final int brightness, final Vec3 origin,
 			final Vector3f local) {
-		final Display.TextDisplay display = new Display.TextDisplay(EntityTypes.TEXT_DISPLAY, level);
+		//? if <26.2 {
+		final Display.TextDisplay display = new Display.TextDisplay(EntityType.TEXT_DISPLAY, level);
+		//?} else {
+		/*final Display.TextDisplay display = new Display.TextDisplay(EntityTypes.TEXT_DISPLAY, level);
+		*///?}
 		display.setText(Component.literal(unit.text()).withStyle(style));
 		display.setBackgroundColor(TRANSPARENT_BACKGROUND);
 		display.setFlags(flags);
@@ -852,9 +878,11 @@ public final class VFXTextOverlayRenderer {
 		display.setTransformationInterpolationDuration(1);
 		display.setTransformationInterpolationDelay(0);
 		display.setPos(origin.x + local.x, origin.y + local.y, origin.z + local.z);
-		// 26.2's ClientLevel.addEntity reads Entity.getId(), and a locally created entity has
+		//? if >=26.2 {
+		/*// 26.2's ClientLevel.addEntity reads Entity.getId(), and a locally created entity has
 		// none (only ServerLevel overrides getNextEntityId), so the id must be set first.
 		display.setId(VFXBlockParticleEngine.nextLocalEntityId());
+		*///?}
 		// The spawn position is the entity's starting position, not a move to interpolate from.
 		display.setOldPosAndRot();
 		try {
@@ -1524,20 +1552,4 @@ public final class VFXTextOverlayRenderer {
 		lastFraction = 0.0F;
 		clear();
 	}
-	*///?} else {
-	// <26.2: Display.TextDisplay's setters are not public, so the whole feature is a no-op here.
-	// The methods stay so callers do not need a version guard of their own.
-
-	public static void renderWorld(final VFXActiveEffect effect, final ClientLevel level, final PoseStack pose) {
-	}
-
-	public static void tick(final ClientLevel level, final float clock, final Set<Long> activeInstances) {
-	}
-
-	public static void remove(final long instanceId) {
-	}
-
-	public static void clear() {
-	}
-	//?}
 }
