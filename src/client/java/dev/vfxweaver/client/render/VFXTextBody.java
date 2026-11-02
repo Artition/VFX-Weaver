@@ -42,6 +42,23 @@ public final class VFXTextBody {
 	/** Consecutive still ticks before the body is declared resting; 0.2 s at 20 Hz. */
 	private static final int REST_TICKS = 4;
 	/**
+	 * Ticks the orientation takes to lie down after the body is declared resting. The first tick
+	 * turns a third of the remaining angle, the second a half of what is left, the third the rest, so
+	 * the settle is a short visible turn instead of a one-frame pop - and because both ends of every
+	 * tick are written back, the frame interpolation cannot fight it.
+	 */
+	private static final int REST_ORIENT_TICKS = 3;
+	/**
+	 * How far, in blocks, a still-falling body may drop below the Y it detached at before it is
+	 * released whether or not it ever rests. Thirty-two blocks is deep below any surface the letter
+	 * was standing on and far outside the view of the text: at that point the fall is no longer part
+	 * of the effect, and a body that cannot rest - dropped into the void, or bouncing forever with
+	 * {@code bounce} 1 - must not stay a fully opaque display entity until someone stops the effect.
+	 * The renderer starts the same {@code hold} + {@code fade_out} ramp from that moment, so the
+	 * block always reaches zero and releases its units.
+	 */
+	private static final double RELEASE_DROP = 32.0;
+	/**
 	 * The lying pose: the glyph plane horizontal with its face turned to the sky (local +Z, the
 	 * display's front, rotated onto +Y). Shared and never mutated — it is copied into the body's own
 	 * quaternions, never handed out.
@@ -54,8 +71,12 @@ public final class VFXTextBody {
 	private final Quaternionf orientation;
 	private final Quaternionf prevOrientation;
 	private final Vector3f angularVelocity;
+	/** The Y the body detached at, its own rest height; the release drop is measured from it. */
+	private final double restY;
 	private boolean resting;
 	private int stillTicks;
+	private int restOrientTicks;
+	private boolean restPoseFrozen;
 
 	/**
 	 * Creates one body at its detach state. {@code prev} and {@code prevOrientation} start equal to
@@ -75,6 +96,7 @@ public final class VFXTextBody {
 		this.orientation = new Quaternionf(orientation);
 		this.prevOrientation = new Quaternionf(orientation);
 		this.angularVelocity = new Vector3f(angularVelocity);
+		this.restY = position.y;
 	}
 
 	/**
@@ -105,9 +127,21 @@ public final class VFXTextBody {
 		return new Quaternionf(this.prevOrientation).slerp(this.orientation, t);
 	}
 
-	/** @return {@code true} once the body has settled; {@link #step} then does nothing */
+	/** @return {@code true} once the body has settled; {@link #step} then only finishes the pose */
 	public boolean resting() {
 		return this.resting;
+	}
+
+	/**
+	 * Whether the body has fallen far enough below the Y it detached at that it must be released
+	 * whether or not it can rest. A resting body is never stranded: its landing, however low, is a
+	 * landing and the normal rest rule already starts its fade.
+	 *
+	 * @return {@code true} once a non-resting body is more than {@link #RELEASE_DROP} blocks below
+	 *         its own rest Y
+	 */
+	public boolean stranded() {
+		return !this.resting && this.pos.y < this.restY - RELEASE_DROP;
 	}
 
 	/**
@@ -115,13 +149,15 @@ public final class VFXTextBody {
 	 * drag, the move, an optional collision response (drop the inward normal velocity, damp the rest
 	 * by friction, reflect the normal part by bounce, turn the tangential slip into roll about
 	 * {@code n x v_t}, let the touched block's own friction damp the spin), then the orientation about
-	 * the angular-velocity axis. A resting body is not stepped at all.
+	 * the angular-velocity axis. A resting body keeps no physics, but it still runs the short turn
+	 * into the lying pose.
 	 *
 	 * @param level  the client level the body moves through (collision source)
 	 * @param params the physics for this tick
 	 */
 	public void step(final ClientLevel level, final Params params) {
 		if (this.resting) {
+			lieDown();
 			return;
 		}
 		this.prev = this.pos;
@@ -189,10 +225,12 @@ public final class VFXTextBody {
 
 	/**
 	 * Rest rule: once both speeds have stayed under their thresholds for four consecutive ticks
-	 * the body is declared resting, its orientation snaps to {@link #FLAT} (face
-	 * up) and its motion is zeroed. That is what "lies on the floor" means here - there is no floor
-	 * scan, no landing lift and no frozen spin to patch it. A body that never slows down (free fall,
-	 * or a perfectly elastic, frictionless bounce) simply keeps being stepped until its effect stops.
+	 * the body is declared resting, its motion is zeroed and its orientation begins to turn into
+	 * {@link #FLAT} (face up) over {@link #REST_ORIENT_TICKS} ticks - see {@link #lieDown}. That is
+	 * what "lies on the floor" means here - there is no floor scan, no landing lift and no frozen
+	 * spin to patch it. A body that never slows down (free fall, or a perfectly elastic,
+	 * frictionless bounce) keeps being stepped until it is either released by its effect or falls
+	 * past {@link #RELEASE_DROP}.
 	 */
 	private void settle() {
 		if (this.velocity.length() < REST_LINEAR_SPEED
@@ -202,15 +240,40 @@ public final class VFXTextBody {
 				this.resting = true;
 				this.velocity = Vec3.ZERO;
 				this.angularVelocity.set(0.0F, 0.0F, 0.0F);
-				this.orientation.set(FLAT);
-				this.prevOrientation.set(FLAT);
-				// The rest pose is the final one: a settled body is no longer stepped, so 'prev'
+				// The rest pose is the final one: a settled body is no longer moved, so 'prev'
 				// would otherwise stay one step behind and every frame would interpolate the body
 				// back and forth across that last move.
 				this.prev = this.pos;
+				// The orientation is not snapped here: 'lieDown' turns it into FLAT over a few
+				// ticks, writing 'prev' and 'prevOrientation' each one, so the settle is drawn
+				// rather than popped.
+				this.restOrientTicks = REST_ORIENT_TICKS;
 			}
 		} else {
 			this.stillTicks = 0;
+		}
+	}
+
+	/**
+	 * Finishes the resting pose: the first {@link #REST_ORIENT_TICKS} resting ticks slerp the
+	 * orientation into {@link #FLAT}, each ending exactly where the frame interpolation expects, and
+	 * the tick after the blend freezes both ends of the tick to FLAT so the display cannot swing off
+	 * the floor while it fades. Until that freeze, the last blend tick's interpolation window starts
+	 * at the pre-blend pose and ends at the flat one - the turn is drawn, not snapped.
+	 */
+	private void lieDown() {
+		if (this.restOrientTicks > 0) {
+			this.prev = this.pos;
+			this.prevOrientation.set(this.orientation);
+			// Whatever is left, divided by the ticks left: a third, then a half, then the rest, so
+			// the final tick lands on FLAT exactly.
+			this.orientation.slerp(FLAT, 1.0F / this.restOrientTicks);
+			this.restOrientTicks--;
+		} else if (!this.restPoseFrozen) {
+			this.prev = this.pos;
+			this.prevOrientation.set(FLAT);
+			this.orientation.set(FLAT);
+			this.restPoseFrozen = true;
 		}
 	}
 

@@ -133,10 +133,12 @@ import org.slf4j.LoggerFactory;
  * <p>A unit that falls stays opaque while it is in the air: once its body reports resting, {@code
  * hold} seconds pass and then {@code fade_out} runs. Free fall never rests, so with {@code
  * collision} off the fade runs from the detach (and with {@code fade_out} 0 the letters simply keep
- * falling until the effect stops), and a drop with nothing under it keeps falling at full opacity the
- * same way. Once every unit has faded, the block is marked finished at the age it finished and its
- * entities are released; when the effect loops or is replayed and the clock goes back, the block is
- * rebuilt. An effect that stops always releases its units, whatever the physics was doing.
+ * falling until the effect stops). A body that has collision but cannot rest - dropped into the void,
+ * or bouncing forever - is released the same way once it is more than its release drop below the Y it
+ * detached at, so no unit can stay spawned and fully opaque until someone stops the effect. Once
+ * every unit has faded, the block is marked finished at the age it finished and its entities are
+ * released; when the effect loops or is replayed and the clock goes back, the block is rebuilt. An
+ * effect that stops always releases its units, whatever the physics was doing.
  *
  * <p>The whole body is gated on {@code >=26.2}: {@code Display.TextDisplay}'s setters are only
  * public there, and {@link VFXBlockParticleEngine#nextLocalEntityId()} (needed because 26.2's
@@ -228,12 +230,14 @@ public final class VFXTextOverlayRenderer {
 	}
 
 	// One unit's fall: the body that carries it and the physics it is stepped with, both built once
-	// when the unit detaches, plus the 'since' at which it came to rest. A unit without a Fall still
-	// stands in the line, or left by a fade, and is placed from its rest pose.
+	// when the unit detaches, plus the 'since' at which it came to rest or was released for falling
+	// out of sight. A unit without a Fall still stands in the line, or left by a fade, and is placed
+	// from its rest pose.
 	private static final class Fall {
 		private final VFXTextBody body;
 		private final VFXTextBody.Params params;
 		private float restSince = -1.0F;
+		private float releaseSince = -1.0F;
 
 		private Fall(final VFXTextBody body, final VFXTextBody.Params params) {
 			this.body = body;
@@ -1162,10 +1166,12 @@ public final class VFXTextOverlayRenderer {
 	// or - for a fall - 1 until the body reports resting, the 'hold' seconds after that, and then
 	// 'fade_out'. The rest time is recorded from the body itself, on the first frame it reports
 	// settled, so the hold and the ramp are timed from the tick the physics actually stopped - there
-	// is no closed form left to ask. A body that never rests (free fall, or a drop over a void) never
-	// reaches the ramp, so the letter stays fully opaque until the effect stops and 'tick' releases
-	// it; with 'collision' off there is no floor at all, so 'fade_out' runs from the detach instead
-	// (and 0 keeps it opaque), which is the free-fall rule this renderer has always had.
+	// is no closed form left to ask. A body that cannot rest (free fall, a drop over a void, a bounce
+	// of 1 or a friction so close to 1 it never sheds its drift) would otherwise never reach the
+	// ramp, so the same hold + ramp starts the moment it is more than its release drop below the Y it
+	// detached at: long out of sight, it fades to zero and 'finish' releases it whatever the physics
+	// is doing. With 'collision' off there is no floor at all, so 'fade_out' runs from the detach
+	// instead (and 0 keeps it opaque), which is the free-fall rule this renderer has always had.
 	private static float exitAlpha(final VFXActiveEffect effect, final Fall fall, final float since) {
 		if (since < 0.0F) {
 			return 1.0F;
@@ -1176,13 +1182,17 @@ public final class VFXTextOverlayRenderer {
 		if (fall == null || effect.getParam("collision", 1.0F) < 0.5F) {
 			return fade(effect, since, 0.0F);
 		}
+		if (fall.releaseSince < 0.0F && fall.restSince < 0.0F && fall.body.stranded()) {
+			fall.releaseSince = since;
+		}
 		if (fall.restSince < 0.0F && fall.body.resting()) {
 			fall.restSince = since;
 		}
-		if (fall.restSince < 0.0F) {
+		final float from = fall.releaseSince >= 0.0F ? fall.releaseSince : fall.restSince;
+		if (from < 0.0F) {
 			return 1.0F;
 		}
-		return fade(effect, since, fall.restSince + holdOf(effect));
+		return fade(effect, since, from + holdOf(effect));
 	}
 
 	// The fade ramp itself, shared by both modes and both exits: fully opaque up to 'from' seconds

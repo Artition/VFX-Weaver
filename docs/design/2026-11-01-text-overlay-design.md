@@ -107,7 +107,7 @@ can be animated and bound like any other parameter.
 | `tumble` | float | 0 | 0..1, per-character multiplier on `spin_*` and initial orientation |
 | `collision` | float | 1 | 1 = falling characters stop on a surface, 0 = they pass through |
 | `bounce` | float | 0.15 | restitution on impact, 0..1 |
-| `friction` | float | 0.4 | tangential damping on impact, 0..1 |
+| `friction` | float | 0.94 | per-tick air drag, `0..1` (`1` = no drag); also the tangential velocity kept on contact. It is the block-particle default, and a value too close to `1` leaves a drifting unit sliding for ever, so it never settles and never starts its fade |
 | `fade_out` | float | 0.5 | seconds to fade after landing / after leaving the frame |
 | `rot_x`, `rot_y`, `rot_z` | float | 0 | baseline orientation of the whole block, degrees |
 | `angle` | float | 0 | `flat` mode: rotation of the block around its anchor, degrees |
