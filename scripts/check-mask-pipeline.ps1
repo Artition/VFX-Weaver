@@ -26,12 +26,16 @@ $post = Read-Source (Join-Path $client "postprocessing\VFXPostProcessingManager.
 $fill = Read-Source (Join-Path $main "mask\VFXMaskFill.java")
 $selection = Read-Source (Join-Path $main "mask\VFXMaskBlockSelection.java")
 $blockShader = Read-Source (Join-Path $repoRoot "src\client\resources\assets\vfxweaver\shaders\post\mask_block_geometry.fsh")
+$blockVertexShader = Read-Source (Join-Path $repoRoot "src\client\resources\assets\vfxweaver\shaders\world\mask_block_geometry.vsh")
 $coverage = Read-Source (Join-Path $repoRoot "src\client\resources\assets\vfxweaver\shaders\post\mask_coverage.fsh")
 
 # The geometry source with its comment lines removed, for the pins that must match code and not the
 # javadoc prose that explains the same contract (the UV javadoc names the vanilla bake calls on
 # purpose, so a plain text pin would trip on its own documentation).
 $geometryCode = (($geometry -split "\r?\n") | Where-Object { $_ -notmatch '^\s*(\*|//)' }) -join "`n"
+# Same for the vertex stage: its header explains why ModelViewMat is not read, so the pin must look
+# at the code only.
+$blockVertexCode = (($blockVertexShader -split "\r?\n") | Where-Object { $_ -notmatch '^\s*//' }) -join "`n"
 
 $problems = New-Object System.Collections.Generic.List[string]
 
@@ -200,7 +204,7 @@ if ($geometryCode -notmatch 'lastFrame < frameIndex - 1') {
 # An empty bake is retried only for an explicit positions list: an all-air/water region is
 # legitimately empty, and re-walking up to MAX_REGION_BLOCKS every frame would be the per-frame world
 # walk this pass exists to avoid. Matched against code only.
-if ($geometryCode -notmatch '!selection\.positions\(\)\.isEmpty\(\) && blocks\.isEmpty\(\)') {
+if ($geometryCode -notmatch '!selection\.positions\(\)\.isEmpty\(\) && blocks\.isEmpty\(\)' -and $geometryCode -notmatch 'positionListed && blocks\.isEmpty\(\)') {
 	$problems.Add("VFXMaskBlockGeometry.select: the empty-bake retry is not limited to an explicit positions list")
 }
 if ($post -notmatch 'VFXMaskBlockGeometry\.beginFrame\(\)') {
@@ -230,6 +234,45 @@ if ($coverage -notmatch 'vec2 blockCoverage = texture\(GeometryCoverageSampler, 
 }
 if ($coverage -notmatch 'shape_misc\[i\]\.x > 0\.5 \? blockCoverage\.g : blockCoverage\.r') {
 	$problems.Add("mask_coverage.fsh: the block leaf does not take the band channel for a non-solid fill")
+}
+
+# 19) World-locked draw: the pass must carry its own transform (projection * viewRotation over the
+#     camera-relative vertices) and must never read the frame's ModelViewMat, whose camera translation
+#     would be applied a second time - the mask would then slide across the blocks as the camera moves.
+if ($blockVertexCode -match 'ModelViewMat|dynamictransforms\.glsl') {
+	$problems.Add("world/mask_block_geometry.vsh: the vertex stage reads ModelViewMat again (the camera is subtracted twice)")
+}
+if ($geometryCode -match 'setUniform\("DynamicTransforms"') {
+	$problems.Add("VFXMaskBlockGeometry: the pass overrides the frame's DynamicTransforms again (arena + camera coupling)")
+}
+if ($geometryCode -notmatch 'gl_Position = ProjMat \* vec4\(Position, 1\.0\)' -and $blockVertexShader -notmatch 'gl_Position = ProjMat \* vec4\(Position, 1\.0\)') {
+	$problems.Add("world/mask_block_geometry.vsh: the vertex stage does not use the pass's own Projection uniform")
+}
+if ($geometryCode -notmatch 'private static GpuBufferSlice writeTransform\(final CommandEncoder encoder\)') {
+	$problems.Add("VFXMaskBlockGeometry: the per-frame transform writer is missing")
+}
+if ($geometryCode -notmatch 'renderPass\.setUniform\("Projection", transform\)') {
+	$problems.Add("VFXMaskBlockGeometry: the pass does not bind its own transform as Projection")
+}
+
+# 20) Draw order: the geometry must be rasterised before the coverage prepass samples the scratch, or
+#     the mask shows last frame's geometry (which also reads as motion while the camera moves).
+$geometryPass = $post.IndexOf('VFXMaskBlockGeometry.beginFrame()')
+$coveragePass = $post.IndexOf('runCoveragePrepass(encoder, samplerCache, mainTarget')
+if ($geometryPass -lt 0 -or $coveragePass -lt 0 -or $geometryPass -gt $coveragePass) {
+	$problems.Add("VFXPostProcessingManager: the block-geometry draw does not run before the coverage prepass")
+}
+
+# 21) A live positions list re-checks its own coordinates: the bake stores each listed state and any
+#     difference re-bakes, so a placed/removed/changed block reaches the mask without a re-parse.
+if ($geometryCode -notmatch 'private static boolean statesChanged\(final Level level, final VFXMaskBlockSelection selection, final BlockState\[\] states\)') {
+	$problems.Add("VFXMaskBlockGeometry: the per-frame block-state re-check of a positions list is missing")
+}
+if ($geometryCode -notmatch 'level\.getBlockState\(blockPos\(positions\.get\(i\), 0\)\) != states\[i\]') {
+	$problems.Add("VFXMaskBlockGeometry.statesChanged: a listed coordinate's state is not compared")
+}
+if ($geometryCode -notmatch 'states\[i\] = level\.getBlockState\(pos\)') {
+	$problems.Add("VFXMaskBlockGeometry.bakeListed: the listed states are not recorded (air included)")
 }
 
 Write-Host "Mask pipeline check (static)"

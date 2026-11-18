@@ -88,14 +88,24 @@ import org.jspecify.annotations.Nullable;
  * for a {@code hollow} fill, the inner pass (the undilated geometry). The scratch holds them in
  * different channels - red = outer alpha, green = outer * (1 - inner) - so the coverage shader picks
  * the channel from the leaf's fill code, and a solid fill never pays for the second pass. Nothing is
- * scanned per frame: the baked quads are cached per selection + model manager.
+ * scanned per frame: the baked quads are cached per selection + model manager, and an explicit
+ * {@code positions} list only re-reads its own coordinates' block states (N lookups) so a changed
+ * block re-bakes.
+ *
+ * <p><b>World-locked.</b> The vertices are camera-relative and the pass owns its transform
+ * ({@code projection * viewRotation} in its own {@code Projection} UBO, see {@link #writeTransform}),
+ * so moving the camera moves the mask with the blocks and never shifts it. The draw is submitted
+ * before the coverage prepass samples the scratch, so the mask shows this frame's geometry, not last
+ * frame's.
  */
 public final class VFXMaskBlockGeometry {
-	/** Camera-relative model-view-projection of the current frame; never mutated past the draw. */
+	/**
+	 * The pass's own matrix: {@code projection * viewRotation}, applied to the camera-relative
+	 * vertices. Rewritten every frame into {@link #transformUniform}, so nothing here depends on the
+	 * frame's {@code ModelViewMat} (which already subtracts the camera) or on the shared
+	 * {@code DynamicTransforms} arena.
+	 */
 	private static final Matrix4f GEOMETRY_MVP = new Matrix4f();
-	private static final Vector4f IDENTITY_COLOR = new Vector4f(1.0F, 1.0F, 1.0F, 1.0F);
-	private static final Vector3f ZERO_OFFSET = new Vector3f();
-	private static final Matrix4f IDENTITY_TEXTURE = new Matrix4f();
 	/** Reused across frames; balanced push/pop keeps it valid. */
 	private static final PoseStack POSE = new PoseStack();
 
@@ -104,8 +114,10 @@ public final class VFXMaskBlockGeometry {
 	/** The GPU vertex buffer, grown on demand and reused across frames. */
 	private static @Nullable GpuBuffer vertexBuffer;
 	private static long vertexBufferCapacity;
-	/** A one-off identity {@code Projection} UBO (std140 mat4). */
-	private static @Nullable GpuBuffer identityProjection;
+	/** The {@code Projection} UBO (one std140 mat4), rewritten every frame by {@link #writeTransform}. */
+	private static @Nullable GpuBuffer transformUniform;
+	/** CPU staging for the 64-byte matrix upload; reused so the frame allocates nothing. */
+	private static final ByteBuffer TRANSFORM_BYTES = ByteBuffer.allocateDirect(64).order(ByteOrder.nativeOrder());
 
 	private VFXMaskBlockGeometry() {
 	}
@@ -119,6 +131,13 @@ public final class VFXMaskBlockGeometry {
 		private final float centerZ;
 		private final float radius;
 		private final List<SelectedBlock> blocks;
+		/**
+		 * For an explicit {@code positions} list: the block state each listed coordinate had when it
+		 * was baked (parallel to {@code selection.positions()}), re-read every frame so a placed,
+		 * removed or re-stated block re-bakes. {@code null} for a region or a scan, whose states are
+		 * only re-read when their key changes.
+		 */
+		private final BlockState @Nullable [] states;
 		private long lastFrame;
 
 		private SelectionCache(
@@ -129,6 +148,7 @@ public final class VFXMaskBlockGeometry {
 			final float centerZ,
 			final float radius,
 			final List<SelectedBlock> blocks,
+			final BlockState @Nullable [] states,
 			final long lastFrame
 		) {
 			this.level = level;
@@ -138,6 +158,7 @@ public final class VFXMaskBlockGeometry {
 			this.centerZ = centerZ;
 			this.radius = radius;
 			this.blocks = blocks;
+			this.states = states;
 			this.lastFrame = lastFrame;
 		}
 
@@ -195,23 +216,48 @@ public final class VFXMaskBlockGeometry {
 	 * {@code region} box is the opposite - it can be 65 536 blocks of air, water or sky, legitimately
 	 * empty - so its empty result <b>is</b> cached, exactly like a scanned selection's, and a region
 	 * never becomes a per-frame world walk.
+	 *
+	 * <p>A live {@code positions} list also re-checks its own coordinates every frame: the state each
+	 * listed block had when it was baked is kept, and any difference (a block placed, broken or
+	 * re-stated at a listed coordinate) re-bakes the list. That is N {@code getBlockState} lookups per
+	 * frame per listed leaf - no chunk scan, no region walk - which is what keeps the mask in step with
+	 * the world while the effect runs. A {@code region} or a scan keeps its result until its key
+	 * changes, because re-reading it would be the per-frame world walk this pass exists to avoid.
 	 */
 	private static List<SelectedBlock> select(final Level level, final VFXMaskBlockSelection selection, final float[] center, final float radius) {
 		final Object modelManager = Minecraft.getInstance().getModelManager();
 		SelectionCache cached = selectionCaches.get(selection);
-		if (cached != null && cached.matches(level, modelManager, selection, center, radius)) {
+		if (cached != null && cached.matches(level, modelManager, selection, center, radius)
+			&& (cached.states == null || !statesChanged(level, selection, cached.states))) {
 			cached.lastFrame = frameIndex;
 			return cached.blocks;
 		}
-		final List<SelectedBlock> blocks = selection.listed() ? bakeListed(level, selection) : scan(level, selection, center, radius);
-		if (!selection.positions().isEmpty() && blocks.isEmpty()) {
+		final boolean positionListed = !selection.positions().isEmpty();
+		final BlockState[] states = positionListed ? new BlockState[selection.positions().size()] : null;
+		final List<SelectedBlock> blocks = selection.listed() ? bakeListed(level, selection, states) : scan(level, selection, center, radius);
+		if (positionListed && blocks.isEmpty()) {
 			// Only an explicit position list is retried; see the javadoc above.
 			selectionCaches.remove(selection);
 			return blocks;
 		}
-		cached = new SelectionCache(level, modelManager, center[0], center[1], center[2], radius, blocks, frameIndex);
+		cached = new SelectionCache(level, modelManager, center[0], center[1], center[2], radius, blocks, states, frameIndex);
 		selectionCaches.put(selection, cached);
 		return cached.blocks;
+	}
+
+	/**
+	 * True when any listed coordinate's current block state differs from the one the bake was made
+	 * from. Reference comparison is exact: {@code Level.getBlockState} returns the interned state
+	 * instance, so an unchanged block compares equal and a changed one never does.
+	 */
+	private static boolean statesChanged(final Level level, final VFXMaskBlockSelection selection, final BlockState[] states) {
+		final List<float[]> positions = selection.positions();
+		for (int i = 0; i < states.length && i < positions.size(); i++) {
+			if (level.getBlockState(blockPos(positions.get(i), 0)) != states[i]) {
+				return true;
+			}
+		}
+		return false;
 	}
 
 	/** Drops every cached selection; called when the world/level or a resource reload makes them stale. */
@@ -222,16 +268,21 @@ public final class VFXMaskBlockGeometry {
 	/**
 	 * Resolves an authored {@code block_list} selection: every listed position (or every position of
 	 * the region box) is read <b>once, while the bake is non-empty</b> - a cache hit costs the vertex
-	 * emission alone. The one exception is an explicit {@code positions} list that bakes to nothing: it
-	 * is re-read next frame until it resolves (see {@link #select}), because its size is the author's
-	 * and a mask can legitimately start before its blocks load. The list is uncapped by design (the
-	 * cost is memory, see {@link VFXMaskBlockSelection}); duplicates are dropped so a repeated position
-	 * is not baked or drawn twice, and air / block-entity-only blocks (empty baked model) are skipped
-	 * exactly as the scan path skips them. Positions and corners go through
+	 * emission plus, for a {@code positions} list, the per-frame state re-check described in
+	 * {@link #select}. The one exception to the one-shot read is an explicit {@code positions} list
+	 * that bakes to nothing: it is re-read next frame until it resolves, because its size is the
+	 * author's and a mask can legitimately start before its blocks load. The list is uncapped by
+	 * design (the cost is memory, see {@link VFXMaskBlockSelection}); duplicates are dropped so a
+	 * repeated position is not baked or drawn twice, and air / block-entity-only blocks (empty baked
+	 * model) are skipped exactly as the scan path skips them. Positions and corners go through
 	 * {@link VFXMaskBlockSelection#blockCoordinate(float)}, the same floor the parse-time region budget
 	 * uses.
+	 *
+	 * @param states filled with each listed coordinate's state when non-null (an explicit
+	 *               {@code positions} list, whose states the cache then watches); a region passes
+	 *               {@code null}
 	 */
-	private static List<SelectedBlock> bakeListed(final Level level, final VFXMaskBlockSelection selection) {
+	private static List<SelectedBlock> bakeListed(final Level level, final VFXMaskBlockSelection selection, final BlockState @Nullable [] states) {
 		final List<SelectedBlock> found = new ArrayList<>();
 		final Set<BlockPos> seen = new HashSet<>();
 		final float[] region = selection.region();
@@ -246,8 +297,14 @@ public final class VFXMaskBlockGeometry {
 			}
 			return found;
 		}
-		for (final float[] point : selection.positions()) {
-			final BlockPos pos = blockPos(point, 0);
+		final List<float[]> positions = selection.positions();
+		for (int i = 0; i < positions.size(); i++) {
+			final BlockPos pos = blockPos(positions.get(i), 0);
+			if (states != null && i < states.length) {
+				// Recorded for every listed coordinate, air included: a block placed at a coordinate
+				// that was air at bake time must be seen as a change next frame.
+				states[i] = level.getBlockState(pos);
+			}
 			if (seen.add(pos)) {
 				addListed(found, level, pos);
 			}
@@ -400,10 +457,42 @@ public final class VFXMaskBlockGeometry {
 			: 0.0F;
 		// At most two draws, both into the same scratch: outer (dilated) always, inner only when the
 		// fill is the band. The shader reads red for a solid fill and green for the band.
-		drawPass(encoder, geometry, mainTarget, program, blocks, occlude, textured, atlasBind, true, 1.0F + 2.0F * stroke);
+		final GpuBufferSlice transform = writeTransform(encoder);
+		drawPass(encoder, geometry, mainTarget, program, blocks, occlude, textured, atlasBind, true, 1.0F + 2.0F * stroke, transform);
 		if (hollow) {
-			drawPass(encoder, geometry, mainTarget, program, blocks, occlude, textured, atlasBind, false, 1.0F);
+			drawPass(encoder, geometry, mainTarget, program, blocks, occlude, textured, atlasBind, false, 1.0F, transform);
 		}
+	}
+
+	/**
+	 * Writes this frame's matrix and returns the slice to bind as the pass's {@code Projection}.
+	 *
+	 * <p>The CPU pass emits camera-relative vertices ({@code blockPos - cameraPos}), so the matrix is
+	 * {@code projection * viewRotation} - i.e. the camera-bearing inverse view-projection inverted,
+	 * with the camera translation put back. It goes into this pass's own UBO rather than the frame's
+	 * {@code DynamicTransforms}: that struct's {@code ModelViewMat} already contains the camera
+	 * translation, so a draw that read it while its vertices are camera-relative would subtract the
+	 * camera twice and the geometry would slide across the blocks as the camera moves. Owning the
+	 * uniform also keeps the transform out of the shared dynamic-uniform arena, where a slice written
+	 * for a later pass could otherwise be the one the draw reads.
+	 */
+	private static GpuBufferSlice writeTransform(final CommandEncoder encoder) {
+		GEOMETRY_MVP.set(VFXFieldEnv.invViewProj()).invert()
+			.translate(VFXFieldEnv.cameraX(), VFXFieldEnv.cameraY(), VFXFieldEnv.cameraZ());
+		TRANSFORM_BYTES.clear();
+		final Std140Builder builder = Std140Builder.intoBuffer(TRANSFORM_BYTES);
+		// mat4 as four column vec4s (std140-identical to putMat4f, which is package-private).
+		builder.putVec4(GEOMETRY_MVP.m00(), GEOMETRY_MVP.m01(), GEOMETRY_MVP.m02(), GEOMETRY_MVP.m03());
+		builder.putVec4(GEOMETRY_MVP.m10(), GEOMETRY_MVP.m11(), GEOMETRY_MVP.m12(), GEOMETRY_MVP.m13());
+		builder.putVec4(GEOMETRY_MVP.m20(), GEOMETRY_MVP.m21(), GEOMETRY_MVP.m22(), GEOMETRY_MVP.m23());
+		builder.putVec4(GEOMETRY_MVP.m30(), GEOMETRY_MVP.m31(), GEOMETRY_MVP.m32(), GEOMETRY_MVP.m33());
+		if (transformUniform == null) {
+			transformUniform = RenderSystem.getDevice().createBuffer(
+				() -> "vfxweaver mask block transform", GpuBuffer.USAGE_UNIFORM | GpuBuffer.USAGE_COPY_DST, 64L);
+		}
+		final GpuBufferSlice slice = transformUniform.slice(0L, 64L);
+		encoder.writeToBuffer(slice, builder.get());
+		return slice;
 	}
 
 	/**
@@ -483,6 +572,8 @@ public final class VFXMaskBlockGeometry {
 	 *                 inner pass a {@code hollow} fill subtracts; the fragment shader writes the
 	 *                 outer pass to the scratch's red channel and the inner pass to green
 	 * @param scale    1.0 for the authored geometry, {@code 1 + 2 * stroke_width} for the dilated pass
+	 * @param transform this frame's {@code Projection} slice (projection * viewRotation), written once
+	 *                  per frame and shared by both passes
 	 */
 	private static void drawPass(
 		final CommandEncoder encoder,
@@ -494,7 +585,8 @@ public final class VFXMaskBlockGeometry {
 		final boolean textured,
 		final @Nullable GpuTextureView atlas,
 		final boolean outer,
-		final float scale
+		final float scale,
+		final GpuBufferSlice transform
 	) {
 		final float camX = VFXFieldEnv.cameraX();
 		final float camY = VFXFieldEnv.cameraY();
@@ -528,11 +620,6 @@ public final class VFXMaskBlockGeometry {
 			final int meshBytes = mesh.vertexBuffer().remaining();
 			final GpuBuffer buffer = ensureVertexBuffer(meshBytes);
 			encoder.writeToBuffer(buffer.slice(0L, meshBytes), mesh.vertexBuffer());
-
-			// viewRotationProjection (no translation): the vertices are already camera-relative.
-			GEOMETRY_MVP.set(VFXFieldEnv.invViewProj()).invert().translate(camX, camY, camZ);
-			final GpuBufferSlice transform = RenderSystem.getDynamicUniforms()
-				.writeTransform(GEOMETRY_MVP, IDENTITY_COLOR, ZERO_OFFSET, IDENTITY_TEXTURE);
 			final int vertexCount = mesh.drawState().vertexCount();
 
 			try (RenderPass renderPass = encoder.createRenderPass(
@@ -545,8 +632,10 @@ public final class VFXMaskBlockGeometry {
 					*///?}
 				)) {
 				renderPass.setPipeline(program.pipeline());
-				renderPass.setUniform("Projection", ensureIdentityProjection());
-				renderPass.setUniform("DynamicTransforms", transform);
+				// The whole transform rides in this pass's own `Projection` uniform: projection *
+				// viewRotation, no translation, over the camera-relative vertices. The frame's
+				// DynamicTransforms is not touched, so the camera cannot be subtracted twice.
+				renderPass.setUniform("Projection", transform);
 				// The scene depth an occluding leaf's fragments are tested against. NEAREST: a depth
 				// texture is not filterable (depth findings); the pass runs at layer 0, so the view
 				// still holds the world surface.
@@ -634,21 +723,6 @@ public final class VFXMaskBlockGeometry {
 		return vertexBuffer;
 	}
 
-	/** The std140 identity mat4 bound as {@code Projection} (the full transform rides in ModelViewMat). */
-	private static GpuBuffer ensureIdentityProjection() {
-		if (identityProjection == null) {
-			final ByteBuffer data = ByteBuffer.allocateDirect(64).order(ByteOrder.nativeOrder());
-			final Std140Builder builder = Std140Builder.intoBuffer(data);
-			builder.putVec4(1.0F, 0.0F, 0.0F, 0.0F);
-			builder.putVec4(0.0F, 1.0F, 0.0F, 0.0F);
-			builder.putVec4(0.0F, 0.0F, 1.0F, 0.0F);
-			builder.putVec4(0.0F, 0.0F, 0.0F, 1.0F);
-			identityProjection = RenderSystem.getDevice().createBuffer(
-				() -> "vfxweaver mask identity projection", GpuBuffer.USAGE_UNIFORM, builder.get());
-		}
-		return identityProjection;
-	}
-
 	/** Releases the cached GPU/native resources on client shutdown. */
 	public static void freeGpuResources() {
 		if (vertexBuffer != null) {
@@ -656,9 +730,9 @@ public final class VFXMaskBlockGeometry {
 			vertexBuffer = null;
 			vertexBufferCapacity = 0L;
 		}
-		if (identityProjection != null) {
-			identityProjection.close();
-			identityProjection = null;
+		if (transformUniform != null) {
+			transformUniform.close();
+			transformUniform = null;
 		}
 		if (staging != null) {
 			staging.close();

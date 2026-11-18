@@ -88,6 +88,17 @@ if ($programs -notmatch '\.withVertexBinding\(0, DefaultVertexFormat\.POSITION_T
 if ($programs -notmatch '\.withVertexShader\(Identifier\.fromNamespaceAndPath\("vfxweaver", "world/mask_block_geometry"\)\)') {
 	$problems.Add("VFXShaderPrograms: the block-geometry pipeline does not use the UV vertex stage")
 }
+# The pass carries its own transform: a projection-only bind group (its own UBO, written per frame)
+# instead of the frame's MATRICES_PROJECTION, whose DynamicTransforms carries the camera translation.
+if ($programs -notmatch '\.withBindGroupLayout\(PROJECTION_ONLY_LAYOUT\)') {
+	$problems.Add("VFXShaderPrograms: the >=26.2 block-geometry pipeline does not bind its own Projection group")
+}
+if ($programs -match '(?s)blockGeometryPipeline = .*?BindGroupLayouts\.MATRICES_PROJECTION') {
+	$problems.Add("VFXShaderPrograms: the block-geometry pipeline binds the frame's MATRICES_PROJECTION (camera applied twice)")
+}
+if ($programs -match '(?s)blockGeometryPipeline = .*?\.withUniform\("DynamicTransforms"') {
+	$problems.Add("VFXShaderPrograms: the block-geometry pipeline still declares the frame's DynamicTransforms")
+}
 
 Write-Host "Mask coverage prepass check (static)"
 if ($problems.Count -gt 0) {

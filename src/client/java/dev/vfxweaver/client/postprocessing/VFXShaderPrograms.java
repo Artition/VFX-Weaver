@@ -177,6 +177,13 @@ public final class VFXShaderPrograms {
 	private static final BindGroupLayout GEOMETRY_COVERAGE_SAMPLER_LAYOUT = BindGroupLayout.builder()
 		.withSampler("GeometryCoverageSampler")
 		.build();
+	// The block-geometry pass's own transform: one UBO named `Projection`, which the pass writes every
+	// frame with its full matrix (projection * viewRotation). Deliberately not the frame's
+	// MATRICES_PROJECTION group: that one carries DynamicTransforms too, whose ModelViewMat holds the
+	// camera translation - reading it on camera-relative vertices would subtract the camera twice.
+	private static final BindGroupLayout PROJECTION_ONLY_LAYOUT = BindGroupLayout.builder()
+		.withUniform("Projection", UniformType.UNIFORM_BUFFER)
+		.build();
 	// The block-geometry pass's texture atlas (the block_list leaf's alpha). The sampler name must
 	// match post/mask_block_geometry.fsh (`BlockAtlasSampler`).
 	private static final BindGroupLayout BLOCK_ATLAS_SAMPLER_LAYOUT = BindGroupLayout.builder()
@@ -414,14 +421,14 @@ public final class VFXShaderPrograms {
 				//? if <26.2 {
 				// The fragment shader depth-tests each occluding block leaf's fragment against the
 				// main target's depth view (bound at draw time), and samples the block atlas for the
-				// alpha of a listed leaf.
+				// alpha of a listed leaf. The vertex stage reads `Projection` only (see the shader):
+				// the pass owns that uniform, so no frame matrix is involved at all.
 				.withSampler("DepthSampler")
 				.withSampler("BlockAtlasSampler")
-				.withUniform("DynamicTransforms", UniformType.UNIFORM_BUFFER)
 				.withUniform("Projection", UniformType.UNIFORM_BUFFER)
 				.withVertexFormat(DefaultVertexFormat.POSITION_TEX_COLOR, VertexFormat.Mode.TRIANGLES)
 				//?} else {
-				/*.withBindGroupLayout(BindGroupLayouts.MATRICES_PROJECTION)
+				/*.withBindGroupLayout(PROJECTION_ONLY_LAYOUT)
 				.withBindGroupLayout(DEPTH_SAMPLER_LAYOUT)
 				.withBindGroupLayout(BLOCK_ATLAS_SAMPLER_LAYOUT)
 				.withVertexBinding(0, DefaultVertexFormat.POSITION_TEX_COLOR)
