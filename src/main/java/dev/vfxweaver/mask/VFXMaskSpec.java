@@ -266,11 +266,10 @@ public final class VFXMaskSpec {
 	}
 
 	/**
-	 * Overrides the leaf's coordinate space. Only the two spaces a 2D leaf can carry are accepted:
-	 * {@link VFXMaskSpace#SCREEN} (the default) and {@link VFXMaskSpace#DOME} (the equirectangular
-	 * sky, where {@code center} is a literal {@code [yaw, pitch]} in degrees). A world leaf is
-	 * created in world space by its own factory ({@code sphere}/{@code box}/{@code block}) or by
-	 * {@link #custom(String, VFXMaskSpace)}.
+	 * Overrides the leaf's coordinate space. The rules mirror the parser: a {@code sky} leaf is
+	 * dome-only and a {@code sphere}/{@code box}/{@code block} leaf is world-only; anything else may
+	 * take any space the parser accepts ({@code screen}, {@code world} or {@code dome} - a 2D figure
+	 * in world space then needs a 3-component {@code center}, checked at {@link #buildJson()}).
 	 */
 	public VFXMaskSpec space(final VFXMaskSpace space) {
 		if (space == null) {
@@ -290,9 +289,6 @@ public final class VFXMaskSpec {
 		}
 		if (worldLeaf && space != VFXMaskSpace.WORLD) {
 			throw new IllegalArgumentException("VFXMaskSpec.space: '" + shape + "' is world-only");
-		}
-		if (!domeOnly && !worldLeaf && space == VFXMaskSpace.WORLD) {
-			throw new IllegalArgumentException("VFXMaskSpec.space: a 2D leaf cannot be world space; use a world leaf or custom(id, VFXMaskSpace.WORLD)");
 		}
 		return copyWith(node -> node.addProperty("space", space.id()));
 	}
@@ -353,8 +349,53 @@ public final class VFXMaskSpec {
 	 */
 	public JsonObject buildJson() {
 		final JsonObject copy = this.node.deepCopy();
+		final int depth = compositionDepth(copy);
+		if (depth > VFXMask.MAX_COMPOSITION_DEPTH) {
+			throw new IllegalArgumentException("VFXMaskSpec: " + depth + " nested compositions exceed the parser's limit of " + VFXMask.MAX_COMPOSITION_DEPTH);
+		}
+		final int leaves = leafCount(copy);
+		if (leaves > VFXMask.MAX_PRIMITIVES) {
+			throw new IllegalArgumentException("VFXMaskSpec: " + leaves + " leaves exceed the parser's limit of " + VFXMask.MAX_PRIMITIVES);
+		}
+		final int blockLeaves = blockLeafCount(copy);
+		if (blockLeaves > 1) {
+			throw new IllegalArgumentException("VFXMaskSpec: a mask may carry at most one block leaf (all block leaves share one geometry scratch)");
+		}
 		validate(copy, true);
 		return copy;
+	}
+
+	/**
+	 * Composition levels on the left spine. {@link #compose} refuses a right-nested operand, so a
+	 * tree is always {@code op(op(op(a, b), c), d)} and the parser's depth budget is exactly this
+	 * count (it rejects a composition node at depth {@link VFXMask#MAX_COMPOSITION_DEPTH}).
+	 */
+	private static int compositionDepth(final JsonObject node) {
+		if (!node.has("op") || node.get("op").isJsonNull()) {
+			return 0;
+		}
+		return 1 + compositionDepth(node.getAsJsonObject("a"));
+	}
+
+	/** The number of leaves the parser will flatten out of this tree. */
+	private static int leafCount(final JsonObject node) {
+		if (!node.has("op") || node.get("op").isJsonNull()) {
+			return 1;
+		}
+		return leafCount(node.getAsJsonObject("a")) + leafCount(node.getAsJsonObject("b"));
+	}
+
+	/** Block-geometry leaves ({@code block}/{@code block_list}); the parser allows only one. */
+	private static int blockLeafCount(final JsonObject node) {
+		if (node.has("op") && !node.get("op").isJsonNull()) {
+			return blockLeafCount(node.getAsJsonObject("a")) + blockLeafCount(node.getAsJsonObject("b"));
+		}
+		final JsonElement shape = node.get("shape");
+		if (shape == null || shape.isJsonNull()) {
+			return 0;
+		}
+		final String name = shape.getAsString().trim().toLowerCase(Locale.ROOT);
+		return "block".equals(name) || "block_list".equals(name) ? 1 : 0;
 	}
 
 	@Override
@@ -420,6 +461,7 @@ public final class VFXMaskSpec {
 				throw new IllegalArgumentException("VFXMaskSpec: a custom leaf takes at most " + VFXMaskSlots.MAX_LEAF_PARAMS + " params");
 			}
 		}
+		validateCenter(node, shape, blockList);
 		if (node.has("space") && !node.get("space").isJsonNull()) {
 			final VFXMaskSpace space = VFXMaskSpace.fromString(node.get("space").getAsString());
 			if (space == null) {
@@ -441,6 +483,46 @@ public final class VFXMaskSpec {
 		}
 	}
 
+	/**
+	 * A leaf's {@code center} must have the arity its space defines (2 for screen/dome, 3 for
+	 * world), and only a {@code block_list} or a {@code sky} leaf may omit it - exactly what
+	 * {@link VFXMaskParser} enforces. Without this, {@code sphere(8).center(0, 64)} or
+	 * {@code blockList(...).center(0, 0)} would emit JSON the client rejects.
+	 */
+	private static void validateCenter(final JsonObject node, final String shape, final boolean blockList) {
+		final JsonElement centerElement = node.get("center");
+		final boolean mayOmit = blockList || VFXMaskShapeKind.SKY.id().equals(shape);
+		if (centerElement == null || centerElement.isJsonNull()) {
+			if (!mayOmit) {
+				throw new IllegalArgumentException("VFXMaskSpec: leaf '" + shape + "' needs a center for its space");
+			}
+			return;
+		}
+		final VFXMaskSpace space = leafSpace(node, shape);
+		if (space == null) {
+			// A custom leaf without an explicit space resolves it from the registry on the client;
+			// the builder always writes one, so there is nothing to check here.
+			return;
+		}
+		final int arity = space == VFXMaskSpace.WORLD ? 3 : 2;
+		if (!centerElement.isJsonArray() || centerElement.getAsJsonArray().size() != arity) {
+			throw new IllegalArgumentException("VFXMaskSpec: leaf '" + shape + "' in " + space.id() + " space needs a " + arity
+				+ "-number center, got " + centerElement);
+		}
+	}
+
+	/** The space a leaf resolves to when it names none, mirroring {@link VFXMaskParser}. */
+	private static @Nullable VFXMaskSpace leafSpace(final JsonObject node, final String shape) {
+		if (node.has("space") && !node.get("space").isJsonNull()) {
+			return VFXMaskSpace.fromString(node.get("space").getAsString());
+		}
+		if ("block".equals(shape) || "block_list".equals(shape)) {
+			return VFXMaskSpace.WORLD;
+		}
+		final VFXMaskShapeKind kind = VFXMaskShapeKind.fromString(shape);
+		return kind != null ? kind.space() : null;
+	}
+
 	private static JsonObject requireObject(final JsonObject parent, final String key) {
 		final JsonElement element = parent.get(key);
 		if (element == null || !element.isJsonObject()) {
@@ -452,6 +534,12 @@ public final class VFXMaskSpec {
 	private VFXMaskSpec compose(final VFXMaskOp op, final @Nullable VFXMaskSpec other) {
 		if (other == null) {
 			throw new IllegalArgumentException("VFXMaskSpec." + op.id() + ": the right operand must not be null");
+		}
+		// The parser flattens depth-first and folds left-associatively, so a right-nested operand
+		// would be mis-evaluated; it rejects one outright. Refuse it here, with the fix in the
+		// message, instead of emitting JSON the client drops.
+		if (other.node.has("op") && !other.node.get("op").isJsonNull()) {
+			throw new IllegalArgumentException("VFXMaskSpec." + op.id() + ": the right operand is itself a composition; nest on the left instead, e.g. (a.union(b)).intersection(c)");
 		}
 		final JsonObject node = new JsonObject();
 		node.addProperty("op", op.id());

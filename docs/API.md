@@ -305,12 +305,18 @@ Covered leaf families and fields: `circle(radius)`, `ellipse(radiusX, radiusY)`,
 `depth(distance)`, `sphere(radius)`, `box(halfWidth, halfHeight, halfDepth)`,
 `block(radius, blockIds...)`, `blockTag(radius, tag)`, `blockList([x,y,z]...)`,
 `blockRegion(x0,y0,z0,x1,y1,z1)`, `custom(shapeId, space[, params...])`; `center(x,y)` /
-`center(x,y,z)`, `space(VFXMaskSpace)` (screen or dome for the 2D leaves), `rotation(degrees)`,
+`center(x,y,z)` (2 components in screen/dome space, 3 in world space), `space(VFXMaskSpace)`,
+`rotation(degrees)`,
 `softness(w)`, `fill(VFXMaskFill)`, `strokeWidth(w)`, `invert()`, and the composition
-`union`/`intersection`/`difference`. Builder-side validation matches the parser: `hollow` only on a
-`block_list`, `stroke` requires `strokeWidth`, `polygon` needs at least 3 sides, a block scan radius
-stays within `VFXMaskBlockSelection.MAX_RADIUS` (32 blocks), a custom leaf carries at most
-`VFXMaskSlots.MAX_LEAF_PARAMS` (8) params, and a leaf's `space` must be one its family supports.
+`union`/`intersection`/`difference`. Builder-side validation matches the parser, so `buildJson()` never emits JSON the client would
+drop: `hollow` only on a `block_list`, `stroke` requires `strokeWidth`, `polygon` needs at least 3
+sides, a block scan radius stays within `VFXMaskBlockSelection.MAX_RADIUS` (32 blocks), a custom leaf
+carries at most `VFXMaskSlots.MAX_LEAF_PARAMS` (8) params, a leaf's `space` must be one its family
+supports (`sky` is dome-only, `sphere`/`box`/`block` are world-only), a `center` must have the arity
+that space defines (`sphere(8).center(0, 64)` is refused), a composition may only nest on the
+**left** (a right-nested operand is refused with the fix in the message), and the parser's
+`VFXMask.MAX_COMPOSITION_DEPTH` (8 compositions) and `VFXMask.MAX_PRIMITIVES` (8 leaves) budgets
+hold.
 `custom(...)` takes the space **explicitly** (the shape registry is client-local, so a spec built on
 a server must not guess it). For keys the builder does not name, send the JSON string directly.
 

@@ -629,8 +629,20 @@ public final class MaskSpecCheck {
 		parses("difference", VFXMaskSpec.circle(0.4F).difference(VFXMaskSpec.circle(0.2F)));
 		parses("intersection+invert", VFXMaskSpec.rect(0.4F, 0.4F).intersection(VFXMaskSpec.ellipse(0.3F, 0.5F)).invert());
 		parses("left-nested", VFXMaskSpec.sphere(8.0F).intersection(VFXMaskSpec.box(2F, 2F, 2F)).union(VFXMaskSpec.sphere(4.0F)));
+		// A 2D figure may be authored in world space (the parser allows it): it then needs a
+		// 3-component centre, which the shortest builder path now enforces.
+		parses("circle in world space", VFXMaskSpec.circle(0.4F).space(VFXMaskSpace.WORLD).center(1F, 64F, 2F));
+		// The deepest chain the leaf budget allows still parses (7 ops = 8 leaves).
+		final VFXMask deep = parses("seven nested compositions", chain(7));
+		require(deep.primitives().size() == 8, "deep chain leaves = " + deep.primitives().size() + ", want 8");
 
 		// The builder's own validation mirrors the parser.
+		rejected("right-nested composition", () -> VFXMaskSpec.circle(0.4F).union(VFXMaskSpec.circle(0.2F).union(VFXMaskSpec.rect(0.1F, 0.1F))));
+		rejected("eight compositions exceed MAX_PRIMITIVES", () -> chain(8).buildJson());
+		rejected("nine compositions exceed MAX_COMPOSITION_DEPTH", () -> chain(9).buildJson());
+		rejected("2-number center on a sphere", () -> VFXMaskSpec.sphere(8.0F).center(0F, 64F).buildJson());
+		rejected("2-number center on a block_list", () -> VFXMaskSpec.blockList(new float[]{0, 64, 0}).center(0F, 0F).buildJson());
+		rejected("world-space circle with a 2-number center", () -> VFXMaskSpec.circle(0.4F).space(VFXMaskSpace.WORLD).buildJson());
 		rejected("hollow on a circle", () -> VFXMaskSpec.circle(0.4F).fill(VFXMaskFill.HOLLOW).buildJson());
 		rejected("stroke without a width", () -> VFXMaskSpec.circle(0.4F).fill(VFXMaskFill.STROKE).buildJson());
 		rejected("two polygon sides", () -> VFXMaskSpec.polygon(0.3F, 2));
@@ -639,13 +651,21 @@ public final class MaskSpecCheck {
 		rejected("nine custom params", () -> VFXMaskSpec.custom("vfxweaver:ringed_volume", VFXMaskSpace.SCREEN,
 			new float[]{0, 0, 0, 0, 0, 0, 0, 0, 0}));
 		rejected("dome on a sphere", () -> VFXMaskSpec.sphere(4.0F).space(VFXMaskSpace.DOME));
-		rejected("world space on a circle", () -> VFXMaskSpec.circle(0.4F).space(VFXMaskSpace.WORLD));
 		rejected("screen space on sky", () -> VFXMaskSpec.sky().space(VFXMaskSpace.SCREEN));
 		rejected("space on a composition", () -> VFXMaskSpec.circle(0.4F).union(VFXMaskSpec.circle(0.2F)).space(VFXMaskSpace.DOME));
 		rejected("nested invert", () -> VFXMaskSpec.circle(0.4F).invert().union(VFXMaskSpec.circle(0.2F)).buildJson());
 		rejected("custom dome space", () -> VFXMaskSpec.custom("vfxweaver:ringed_volume", VFXMaskSpace.DOME));
 
 		System.out.println("mask spec check OK: every builder variant parses; invalid combinations rejected at buildJson()");
+	}
+
+	/** A left-nested chain of {@code compositions} unions: {@code n} ops, {@code n + 1} leaves. */
+	private static VFXMaskSpec chain(final int compositions) {
+		VFXMaskSpec spec = VFXMaskSpec.circle(0.4F);
+		for (int i = 0; i < compositions; i++) {
+			spec = spec.union(VFXMaskSpec.circle(0.1F));
+		}
+		return spec;
 	}
 
 	private static VFXMask parses(final String name, final VFXMaskSpec spec) {
