@@ -1558,6 +1558,16 @@ window.__vfxSelftest = function () {
 		eq(deduped.filter(function (id) { return id === "block_list"; }).length, 1, "deduped");
 		ok(!VFXIR.maskShapeDeferred("block_list", VFXIR.maskShapeTable({})),
 			"block_list is authored, not deferred");
+		// A deferred shape stays out of the merged combo, so it cannot be authored half-done.
+		ok(listed.indexOf("block") < 0, "a deferred shape is not merged into the combo");
+		// An imported band binding survives normalisation (it runs on every rebuild).
+		var bound = VFXIR.maskFromNodeState({ leaves: [{ shape: "block_list", positions: [[1, 2, 3]],
+			fill: "solid", stroke_width: { from: "n" }, occlude: true }], ops: [] });
+		eq(bound.stroke_width.from, "n", "an imported stroke_width binding is kept");
+		// The band is one stroke slot, not a spurious p0 param socket.
+		var blockSlots = VFXIR.maskSlots(leaf).map(function (slot) { return slot.name; });
+		ok(blockSlots.indexOf("mask.p0.p0") < 0, "block_list has no p0 param slot");
+		ok(blockSlots.indexOf("mask.p0.stroke") >= 0, "block_list keeps its stroke slot");
 	});
 
 	test("(POS1) positions + region emit parser-valid JSON on a world overlay", function () {

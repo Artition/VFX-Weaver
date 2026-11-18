@@ -1753,7 +1753,7 @@
 		sky: { space: "dome", params: [] },
 		depth: { space: "screen", params: [["distance", 32.0]] },
 		block: { space: "world", params: [["radius", 16.0]], deferred: true, note: "block geometry" },
-		block_list: { space: "world", params: [["stroke_width", 0.05]], note: "block list (atlas alpha)" }
+		block_list: { space: "world", params: [], note: "block list (atlas alpha)" }
 	};
 
 	var MASK_CENTER_SCREEN = [0.5, 0.5];
@@ -1812,9 +1812,11 @@
 	}
 
 	/**
-	 * The shape ids the editor offers: every id the schema lists plus every editor-known id, so a
-	 * shape the schema's `maskShapes` omits (a sentinel like `block_list`, or a shape whose kind is
-	 * not an enum) still appears in the shape combo. Deduped, schema order first.
+	 * The shape ids the editor offers: every id the schema lists plus every editor-authored shape,
+	 * so a shape the schema's `maskShapes` omits (a sentinel like `block_list`) still appears in the
+	 * combo. A deferred shape is not merged in - the editor cannot author its fields yet, and
+	 * emitting it would produce JSON the parser rejects - unless the schema lists it itself.
+	 * Deduped, schema order first.
 	 */
 	function maskShapeList(descriptor) {
 		var list = descriptor && descriptor.structural ? descriptor.structural.maskShapes : null;
@@ -1828,7 +1830,11 @@
 			}
 		}
 		(Array.isArray(list) ? list : []).forEach(add);
-		Object.keys(MASK_SHAPES).forEach(add);
+		Object.keys(MASK_SHAPES).forEach(function (id) {
+			if (MASK_SHAPES[id].deferred !== true) {
+				add(id);
+			}
+		});
 		return out;
 	}
 
@@ -2323,7 +2329,8 @@
 	/**
 	 * Normalise one block-list leaf for the emitted mask: fill defaults to `solid`, the band to
 	 * 0.05 blocks and `occlude` to true, so a hand-written or imported leaf always compiles to the
-	 * parser's full contract. Other leaves pass through untouched.
+	 * parser's full contract. A present value is never replaced - an imported `{"from": node}` band
+	 * binding keeps its animation. Other leaves pass through untouched.
 	 */
 	function maskNormalizeLeaf(leaf) {
 		if (!isBlockListLeaf(leaf)) {
@@ -2332,7 +2339,7 @@
 		if (leaf.fill !== "solid" && leaf.fill !== "hollow") {
 			leaf.fill = "solid";
 		}
-		if (!isFiniteNumber(Number(leaf.stroke_width))) {
+		if (leaf.stroke_width == null) {
 			leaf.stroke_width = 0.05;
 		}
 		leaf.occlude = leaf.occlude == null ? true : Boolean(leaf.occlude);
