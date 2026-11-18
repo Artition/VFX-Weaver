@@ -23,6 +23,9 @@ $uniforms = Read-Source (Join-Path $client "postprocessing\VFXMaskUniforms.java"
 $geometry = Read-Source (Join-Path $client "postprocessing\VFXMaskBlockGeometry.java")
 $variants = Read-Source (Join-Path $client "postprocessing\VFXMaskShaderVariants.java")
 $post = Read-Source (Join-Path $client "postprocessing\VFXPostProcessingManager.java")
+$fill = Read-Source (Join-Path $main "mask\VFXMaskFill.java")
+$selection = Read-Source (Join-Path $main "mask\VFXMaskBlockSelection.java")
+$blockShader = Read-Source (Join-Path $repoRoot "src\client\resources\assets\vfxweaver\shaders\post\mask_block_geometry.fsh")
 $coverage = Read-Source (Join-Path $repoRoot "src\client\resources\assets\vfxweaver\shaders\post\mask_coverage.fsh")
 
 $problems = New-Object System.Collections.Generic.List[string]
@@ -122,6 +125,63 @@ if ($customShape -notmatch 'a composed leaf''s parts are literal-only') {
 	$problems.Add("VFXCustomShape: the javadoc still claims the leaf params drive the composed parts")
 }
 
+# 17) The block list: an authored selection that shares the block leaf's scratch, its factor-y
+#     rule and its kind code, but reads the block texture's alpha and can ask for the outline band.
+if ($fill -notmatch 'HOLLOW\("hollow"\)') {
+	$problems.Add("VFXMaskFill: the HOLLOW fill is missing (the block list's outline band)")
+}
+if ($fill -notmatch 'SOLID=0, STROKE=1, HOLLOW=2') {
+	$problems.Add("VFXMaskFill: the ordinal contract (SOLID=0, STROKE=1, HOLLOW=2) is not stated")
+}
+if ($parser -notmatch '"block_list"\.equalsIgnoreCase') {
+	$problems.Add("VFXMaskParser: the 'block_list' shape name is not parsed")
+}
+if ($parser -notmatch 'hasPositions == hasRegion') {
+	$problems.Add("VFXMaskParser: a block list does not require exactly one of positions/region")
+}
+if ($parser -notmatch 'VFXMaskBlockSelection\.MAX_REGION_BLOCKS') {
+	$problems.Add("VFXMaskParser: the block list region volume is not bounded")
+}
+if ($parser -notmatch '(?s)fill == VFXMaskFill\.HOLLOW && !blockListLeaf') {
+	$problems.Add("VFXMaskParser: 'hollow' is not rejected outside a block list")
+}
+if ($parser -notmatch '(?s)fill == VFXMaskFill\.STROKE && blockListLeaf') {
+	$problems.Add("VFXMaskParser: 'stroke' is not rejected on a block list (the band is 'hollow')")
+}
+if ($selection -notmatch 'public boolean listed\(\)') {
+	$problems.Add("VFXMaskBlockSelection: the positions/region discriminator is missing")
+}
+
+# 18) Alpha-aware coverage: the geometry pass bakes the list, samples the block atlas and writes the
+#     outer/inner channels in at most two draws; the coverage shader picks the channel from the fill.
+if ($geometry -notmatch 'private static List<SelectedBlock> bakeListed\(') {
+	$problems.Add("VFXMaskBlockGeometry: the authored block list is not baked/cached")
+}
+if ($geometry -notmatch 'getAtlasOrThrow\(net\.minecraft\.data\.AtlasIds\.BLOCKS\)') {
+	$problems.Add("VFXMaskBlockGeometry: the block texture atlas is not resolved")
+}
+if ($geometry -notmatch 'UVPair\.unpackU\(') {
+	$problems.Add("VFXMaskBlockGeometry: the baked atlas UV is not carried to the vertex")
+}
+if ($geometry -notmatch '(?s)if \(selection\.listed\(\)\) \{\s*return true;') {
+	$problems.Add("VFXMaskBlockGeometry.SelectionCache: a listed selection is still keyed by an animated centre/radius")
+}
+if (([regex]::Matches($geometry, 'drawPass\(encoder, geometry, mainTarget, program, blocks')).Count -ne 2) {
+	$problems.Add("VFXMaskBlockGeometry.render: expected exactly two drawPass calls (outer always, inner for the band)")
+}
+if ($blockShader -notmatch 'uniform sampler2D BlockAtlasSampler;') {
+	$problems.Add("mask_block_geometry.fsh: the block atlas sampler is not declared")
+}
+if ($blockShader -notmatch 'vertexColor\.r > 0\.5 \? 1\.0 : 0\.0') {
+	$problems.Add("mask_block_geometry.fsh: the outer/inner channel encoding is missing")
+}
+if ($coverage -notmatch 'vec2 blockCoverage = texture\(GeometryCoverageSampler, texCoord\)\.rg') {
+	$problems.Add("mask_coverage.fsh: the block leaf does not read both geometry channels")
+}
+if ($coverage -notmatch 'shape_misc\[i\]\.x > 0\.5 \? blockCoverage\.g : blockCoverage\.r') {
+	$problems.Add("mask_coverage.fsh: the block leaf does not take the band channel for a non-solid fill")
+}
+
 Write-Host "Mask pipeline check (static)"
 if ($problems.Count -gt 0) {
 	$problems | ForEach-Object { Write-Host "  - $_" }
@@ -151,9 +211,24 @@ if (-not (Test-Path (Join-Path $mainClasses "dev\vfxweaver\mask\VFXMaskParser.cl
 	Write-Error "mask pipeline check: build :26.1.2 first (missing $mainClasses)."
 	exit 1
 }
-$mcJar = Get-ChildItem (Join-Path $env:USERPROFILE ".gradle\caches\fabric-loom\minecraftMaven\net\minecraft\minecraft-merged-deobf\26.1.2") -Filter "*.jar" -ErrorAction SilentlyContinue | Select-Object -First 1
+$loomCache = Join-Path $env:USERPROFILE ".gradle\caches\fabric-loom"
+# The 26.1.2 node's deobfuscated jar, wherever this machine's Loom put it: the per-version
+# merged-deobf directory on a 26.1.2 checkout, or the version-less `<major>` working cache Loom
+# materialises for an unobfuscated node.
+$mcJarCandidates = @(
+	(Join-Path $loomCache "minecraftMaven\net\minecraft\minecraft-merged-deobf\26.1.2"),
+	(Join-Path $loomCache "minecraftMaven\net\minecraft\minecraft-merged-deobf\26.1"),
+	(Join-Path $loomCache "26.1")
+)
+$mcJar = $null
+foreach ($candidate in $mcJarCandidates) {
+	if (-not (Test-Path $candidate)) { continue }
+	$mcJar = Get-ChildItem $candidate -Filter "*.jar" -ErrorAction SilentlyContinue |
+		Where-Object { $_.Name -match "merged" } | Select-Object -First 1
+	if ($mcJar) { break }
+}
 if (-not $mcJar) {
-	Write-Error "mask pipeline check: minecraft merged-deobf 26.1.2 jar not found."
+	Write-Error "mask pipeline check: the 26.1.2 minecraft merged jar was not found under $loomCache."
 	exit 1
 }
 $jars = (Get-ChildItem (Join-Path $env:USERPROFILE ".gradle\caches\modules-2\files-2.1") -Recurse -Filter *.jar -ErrorAction SilentlyContinue |
@@ -171,6 +246,8 @@ $checkJava = @'
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import dev.vfxweaver.mask.VFXMask;
+import dev.vfxweaver.mask.VFXMaskFill;
+import dev.vfxweaver.mask.VFXMaskPrimitive;
 
 /** The mask parser's batch contracts: composition nesting, family caps, space validation, softness. */
 public final class MaskParserCheck {
@@ -194,7 +271,36 @@ public final class MaskParserCheck {
 		require(implicit.slots().get("mask.p0.soft").defaultValue() == 0.01F, "screen default softness = " + implicit.slots().get("mask.p0.soft").defaultValue());
 		final VFXMask world = parse("{\"shape\":\"sphere\",\"center\":[0,64,0]}");
 		require(world.slots().get("mask.p0.soft").defaultValue() == 0.25F, "world default softness = " + world.slots().get("mask.p0.soft").defaultValue());
-		System.out.println("mask parser check OK: right-nested/third-custom/second-block/bad-space rejected; left-nesting and softness defaults hold");
+
+		// The block list: an authored selection that is still a block leaf (one scratch, kind 6),
+		// with the outline width as a normal animatable slot instead of a scanned radius.
+		final VFXMask listed = parse("{\"shape\":\"block_list\",\"positions\":[[1,2,3],[4,5,6],[1,2,3]]}");
+		require(listed.primitives().size() == 1, "block_list leaves = " + listed.primitives().size());
+		require(listed.primitives().get(0).family() == VFXMaskPrimitive.Family.BLOCK, "block_list family = " + listed.primitives().get(0).family());
+		require(listed.primitives().get(0).kindCode() == 6, "block_list kindCode = " + listed.primitives().get(0).kindCode());
+		require(listed.primitives().get(0).blockSelection().positions().size() == 3, "block_list positions = " + listed.primitives().get(0).blockSelection().positions().size());
+		require(listed.primitives().get(0).blockSelection().region() == null, "block_list must not also carry a region");
+		require(listed.primitives().get(0).blockSelection().listed(), "block_list selection is not marked as listed");
+		require(listed.primitives().get(0).parameterSlots().length == 0, "block_list carries a scan radius slot");
+		require(listed.hasBlockLeaf(), "block_list is not counted as a block leaf");
+		require(listed.slots().get("mask.p0.stroke").defaultValue() == 0.05F, "block_list default stroke = " + listed.slots().get("mask.p0.stroke").defaultValue());
+		require(VFXMaskFill.HOLLOW.ordinal() == 2 && VFXMaskFill.STROKE.ordinal() == 1, "fill ordinals moved");
+		// An inclusive region box, normalised and band-filled with an authored width.
+		final VFXMask band = parse("{\"shape\":\"block_list\",\"region\":[3,3,3,0,0,0],\"fill\":\"hollow\",\"stroke_width\":0.2}");
+		require(band.primitives().get(0).fill() == VFXMaskFill.HOLLOW, "hollow was not parsed on a block_list");
+		require(band.primitives().get(0).blockSelection().region()[0] == 0.0F, "region corners are not normalised");
+		require(band.primitives().get(0).blockSelection().region()[3] == 3.0F, "region corners are not normalised");
+		require(band.slots().get("mask.p0.stroke").defaultValue() == 0.2F, "authored stroke_width = " + band.slots().get("mask.p0.stroke").defaultValue());
+		// Both selections share the single geometry scratch, so the one-block-leaf rule spans them.
+		rejected("block + block_list", "{\"op\":\"union\",\"a\":{\"shape\":\"block\",\"blocks\":[\"minecraft:stone\"],\"center\":[0,0,0],\"radius\":4},\"b\":{\"shape\":\"block_list\",\"positions\":[[0,0,0]]}}");
+		rejected("block_list with positions and region", "{\"shape\":\"block_list\",\"positions\":[[0,0,0]],\"region\":[0,0,0,0,0,0]}");
+		rejected("block_list with neither", "{\"shape\":\"block_list\"}");
+		rejected("block_list with a scan radius", "{\"shape\":\"block_list\",\"positions\":[[0,0,0]],\"radius\":4}");
+		rejected("hollow on a circle", "{\"shape\":\"circle\",\"center\":[0.5,0.5],\"fill\":\"hollow\"}");
+		rejected("stroke on a block_list", "{\"shape\":\"block_list\",\"positions\":[[0,0,0]],\"fill\":\"stroke\",\"stroke_width\":0.1}");
+		rejected("oversized block_list region", "{\"shape\":\"block_list\",\"region\":[0,0,0,4096,4096,4096]}");
+
+		System.out.println("mask parser check OK: right-nested/third-custom/second-block/bad-space rejected; block_list positions/region/hollow parsed; left-nesting and softness defaults hold");
 	}
 
 	private static VFXMask parse(final String json) {

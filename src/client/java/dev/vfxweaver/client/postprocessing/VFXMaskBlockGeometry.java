@@ -8,6 +8,7 @@ import com.mojang.blaze3d.systems.CommandEncoder;
 import com.mojang.blaze3d.systems.RenderPass;
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.textures.FilterMode;
+import com.mojang.blaze3d.textures.GpuTextureView;
 import com.mojang.blaze3d.vertex.BufferBuilder;
 import com.mojang.blaze3d.vertex.ByteBufferBuilder;
 import com.mojang.blaze3d.vertex.DefaultVertexFormat;
@@ -24,6 +25,7 @@ import dev.vfxweaver.effect.VFXActiveEffect;
 import dev.vfxweaver.effect.VFXWorldBindings;
 import dev.vfxweaver.mask.VFXMask;
 import dev.vfxweaver.mask.VFXMaskBlockSelection;
+import dev.vfxweaver.mask.VFXMaskFill;
 import dev.vfxweaver.mask.VFXMaskPrimitive;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
@@ -37,6 +39,7 @@ import java.util.Set;
 *///?}
 import java.util.OptionalInt;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.model.geom.builders.UVPair;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.core.registries.Registries;
@@ -58,17 +61,33 @@ import org.joml.Vector4f;
 import org.jspecify.annotations.Nullable;
 
 /**
- * The block-geometry contribution to mask coverage (expanded design). Selects blocks by id / tag /
- * block-state property inside a bounded region and rasterises their real baked model geometry
- * (stairs, slabs, fences, plants) into the mask's geometry scratch, reusing the block-overlay path
- * ({@code VFXWorldOverlayRenderer.getModelQuads} / {@code hasBlockModelGeometry} and the
- * {@code core/position_color} conventions). It is CPU-bounded by {@link VFXMaskBlockSelection} and
- * is never a per-pixel fragment-shader lookup.
+ * The block-geometry contribution to mask coverage (expanded design). Two selections feed it:
+ * a scanned region ({@code shape: "block"}: select blocks by id / tag / block-state property inside
+ * a bounded sphere) and an authored list ({@code shape: "block_list"}: the positions or box the
+ * author named). Both rasterise the real baked model geometry (stairs, slabs, fences, plants) into
+ * the mask's geometry scratch, reusing the block-overlay path
+ * ({@code VFXWorldOverlayRenderer.getModelQuads} and the {@code core/position_color} conventions).
+ * It is CPU-bounded by {@link VFXMaskBlockSelection} and is never a per-pixel fragment-shader
+ * lookup.
  *
  * <p>The draw is camera-relative (the selected blocks' vertices are offset by {@code -cameraPos} and
  * placed in {@code DynamicTransforms.ModelViewMat}) with an identity {@code Projection}, so the
  * world coordinates stay small enough for float precision. The whole contribution is one vertex
  * buffer of triangles written into the scratch before the coverage prepass samples it.
+ *
+ * <p><b>Texture alpha.</b> The geometry is drawn through the block texture atlas
+ * ({@code minecraft:textures/atlas/blocks.png}) with the quads' baked atlas UVs, so the fragment
+ * shader can read the sprite's own alpha: a cutout leaf, a plant's cross or a light-through pane
+ * contributes only where its texture is opaque. The legacy {@code block} leaf keeps the constant
+ * coverage it always had (its vertices carry the "no atlas" flag), so only the {@code block_list}
+ * leaf is alpha-aware - that is the difference between the two.
+ *
+ * <p><b>Two passes, one scratch.</b> A {@code block_list} leaf draws at most twice per frame: the
+ * outer pass (the geometry dilated by the leaf's {@code stroke_width}, block area plus outline) and,
+ * for a {@code hollow} fill, the inner pass (the undilated geometry). The scratch holds them in
+ * different channels - red = outer alpha, green = outer * (1 - inner) - so the coverage shader picks
+ * the channel from the leaf's fill code, and a solid fill never pays for the second pass. Nothing is
+ * scanned per frame: the baked quads are cached per selection + model manager.
  */
 public final class VFXMaskBlockGeometry {
 	/** Camera-relative model-view-projection of the current frame; never mutated past the draw. */
@@ -94,11 +113,12 @@ public final class VFXMaskBlockGeometry {
 	private static @Nullable SelectionCache selectionCache;
 
 	/**
-	 * The matching blocks inside the selection region, each with its baked model quads resolved
-	 * once, capped at {@link VFXMaskBlockSelection#MAX_BLOCKS}. Air and block-entity-only blocks
-	 * (empty baked model) are skipped. The result is cached keyed by the level, the model manager,
-	 * the selection identity and the resolved centre/radius, so the O((2r+1)^3) scan and the model
-	 * resolve run only when the region changes or a resource reload replaces the model manager.
+	 * The matching blocks (each with its baked model quads resolved once) for the current selection.
+	 * A scan selection is keyed by the level, the model manager, the selection identity and the
+	 * resolved centre/radius, so the O((2r+1)^3) scan runs only when the region changes or a
+	 * resource reload replaces the model manager. A listed selection has no region to scan, so its
+	 * key is the level, the model manager and the selection identity alone: an animated slot value
+	 * never invalidates it, and the baked quads are reused for as long as the definition lives.
 	 */
 	private static List<SelectedBlock> select(final Level level, final VFXMaskBlockSelection selection, final float[] center, final float radius) {
 		final Object modelManager = Minecraft.getInstance().getModelManager();
@@ -106,7 +126,7 @@ public final class VFXMaskBlockGeometry {
 		if (cached != null && cached.matches(level, modelManager, selection, center, radius)) {
 			return cached.blocks();
 		}
-		final List<SelectedBlock> blocks = scan(level, selection, center, radius);
+		final List<SelectedBlock> blocks = selection.listed() ? bakeListed(level, selection) : scan(level, selection, center, radius);
 		selectionCache = new SelectionCache(level, modelManager, selection, center[0], center[1], center[2], radius, blocks);
 		return blocks;
 	}
@@ -115,6 +135,52 @@ public final class VFXMaskBlockGeometry {
 	public static void invalidateSelectionCache() {
 		selectionCache = null;
 	}
+
+	/**
+	 * Resolves an authored {@code block_list} selection: every listed position (or every position of
+	 * the region box) is read once and its baked model quads are kept, so the per-frame cost is the
+	 * vertex emission alone. The list is uncapped by design (the cost is memory, see
+	 * {@link VFXMaskBlockSelection}); duplicates are dropped so a repeated position is not baked or
+	 * drawn twice, and air / block-entity-only blocks (empty baked model) are skipped exactly as the
+	 * scan path skips them.
+	 */
+	private static List<SelectedBlock> bakeListed(final Level level, final VFXMaskBlockSelection selection) {
+		final List<SelectedBlock> found = new ArrayList<>();
+		final Set<BlockPos> seen = new HashSet<>();
+		final float[] region = selection.region();
+		if (region != null) {
+			final BlockPos low = BlockPos.containing(region[0], region[1], region[2]);
+			final BlockPos high = BlockPos.containing(region[3], region[4], region[5]);
+			for (final BlockPos pos : BlockPos.betweenClosed(low, high)) {
+				final BlockPos immutable = pos.immutable();
+				if (seen.add(immutable)) {
+					addListed(found, level, immutable);
+				}
+			}
+			return found;
+		}
+		for (final float[] point : selection.positions()) {
+			final BlockPos pos = BlockPos.containing(point[0], point[1], point[2]);
+			if (seen.add(pos)) {
+				addListed(found, level, pos);
+			}
+		}
+		return found;
+	}
+
+	/** Bakes one listed position into {@code found} unless it is air or bakes no model geometry. */
+	private static void addListed(final List<SelectedBlock> found, final Level level, final BlockPos pos) {
+		final BlockState state = level.getBlockState(pos);
+		if (state.isAir()) {
+			return;
+		}
+		final List<BakedQuad> quads = VFXWorldOverlayRenderer.getModelQuads(Minecraft.getInstance(), state);
+		if (quads.isEmpty()) {
+			return;
+		}
+		found.add(new SelectedBlock(pos, quads));
+	}
+
 
 	/** The one-off scan behind {@link #select}; tag/id parsing and the property set are hoisted here. */
 	private static List<SelectedBlock> scan(final Level level, final VFXMaskBlockSelection selection, final float[] center, final float radius) {
@@ -211,13 +277,56 @@ public final class VFXMaskBlockGeometry {
 		}
 		final Level level = minecraft.level;
 		final VFXMaskBlockSelection selection = blockPrimitive.blockSelection();
-		final float radius = blockRadius(mask, blockPrimitive, effect, selection);
-		final float[] center = blockCenter(mask, blockPrimitive, effect, selection);
+		// A listed selection carries its own coordinates: its centre/radius are fixed literals (no
+		// slot read), which keeps an animated radius from invalidating the baked-quad cache.
+		final float radius = selection.listed() ? selection.radius() : blockRadius(mask, blockPrimitive, effect, selection);
+		final float[] center = selection.listed() ? selection.center() : blockCenter(mask, blockPrimitive, effect, selection);
 		final List<SelectedBlock> blocks = select(level, selection, center, radius);
 		if (blocks.isEmpty()) {
 			return;
 		}
-		drawBlocks(encoder, geometry, mainTarget, program, blocks, blockPrimitive.occlude() && depthReady);
+		final boolean textured = selection.listed();
+		final GpuTextureView atlas = blockAtlasView();
+		if (textured && atlas == null) {
+			// No block atlas means no authoritative alpha; fail closed rather than paint the whole
+			// model silhouette as coverage.
+			return;
+		}
+		// A legacy block leaf never samples the atlas, but the sampler still has to be bound to a
+		// view that is not this pass's own output: the main target's colour is always safe.
+		final GpuTextureView atlasBind = atlas != null ? atlas : mainTarget.getColorTextureView();
+		final boolean occlude = blockPrimitive.occlude() && depthReady;
+		final boolean hollow = textured && blockPrimitive.fill() != VFXMaskFill.SOLID;
+		// The outline width in blocks: the dilation of the outer pass (block area + outline) and, for
+		// a hollow fill, the band above the inner pass. Unbounded above by design (AGENTS.md): a huge
+		// value only widens the silhouette, the geometry count does not change.
+		final float stroke = textured
+			? Math.max(VFXMaskUniforms.slotValue(mask, effect, blockPrimitive.strokeSlot(), blockPrimitive.strokeDefault()), 0.0F)
+			: 0.0F;
+		// At most two draws, both into the same scratch: outer (dilated) always, inner only when the
+		// fill is the band. The shader reads red for a solid fill and green for the band.
+		drawPass(encoder, geometry, mainTarget, program, blocks, occlude, textured, atlasBind, true, 1.0F + 2.0F * stroke);
+		if (hollow) {
+			drawPass(encoder, geometry, mainTarget, program, blocks, occlude, textured, atlasBind, false, 1.0F);
+		}
+	}
+
+	/**
+	 * The block atlas texture view the alpha-aware leaf samples ({@code minecraft:textures/atlas/
+	 * blocks.png}). Both node lines resolve it through their own {@code AtlasManager}, but the call
+	 * chain is identical - {@code getAtlasManager().getAtlasOrThrow(AtlasIds.BLOCKS).getTextureView()}
+	 * - so it is written once, unguarded, and the per-node class never has to be named. A resource
+	 * reload re-stitches the atlas and swaps the view, which is why it is resolved per frame (a map
+	 * lookup, not a stitch).
+	 */
+	private static @Nullable GpuTextureView blockAtlasView() {
+		try {
+			return Minecraft.getInstance().getAtlasManager()
+				.getAtlasOrThrow(net.minecraft.data.AtlasIds.BLOCKS)
+				.getTextureView();
+		} catch (RuntimeException e) {
+			return null;
+		}
 	}
 
 	/** One selected block plus its baked model quads (resolved once, reused for the cached selection). */
@@ -227,8 +336,15 @@ public final class VFXMaskBlockGeometry {
 	/** The selection key plus the blocks baked against it; an exact identity/region match reuses it. */
 	private record SelectionCache(Level level, Object modelManager, VFXMaskBlockSelection selection, float centerX, float centerY, float centerZ, float radius, List<SelectedBlock> blocks) {
 		private boolean matches(final Level level, final Object modelManager, final VFXMaskBlockSelection selection, final float[] center, final float radius) {
-			return this.level == level && this.modelManager == modelManager && this.selection.equals(selection)
-				&& this.centerX == center[0] && this.centerY == center[1] && this.centerZ == center[2] && this.radius == radius;
+			if (this.level != level || this.modelManager != modelManager || this.selection != selection) {
+				return false;
+			}
+			// A listed selection has no scanned region: its baked quads depend on nothing that can
+			// animate, so an animated slot must not force a rebuild every frame.
+			if (selection.listed()) {
+				return true;
+			}
+			return this.centerX == center[0] && this.centerY == center[1] && this.centerZ == center[2] && this.radius == radius;
 		}
 	}
 
@@ -275,24 +391,39 @@ public final class VFXMaskBlockGeometry {
 		*///?}
 	}
 
-	private static void drawBlocks(
+	/**
+	 * Emits one pass of the selected blocks into the geometry scratch and draws it.
+	 *
+	 * @param textured true for a {@code block_list} leaf: the fragment shader takes the sprite's
+	 *                 alpha from {@code BlockAtlasSampler} at the quad's baked atlas UV (otherwise
+	 *                 the coverage is the constant 1 the {@code block} leaf has always written)
+	 * @param atlas    the view bound as {@code BlockAtlasSampler}: the block atlas, or the main
+	 *                 target's colour for a leaf that never samples it (never this pass's own output)
+	 * @param outer    true for the dilated pass (the block area plus the outline), false for the
+	 *                 inner pass a {@code hollow} fill subtracts; the fragment shader writes the
+	 *                 outer pass to the scratch's red channel and the inner pass to green
+	 * @param scale    1.0 for the authored geometry, {@code 1 + 2 * stroke_width} for the dilated pass
+	 */
+	private static void drawPass(
 		final CommandEncoder encoder,
 		final RenderTarget geometry,
 		final RenderTarget mainTarget,
 		final VFXShaderPrograms.ProgramInfo program,
 		final List<SelectedBlock> blocks,
-		final boolean occlude
+		final boolean occlude,
+		final boolean textured,
+		final @Nullable GpuTextureView atlas,
+		final boolean outer,
+		final float scale
 	) {
 		final float camX = VFXFieldEnv.cameraX();
 		final float camY = VFXFieldEnv.cameraY();
 		final float camZ = VFXFieldEnv.cameraZ();
-		// The vertex colour's alpha is the leaf's occlusion flag the fragment shader reads:
-		// opaque white occludes, alpha 0 is the x-ray look (also forced when depth is not trusted).
-		final int color = occlude ? 0xFFFFFFFF : 0x00FFFFFF;
+		final int color = passColor(occlude, textured, outer);
 		//? if <26.2 {
-		final BufferBuilder builder = new BufferBuilder(staging(), VertexFormat.Mode.TRIANGLES, DefaultVertexFormat.POSITION_COLOR);
+		final BufferBuilder builder = new BufferBuilder(staging(), VertexFormat.Mode.TRIANGLES, DefaultVertexFormat.POSITION_TEX_COLOR);
 		//?} else {
-		/*final BufferBuilder builder = new BufferBuilder(staging(), PrimitiveTopology.TRIANGLES, DefaultVertexFormat.POSITION_COLOR);
+		/*final BufferBuilder builder = new BufferBuilder(staging(), PrimitiveTopology.TRIANGLES, DefaultVertexFormat.POSITION_TEX_COLOR);
 		*///?}
 		POSE.pushPose();
 		for (final SelectedBlock block : blocks) {
@@ -303,8 +434,8 @@ public final class VFXMaskBlockGeometry {
 			POSE.pushPose();
 			POSE.translate(block.pos().getX() - camX, block.pos().getY() - camY, block.pos().getZ() - camZ);
 			for (final BakedQuad quad : quads) {
-				emitTriangle(builder, quad, 0, 1, 2, color);
-				emitTriangle(builder, quad, 0, 2, 3, color);
+				emitTriangle(builder, quad, 0, 1, 2, color, scale);
+				emitTriangle(builder, quad, 0, 2, 3, color, scale);
 			}
 			POSE.popPose();
 		}
@@ -341,6 +472,11 @@ public final class VFXMaskBlockGeometry {
 				// still holds the world surface.
 				renderPass.bindTexture("DepthSampler", mainTarget.getDepthTextureView(),
 					RenderSystem.getSamplerCache().getClampToEdge(FilterMode.NEAREST));
+				// The block texture atlas the alpha of a listed leaf is read from. NEAREST: the UVs
+				// are absolute atlas UVs, so filtering across a sprite's padded border would smear a
+				// neighbour's alpha into a cutout edge.
+				renderPass.bindTexture("BlockAtlasSampler", atlas,
+					RenderSystem.getSamplerCache().getClampToEdge(FilterMode.NEAREST));
 				//? if <26.2 {
 				renderPass.setVertexBuffer(0, buffer);
 				renderPass.draw(0, vertexCount);
@@ -352,14 +488,42 @@ public final class VFXMaskBlockGeometry {
 		}
 	}
 
-	private static void emitTriangle(final BufferBuilder builder, final BakedQuad quad, final int a, final int b, final int c, final int color) {
-		emitVertex(builder, quad.position(a), color);
-		emitVertex(builder, quad.position(b), color);
-		emitVertex(builder, quad.position(c), color);
+	/**
+	 * The vertex colour one pass carries. The fragment shader reads three bits out of it:
+	 * red = "this is the outer pass" (it writes the scratch's green channel differently), blue =
+	 * "sample the atlas alpha" (a listed leaf) rather than the constant 1 a {@code block} leaf
+	 * writes, alpha = the leaf's occlusion flag (opaque occludes, alpha 0 is the x-ray look, also
+	 * forced when depth is not trusted).
+	 */
+	private static int passColor(final boolean occlude, final boolean textured, final boolean outer) {
+		final int alpha = occlude ? 0xFF000000 : 0x00000000;
+		final int red = outer ? 0x00FF0000 : 0x00000000;
+		final int blue = textured ? 0x000000FF : 0x00000000;
+		return alpha | red | blue;
 	}
 
-	private static void emitVertex(final BufferBuilder builder, final Vector3fc position, final int color) {
-		builder.addVertex(POSE.last(), position.x(), position.y(), position.z()).setColor(color);
+	private static void emitTriangle(final BufferBuilder builder, final BakedQuad quad, final int a, final int b, final int c, final int color, final float scale) {
+		emitVertex(builder, quad, a, color, scale);
+		emitVertex(builder, quad, b, color, scale);
+		emitVertex(builder, quad, c, color, scale);
+	}
+
+	/**
+	 * One quad vertex with its baked atlas UV. The UVs are absolute (the model bakery applies the
+	 * sprite's sub-rect at bake time), so the atlas is sampled directly with no per-sprite remap.
+	 * {@code scale} grows the quad about the block centre for the dilated pass.
+	 */
+	private static void emitVertex(final BufferBuilder builder, final BakedQuad quad, final int index, final int color, final float scale) {
+		final Vector3fc position = quad.position(index);
+		final long uv = quad.packedUV(index);
+		builder.addVertex(POSE.last(), dilated(position.x(), scale), dilated(position.y(), scale), dilated(position.z(), scale))
+			.setColor(color)
+			.setUv(UVPair.unpackU(uv), UVPair.unpackV(uv));
+	}
+
+	/** Grows a block-local coordinate away from the block centre (0.5, 0.5, 0.5). */
+	private static float dilated(final float value, final float scale) {
+		return scale == 1.0F ? value : 0.5F + (value - 0.5F) * scale;
 	}
 
 	private static ByteBufferBuilder staging() {

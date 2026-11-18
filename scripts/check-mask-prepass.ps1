@@ -70,6 +70,25 @@ if ($manager -match '//\? if >=26\.2 \{\s*/\*return true;') {
 	$problems.Add("depthRecipeVerified() still carries the old >=26.2 Stonecutter guard")
 }
 
+# 6) The block-geometry pipeline must carry the block atlas sampler and a UV vertex format on every
+#    node, or the block_list leaf's alpha reaches no shader. Both branches of the per-node guard are
+#    pinned: the <26.2 form binds the samplers by name, the >=26.2 form needs its bind group.
+if ($programs -notmatch '\.withSampler\("BlockAtlasSampler"\)') {
+	$problems.Add("VFXShaderPrograms: the block-geometry pipeline does not declare the BlockAtlasSampler")
+}
+if ($programs -notmatch '\.withBindGroupLayout\(BLOCK_ATLAS_SAMPLER_LAYOUT\)') {
+	$problems.Add("VFXShaderPrograms: the >=26.2 block-geometry pipeline has no BlockAtlasSampler bind group")
+}
+if ($programs -notmatch '\.withVertexFormat\(DefaultVertexFormat\.POSITION_TEX_COLOR, VertexFormat\.Mode\.TRIANGLES\)') {
+	$problems.Add("VFXShaderPrograms: the block-geometry pipeline lost its UV vertex format (<26.2 branch)")
+}
+if ($programs -notmatch '\.withVertexBinding\(0, DefaultVertexFormat\.POSITION_TEX_COLOR\)') {
+	$problems.Add("VFXShaderPrograms: the block-geometry pipeline lost its UV vertex format (>=26.2 branch)")
+}
+if ($programs -notmatch '\.withVertexShader\(Identifier\.fromNamespaceAndPath\("vfxweaver", "world/mask_block_geometry"\)\)') {
+	$problems.Add("VFXShaderPrograms: the block-geometry pipeline does not use the UV vertex stage")
+}
+
 Write-Host "Mask coverage prepass check (static)"
 if ($problems.Count -gt 0) {
 	$problems | ForEach-Object { Write-Host "  - $_" }
@@ -77,5 +96,6 @@ if ($problems.Count -gt 0) {
 	exit 1
 }
 Write-Host "  prepass registered on every node, layer-0 scoped, depth gate needsDepth-scoped, no feedback bind"
+Write-Host "  block-geometry pipeline carries the block atlas sampler and UV vertices on both node lines"
 Write-Host "Mask coverage prepass check OK."
 exit 0

@@ -17,8 +17,9 @@ import org.jspecify.annotations.Nullable;
  * @param rotationDefault    rotation in the shared unit (degrees)
  * @param parameterSlots     per-kind numeric slot names, parallel to the shape's parameter names
  * @param parameterDefaults  per-kind default values
- * @param fill               solid or stroke
- * @param strokeSlot         reserved slot name for the stroke width (stroke only)
+ * @param fill               solid, stroke, or (block list only) hollow
+ * @param strokeSlot         reserved slot name for the stroke width (stroke, or the block list's
+ *                           outline width)
  * @param strokeDefault      stroke width when the slot is absent
  * @param softnessSlot       reserved slot name for the falloff width
  * @param softnessDefault    falloff width when the slot is absent
@@ -30,7 +31,9 @@ import org.jspecify.annotations.Nullable;
  * @param fieldScaleSlot     reserved slot name for the field scale
  * @param fieldScaleDefault  field scale when the slot is absent
  * @param fieldSeed          field seed, fixed at parse time
- * @param blockSelection     the block-geometry selection for a block leaf, or {@code null}
+ * @param blockSelection     the block-geometry selection for a block leaf (a scanned region for
+ *                           {@code "block"}, authored positions/box for {@code "block_list"}),
+ *                           or {@code null}
  * @param occlude            for a block leaf, whether its rasterised model geometry is occluded by
  *                           the scene depth (a wall in front hides the mask). Ignored for every
  *                           other family; defaults to {@code true}, so a block mask is depth-tested

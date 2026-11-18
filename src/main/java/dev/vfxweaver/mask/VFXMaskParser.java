@@ -146,8 +146,10 @@ public final class VFXMaskParser {
 		if (shapeName == null || shapeName.isBlank()) {
 			throw new IllegalArgumentException("mask: 'shape' must be a shape name or a registered custom-shape id");
 		}
-		// Three families: a built-in kind, the block-geometry sentinel, or a registered custom id.
-		final boolean blockLeaf = "block".equalsIgnoreCase(shapeName.trim());
+		// Three families: a built-in kind, the block-geometry sentinels ({@code block} = scan a bounded
+		// region, {@code block_list} = the authored positions/region), or a registered custom id.
+		final boolean blockListLeaf = "block_list".equalsIgnoreCase(shapeName.trim());
+		final boolean blockLeaf = blockListLeaf || "block".equalsIgnoreCase(shapeName.trim());
 		final VFXMaskShapeKind shape = blockLeaf ? null : VFXMaskShapeKind.fromString(shapeName);
 		final VFXCustomShape customDefinition = !blockLeaf && shape == null ? VFXShapeRegistry.get().get(shapeName) : null;
 		if (!blockLeaf && shape == null && customDefinition == null) {
@@ -209,9 +211,10 @@ public final class VFXMaskParser {
 		} else if (centerElement == null && hasScreenRect) {
 			centerBinding = null;
 			center = null;
-		} else if (centerElement == null && shape == VFXMaskShapeKind.SKY) {
+		} else if (centerElement == null && (shape == VFXMaskShapeKind.SKY || blockListLeaf)) {
 			// A whole-sky leaf has no position: it covers the entire dome, so its centre is the
-			// fallback and the shader ignores it.
+			// fallback and the shader ignores it. A block list's geometry is at the authored
+			// coordinates, so it has no driven centre either - nothing reads it.
 			centerBinding = null;
 			center = null;
 		} else {
@@ -249,11 +252,15 @@ public final class VFXMaskParser {
 		final float rotationDefault = number(slots, rotationSlot, json.get("rotation"), 0.0F);
 
 		// Numeric parameters by family. A built-in shape has named per-kind params; a block leaf has
-		// the selection radius (the region is bounded, so it is a normal animatable slot); a custom
-		// leaf has the generic p0..p7 slots the plugin/composed SDF reads.
+		// the selection radius (the region is bounded, so it is a normal animatable slot), a block
+		// list has none (its geometry is selected by the authored coordinates, not by a radius); a
+		// custom leaf has the generic p0..p7 slots the plugin/composed SDF reads.
 		final String[] parameterSlots;
 		final float[] parameterDefaults;
-		if (blockLeaf) {
+		if (blockListLeaf) {
+			parameterSlots = new String[0];
+			parameterDefaults = new float[0];
+		} else if (blockLeaf) {
 			parameterSlots = new String[]{VFXMaskSlots.param(i, 0)};
 			parameterDefaults = new float[]{number(slots, parameterSlots[0], json.get("radius"), 16.0F)};
 		} else if (shape != null) {
@@ -305,7 +312,16 @@ public final class VFXMaskParser {
 			? VFXMaskFill.fromString(json.get("fill").getAsString())
 			: VFXMaskFill.SOLID;
 		if (fill == null) {
-			throw new IllegalArgumentException("mask: 'fill' must be 'solid' or 'stroke'");
+			throw new IllegalArgumentException("mask: 'fill' must be 'solid', 'stroke' or 'hollow'");
+		}
+		// 'hollow' is the block list's band (its dilated texture alpha minus the original alpha), so
+		// it has no meaning on a distance-field leaf; 'stroke' on a block list is the same band under
+		// an older spelling and is rejected instead of silently aliasing it.
+		if (fill == VFXMaskFill.HOLLOW && !blockListLeaf) {
+			throw new IllegalArgumentException("mask: 'fill': 'hollow' is only valid on a 'block_list' leaf");
+		}
+		if (fill == VFXMaskFill.STROKE && blockListLeaf) {
+			throw new IllegalArgumentException("mask: 'fill': a 'block_list' leaf takes 'solid' or 'hollow' (the band is its stroke)");
 		}
 		final String strokeSlot = VFXMaskSlots.stroke(i);
 		final float strokeDefault;
@@ -313,6 +329,11 @@ public final class VFXMaskParser {
 			if (!json.has("stroke_width") || json.get("stroke_width").isJsonNull()) {
 				throw new IllegalArgumentException("mask: fill 'stroke' requires 'stroke_width'");
 			}
+			strokeDefault = number(slots, strokeSlot, json.get("stroke_width"), 0.05F);
+		} else if (blockListLeaf) {
+			// The block list's band width in blocks: the dilation of the sampled texture alpha for
+			// 'solid' (block area + outline) and the outline's own width for 'hollow'. Animatable
+			// like any other mask number, so it defaults instead of being required.
 			strokeDefault = number(slots, strokeSlot, json.get("stroke_width"), 0.05F);
 		} else {
 			strokeDefault = 0.0F;
@@ -374,10 +395,17 @@ public final class VFXMaskParser {
 			slots.put(fieldScaleSlot, new VFXMask.MaskSlot(fieldScaleSlot, 1.0F, null, null));
 		}
 		// The block selection reuses the already-resolved centre and radius slots (both may be
-		// graph-animated), so it only carries the selection identity plus the bounded region.
-		final VFXMaskBlockSelection blockSelection = blockLeaf
-			? parseBlockSelection(json, centerDefaults, parameterDefaults[0])
-			: null;
+		// graph-animated), so it only carries the selection identity plus the bounded region. A block
+		// list instead carries the authored positions/region: no scan, no radius, and therefore no
+		// animatable slot (its coordinates are literal, like a selection, not a shape parameter).
+		final VFXMaskBlockSelection blockSelection;
+		if (blockListLeaf) {
+			blockSelection = parseBlockListSelection(json, centerDefaults);
+		} else if (blockLeaf) {
+			blockSelection = parseBlockSelection(json, centerDefaults, parameterDefaults[0]);
+		} else {
+			blockSelection = null;
+		}
 		// A block leaf's geometry is occluded by scene depth unless it explicitly opts into the
 		// see-through ("x-ray") look; the flag is meaningless on any other family.
 		if (json.has("occlude") && !json.get("occlude").isJsonNull() && !blockLeaf) {
@@ -478,7 +506,78 @@ public final class VFXMaskParser {
 		if (radius <= 0.0F || radius > VFXMaskBlockSelection.MAX_RADIUS) {
 			throw new IllegalArgumentException("mask: block 'radius' must be in (0, " + VFXMaskBlockSelection.MAX_RADIUS + "]");
 		}
-		return new VFXMaskBlockSelection(blockIds, tag, properties, center, radius);
+		return new VFXMaskBlockSelection(blockIds, tag, properties, center, radius, List.of(), null);
+	}
+
+	/**
+	 * Parses a {@code block_list} selection: exactly one of {@code positions}
+	 * ({@code [[x,y,z], ...]}, no cap - the cost is memory, see {@link VFXMaskBlockSelection}) or
+	 * {@code region} ({@code [x0,y0,z0,x1,y1,z1]}, an inclusive box, capped by volume because it
+	 * sizes the same geometry buffer). The scan keys ({@code blocks}/{@code tag}/{@code properties}/
+	 * {@code radius}) are rejected here rather than ignored, so a copy-pasted {@code block} leaf
+	 * cannot quietly turn into an empty mask.
+	 */
+	private static VFXMaskBlockSelection parseBlockListSelection(final JsonObject json, final float[] center) {
+		if (json.has("blocks") || json.has("tag") || json.has("properties") || json.has("radius")) {
+			throw new IllegalArgumentException("mask: a 'block_list' leaf takes 'positions' or 'region'; 'blocks'/'tag'/'properties'/'radius' belong to a 'block' leaf");
+		}
+		final JsonElement positionsElement = json.get("positions");
+		final JsonElement regionElement = json.get("region");
+		final boolean hasPositions = positionsElement != null && !positionsElement.isJsonNull();
+		final boolean hasRegion = regionElement != null && !regionElement.isJsonNull();
+		if (hasPositions == hasRegion) {
+			throw new IllegalArgumentException("mask: a 'block_list' leaf needs exactly one of 'positions' ([[x,y,z], ...]) or 'region' ([x0,y0,z0,x1,y1,z1])");
+		}
+		final List<float[]> positions = new ArrayList<>();
+		float[] region = null;
+		if (hasPositions) {
+			if (!positionsElement.isJsonArray() || positionsElement.getAsJsonArray().size() == 0) {
+				throw new IllegalArgumentException("mask: block_list 'positions' must be a non-empty array of [x,y,z]");
+			}
+			for (final JsonElement entry : positionsElement.getAsJsonArray()) {
+				if (!entry.isJsonArray() || entry.getAsJsonArray().size() != 3) {
+					throw new IllegalArgumentException("mask: block_list 'positions' entries must be [x,y,z] number triples");
+				}
+				final JsonArray point = entry.getAsJsonArray();
+				final float[] xyz = new float[3];
+				for (int axis = 0; axis < 3; axis++) {
+					if (!point.get(axis).isJsonPrimitive() || !point.get(axis).getAsJsonPrimitive().isNumber()) {
+						throw new IllegalArgumentException("mask: block_list 'positions' entries must be [x,y,z] number triples");
+					}
+					xyz[axis] = point.get(axis).getAsFloat();
+				}
+				positions.add(xyz);
+			}
+		} else {
+			if (!regionElement.isJsonArray() || regionElement.getAsJsonArray().size() != 6) {
+				throw new IllegalArgumentException("mask: block_list 'region' must be [x0,y0,z0,x1,y1,z1]");
+			}
+			final JsonArray box = regionElement.getAsJsonArray();
+			region = new float[6];
+			for (int corner = 0; corner < 6; corner++) {
+				if (!box.get(corner).isJsonPrimitive() || !box.get(corner).getAsJsonPrimitive().isNumber()) {
+					throw new IllegalArgumentException("mask: block_list 'region' must be [x0,y0,z0,x1,y1,z1]");
+				}
+				region[corner] = box.get(corner).getAsFloat();
+			}
+			// Corners in either order: normalise instead of demanding a particular winding, because
+			// the two corners of a box carry no order in the author's head.
+			for (int axis = 0; axis < 3; axis++) {
+				if (region[axis] > region[axis + 3]) {
+					final float low = region[axis];
+					region[axis] = region[axis + 3];
+					region[axis + 3] = low;
+				}
+			}
+			final double volume = ((double) Math.floor(region[3]) - Math.floor(region[0]) + 1.0)
+				* ((double) Math.floor(region[4]) - Math.floor(region[1]) + 1.0)
+				* ((double) Math.floor(region[5]) - Math.floor(region[2]) + 1.0);
+			if (volume > VFXMaskBlockSelection.MAX_REGION_BLOCKS) {
+				throw new IllegalArgumentException("mask: block_list 'region' covers " + (long) volume + " blocks, above the "
+					+ VFXMaskBlockSelection.MAX_REGION_BLOCKS + "-block geometry budget; list the positions instead (no cap)");
+			}
+		}
+		return new VFXMaskBlockSelection(List.of(), null, Map.of(), center, 0.0F, positions, region);
 	}
 
 	private static JsonArray array(final JsonObject json, final String key, final int size) {

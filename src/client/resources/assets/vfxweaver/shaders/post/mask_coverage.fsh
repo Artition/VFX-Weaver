@@ -94,7 +94,8 @@ out vec4 fragColor;
 // Screen/3D kinds: CIRCLE=0, ELLIPSE=1, RECT=2, POLYGON=3, SPHERE=4, BOX=5; block leaf=6,
 // custom leaf=7 (the last two are kind codes, not VFXMaskShapeKind ordinals). Ops: UNION=0,
 // INTERSECTION=1, DIFFERENCE=2. Fields: NONE=0, NOISE=1. Spaces: screen=0, world=1, dome=2. Fills:
-// solid=0, stroke=1.
+// solid=0, stroke=1, hollow=2 (block list only: the outline band of the dilated texture alpha, so
+// the block branch below reads the geometry scratch's band channel for any non-solid fill).
 
 float hash31(vec3 p) {
     p = fract(p * 0.3183099 + vec3(0.1, 0.2, 0.3));
@@ -323,7 +324,14 @@ void main() {
             // pass (its actual model geometry, not the voxel cell). That coverage is full or absent
             // per fragment, so softness has no meaningful distance to ramp here and the edge is
             // hard; softness/field are ignored for the block family by design.
-            cov = texture(GeometryCoverageSampler, texCoord).r;
+            //
+            // Two channels, because a `block_list` leaf can ask for the outline band: red is the
+            // (dilated) texture alpha, green is outer * (1 - inner). Any non-solid fill reads the
+            // band, which is what 'stroke' means on every other leaf and 'hollow' means here; a
+            // solid fill reads the outer alpha, so the legacy `block` leaf (constant 1 in both
+            // channels) is unchanged.
+            vec2 blockCoverage = texture(GeometryCoverageSampler, texCoord).rg;
+            cov = shape_misc[i].x > 0.5 ? blockCoverage.g : blockCoverage.r;
         } else if (kind == 7) {
             vfx_shape_data_base = i * (MASK_MAX_LEAF_DATA_VEC4 * 4);
             vfx_shape_params0 = shape_params0[i];

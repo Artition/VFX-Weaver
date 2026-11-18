@@ -177,6 +177,11 @@ public final class VFXShaderPrograms {
 	private static final BindGroupLayout GEOMETRY_COVERAGE_SAMPLER_LAYOUT = BindGroupLayout.builder()
 		.withSampler("GeometryCoverageSampler")
 		.build();
+	// The block-geometry pass's texture atlas (the block_list leaf's alpha). The sampler name must
+	// match post/mask_block_geometry.fsh (`BlockAtlasSampler`).
+	private static final BindGroupLayout BLOCK_ATLAS_SAMPLER_LAYOUT = BindGroupLayout.builder()
+		.withSampler("BlockAtlasSampler")
+		.build();
 	// The depth pass's pattern texture (textured surface_pattern). The sampler name must match
 	// surface_pattern.fsh's declaration (`PatternSampler`).
 	private static final BindGroupLayout PATTERN_SAMPLER_LAYOUT = BindGroupLayout.builder()
@@ -395,23 +400,31 @@ public final class VFXShaderPrograms {
 		// the manager, not scheduled as an effect-chain ProgramInfo. It draws the selected blocks'
 		// baked model quads as triangles (TRIANGLES, one vertex buffer, no index buffer), camera-
 		// relative in the DynamicTransforms ModelViewMat, with an identity Projection.
+		//
+		// Position + colour + UV: the UV is the quad's baked atlas UV, so the fragment stage can read
+		// the block texture's own alpha (the block_list leaf). The draw is still one vertex format and
+		// one pipeline for both block leaves; a legacy `block` leaf carries the "no atlas" colour bit
+		// and its fragments write the constant coverage they always had.
 		blockGeometryPipeline = RenderPipelines.register(
 			RenderPipeline.builder()
 				.withLocation(Identifier.fromNamespaceAndPath("vfxweaver", "world/mask_block_geometry"))
-				.withVertexShader("core/position_color")
+				.withVertexShader(Identifier.fromNamespaceAndPath("vfxweaver", "world/mask_block_geometry"))
 				.withFragmentShader(Identifier.fromNamespaceAndPath("vfxweaver", "post/mask_block_geometry"))
 				.withShaderDefine("VFX_DEPTH_REVERSED", depthReversedDefine())
 				//? if <26.2 {
 				// The fragment shader depth-tests each occluding block leaf's fragment against the
-				// main target's depth view (bound at draw time).
+				// main target's depth view (bound at draw time), and samples the block atlas for the
+				// alpha of a listed leaf.
 				.withSampler("DepthSampler")
+				.withSampler("BlockAtlasSampler")
 				.withUniform("DynamicTransforms", UniformType.UNIFORM_BUFFER)
 				.withUniform("Projection", UniformType.UNIFORM_BUFFER)
-				.withVertexFormat(DefaultVertexFormat.POSITION_COLOR, VertexFormat.Mode.TRIANGLES)
+				.withVertexFormat(DefaultVertexFormat.POSITION_TEX_COLOR, VertexFormat.Mode.TRIANGLES)
 				//?} else {
 				/*.withBindGroupLayout(BindGroupLayouts.MATRICES_PROJECTION)
 				.withBindGroupLayout(DEPTH_SAMPLER_LAYOUT)
-				.withVertexBinding(0, DefaultVertexFormat.POSITION_COLOR)
+				.withBindGroupLayout(BLOCK_ATLAS_SAMPLER_LAYOUT)
+				.withVertexBinding(0, DefaultVertexFormat.POSITION_TEX_COLOR)
 				.withPrimitiveTopology(PrimitiveTopology.TRIANGLES)
 				*///?}
 				//? if <26.1 {
