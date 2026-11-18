@@ -14,6 +14,20 @@
 //
 // The quad UVs are absolute atlas UVs (the model bakery applies the sprite's sub-rect when it
 // packs them), so the atlas is sampled directly - no per-sprite remap here or in the fragment.
+//
+// WHY THE NUDGE. The mask draws the very geometry it masks, so its surface is coplanar with the
+// block's and the fragment stage's depth compare against the scene is decided by a few float ulps
+// that two different rasterisation paths do not agree on - which let a masked block draw over the
+// mask "sometimes". Every vertex is therefore pulled VFX_MASK_DEPTH_NUDGE blocks toward the camera
+// along its own view ray (the vertices are camera-relative, so that ray is just `Position`), which
+// puts the mask strictly in front of the surface it masks in both depth conventions and at every
+// distance, with no per-node depth maths. Two centimetres is 1/50 of a block: a wall genuinely in
+// front is a block or more away and still wins, and the projected silhouette moves by far less than
+// a pixel (the shift is along the view ray, so it only changes the scale by nudge/distance).
+
+#ifndef VFX_MASK_DEPTH_NUDGE
+#define VFX_MASK_DEPTH_NUDGE 0.02
+#endif
 
 #moj_import <minecraft:projection.glsl>
 
@@ -25,7 +39,14 @@ out vec2 texCoord0;
 out vec4 vertexColor;
 
 void main() {
-    gl_Position = ProjMat * vec4(Position, 1.0);
+    vec3 nudged = Position;
+    float viewerDistance = length(Position);
+    // A vertex closer to the eye than the nudge itself (the camera inside a masked block) is left
+    // alone rather than pushed through the camera.
+    if (viewerDistance > VFX_MASK_DEPTH_NUDGE) {
+        nudged -= Position * (VFX_MASK_DEPTH_NUDGE / viewerDistance);
+    }
+    gl_Position = ProjMat * vec4(nudged, 1.0);
 
     texCoord0 = UV0;
     vertexColor = Color;

@@ -247,7 +247,7 @@ if ($blockVertexCode -match 'ModelViewMat|dynamictransforms\.glsl') {
 if ($geometryCode -match 'setUniform\("DynamicTransforms"') {
 	$problems.Add("VFXMaskBlockGeometry: the pass overrides the frame's DynamicTransforms again (arena + camera coupling)")
 }
-if ($geometryCode -notmatch 'gl_Position = ProjMat \* vec4\(Position, 1\.0\)' -and $blockVertexShader -notmatch 'gl_Position = ProjMat \* vec4\(Position, 1\.0\)') {
+if ($geometryCode -notmatch 'gl_Position = ProjMat \* vec4\(' -and $blockVertexCode -notmatch 'gl_Position = ProjMat \* vec4\((nudged|Position), 1\.0\);') {
 	$problems.Add("world/mask_block_geometry.vsh: the vertex stage does not use the pass's own Projection uniform")
 }
 if ($geometryCode -notmatch 'private static GpuBufferSlice writeTransform\(final CommandEncoder encoder\)') {
@@ -255,6 +255,27 @@ if ($geometryCode -notmatch 'private static GpuBufferSlice writeTransform\(final
 }
 if ($geometryCode -notmatch 'renderPass\.setUniform\("Projection", transform\)') {
 	$problems.Add("VFXMaskBlockGeometry: the pass does not bind its own transform as Projection")
+}
+
+# 23) The mask must win at its own surface. The masked blocks' surfaces sit exactly at the scene
+#     depth, so the fragment compare is decided by float noise unless the geometry is nudged toward
+#     the camera in world space; a fixed window-space bias is a huge world distance at range. Both
+#     halves are pinned (nudge + quantisation-sized tolerance), and the x-ray path must still skip
+#     the test entirely.
+if ($blockVertexCode -notmatch 'VFX_MASK_DEPTH_NUDGE 0\.02') {
+	$problems.Add("world/mask_block_geometry.vsh: the world-space depth nudge is gone (the mask loses to its own blocks)")
+}
+if ($blockVertexCode -notmatch 'nudged -= Position \* \(VFX_MASK_DEPTH_NUDGE / viewerDistance\)') {
+	$problems.Add("world/mask_block_geometry.vsh: the vertex is not pulled toward the camera")
+}
+if ($blockShader -match '1\.0e-4') {
+	$problems.Add("mask_block_geometry.fsh: the fixed 1.0e-4 depth bias is back")
+}
+if ($blockShader -notmatch '#define VFX_MASK_DEPTH_EPS 1\.0e-6') {
+	$problems.Add("mask_block_geometry.fsh: the depth tolerance is not the quantisation-sized VFX_MASK_DEPTH_EPS")
+}
+if ($blockShader -notmatch 'if \(vertexColor\.a > 0\.5\) \{') {
+	$problems.Add("mask_block_geometry.fsh: the x-ray path (occlude false) no longer bypasses the depth test")
 }
 
 # 20) Draw order: the geometry must be rasterised before the coverage prepass samples the scratch, or
