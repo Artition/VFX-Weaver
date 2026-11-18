@@ -270,8 +270,26 @@ if ($geometryPass -lt 0 -or $coveragePass -lt 0 -or $geometryPass -gt $coverageP
 #     pass runs from the mixin, outside the event callback). One state provides the matrices AND the
 #     position, and a missing state warns instead of silently drifting.
 $fieldEnvCode = (($fieldEnv -split "\r?\n") | Where-Object { $_ -notmatch '^\s*(\*|//)' }) -join "`n"
-if ($fieldEnvCode -notmatch 'gameRenderState\(\)\.levelRenderState\.cameraRenderState') {
-	$problems.Add("VFXFieldEnv: the frame camera state is not read directly from the game render state")
+# The direct read, per node: 26.1.2 calls GameRenderer#getGameRenderState(), 26.2 calls
+# GameRenderer#gameRenderState(). Both spellings are pinned, and the *active* getter must be live code
+# in this checkout (the other branch is a stonecutter comment), so deleting the call cannot pass on a
+# commented line.
+$getterPattern = 'renderer\.(get)?GameRenderState\(\)'
+$getterActive = @(($fieldEnv -split "\r?\n") | Where-Object { $_ -match $getterPattern -and $_ -notmatch '^\s*(/\*|\*|//)' })
+if ($getterActive.Count -eq 0) {
+	$problems.Add("VFXFieldEnv: the active camera render state read is gone (only a commented line matches)")
+}
+if ($fieldEnv -notmatch 'renderer\.getGameRenderState\(\)') {
+	$problems.Add("VFXFieldEnv: the 26.1.2 branch does not call GameRenderer#getGameRenderState()")
+}
+if ($fieldEnv -notmatch 'renderer\.gameRenderState\(\)') {
+	$problems.Add("VFXFieldEnv: the 26.2 branch does not call GameRenderer#gameRenderState()")
+}
+if ($fieldEnv -notmatch 'game\.levelRenderState\.cameraRenderState') {
+	$problems.Add("VFXFieldEnv: the camera state is not taken from levelRenderState.cameraRenderState")
+}
+if ($fieldEnvCode -notmatch 'if \(game == null \|\| game\.levelRenderState == null\)') {
+	$problems.Add("VFXFieldEnv.frameCameraState: the render state chain is dereferenced without a null guard")
 }
 if ($fieldEnvCode -notmatch 'private static boolean adopt\(') {
 	$problems.Add("VFXFieldEnv: no single-source adopt() for the state's matrices + position")
@@ -290,6 +308,9 @@ if ($gameRendererMixin -notmatch 'VFXFrameFov\.set\(fov\)') {
 }
 if ($fieldEnvCode -notmatch 'VFXLog\.warnOnce\(LOGGER, "fieldenv:camera-state"') {
 	$problems.Add("VFXFieldEnv: a missing camera state falls back silently (no one-time warning)")
+}
+if ($fieldEnv -notmatch '(?s)//\? if >=26\.1 \{\s*(?://[^\n]*\r?\n\s*)*if \(Minecraft\.getInstance\(\)\.level != null\) \{\s*VFXLog\.warnOnce\(LOGGER, "fieldenv:camera-state"') {
+	$problems.Add("VFXFieldEnv: the missing-state warning is not scoped to >=26.1 (1.21.11 would warn every session)")
 }
 if ($fieldEnv -notmatch 'getViewRotationProjectionMatrix\(') {
 	$problems.Add("VFXFieldEnv: the live-camera fallback is gone (no matrices outside a published render event)")

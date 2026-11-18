@@ -10,6 +10,13 @@ package dev.vfxweaver.client.postprocessing;
  * matrix, so the projection has to be rebuilt from the FOV. On {@code 26.x} the frame's own
  * {@code projectionMatrix} is used instead and this holder stays at its {@code <= 0} "not captured"
  * value.
+ *
+ * <p><b>It can be one frame old.</b> {@code getFov} is not guaranteed to have run before the layer-0
+ * pass that rebuilds the projection (vanilla calls it while setting up the world projection, and the
+ * order is not part of the contract), so for one frame after the FOV starts or stops moving the
+ * rebuilt projection is the previous frame's. That is a whole-frame lag at worst, not the steady
+ * offset the unmodulated {@code options.fov()} produced, and preferring the captured value is what
+ * the old {@code vfxweaver$lastFov} field already did for the world bindings.
  */
 public final class VFXFrameFov {
 	/** {@code <= 0} until the 1.21.11 {@code getFov} hook has seen a gameplay frame. */

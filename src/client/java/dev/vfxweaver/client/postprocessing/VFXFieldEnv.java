@@ -74,14 +74,23 @@ public final class VFXFieldEnv {
 	 * The frame's camera render state, read directly from the game render state. Not the event-scoped
 	 * hook: the post pass runs from the mixin, outside any render-event callback.
 	 *
-	 * @return the state, or {@code null} before the first extraction of the frame
+	 * @return the state, or {@code null} before the first extraction of the frame (or when the render
+	 *         state chain is not there yet), so the caller falls back instead of throwing
 	 */
 	private static net.minecraft.client.renderer.state.level.CameraRenderState frameCameraState() {
+		final net.minecraft.client.renderer.GameRenderer renderer = Minecraft.getInstance().gameRenderer;
+		if (renderer == null) {
+			return null;
+		}
 		//? if <26.2 {
-		return Minecraft.getInstance().gameRenderer.getGameRenderState().levelRenderState.cameraRenderState;
+		final net.minecraft.client.renderer.state.GameRenderState game = renderer.getGameRenderState();
 		//?} else {
-		/*return Minecraft.getInstance().gameRenderer.gameRenderState().levelRenderState.cameraRenderState;
+		/*final net.minecraft.client.renderer.state.GameRenderState game = renderer.gameRenderState();
 		*///?}
+		if (game == null || game.levelRenderState == null) {
+			return null;
+		}
+		return game.levelRenderState.cameraRenderState;
 	}
 
 	/**
@@ -114,12 +123,15 @@ public final class VFXFieldEnv {
 	private static void liveCameraView() {
 		final Camera camera = liveCamera();
 		CAMERA.set(camera.position().x, camera.position().y, camera.position().z);
+		//? if >=26.1 {
+		// On 26.x the frame state always exists in a loaded world, so reaching this path means the
+		// direct read came back empty - a bug, not a normal state. On 1.21.11 the live camera *is* the
+		// normal path (that state carries no matrices), so no warning is compiled in there.
 		if (Minecraft.getInstance().level != null) {
-			// A masked pass in a loaded world should always have the frame's state; reaching here means
-			// the direct read came back empty, which would otherwise be a silent drift.
 			VFXLog.warnOnce(LOGGER, "fieldenv:camera-state",
 				"vfxweaver: no frame camera render state; rebuilding the camera projection from the live camera (the mask may drift while the FOV changes)");
 		}
+		//?}
 		//? if <26.1 {
 		/*// 1.21.11: the state has no matrices, so the projection comes from the FOV the frame was
 		// rendered with - the getFov hook's captured value, modulation and fov_modifier included.
