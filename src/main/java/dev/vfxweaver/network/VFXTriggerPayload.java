@@ -30,7 +30,7 @@ import org.slf4j.LoggerFactory;
  * instance renders at (empty for the single-point behaviour), for the {@link VFXAction#SET_EXPR}
  * action only the parameter name and expression source to install at runtime, and the optional
  * text override that replaces a {@code text_overlay} definition's {@code text.content} for this
- * call.
+ * call, and the optional mask JSON that replaces an effect's authored mask at runtime.
  */
 public record VFXTriggerPayload(
 	byte protocolVersion,
@@ -46,15 +46,17 @@ public record VFXTriggerPayload(
 	String easing,
 	@Nullable String exprParam,
 	@Nullable String exprSource,
-	@Nullable String textOverride
+	@Nullable String textOverride,
+	@Nullable String maskJson
 ) implements CustomPacketPayload {
 	private static final Logger LOGGER = LoggerFactory.getLogger("vfxweaver/payload");
 	/**
-	 * Bumped 7 -> 8 for {@code positions}: an old reader would misparse the extra list. An old
-	 * client drops the whole packet on a version mismatch (see {@code VFXClient}), so it renders
-	 * nothing at all until it updates rather than falling back to the single point.
+	 * Bumped 8 -> 9 for {@code maskJson}: an old reader would not consume the trailing string and
+	 * would fail to decode. An old client drops the whole packet on a version mismatch (see
+	 * {@code VFXClient}), which is exactly the desired behaviour for a mask override it cannot
+	 * apply.
 	 */
-	public static final byte PROTOCOL_VERSION = 8;
+	public static final byte PROTOCOL_VERSION = 9;
 	/**
 	 * Safety cap on the number of parameters a play packet may carry (server input, see AGENTS.md).
 	 * Raised from 32 to 256 for per-leaf mask dynamic data: a mask may hold eight leaves and two
@@ -72,6 +74,14 @@ public record VFXTriggerPayload(
 	 * and logged once; the renderer's own 256-glyph cap still applies afterwards.
 	 */
 	public static final int MAX_TEXT_OVERRIDE = 512;
+	/**
+	 * Wire cap on a call-time mask JSON, in characters. This is a <b>packet-size bound</b> (see
+	 * AGENTS.md): a mask JSON may carry a {@code block_list}'s {@code positions} array, which has no
+	 * cap of its own because it sizes a cached model list rather than a packet. An over-long value
+	 * is dropped on both ends with one warning instead of being cut, because a truncated JSON would
+	 * not parse and a silently corrupt mask is worse than none.
+	 */
+	public static final int MAX_MASK_JSON = 65536;
 	/**
 	 * Cap on the number of world positions one play packet may carry, mirroring
 	 * {@code VFXDefinition.MAX_POSITIONS}. This is a <b>packet-size bound</b> (8192 positions would
@@ -188,10 +198,33 @@ public record VFXTriggerPayload(
 	};
 
 	/**
-	 * The three optional trailing strings, composed on their own: {@link StreamCodec#composite} has
-	 * no overload past twelve codec pairs, and the payload has thirteen fields.
+	 * The four optional trailing strings, composed on their own: {@link StreamCodec#composite} has
+	 * no overload past twelve codec pairs, and the payload has fourteen fields.
 	 */
-	private record TrailingStrings(@Nullable String exprParam, @Nullable String exprSource, @Nullable String textOverride) {
+	private record TrailingStrings(@Nullable String exprParam, @Nullable String exprSource, @Nullable String textOverride, @Nullable String maskJson) {
+	}
+
+	/**
+	 * {@link #OPTIONAL_STRING} for the mask JSON: a value longer than {@link #MAX_MASK_JSON} is
+	 * dropped (not cut) on both ends with one warning, so one oversized mask can neither break the
+	 * send nor the stream alignment.
+	 */
+	public static final StreamCodec<ByteBuf, String> OPTIONAL_MASK_JSON = new StreamCodec<>() {
+		public String decode(final ByteBuf input) {
+			return clipMaskJson(OPTIONAL_STRING.decode(input));
+		}
+
+		public void encode(final ByteBuf output, final String value) {
+			OPTIONAL_STRING.encode(output, clipMaskJson(value));
+		}
+	};
+
+	private static @Nullable String clipMaskJson(final @Nullable String value) {
+		if (value == null || value.length() <= MAX_MASK_JSON) {
+			return value;
+		}
+		VFXLog.warnOnce(LOGGER, "net:mask-json-drop", "Mask JSON is {} characters long; dropped (MAX_MASK_JSON = {})", value.length(), MAX_MASK_JSON);
+		return null;
 	}
 
 	private static final StreamCodec<ByteBuf, TrailingStrings> TRAILING_STRINGS_CODEC = StreamCodec.composite(
@@ -201,6 +234,8 @@ public record VFXTriggerPayload(
 		TrailingStrings::exprSource,
 		OPTIONAL_TEXT_OVERRIDE,
 		TrailingStrings::textOverride,
+		OPTIONAL_MASK_JSON,
+		TrailingStrings::maskJson,
 		TrailingStrings::new
 	);
 
@@ -231,13 +266,13 @@ public record VFXTriggerPayload(
 		VFXTriggerPayload::trailingStrings,
 		(protocolVersion, effectId, action, durationTicks, elapsedTicks, instanceId, position, entityUuids, positions, params, easing, trailingStrings) -> new VFXTriggerPayload(
 			protocolVersion, effectId, action, durationTicks, elapsedTicks, instanceId, position, entityUuids, positions, params, easing,
-			trailingStrings.exprParam(), trailingStrings.exprSource(), trailingStrings.textOverride()
+			trailingStrings.exprParam(), trailingStrings.exprSource(), trailingStrings.textOverride(), trailingStrings.maskJson()
 		)
 	);
 
 	/** Groups the optional trailing strings for {@link #TRAILING_STRINGS_CODEC}. */
 	private TrailingStrings trailingStrings() {
-		return new TrailingStrings(this.exprParam, this.exprSource, this.textOverride);
+		return new TrailingStrings(this.exprParam, this.exprSource, this.textOverride, this.maskJson);
 	}
 
 	/**
@@ -338,7 +373,7 @@ public record VFXTriggerPayload(
 	 * @param positions world positions one instance renders at (empty = single-point behaviour)
 	 */
 	public static VFXTriggerPayload play(final Identifier effectId, final int durationTicks, final int elapsedTicks, final long instanceId, final @Nullable Vec3 position, final List<UUID> entityUuids, final List<Vec3> positions, final Map<String, Float> params, final String easing, final @Nullable String textOverride) {
-		return new VFXTriggerPayload(PROTOCOL_VERSION, effectId, VFXAction.PLAY, durationTicks, Math.max(0, elapsedTicks), instanceId, position, entityUuids, positions, params, easing, null, null, textOverride);
+		return new VFXTriggerPayload(PROTOCOL_VERSION, effectId, VFXAction.PLAY, durationTicks, Math.max(0, elapsedTicks), instanceId, position, entityUuids, positions, params, easing, null, null, textOverride, null);
 	}
 
 	/**
@@ -355,7 +390,7 @@ public record VFXTriggerPayload(
 	 * @param instanceId instance id (0 = stop every instance of the effect)
 	 */
 	public static VFXTriggerPayload stop(final Identifier effectId, final long instanceId) {
-		return new VFXTriggerPayload(PROTOCOL_VERSION, effectId, VFXAction.STOP, 0, 0, instanceId, null, List.of(), List.of(), Map.of(), EasingType.LINEAR.name(), null, null, null);
+		return new VFXTriggerPayload(PROTOCOL_VERSION, effectId, VFXAction.STOP, 0, 0, instanceId, null, List.of(), List.of(), Map.of(), EasingType.LINEAR.name(), null, null, null, null);
 	}
 
 	/**
@@ -363,7 +398,7 @@ public record VFXTriggerPayload(
 	 * a single {@code name -> value} entry).
 	 */
 	public static VFXTriggerPayload setParam(final Identifier effectId, final String param, final float value) {
-		return new VFXTriggerPayload(PROTOCOL_VERSION, effectId, VFXAction.SET_PARAM, 0, 0, 0L, null, List.of(), List.of(), Map.of(param, value), EasingType.LINEAR.name(), null, null, null);
+		return new VFXTriggerPayload(PROTOCOL_VERSION, effectId, VFXAction.SET_PARAM, 0, 0, 0L, null, List.of(), List.of(), Map.of(param, value), EasingType.LINEAR.name(), null, null, null, null);
 	}
 
 	/**
@@ -371,14 +406,14 @@ public record VFXTriggerPayload(
 	 * {@code durationTicks}, the value in {@code params} and the outgoing easing in {@code easing}.
 	 */
 	public static VFXTriggerPayload keyframe(final Identifier effectId, final String param, final int time, final float value, final EasingType easing) {
-		return new VFXTriggerPayload(PROTOCOL_VERSION, effectId, VFXAction.KEYFRAME, time, 0, 0L, null, List.of(), List.of(), Map.of(param, value), easing.name(), null, null, null);
+		return new VFXTriggerPayload(PROTOCOL_VERSION, effectId, VFXAction.KEYFRAME, time, 0, 0L, null, List.of(), List.of(), Map.of(param, value), easing.name(), null, null, null, null);
 	}
 
 	/**
 	 * Creates a live keyframe payload with a custom curve name.
 	 */
 	public static VFXTriggerPayload keyframe(final Identifier effectId, final String param, final int time, final float value, final String easing) {
-		return new VFXTriggerPayload(PROTOCOL_VERSION, effectId, VFXAction.KEYFRAME, time, 0, 0L, null, List.of(), List.of(), Map.of(param, value), easing, null, null, null);
+		return new VFXTriggerPayload(PROTOCOL_VERSION, effectId, VFXAction.KEYFRAME, time, 0, 0L, null, List.of(), List.of(), Map.of(param, value), easing, null, null, null, null);
 	}
 
 	/**
@@ -386,7 +421,7 @@ public record VFXTriggerPayload(
 	 * parameter's whole value source (keyframes, binding or previous expression) at runtime.
 	 */
 	public static VFXTriggerPayload setExpr(final Identifier effectId, final String param, final String exprSource) {
-		return new VFXTriggerPayload(PROTOCOL_VERSION, effectId, VFXAction.SET_EXPR, 0, 0, 0L, null, List.of(), List.of(), Map.of(), EasingType.LINEAR.name(), param, exprSource, null);
+		return new VFXTriggerPayload(PROTOCOL_VERSION, effectId, VFXAction.SET_EXPR, 0, 0, 0L, null, List.of(), List.of(), Map.of(), EasingType.LINEAR.name(), param, exprSource, null, null);
 	}
 
 	/**
@@ -397,7 +432,19 @@ public record VFXTriggerPayload(
 	 * @param worldPos   the new world position
 	 */
 	public static VFXTriggerPayload move(final Identifier effectId, final long instanceId, final Vec3 worldPos) {
-		return new VFXTriggerPayload(PROTOCOL_VERSION, effectId, VFXAction.MOVE, 0, 0, instanceId, worldPos, List.of(), List.of(), Map.of(), EasingType.LINEAR.name(), null, null, null);
+		return new VFXTriggerPayload(PROTOCOL_VERSION, effectId, VFXAction.MOVE, 0, 0, instanceId, worldPos, List.of(), List.of(), Map.of(), EasingType.LINEAR.name(), null, null, null, null);
+	}
+
+	/**
+	 * Creates a mask payload that replaces the effect's authored mask for every running and future
+	 * instance of that effect id, or removes the override and restores the authored mask.
+	 *
+	 * @param effectId the effect whose mask is overridden (all its instances, per player)
+	 * @param maskJson the mask JSON object (the same shape as a datapack {@code mask} block); null
+	 *                 or blank removes the override
+	 */
+	public static VFXTriggerPayload setMask(final Identifier effectId, final @Nullable String maskJson) {
+		return new VFXTriggerPayload(PROTOCOL_VERSION, effectId, VFXAction.SET_MASK, 0, 0, 0L, null, List.of(), List.of(), Map.of(), EasingType.LINEAR.name(), null, null, null, maskJson);
 	}
 
 	@Override

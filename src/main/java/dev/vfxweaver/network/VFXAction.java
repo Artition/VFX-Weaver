@@ -5,7 +5,8 @@ import java.util.Locale;
 /**
  * Action carried by a {@link VFXTriggerPayload}: start playing an effect, stop all running
  * instances of it, live-adjust a parameter/keyframe of a running instance, replace a parameter's
- * math expression, or move a running instance to a new world position.
+ * math expression, move a running instance to a new world position, or replace/remove the mask of
+ * every running (and future) instance of an effect.
  */
 public enum VFXAction {
 	PLAY(0),
@@ -13,7 +14,8 @@ public enum VFXAction {
 	SET_PARAM(2),
 	KEYFRAME(3),
 	SET_EXPR(4),
-	MOVE(5);
+	MOVE(5),
+	SET_MASK(6);
 
 	private final byte id;
 

@@ -120,6 +120,12 @@ public final class VFXPostProcessingManager {
 	private final Map<Identifier, TextureTarget> coverageTargets = new HashMap<>();
 	/** One geometry-coverage scratch per distinct block mask, cleared each frame before the prepass. */
 	private final Map<Identifier, TextureTarget> geometryTargets = new HashMap<>();
+	/**
+	 * The mask identity each coverage target was built for (identity comparison). A changed mask -
+	 * a runtime override applied, replaced or removed - rebuilds that effect's coverage and block
+	 * geometry targets, so no stale coverage from the previous mask survives.
+	 */
+	private final Map<Identifier, VFXMask> maskIdentities = new HashMap<>();
 	/** The pre-effect image one masked effect's consumer blends against; sequential use, one buffer. */
 	private @Nullable TextureTarget maskBefore;
 	//? if >=26.1
@@ -166,6 +172,7 @@ public final class VFXPostProcessingManager {
 			target.destroyBuffers();
 		}
 		this.geometryTargets.clear();
+		this.maskIdentities.clear();
 		if (this.maskBefore != null) {
 			this.maskBefore.destroyBuffers();
 			this.maskBefore = null;
@@ -1146,6 +1153,7 @@ public final class VFXPostProcessingManager {
 			}
 			return true;
 		});
+		this.maskIdentities.keySet().removeIf(id -> !maskEffects.containsKey(id));
 		if (maskEffects.isEmpty()) {
 			return;
 		}
@@ -1156,8 +1164,15 @@ public final class VFXPostProcessingManager {
 			this.maskBefore = createTarget("vfxweaver mask before", width, height, false);
 		}
 		for (final Map.Entry<Identifier, VFXActiveEffect> entry : maskEffects.entrySet()) {
+			// A runtime override (SET_MASK) swaps the mask object under a stable definition id, so
+			// compare identities: a changed mask identity/contents must not reuse the previous
+			// coverage (it would be sampled for a frame) or a block-geometry scratch sized/styled
+			// for a different mask.
+			final VFXMask mask = entry.getValue().getMask();
+			final boolean maskChanged = this.maskIdentities.get(entry.getKey()) != mask;
+			this.maskIdentities.put(entry.getKey(), mask);
 			final TextureTarget existing = this.coverageTargets.get(entry.getKey());
-			if (existing == null || existing.width != width || existing.height != height) {
+			if (existing == null || existing.width != width || existing.height != height || maskChanged) {
 				if (existing != null) {
 					existing.destroyBuffers();
 				}
@@ -1168,7 +1183,12 @@ public final class VFXPostProcessingManager {
 				clearTarget(created);
 				this.coverageTargets.put(entry.getKey(), created);
 			}
-			final VFXMask mask = entry.getValue().getMask();
+			if (maskChanged) {
+				final TextureTarget staleGeometry = this.geometryTargets.remove(entry.getKey());
+				if (staleGeometry != null) {
+					staleGeometry.destroyBuffers();
+				}
+			}
 			if (mask != null && mask.hasBlockLeaf()) {
 				final TextureTarget geometry = this.geometryTargets.get(entry.getKey());
 				if (geometry == null || geometry.width != width || geometry.height != height) {

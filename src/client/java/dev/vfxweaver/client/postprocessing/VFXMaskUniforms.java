@@ -58,6 +58,12 @@ public final class VFXMaskUniforms {
 	 * literal/graph value. A binding that cannot be resolved yields the literal default here, but
 	 * {@link #primitiveResolved} drops the owning leaf before any packed value is used.
 	 *
+	 * <p>A runtime mask override (network {@code SET_MASK}) brings its own slot values under the
+	 * definition's reserved names ({@code mask.p<N>.*}), so the definition's animated params would
+	 * otherwise leak into it. The override's own value wins, except for a slot a live edit actually
+	 * wrote ({@code setParam}/{@code sendMaskMove}/{@code sendMaskData}), which is read from the
+	 * timeline exactly as for an authored mask.
+	 *
 	 * <p>Package-private so the block-geometry pass resolves a block leaf's slots with the same
 	 * precedence.
 	 */
@@ -65,6 +71,11 @@ public final class VFXMaskUniforms {
 		final VFXMask.MaskSlot slot = mask.slots().get(slotName);
 		if (slot != null && slot.binding() != null) {
 			return VFXWorldBindings.evaluate(slot.binding(), fallback);
+		}
+		if (effect.isMaskOverridden() && slot != null) {
+			if (!effect.getTimeline().getOverrideNames().contains(slotName)) {
+				return slot.defaultValue();
+			}
 		}
 		return effect.getParam(slotName, fallback);
 	}

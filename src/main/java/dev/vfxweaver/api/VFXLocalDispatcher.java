@@ -217,6 +217,24 @@ public interface VFXLocalDispatcher {
 	}
 
 	/**
+	 * Creates, replaces or removes a runtime mask for every running instance of the effect and
+	 * remembers it for future plays - the local (no packet) counterpart of
+	 * {@link VFXAPI#sendMask}. The JSON is the same shape as a datapack {@code mask} block;
+	 * {@code null} or blank removes the override and restores the authored mask.
+	 *
+	 * <p>The default returns {@code false} (a no-op), so a dispatcher compiled before this method
+	 * existed keeps linking.</p>
+	 *
+	 * @param effectId the effect id all of whose instances get the override
+	 * @param maskJson the mask JSON object, or {@code null}/blank to remove the override
+	 * @return {@code true} when the mask was applied or removed, {@code false} when the JSON was
+	 *         rejected
+	 */
+	default boolean setMask(final Identifier effectId, final @Nullable String maskJson) {
+		return false;
+	}
+
+	/**
 	 * Stops all running effects.
 	 */
 	void stopAllEffects();

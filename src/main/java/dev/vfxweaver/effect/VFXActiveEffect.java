@@ -62,6 +62,15 @@ public class VFXActiveEffect {
 	 * renderer, so one instance can tint many blocks.
 	 */
 	private @Nullable List<Vec3> runtimePositions;
+	/**
+	 * Runtime mask override (network {@code SET_MASK} / {@code VFXAPI.sendMask}), or {@code null}
+	 * when the definition's authored mask applies. {@link #maskOverridden} is the "an override is
+	 * currently applied" state: it is true exactly while {@code runtimeMask} is non-null, and
+	 * clearing the override drops both, so the authored mask applies again.
+	 */
+	private @Nullable VFXMask runtimeMask;
+	/** True while {@link #runtimeMask} is applied instead of the definition's authored mask. */
+	private boolean maskOverridden;
 
 	/**
 	 * Creates a new effect instance starting at the given time.
@@ -307,10 +316,38 @@ public class VFXActiveEffect {
 
 	/**
 	 * The definition's optional mask, or {@code null}. {@code null} means the effect must not
-	 * receive a mask pass at all (additive contract).
+	 * receive a mask pass at all (additive contract). A runtime override (network {@code SET_MASK})
+	 * wins over the authored mask; when the override is removed the authored mask applies again.
 	 */
 	public @Nullable VFXMask getMask() {
-		return this.timeline.getMask();
+		return this.maskOverridden ? this.runtimeMask : this.timeline.getMask();
+	}
+
+	/**
+	 * Replaces this instance's mask with a runtime override (or, with {@code null}, removes the
+	 * override so the authored mask applies again). Applies to every instance of the effect id: the
+	 * client keeps one override per effect id and pushes it onto running and future instances.
+	 *
+	 * @param mask the parsed runtime mask, or {@code null} to restore the authored mask
+	 */
+	public void setMaskOverride(final @Nullable VFXMask mask) {
+		this.runtimeMask = mask;
+		this.maskOverridden = mask != null;
+	}
+
+	/** Removes a runtime mask override, restoring the definition's authored mask. */
+	public void clearMaskOverride() {
+		this.runtimeMask = null;
+		this.maskOverridden = false;
+	}
+
+	/**
+	 * True while this instance renders a runtime mask override rather than its definition's
+	 * authored mask. The mask uniform writer reads the override's own slot values in that case,
+	 * because the authored mask's animated params carry the same reserved names.
+	 */
+	public boolean isMaskOverridden() {
+		return this.maskOverridden;
 	}
 
 	/**

@@ -1,5 +1,7 @@
 package dev.vfxweaver.client.effect;
 
+import com.google.gson.JsonElement;
+import com.google.gson.JsonParser;
 import dev.vfxweaver.client.audio.VFXVoiceManager;
 import dev.vfxweaver.effect.AnimatedValue;
 import dev.vfxweaver.effect.EasingFunction;
@@ -10,6 +12,8 @@ import dev.vfxweaver.effect.VFXEffectType;
 import dev.vfxweaver.effect.VFXReplayClock;
 import dev.vfxweaver.effect.VFXTextSpec;
 import dev.vfxweaver.effect.VFXTimeline;
+import dev.vfxweaver.mask.VFXMask;
+import dev.vfxweaver.mask.VFXMaskParser;
 import dev.vfxweaver.resource.VFXDefinitionManager;
 import dev.vfxweaver.util.VFXFogModifier;
 import dev.vfxweaver.util.VFXLog;
@@ -60,6 +64,13 @@ public class VFXEffectManager {
 	 */
 	private Map<UUID, List<VFXActiveEffect>> entityEffectsIndex = Map.of();
 	private final AtomicLong instanceCounter = new AtomicLong();
+	/**
+	 * Runtime mask override per effect id (network {@code SET_MASK} / {@code VFXAPI.sendMask}).
+	 * Masks are authored per definition and their targets are shared per definition, so the
+	 * override is per effect id: it applies to every running instance and is remembered for future
+	 * plays. A blank / null JSON removes the entry and restores the authored mask.
+	 */
+	private final Map<Identifier, VFXMask> runtimeMasks = new HashMap<>();
 	private float clock;
 
 	private VFXEffectManager() {
@@ -501,6 +512,13 @@ public class VFXEffectManager {
 			this.active.remove(0);
 		}
 		this.active.add(effect);
+		// A runtime mask override is per effect id: a play that arrives after SET_MASK (or after
+		// an invalid-JSON rejection) inherits whatever override is currently registered, so the
+		// override survives an effect restart and applies to future plays too.
+		final VFXMask runtimeMask = this.runtimeMasks.get(effectId);
+		if (runtimeMask != null) {
+			effect.setMaskOverride(runtimeMask);
+		}
 		if (elapsedTicks > 0) {
 			// Resume: fast-forward the fresh instance so reconnects continue mid-animation
 			// instead of restarting from the first keyframe.
@@ -634,6 +652,51 @@ public class VFXEffectManager {
 			// schedule like any normal play (a -1 here used to create an immortal instance
 			// whose animation was stretched over Integer.MAX_VALUE ticks — frozen on frame one).
 			this.play(effectId, definition.getDefaultDuration(), Map.of(name, value), null);
+		}
+		return true;
+	}
+
+	/**
+	 * Creates, replaces or removes a runtime mask for every running instance of the effect and
+	 * remembers it for future plays (network {@code SET_MASK} / {@code VFXAPI.sendMask}).
+	 *
+	 * <p>The JSON is parsed through {@link VFXMaskParser}, exactly like a datapack {@code mask}
+	 * block. Invalid JSON is rejected with one warning and the current mask is left untouched. A
+	 * {@code null} or blank JSON removes the override and restores the definition's authored mask.
+	 *
+	 * @param effectId the effect id all of whose instances get the override
+	 * @param maskJson the mask JSON object, or {@code null}/blank to remove the override
+	 * @return {@code true} when the mask was applied (or removed), {@code false} when the JSON was
+	 *         rejected
+	 */
+	public boolean setMask(final Identifier effectId, final @Nullable String maskJson) {
+		if (maskJson == null || maskJson.isBlank()) {
+			final boolean had = this.runtimeMasks.remove(effectId) != null;
+			boolean applied = had;
+			for (VFXActiveEffect effect : this.active) {
+				if (effect.getId().equals(effectId)) {
+					effect.clearMaskOverride();
+					applied = true;
+				}
+			}
+			return applied;
+		}
+		final VFXMask mask;
+		try {
+			final JsonElement parsed = JsonParser.parseString(maskJson);
+			if (!parsed.isJsonObject()) {
+				throw new IllegalArgumentException("mask JSON must be an object");
+			}
+			mask = VFXMaskParser.parse(effectId.toString(), parsed.getAsJsonObject());
+		} catch (final RuntimeException e) {
+			VFXLog.warnOnce(LOGGER, "mask-invalid:" + effectId, "Ignoring invalid mask JSON for '{}': {}", effectId, e.getMessage());
+			return false;
+		}
+		this.runtimeMasks.put(effectId, mask);
+		for (VFXActiveEffect effect : this.active) {
+			if (effect.getId().equals(effectId)) {
+				effect.setMaskOverride(mask);
+			}
 		}
 		return true;
 	}

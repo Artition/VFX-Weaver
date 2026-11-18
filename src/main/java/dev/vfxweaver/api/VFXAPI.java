@@ -11,6 +11,7 @@ import dev.vfxweaver.effect.VFXSparkSpec;
 import dev.vfxweaver.mask.VFXCustomShape;
 import dev.vfxweaver.mask.VFXMaskShapeGlsl;
 import dev.vfxweaver.mask.VFXMaskSlots;
+import dev.vfxweaver.mask.VFXMaskSpec;
 import dev.vfxweaver.mask.VFXShapeRegistry;
 import dev.vfxweaver.network.VFXTriggerPayload;
 import dev.vfxweaver.platform.VFXNetwork;
@@ -950,6 +951,64 @@ public final class VFXAPI {
 		for (int j = 0; j < count; j++) {
 			sendSetParam(player, effectId, VFXMaskSlots.data(primitive, j), values[j]);
 		}
+	}
+
+	/**
+	 * Creates, replaces or removes the mask of an effect on the player's client at runtime,
+	 * overriding the mask the definition (datapack) authored.
+	 *
+	 * <p>The override is <b>per effect id</b>: masks are authored per definition and their targets
+	 * are shared per definition, so every running instance of that effect id on that player renders
+	 * the new mask, and the client remembers it for future plays of the same id. The JSON is the
+	 * same object a datapack file authors under {@code "mask"} (parsed through
+	 * {@code VFXMaskParser}, so it can express every family, composition, {@code invert}, fill and
+	 * numeric leaf field the format supports - build one with {@link VFXMaskSpec}). Invalid JSON is
+	 * rejected on the client with one warning and the current mask is left untouched; a
+	 * {@code null} or blank JSON removes the override and restores the authored mask.
+	 *
+	 * <p>This reuses no other live-edit action: it travels as {@code SET_MASK} in
+	 * {@code VFXTriggerPayload}, with the JSON in the optional trailing {@code maskJson} field.
+	 *
+	 * @param player   the receiving player
+	 * @param effectId effect id whose mask is overridden
+	 * @param maskJson the mask object as JSON text, or {@code null}/blank to remove the override
+	 */
+	public static void sendMask(final ServerPlayer player, final Identifier effectId, final @Nullable String maskJson) {
+		VFXNetwork.sendToPlayer(player, VFXTriggerPayload.setMask(effectId, maskJson));
+	}
+
+	/**
+	 * Same as {@link #sendMask(ServerPlayer, Identifier, String)}, taking a {@link VFXMaskSpec}
+	 * builder instead of raw JSON.
+	 *
+	 * @param spec the mask to build and send (never {@code null})
+	 */
+	public static void sendMask(final ServerPlayer player, final Identifier effectId, final VFXMaskSpec spec) {
+		sendMask(player, effectId, spec.buildJson().toString());
+	}
+
+	/**
+	 * Creates, replaces or removes an effect's runtime mask on this client (no packet) - the local
+	 * counterpart of {@link #sendMask(ServerPlayer, Identifier, String)}. Same per-effect-id scope,
+	 * same JSON contract, same validation: the override applies to every running instance of the id
+	 * and is remembered for future plays, and a {@code null}/blank JSON restores the authored mask.
+	 *
+	 * @param effectId effect id whose mask is overridden
+	 * @param maskJson the mask object as JSON text, or {@code null}/blank to remove the override
+	 * @return {@code true} when the mask was applied or removed (or queued for the render thread);
+	 *         {@code false} without a client or when the JSON was rejected
+	 */
+	public static boolean mask(final Identifier effectId, final @Nullable String maskJson) {
+		return localDispatcher != null && localDispatcher.setMask(effectId, maskJson);
+	}
+
+	/**
+	 * Same as {@link #mask(Identifier, String)}, taking a {@link VFXMaskSpec} builder.
+	 *
+	 * @param spec the mask to build and apply (never {@code null})
+	 */
+	public static boolean mask(final Identifier effectId, final VFXMaskSpec spec) {
+		return mask(effectId, spec.buildJson().toString());
 	}
 
 	/**

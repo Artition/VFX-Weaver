@@ -88,6 +88,11 @@ public class VFXClientAPI implements VFXLocalDispatcher {
 	}
 
 	@Override
+	public boolean setMask(final Identifier effectId, final @Nullable String maskJson) {
+		return applyLive(() -> VFXEffectManager.get().setMask(effectId, maskJson));
+	}
+
+	@Override
 	public boolean setKeyframe(final Identifier effectId, final String name, final int time, final float value, final @Nullable EasingType easing) {
 		// A null easing means linear for a keyframe (there is no "definition default" per segment).
 		EasingFunction easingFunction = easing == null ? EasingFunction.builtIn(EasingType.LINEAR) : EasingFunction.builtIn(easing);
