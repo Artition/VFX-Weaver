@@ -310,11 +310,15 @@ Covered leaf families and fields: `circle(radius)`, `ellipse(radiusX, radiusY)`,
 `softness(w)`, `fill(VFXMaskFill)`, `strokeWidth(w)`, `invert()`, and the composition
 `union`/`intersection`/`difference`. Builder-side validation matches the parser, so `buildJson()` never emits JSON the client would
 drop: `hollow` only on a `block_list`, `stroke` requires `strokeWidth`, `polygon` needs at least 3
-sides, a block scan radius stays within `VFXMaskBlockSelection.MAX_RADIUS` (32 blocks), a custom leaf
-carries at most `VFXMaskSlots.MAX_LEAF_PARAMS` (8) params, a leaf's `space` must be one its family
-supports (`sky` is dome-only, `sphere`/`box`/`block` are world-only), a `center` must have the arity
-that space defines (`sphere(8).center(0, 64)` is refused), a composition may only nest on the
-**left** (a right-nested operand is refused with the fix in the message), and the parser's
+sides, a block scan radius stays within `VFXMaskBlockSelection.MAX_RADIUS` (32 blocks), at most
+`VFXMaskBlockSelection.MAX_BLOCKS` (512) block ids and no blank id/tag (a block leaf needs
+`blocks`/`tag`/`properties`), a `blockRegion` volume stays within `MAX_REGION_BLOCKS` (65536 blocks,
+counted from the floored corners like the parser), a custom leaf carries at most
+`VFXMaskSlots.MAX_LEAF_PARAMS` (8) params and a mask at most `VFXCustomShape.MAX_CUSTOM_LEAVES` (2)
+custom leaves, a leaf's `space` must be one its family supports (`sky` is dome-only,
+`sphere`/`box`/`block` are world-only), a `center` must have the arity that space defines
+(`sphere(8).center(0, 64)` is refused), a composition may only nest on the **left** (a right-nested
+operand is refused with the fix in the message), one block leaf at most, and the parser's
 `VFXMask.MAX_COMPOSITION_DEPTH` (8 compositions) and `VFXMask.MAX_PRIMITIVES` (8 leaves) budgets
 hold.
 `custom(...)` takes the space **explicitly** (the shape registry is client-local, so a spec built on

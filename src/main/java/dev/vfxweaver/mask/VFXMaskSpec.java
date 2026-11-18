@@ -130,13 +130,22 @@ public final class VFXMaskSpec {
 	 */
 	public static VFXMaskSpec block(final float radius, final String... blockIds) {
 		if (blockIds == null || blockIds.length == 0) {
-			throw new IllegalArgumentException("VFXMaskSpec.block: at least one block id is required");
+			throw new IllegalArgumentException("VFXMaskSpec.block: a block leaf needs at least one block id");
 		}
-		final JsonObject node = blockLeaf(radius);
+		if (blockIds.length > VFXMaskBlockSelection.MAX_BLOCKS) {
+			throw new IllegalArgumentException("VFXMaskSpec.block: " + blockIds.length + " ids exceed the parser's limit of "
+				+ VFXMaskBlockSelection.MAX_BLOCKS);
+		}
 		final JsonArray blocks = new JsonArray();
 		for (final String id : blockIds) {
+			if (id == null || id.isBlank()) {
+				// The parser silently skips a non-primitive entry (a JSON null), and a leaf left with
+				// no ids is then rejected: fail here instead, where the message can name the reason.
+				throw new IllegalArgumentException("VFXMaskSpec.block: a block leaf needs blocks/tag/properties; got a blank block id");
+			}
 			blocks.add(id);
 		}
+		final JsonObject node = blockLeaf(radius);
 		node.add("blocks", blocks);
 		return new VFXMaskSpec(node);
 	}
@@ -144,11 +153,14 @@ public final class VFXMaskSpec {
 	/**
 	 * A block-geometry leaf that scans a bounded region for a block tag.
 	 *
-	 * @param tag    block tag id (e.g. {@code minecraft:logs})
+	 * @param tag    block tag id (e.g. {@code minecraft:logs}); must not be blank
 	 * @param radius scan radius in blocks, from {@link #center(float, float, float)}; at most
 	 *               {@link VFXMaskBlockSelection#MAX_RADIUS}
 	 */
 	public static VFXMaskSpec blockTag(final float radius, final String tag) {
+		if (tag == null || tag.isBlank()) {
+			throw new IllegalArgumentException("VFXMaskSpec.blockTag: a block leaf needs blocks/tag/properties; got a blank tag");
+		}
 		final JsonObject node = blockLeaf(radius);
 		node.addProperty("tag", tag);
 		return new VFXMaskSpec(node);
@@ -179,8 +191,22 @@ public final class VFXMaskSpec {
 		return new VFXMaskSpec(node);
 	}
 
-	/** A {@code block_list} leaf covering an inclusive box (capped at the geometry budget). */
+	/**
+	 * A {@code block_list} leaf covering an inclusive box.
+	 *
+	 * <p>Its volume is bounded: a region larger than
+	 * {@link VFXMaskBlockSelection#MAX_REGION_BLOCKS} blocks would size the geometry buffer past its
+	 * budget, so it is refused here (the same count the parser enforces, with the corners normalised
+	 * first). A large authored set belongs in {@link #blockList(float[]...)}, which has no cap.
+	 */
 	public static VFXMaskSpec blockRegion(final float x0, final float y0, final float z0, final float x1, final float y1, final float z1) {
+		final double volume = ((double) VFXMaskBlockSelection.blockCoordinate(Math.max(x0, x1)) - VFXMaskBlockSelection.blockCoordinate(Math.min(x0, x1)) + 1.0)
+			* ((double) VFXMaskBlockSelection.blockCoordinate(Math.max(y0, y1)) - VFXMaskBlockSelection.blockCoordinate(Math.min(y0, y1)) + 1.0)
+			* ((double) VFXMaskBlockSelection.blockCoordinate(Math.max(z0, z1)) - VFXMaskBlockSelection.blockCoordinate(Math.min(z0, z1)) + 1.0);
+		if (volume > VFXMaskBlockSelection.MAX_REGION_BLOCKS) {
+			throw new IllegalArgumentException("VFXMaskSpec.blockRegion: the region covers " + (long) volume + " blocks, above the "
+				+ VFXMaskBlockSelection.MAX_REGION_BLOCKS + "-block geometry budget; list the positions instead (blockList has no cap)");
+		}
 		final JsonObject node = blockListNode();
 		final JsonArray region = new JsonArray();
 		region.add(x0);
@@ -361,6 +387,10 @@ public final class VFXMaskSpec {
 		if (blockLeaves > 1) {
 			throw new IllegalArgumentException("VFXMaskSpec: a mask may carry at most one block leaf (all block leaves share one geometry scratch)");
 		}
+		final int customLeaves = customLeafCount(copy);
+		if (customLeaves > VFXCustomShape.MAX_CUSTOM_LEAVES) {
+			throw new IllegalArgumentException("VFXMaskSpec: " + customLeaves + " custom leaves exceed the parser's limit of " + VFXCustomShape.MAX_CUSTOM_LEAVES);
+		}
 		validate(copy, true);
 		return copy;
 	}
@@ -396,6 +426,26 @@ public final class VFXMaskSpec {
 		}
 		final String name = shape.getAsString().trim().toLowerCase(Locale.ROOT);
 		return "block".equals(name) || "block_list".equals(name) ? 1 : 0;
+	}
+
+	/**
+	 * Leaves that resolve to a registered custom shape, counted the way the parser does: anything
+	 * that is neither a block sentinel nor a built-in kind. The parser packs one custom row per
+	 * distinct id and has only {@link VFXCustomShape#MAX_CUSTOM_LEAVES} of them.
+	 */
+	private static int customLeafCount(final JsonObject node) {
+		if (node.has("op") && !node.get("op").isJsonNull()) {
+			return customLeafCount(node.getAsJsonObject("a")) + customLeafCount(node.getAsJsonObject("b"));
+		}
+		final JsonElement shape = node.get("shape");
+		if (shape == null || shape.isJsonNull()) {
+			return 0;
+		}
+		final String name = shape.getAsString().trim().toLowerCase(Locale.ROOT);
+		if ("block".equals(name) || "block_list".equals(name)) {
+			return 0;
+		}
+		return VFXMaskShapeKind.fromString(name) == null ? 1 : 0;
 	}
 
 	@Override

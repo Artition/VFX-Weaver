@@ -591,6 +591,7 @@ $specSrc = Join-Path $checkDir "MaskSpecCheck.java"
 $specJava = @'
 import com.google.gson.JsonObject;
 import dev.vfxweaver.mask.VFXMask;
+import dev.vfxweaver.mask.VFXMaskBlockSelection;
 import dev.vfxweaver.mask.VFXMaskFill;
 import dev.vfxweaver.mask.VFXMaskSpace;
 import dev.vfxweaver.mask.VFXMaskSpec;
@@ -624,6 +625,8 @@ public final class MaskSpecCheck {
 		// Custom leaf in both spaces: the space is explicit, so this parses without any registry.
 		parses("custom world", VFXMaskSpec.custom("vfxweaver:ringed_volume", VFXMaskSpace.WORLD));
 		parses("custom screen params", VFXMaskSpec.custom("vfxweaver:ringed_volume", VFXMaskSpace.SCREEN, 0.5F, 0.25F));
+		parses("two custom leaves", VFXMaskSpec.custom("vfxweaver:ringed_volume", VFXMaskSpace.SCREEN)
+			.union(VFXMaskSpec.custom("vfxweaver:ringed_volume", VFXMaskSpace.SCREEN)));
 		// Compositions and invert (left-nested, the parser's supported shape).
 		parses("union", VFXMaskSpec.circle(0.4F).union(VFXMaskSpec.circle(0.2F)));
 		parses("difference", VFXMaskSpec.circle(0.4F).difference(VFXMaskSpec.circle(0.2F)));
@@ -640,6 +643,26 @@ public final class MaskSpecCheck {
 		rejected("right-nested composition", () -> VFXMaskSpec.circle(0.4F).union(VFXMaskSpec.circle(0.2F).union(VFXMaskSpec.rect(0.1F, 0.1F))));
 		rejected("eight compositions exceed MAX_PRIMITIVES", () -> chain(8).buildJson());
 		rejected("nine compositions exceed MAX_COMPOSITION_DEPTH", () -> chain(9).buildJson());
+		// Three custom leaves: the parser packs one row per distinct custom shape and has only
+		// MAX_CUSTOM_LEAVES (2), so a third must not be built.
+		rejected("three custom leaves", () -> VFXMaskSpec.custom("mymod:a", VFXMaskSpace.SCREEN)
+			.union(VFXMaskSpec.custom("mymod:b", VFXMaskSpace.SCREEN))
+			.union(VFXMaskSpec.custom("mymod:c", VFXMaskSpace.SCREEN))
+			.buildJson());
+		// Block selection budgets, counted the way the parser counts them.
+		final String[] tooManyIds = new String[VFXMaskBlockSelection.MAX_BLOCKS + 1];
+		java.util.Arrays.fill(tooManyIds, "minecraft:stone");
+		rejected("MAX_BLOCKS + 1 block ids", () -> VFXMaskSpec.block(16.0F, tooManyIds));
+		final String[] justEnoughIds = new String[VFXMaskBlockSelection.MAX_BLOCKS];
+		java.util.Arrays.fill(justEnoughIds, "minecraft:stone");
+		parses("MAX_BLOCKS block ids", VFXMaskSpec.block(16.0F, justEnoughIds));
+		rejected("blank block id", () -> VFXMaskSpec.block(16.0F, "minecraft:stone", (String) null));
+		rejected("blank block tag", () -> VFXMaskSpec.blockTag(16.0F, " "));
+		final int regionSide = (int) Math.floor(Math.cbrt(VFXMaskBlockSelection.MAX_REGION_BLOCKS));
+		require((double) (regionSide + 1) * (regionSide + 1) * (regionSide + 1) > VFXMaskBlockSelection.MAX_REGION_BLOCKS,
+			"the region negative case needs (regionSide + 1)^3 above MAX_REGION_BLOCKS");
+		parses("region just under MAX_REGION_BLOCKS", VFXMaskSpec.blockRegion(0F, 0F, 0F, regionSide - 1, regionSide - 1, regionSide - 1));
+		rejected("region above MAX_REGION_BLOCKS", () -> VFXMaskSpec.blockRegion(0F, 0F, 0F, regionSide, regionSide, regionSide));
 		rejected("2-number center on a sphere", () -> VFXMaskSpec.sphere(8.0F).center(0F, 64F).buildJson());
 		rejected("2-number center on a block_list", () -> VFXMaskSpec.blockList(new float[]{0, 64, 0}).center(0F, 0F).buildJson());
 		rejected("world-space circle with a 2-number center", () -> VFXMaskSpec.circle(0.4F).space(VFXMaskSpace.WORLD).buildJson());
