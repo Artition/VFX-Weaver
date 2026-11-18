@@ -2004,6 +2004,12 @@ public final class VFXWorldOverlayRenderer {
 	 * </ul>
 	 */
 	static List<Vec3> effectPositions(final VFXActiveEffect effect, final ClientLevel level) {
+		// A runtime position list (network play with many positions) wins over everything else:
+		// one instance renders at each listed point, returned as-is (no block-centre offset).
+		List<Vec3> runtime = effect.getRuntimePositions();
+		if (runtime != null && !runtime.isEmpty()) {
+			return runtime;
+		}
 		// A runtime move re-anchors the whole effect; nothing else is consulted.
 		Vec3 moved = effect.getMovePosition();
 		if (moved != null) {

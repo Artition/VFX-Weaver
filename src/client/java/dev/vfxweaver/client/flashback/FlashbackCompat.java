@@ -440,9 +440,11 @@ public final class FlashbackCompat {
 				int duration = Math.max(1, (int) Math.ceil(timeline.getDuration() - timeline.getElapsed()));
 				Map<String, Float> params = snapshotParams(id, timeline);
 				List<UUID> entityUuids = effect.getEntityUuids();
+				List<Vec3> runtimePositions = effect.getRuntimePositions();
+				List<Vec3> snapshotPositions = runtimePositions == null ? List.of() : runtimePositions;
 				submitCustomTaskMethod.invoke(recorder, (Consumer<Object>) writer -> {
 					try {
-						writeAction(writer, id, duration, params, EasingType.LINEAR, null, entityUuids);
+						writeAction(writer, id, duration, params, EasingType.LINEAR, null, entityUuids, snapshotPositions);
 					} catch (Throwable t) {
 						LOGGER.warn("Failed to write snapshot of running VFX effect '{}' into Flashback replay", id, t);
 					}
@@ -558,6 +560,16 @@ public final class FlashbackCompat {
 	 * decode.
 	 */
 	public static void recordPlay(final Identifier effectId, final int durationTicks, final Map<String, Float> params, final @Nullable EasingType easing, final @Nullable Vec3 position, final List<UUID> entityUuids) {
+		recordPlay(effectId, durationTicks, params, easing, position, entityUuids, List.of());
+	}
+
+	/**
+	 * Same as {@link #recordPlay(Identifier, int, Map, EasingType, Vec3, List)} plus a runtime world
+	 * position list (network play that renders one instance at many points). The list is optional and
+	 * trailing (after the entity targets), so older recordings still decode; a recorded effect keeps
+	 * its positions across a replay.
+	 */
+	public static void recordPlay(final Identifier effectId, final int durationTicks, final Map<String, Float> params, final @Nullable EasingType easing, final @Nullable Vec3 position, final List<UUID> entityUuids, final List<Vec3> positions) {
 		if (!enabled || isWindowEffect(effectId)) {
 			return;
 		}
@@ -567,6 +579,7 @@ public final class FlashbackCompat {
 		// Normalise to -1 so it can never collide with the -2..-5 edit sentinels.
 		final int recordedDuration = durationTicks < 0 ? -1 : durationTicks;
 		final List<UUID> recordedEntities = List.copyOf(entityUuids);
+		final List<Vec3> recordedPositions = List.copyOf(positions);
 		try {
 			Minecraft.getInstance().execute(() -> {
 				try {
@@ -579,7 +592,7 @@ public final class FlashbackCompat {
 					}
 					submitCustomTaskMethod.invoke(recorder, (Consumer<Object>) writer -> {
 						try {
-							writeAction(writer, effectId, recordedDuration, params, easing, position, recordedEntities);
+							writeAction(writer, effectId, recordedDuration, params, easing, position, recordedEntities, recordedPositions);
 						} catch (Throwable t) {
 							LOGGER.warn("Failed to write VFX effect '{}' into Flashback replay", effectId, t);
 						}
@@ -600,8 +613,8 @@ public final class FlashbackCompat {
 	 * controller keeps it alive until a recorded stop. The position and entity UUIDs the server
 	 * shipped are recorded too, so a spatial or entity effect replays on the same target.
 	 */
-	public static void recordServerPlay(final Identifier effectId, final int durationTicks, final Map<String, Float> params, final String easing, final @Nullable Vec3 position, final List<UUID> entityUuids) {
-		recordPlay(effectId, durationTicks, params, EasingType.fromString(easing), position, entityUuids);
+	public static void recordServerPlay(final Identifier effectId, final int durationTicks, final Map<String, Float> params, final String easing, final @Nullable Vec3 position, final List<UUID> entityUuids, final List<Vec3> positions) {
+		recordPlay(effectId, durationTicks, params, EasingType.fromString(easing), position, entityUuids, positions);
 	}
 
 	/**
@@ -737,7 +750,7 @@ public final class FlashbackCompat {
 	/**
 	 * Writes one replay action via the {@code ReplayWriter} handed to us by Flashback's recorder.
 	 */
-	private static void writeAction(final Object writer, final Identifier effectId, final int durationTicks, final Map<String, Float> params, final @Nullable EasingType easing, final @Nullable Vec3 position, final List<UUID> entityUuids) throws Exception {
+	private static void writeAction(final Object writer, final Identifier effectId, final int durationTicks, final Map<String, Float> params, final @Nullable EasingType easing, final @Nullable Vec3 position, final List<UUID> entityUuids, final List<Vec3> positions) throws Exception {
 		boolean started = false;
 		try {
 			startActionMethod.invoke(writer, action);
@@ -766,6 +779,17 @@ public final class FlashbackCompat {
 			buf.writeVarInt(entityCount);
 			for (int i = 0; i < entityCount; i++) {
 				buf.writeUUID(entityUuids.get(i));
+			}
+			// Optional trailing world-position list, capped like the network payload. Also absent in
+			// recordings written before this build, which the reader tolerates (it reads only while
+			// bytes remain).
+			int positionCount = Math.min(positions.size(), VFXTriggerPayload.MAX_POSITIONS);
+			buf.writeVarInt(positionCount);
+			for (int i = 0; i < positionCount; i++) {
+				Vec3 p = positions.get(i);
+				buf.writeDouble(p.x());
+				buf.writeDouble(p.y());
+				buf.writeDouble(p.z());
 			}
 		} finally {
 			if (started) {
@@ -852,10 +876,27 @@ public final class FlashbackCompat {
 		}
 		final Vec3 anchorPos = anchor;
 		final List<UUID> targetUuids = entityUuids;
+		// Optional trailing world-position list, after the entity targets. Absent in older
+		// recordings, where no bytes remain once the entity block has been read.
+		List<Vec3> positions = List.of();
+		if (buf.isReadable()) {
+			int positionCount = buf.readVarInt();
+			if (positionCount < 0 || positionCount > VFXTriggerPayload.MAX_POSITIONS) {
+				throw new IllegalStateException("Invalid VFX action position count: " + positionCount);
+			}
+			if (positionCount > 0) {
+				List<Vec3> points = new ArrayList<>(positionCount);
+				for (int i = 0; i < positionCount; i++) {
+					points.add(new Vec3(buf.readDouble(), buf.readDouble(), buf.readDouble()));
+				}
+				positions = List.copyOf(points);
+			}
+		}
+		final List<Vec3> runtimePositions = positions;
 		final EasingFunction easingFunction = easing == null ? null : EasingFunction.builtIn(easing);
 		final int recordedTick = triggerTick;
 		Minecraft.getInstance().execute(() ->
-			VFXReplayController.get().onPlay(effectId, durationTicks, params, easingFunction, anchorPos, targetUuids, recordedTick)
+			VFXReplayController.get().onPlay(effectId, durationTicks, params, easingFunction, anchorPos, targetUuids, runtimePositions, recordedTick)
 		);
 	}
 

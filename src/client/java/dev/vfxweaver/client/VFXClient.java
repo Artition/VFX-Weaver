@@ -247,11 +247,11 @@ public class VFXClient {
 				}
 			}
 		} else {
-			FlashbackCompat.recordServerPlay(payload.effectId(), payload.durationTicks(), payload.params(), payload.easing(), payload.position(), payload.entityUuids());
+			FlashbackCompat.recordServerPlay(payload.effectId(), payload.durationTicks(), payload.params(), payload.easing(), payload.position(), payload.entityUuids(), payload.positions());
 			// A blank easing name means "use the definition default" (e.g. an inline curve that
 			// only exists in the definition, so it cannot travel as a name).
 			EasingFunction payloadEasing = payload.easing() == null || payload.easing().isBlank() ? null : EasingFunction.fromString(payload.easing());
-			VFXEffectManager.get().play(payload.effectId(), payload.durationTicks(), payload.elapsedTicks(), payload.instanceId(), payload.position(), payload.entityUuids(), payload.params(), payloadEasing, payload.textOverride());
+			VFXEffectManager.get().play(payload.effectId(), payload.durationTicks(), payload.elapsedTicks(), payload.instanceId(), payload.position(), payload.entityUuids(), payload.positions(), payload.params(), payloadEasing, payload.textOverride());
 		}
 	}
 }

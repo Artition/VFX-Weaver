@@ -55,6 +55,13 @@ public class VFXActiveEffect {
 	 * the world overlay renderer to re-anchor its drawing every frame.
 	 */
 	private @Nullable Vec3 movePosition;
+	/**
+	 * Runtime-mutable list of world positions this instance renders at (network play with a
+	 * {@code positions} list). Set by the play path, {@code null} by default; when present it wins
+	 * over {@link #movePosition} and the definition's static positions in the world overlay
+	 * renderer, so one instance can tint many blocks.
+	 */
+	private @Nullable List<Vec3> runtimePositions;
 
 	/**
 	 * Creates a new effect instance starting at the given time.
@@ -386,6 +393,25 @@ public class VFXActiveEffect {
 	 */
 	public @Nullable Vec3 getMovePosition() {
 		return this.movePosition;
+	}
+
+	/**
+	 * Sets the runtime world-position list this instance renders at (network play with a
+	 * {@code positions} list). The world overlay renderer prefers this list over
+	 * {@link #getMovePosition()} and the definition's static positions.
+	 *
+	 * @param positions the world positions, or {@code null}/empty for the normal single-point behaviour
+	 */
+	public void setRuntimePositions(final @Nullable List<Vec3> positions) {
+		this.runtimePositions = (positions == null || positions.isEmpty()) ? null : List.copyOf(positions);
+	}
+
+	/**
+	 * The runtime world-position list this instance renders at, or {@code null} when it renders at
+	 * the ordinary single point.
+	 */
+	public @Nullable List<Vec3> getRuntimePositions() {
+		return this.runtimePositions;
 	}
 
 	/**

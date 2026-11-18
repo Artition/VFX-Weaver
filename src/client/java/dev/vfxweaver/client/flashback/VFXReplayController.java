@@ -65,7 +65,7 @@ public final class VFXReplayController {
 	}
 
 	/** Records a play action at its replay tick. Re-fired events (a seek) are ignored. */
-	public void onPlay(final Identifier effectId, final int durationTicks, final Map<String, Float> params, final @Nullable EasingFunction easing, final @Nullable Vec3 anchor, final List<UUID> entityUuids, final int triggerTick) {
+	public void onPlay(final Identifier effectId, final int durationTicks, final Map<String, Float> params, final @Nullable EasingFunction easing, final @Nullable Vec3 anchor, final List<UUID> entityUuids, final List<Vec3> positions, final int triggerTick) {
 		if (triggerTick < 0 || !this.reserve()) {
 			return;
 		}
@@ -73,7 +73,7 @@ public final class VFXReplayController {
 		if (this.plays.containsKey(key)) {
 			return;
 		}
-		this.plays.put(key, new PlayEvent(effectId, triggerTick, durationTicks, params, easing, anchor, entityUuids));
+		this.plays.put(key, new PlayEvent(effectId, triggerTick, durationTicks, params, easing, anchor, entityUuids, positions));
 	}
 
 	/** Records a stop action at its replay tick. */
@@ -205,7 +205,7 @@ public final class VFXReplayController {
 				continue;
 			}
 			final long instanceId = manager.allocateInstanceId();
-			manager.playReplay(play.effectId, play.durationTicks, play.triggerTick, instanceId, play.anchor, play.entityUuids, play.params, play.easing, !rebuilding && !play.soundPlayed);
+			manager.playReplay(play.effectId, play.durationTicks, play.triggerTick, instanceId, play.anchor, play.entityUuids, play.positions, play.params, play.easing, !rebuilding && !play.soundPlayed);
 			play.instanceId = instanceId;
 			play.started = true;
 			play.soundPlayed = true;
@@ -272,11 +272,12 @@ public final class VFXReplayController {
 		private final @Nullable EasingFunction easing;
 		private final @Nullable Vec3 anchor;
 		private final List<UUID> entityUuids;
+		private final List<Vec3> positions;
 		private long instanceId;
 		private boolean started;
 		private boolean soundPlayed;
 
-		private PlayEvent(final Identifier effectId, final int triggerTick, final int durationTicks, final Map<String, Float> params, final @Nullable EasingFunction easing, final @Nullable Vec3 anchor, final List<UUID> entityUuids) {
+		private PlayEvent(final Identifier effectId, final int triggerTick, final int durationTicks, final Map<String, Float> params, final @Nullable EasingFunction easing, final @Nullable Vec3 anchor, final List<UUID> entityUuids, final List<Vec3> positions) {
 			this.effectId = effectId;
 			this.triggerTick = triggerTick;
 			this.durationTicks = durationTicks;
@@ -284,6 +285,7 @@ public final class VFXReplayController {
 			this.easing = easing;
 			this.anchor = anchor;
 			this.entityUuids = List.copyOf(entityUuids);
+			this.positions = List.copyOf(positions);
 		}
 	}
 

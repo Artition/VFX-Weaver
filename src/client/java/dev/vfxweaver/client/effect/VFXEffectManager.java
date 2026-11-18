@@ -132,8 +132,8 @@ public class VFXEffectManager {
 	 * @param playSound     false when rebuilding after a seek (never re-trigger the sound)
 	 * @return the instance id, or {@code 0} when the effect was ignored
 	 */
-	public long playReplay(final Identifier effectId, final int durationTicks, final float startTick, final long instanceId, final @Nullable Vec3 position, final List<UUID> entityUuids, final Map<String, Float> params, final @Nullable EasingFunction easing, final boolean playSound) {
-		return this.play(effectId, durationTicks, instanceId, position, entityUuids, params, easing, 0, 0, null, List.of(), null, startTick, playSound);
+	public long playReplay(final Identifier effectId, final int durationTicks, final float startTick, final long instanceId, final @Nullable Vec3 position, final List<UUID> entityUuids, final List<Vec3> positions, final Map<String, Float> params, final @Nullable EasingFunction easing, final boolean playSound) {
+		return this.play(effectId, durationTicks, instanceId, position, entityUuids, params, easing, 0, 0, null, List.of(), null, positions, startTick, playSound);
 	}
 
 	/**
@@ -212,7 +212,7 @@ public class VFXEffectManager {
 				return false;
 			});
 			for (ScheduledPlay play : due) {
-				this.play(play.definition().getId(), play.durationTicks(), 0L, play.position(), List.of(), Map.of(), play.easing(), play.depth(), 0, play.definition(), play.collections(), null);
+				this.play(play.definition().getId(), play.durationTicks(), 0L, play.position(), List.of(), Map.of(), play.easing(), play.depth(), 0, play.definition(), play.collections(), null, List.of());
 			}
 		}
 		for (VFXActiveEffect effect : this.active) {
@@ -257,7 +257,7 @@ public class VFXEffectManager {
 	 * @return the instance id, or {@code 0} when the effect was ignored
 	 */
 	public long play(final Identifier effectId, final int durationTicks, final Map<String, Float> params, final EasingType easing) {
-		return this.play(effectId, durationTicks, 0L, null, List.of(), params, easing == null ? null : EasingFunction.builtIn(easing), 0, 0, null, List.of(), null);
+		return this.play(effectId, durationTicks, 0L, null, List.of(), params, easing == null ? null : EasingFunction.builtIn(easing), 0, 0, null, List.of(), null, List.of());
 	}
 
 	/**
@@ -276,7 +276,7 @@ public class VFXEffectManager {
 	 * @return the instance id, or {@code 0} when the effect was ignored
 	 */
 	public long play(final Identifier effectId, final int durationTicks, final long instanceId, final @Nullable Vec3 position, final Map<String, Float> params, final EasingFunction easing) {
-		return this.play(effectId, durationTicks, instanceId, position, List.of(), params, easing, 0, 0, null, List.of(), null);
+		return this.play(effectId, durationTicks, instanceId, position, List.of(), params, easing, 0, 0, null, List.of(), null, List.of());
 	}
 
 	/**
@@ -284,7 +284,7 @@ public class VFXEffectManager {
 	 * easing function (used by the network receiver and by scheduled collection children).
 	 */
 	public long play(final Identifier effectId, final int durationTicks, final long instanceId, final @Nullable Vec3 position, final List<UUID> entityUuids, final Map<String, Float> params, final EasingFunction easing) {
-		return this.play(effectId, durationTicks, instanceId, position, entityUuids, params, easing, 0, 0, null, List.of(), null);
+		return this.play(effectId, durationTicks, instanceId, position, entityUuids, params, easing, 0, 0, null, List.of(), null, List.of());
 	}
 
 	/**
@@ -306,7 +306,17 @@ public class VFXEffectManager {
 	 * @param textOverride replaces the definition's {@code text.content} (null or blank = no override)
 	 */
 	public long play(final Identifier effectId, final int durationTicks, final int elapsedTicks, final long instanceId, final @Nullable Vec3 position, final List<UUID> entityUuids, final Map<String, Float> params, final EasingFunction easing, final @Nullable String textOverride) {
-		return this.play(effectId, durationTicks, instanceId, position, entityUuids, params, easing, 0, elapsedTicks, null, List.of(), textOverride);
+		return this.play(effectId, durationTicks, instanceId, position, entityUuids, params, easing, 0, elapsedTicks, null, List.of(), textOverride, List.of());
+	}
+
+	/**
+	 * Same as {@link #play(Identifier, int, int, long, Vec3, List, Map, EasingFunction, String)} but
+	 * with a runtime world-position list: the one instance renders at every point in
+	 * {@code positions} (empty = the ordinary single point) instead of at the definition's static
+	 * positions. Used by the network receiver so a single packet can tint many blocks.
+	 */
+	public long play(final Identifier effectId, final int durationTicks, final int elapsedTicks, final long instanceId, final @Nullable Vec3 position, final List<UUID> entityUuids, final List<Vec3> positions, final Map<String, Float> params, final EasingFunction easing, final @Nullable String textOverride) {
+		return this.play(effectId, durationTicks, instanceId, position, entityUuids, params, easing, 0, elapsedTicks, null, List.of(), textOverride, positions);
 	}
 
 	/**
@@ -343,8 +353,8 @@ public class VFXEffectManager {
 		return z ^ (z >>> 31);
 	}
 
-	private long play(final Identifier effectId, final int durationTicks, final long instanceId, final @Nullable Vec3 position, final List<UUID> entityUuids, final Map<String, Float> params, final EasingFunction easing, final int depth, final int elapsedTicks, final @Nullable VFXDefinition predefined, final List<Identifier> collections, final @Nullable String textOverride) {
-		return this.play(effectId, durationTicks, instanceId, position, entityUuids, params, easing, depth, elapsedTicks, predefined, collections, textOverride, Float.NaN, true);
+	private long play(final Identifier effectId, final int durationTicks, final long instanceId, final @Nullable Vec3 position, final List<UUID> entityUuids, final Map<String, Float> params, final EasingFunction easing, final int depth, final int elapsedTicks, final @Nullable VFXDefinition predefined, final List<Identifier> collections, final @Nullable String textOverride, final List<Vec3> runtimePositions) {
+		return this.play(effectId, durationTicks, instanceId, position, entityUuids, params, easing, depth, elapsedTicks, predefined, collections, textOverride, runtimePositions, Float.NaN, true);
 	}
 
 	/**
@@ -353,8 +363,10 @@ public class VFXEffectManager {
 	 * {@code NaN} means "start at the current clock". {@code playSound} is false when a replay is
 	 * rebuilt after a seek, so seeking never re-triggers the effect's sound. {@code textOverride}
 	 * replaces a {@code text_overlay} definition's {@code text.content} for this instance only.
+	 * {@code runtimePositions}, when non-empty, makes the instance render at every listed world
+	 * position (network positions payload).
 	 */
-	private long play(final Identifier effectId, final int durationTicks, final long instanceId, final @Nullable Vec3 position, final List<UUID> entityUuids, final Map<String, Float> params, final EasingFunction easing, final int depth, final int elapsedTicks, final @Nullable VFXDefinition predefined, final List<Identifier> collections, final @Nullable String textOverride, final float startTime, final boolean playSound) {
+	private long play(final Identifier effectId, final int durationTicks, final long instanceId, final @Nullable Vec3 position, final List<UUID> entityUuids, final Map<String, Float> params, final EasingFunction easing, final int depth, final int elapsedTicks, final @Nullable VFXDefinition predefined, final List<Identifier> collections, final @Nullable String textOverride, final List<Vec3> runtimePositions, final float startTime, final boolean playSound) {
 		VFXDefinition definition = predefined != null ? predefined : VFXDefinitionManager.get().get(effectId);
 		VFXEffectType type = definition != null ? definition.getType() : VFXEffectType.fromString(effectId.getPath());
 		if (type == null) {
@@ -480,6 +492,9 @@ public class VFXEffectManager {
 		}
 		final float effectiveStart = Float.isNaN(startTime) ? this.clock : startTime;
 		VFXActiveEffect effect = new VFXActiveEffect(effectId, type, id, instanceSeed, effectiveStart, timeline, fadeTicks, loop, persistent, positions, entityUuids, anchors, definition != null ? definition.getParticleId() : null, definition != null ? definition.getShape() : null, definition != null ? definition.getBlockId() : null, definition != null ? definition.getItemId() : null, textSpec);
+		if (!runtimePositions.isEmpty()) {
+			effect.setRuntimePositions(runtimePositions);
+		}
 		// Same-id replays with auto-allocated ids stack as independent instances; MAX_ACTIVE_EFFECTS caps the total.
 		while (this.active.size() >= MAX_ACTIVE_EFFECTS) {
 			LOGGER.warn("Active VFX effect limit ({}) reached; removing oldest effect '{}'", MAX_ACTIVE_EFFECTS, this.active.get(0).getId());

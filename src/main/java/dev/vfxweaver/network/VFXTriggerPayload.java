@@ -26,9 +26,11 @@ import org.slf4j.LoggerFactory;
  * after a reconnect), an optional explicit world position, an optional instance id (to target
  * one of several concurrent instances of the same effect), the (already resolved) parameter
  * map, the easing curve name (built-in or custom datapack curve), the list of entity UUIDs this
- * effect applies to (for entity tint/outline effects), for the {@link VFXAction#SET_EXPR} action
- * only the parameter name and expression source to install at runtime, and the optional text
- * override that replaces a {@code text_overlay} definition's {@code text.content} for this call.
+ * effect applies to (for entity tint/outline effects), an optional list of world positions one
+ * instance renders at (empty for the single-point behaviour), for the {@link VFXAction#SET_EXPR}
+ * action only the parameter name and expression source to install at runtime, and the optional
+ * text override that replaces a {@code text_overlay} definition's {@code text.content} for this
+ * call.
  */
 public record VFXTriggerPayload(
 	byte protocolVersion,
@@ -39,6 +41,7 @@ public record VFXTriggerPayload(
 	long instanceId,
 	@Nullable Vec3 position,
 	List<UUID> entityUuids,
+	List<Vec3> positions,
 	Map<String, Float> params,
 	String easing,
 	@Nullable String exprParam,
@@ -46,8 +49,12 @@ public record VFXTriggerPayload(
 	@Nullable String textOverride
 ) implements CustomPacketPayload {
 	private static final Logger LOGGER = LoggerFactory.getLogger("vfxweaver/payload");
-	/** Bumped 6 -> 7 for {@code textOverride}: an old reader would misparse the extra optional string. */
-	public static final byte PROTOCOL_VERSION = 7;
+	/**
+	 * Bumped 7 -> 8 for {@code positions}: an old reader would misparse the extra list. An old
+	 * client ignores this version on receipt (see {@code VFXClient}), so it keeps its former
+	 * single-point behaviour for effects it does understand.
+	 */
+	public static final byte PROTOCOL_VERSION = 8;
 	/**
 	 * Safety cap on the number of parameters a play packet may carry (server input, see AGENTS.md).
 	 * Raised from 32 to 256 for per-leaf mask dynamic data: a mask may hold eight leaves and two
@@ -65,6 +72,14 @@ public record VFXTriggerPayload(
 	 * and logged once; the renderer's own 256-glyph cap still applies afterwards.
 	 */
 	public static final int MAX_TEXT_OVERRIDE = 512;
+	/**
+	 * Cap on the number of world positions one play packet may carry, mirroring
+	 * {@code VFXDefinition.MAX_POSITIONS}. This is a <b>packet-size bound</b> (8192 positions would
+	 * need ~200 KiB), not a cap on how many instances may run: one instance renders every position
+	 * in this list, so a single packet can tint hundreds of blocks well under
+	 * {@code MAX_ACTIVE_EFFECTS}. A longer list is cut on decode with one warning.
+	 */
+	public static final int MAX_POSITIONS = 4096;
 	public static final Type<VFXTriggerPayload> TYPE = new Type<>(Identifier.fromNamespaceAndPath("vfxweaver", "vfx_trigger"));
 
 	public static final StreamCodec<ByteBuf, VFXAction> ACTION_CODEC = ByteBufCodecs.BYTE.map(VFXAction::fromId, VFXAction::getId);
@@ -131,6 +146,44 @@ public record VFXTriggerPayload(
 	}
 
 	/**
+	 * World-position list with the same wire shape as
+	 * {@code ByteBufCodecs.collection(ArrayList::new, Vec3.STREAM_CODEC, MAX_POSITIONS)} (a varint
+	 * count then element codecs), except that an over-long list on decode is cut to
+	 * {@link #MAX_POSITIONS} with one warning instead of failing the packet — a hostile or buggy
+	 * server must not disconnect the client over a too-large position list. The whole count is still
+	 * read off the buffer so the stream stays aligned; entries past the cap are dropped.
+	 */
+	public static final StreamCodec<ByteBuf, List<Vec3>> POSITIONS_CODEC = new StreamCodec<>() {
+		public List<Vec3> decode(final ByteBuf input) {
+			int declared = ByteBufCodecs.VAR_INT.decode(input);
+			if (declared <= 0) {
+				return List.of();
+			}
+			int kept = Math.min(declared, MAX_POSITIONS);
+			List<Vec3> out = new ArrayList<>(kept);
+			for (int i = 0; i < declared; i++) {
+				Vec3 value = Vec3.STREAM_CODEC.decode(input);
+				if (i < kept) {
+					out.add(value);
+				}
+			}
+			if (declared > MAX_POSITIONS) {
+				VFXLog.warnOnce(LOGGER, "net:positions-clip", "Play packet carries {} positions; cut to MAX_POSITIONS ({})", declared, MAX_POSITIONS);
+			}
+			return out;
+		}
+
+		public void encode(final ByteBuf output, final List<Vec3> value) {
+			List<Vec3> list = value == null ? List.of() : value;
+			int size = Math.min(list.size(), MAX_POSITIONS);
+			ByteBufCodecs.VAR_INT.encode(output, size);
+			for (int i = 0; i < size; i++) {
+				Vec3.STREAM_CODEC.encode(output, list.get(i));
+			}
+		}
+	};
+
+	/**
 	 * The three optional trailing strings, composed on their own: {@link StreamCodec#composite} has
 	 * no overload past twelve codec pairs, and the payload has thirteen fields.
 	 */
@@ -164,14 +217,16 @@ public record VFXTriggerPayload(
 		VFXTriggerPayload::position,
 		ByteBufCodecs.collection(ArrayList::new, UUID_CODEC, MAX_ENTITY_UUIDS),
 		VFXTriggerPayload::entityUuids,
+		POSITIONS_CODEC,
+		VFXTriggerPayload::positions,
 		ByteBufCodecs.map(HashMap::new, ByteBufCodecs.STRING_UTF8, ByteBufCodecs.FLOAT, MAX_PARAMS),
 		VFXTriggerPayload::params,
 		ByteBufCodecs.STRING_UTF8,
 		VFXTriggerPayload::easing,
 		TRAILING_STRINGS_CODEC,
 		VFXTriggerPayload::trailingStrings,
-		(protocolVersion, effectId, action, durationTicks, elapsedTicks, instanceId, position, entityUuids, params, easing, trailingStrings) -> new VFXTriggerPayload(
-			protocolVersion, effectId, action, durationTicks, elapsedTicks, instanceId, position, entityUuids, params, easing,
+		(protocolVersion, effectId, action, durationTicks, elapsedTicks, instanceId, position, entityUuids, positions, params, easing, trailingStrings) -> new VFXTriggerPayload(
+			protocolVersion, effectId, action, durationTicks, elapsedTicks, instanceId, position, entityUuids, positions, params, easing,
 			trailingStrings.exprParam(), trailingStrings.exprSource(), trailingStrings.textOverride()
 		)
 	);
@@ -194,7 +249,7 @@ public record VFXTriggerPayload(
 	 * @param textOverride replaces the definition's {@code text.content} (may be null for "no override")
 	 */
 	public static VFXTriggerPayload play(final Identifier effectId, final int durationTicks, final Map<String, Float> params, final EasingType easing, final @Nullable String textOverride) {
-		return play(effectId, durationTicks, 0L, null, List.of(), params, easing.name(), textOverride);
+		return play(effectId, durationTicks, 0, 0L, null, List.of(), List.of(), params, easing.name(), textOverride);
 	}
 
 	/**
@@ -208,7 +263,23 @@ public record VFXTriggerPayload(
 	 * @param easing        easing curve name (built-in or custom datapack curve)
 	 */
 	public static VFXTriggerPayload play(final Identifier effectId, final int durationTicks, final long instanceId, final @Nullable Vec3 position, final Map<String, Float> params, final String easing) {
-		return play(effectId, durationTicks, instanceId, position, List.of(), params, easing);
+		return play(effectId, durationTicks, 0, instanceId, position, List.of(), List.of(), params, easing, null);
+	}
+
+	/**
+	 * Creates a play payload that renders one instance at every world position in {@code positions}
+	 * (empty = the single-point behaviour). Used by the network API to tint many blocks with one
+	 * packet instead of one instance per block.
+	 *
+	 * @param effectId      effect id
+	 * @param durationTicks duration in ticks
+	 * @param instanceId    instance id (0 = let the client allocate one)
+	 * @param positions     world positions the instance renders at (empty = single point)
+	 * @param params        parameter overrides
+	 * @param easing        easing curve name (built-in or custom datapack curve)
+	 */
+	public static VFXTriggerPayload play(final Identifier effectId, final int durationTicks, final long instanceId, final List<Vec3> positions, final Map<String, Float> params, final String easing) {
+		return play(effectId, durationTicks, 0, instanceId, null, List.of(), positions, params, easing, null);
 	}
 
 	/**
@@ -223,7 +294,7 @@ public record VFXTriggerPayload(
 	 * @param easing        easing curve name (built-in or custom datapack curve)
 	 */
 	public static VFXTriggerPayload play(final Identifier effectId, final int durationTicks, final long instanceId, final @Nullable Vec3 position, final List<UUID> entityUuids, final Map<String, Float> params, final String easing) {
-		return play(effectId, durationTicks, 0, instanceId, position, entityUuids, params, easing, null);
+		return play(effectId, durationTicks, 0, instanceId, position, entityUuids, List.of(), params, easing, null);
 	}
 
 	/**
@@ -233,7 +304,7 @@ public record VFXTriggerPayload(
 	 * @param textOverride replaces the definition's {@code text.content} (may be null for "no override")
 	 */
 	public static VFXTriggerPayload play(final Identifier effectId, final int durationTicks, final long instanceId, final @Nullable Vec3 position, final List<UUID> entityUuids, final Map<String, Float> params, final String easing, final @Nullable String textOverride) {
-		return play(effectId, durationTicks, 0, instanceId, position, entityUuids, params, easing, textOverride);
+		return play(effectId, durationTicks, 0, instanceId, position, entityUuids, List.of(), params, easing, textOverride);
 	}
 
 	/**
@@ -242,7 +313,7 @@ public record VFXTriggerPayload(
 	 * @param elapsedTicks how far into the timeline the effect already is, in ticks
 	 */
 	public static VFXTriggerPayload play(final Identifier effectId, final int durationTicks, final int elapsedTicks, final long instanceId, final @Nullable Vec3 position, final List<UUID> entityUuids, final Map<String, Float> params, final String easing) {
-		return play(effectId, durationTicks, elapsedTicks, instanceId, position, entityUuids, params, easing, null);
+		return play(effectId, durationTicks, elapsedTicks, instanceId, position, entityUuids, List.of(), params, easing, null);
 	}
 
 	/**
@@ -252,7 +323,18 @@ public record VFXTriggerPayload(
 	 * @param textOverride replaces the definition's {@code text.content} (may be null for "no override")
 	 */
 	public static VFXTriggerPayload play(final Identifier effectId, final int durationTicks, final int elapsedTicks, final long instanceId, final @Nullable Vec3 position, final List<UUID> entityUuids, final Map<String, Float> params, final String easing, final @Nullable String textOverride) {
-		return new VFXTriggerPayload(PROTOCOL_VERSION, effectId, VFXAction.PLAY, durationTicks, Math.max(0, elapsedTicks), instanceId, position, entityUuids, params, easing, null, null, textOverride);
+		return play(effectId, durationTicks, elapsedTicks, instanceId, position, entityUuids, List.of(), params, easing, textOverride);
+	}
+
+	/**
+	 * Full play factory: every optional anchor ({@code position}, {@code entityUuids},
+	 * {@code positions}) plus the resume offset and text override. The position list is carried as
+	 * {@link #POSITIONS_CODEC} and cut to {@link #MAX_POSITIONS} on decode.
+	 *
+	 * @param positions world positions one instance renders at (empty = single-point behaviour)
+	 */
+	public static VFXTriggerPayload play(final Identifier effectId, final int durationTicks, final int elapsedTicks, final long instanceId, final @Nullable Vec3 position, final List<UUID> entityUuids, final List<Vec3> positions, final Map<String, Float> params, final String easing, final @Nullable String textOverride) {
+		return new VFXTriggerPayload(PROTOCOL_VERSION, effectId, VFXAction.PLAY, durationTicks, Math.max(0, elapsedTicks), instanceId, position, entityUuids, positions, params, easing, null, null, textOverride);
 	}
 
 	/**
@@ -269,7 +351,7 @@ public record VFXTriggerPayload(
 	 * @param instanceId instance id (0 = stop every instance of the effect)
 	 */
 	public static VFXTriggerPayload stop(final Identifier effectId, final long instanceId) {
-		return new VFXTriggerPayload(PROTOCOL_VERSION, effectId, VFXAction.STOP, 0, 0, instanceId, null, List.of(), Map.of(), EasingType.LINEAR.name(), null, null, null);
+		return new VFXTriggerPayload(PROTOCOL_VERSION, effectId, VFXAction.STOP, 0, 0, instanceId, null, List.of(), List.of(), Map.of(), EasingType.LINEAR.name(), null, null, null);
 	}
 
 	/**
@@ -277,7 +359,7 @@ public record VFXTriggerPayload(
 	 * a single {@code name -> value} entry).
 	 */
 	public static VFXTriggerPayload setParam(final Identifier effectId, final String param, final float value) {
-		return new VFXTriggerPayload(PROTOCOL_VERSION, effectId, VFXAction.SET_PARAM, 0, 0, 0L, null, List.of(), Map.of(param, value), EasingType.LINEAR.name(), null, null, null);
+		return new VFXTriggerPayload(PROTOCOL_VERSION, effectId, VFXAction.SET_PARAM, 0, 0, 0L, null, List.of(), List.of(), Map.of(param, value), EasingType.LINEAR.name(), null, null, null);
 	}
 
 	/**
@@ -285,14 +367,14 @@ public record VFXTriggerPayload(
 	 * {@code durationTicks}, the value in {@code params} and the outgoing easing in {@code easing}.
 	 */
 	public static VFXTriggerPayload keyframe(final Identifier effectId, final String param, final int time, final float value, final EasingType easing) {
-		return new VFXTriggerPayload(PROTOCOL_VERSION, effectId, VFXAction.KEYFRAME, time, 0, 0L, null, List.of(), Map.of(param, value), easing.name(), null, null, null);
+		return new VFXTriggerPayload(PROTOCOL_VERSION, effectId, VFXAction.KEYFRAME, time, 0, 0L, null, List.of(), List.of(), Map.of(param, value), easing.name(), null, null, null);
 	}
 
 	/**
 	 * Creates a live keyframe payload with a custom curve name.
 	 */
 	public static VFXTriggerPayload keyframe(final Identifier effectId, final String param, final int time, final float value, final String easing) {
-		return new VFXTriggerPayload(PROTOCOL_VERSION, effectId, VFXAction.KEYFRAME, time, 0, 0L, null, List.of(), Map.of(param, value), easing, null, null, null);
+		return new VFXTriggerPayload(PROTOCOL_VERSION, effectId, VFXAction.KEYFRAME, time, 0, 0L, null, List.of(), List.of(), Map.of(param, value), easing, null, null, null);
 	}
 
 	/**
@@ -300,7 +382,7 @@ public record VFXTriggerPayload(
 	 * parameter's whole value source (keyframes, binding or previous expression) at runtime.
 	 */
 	public static VFXTriggerPayload setExpr(final Identifier effectId, final String param, final String exprSource) {
-		return new VFXTriggerPayload(PROTOCOL_VERSION, effectId, VFXAction.SET_EXPR, 0, 0, 0L, null, List.of(), Map.of(), EasingType.LINEAR.name(), param, exprSource, null);
+		return new VFXTriggerPayload(PROTOCOL_VERSION, effectId, VFXAction.SET_EXPR, 0, 0, 0L, null, List.of(), List.of(), Map.of(), EasingType.LINEAR.name(), param, exprSource, null);
 	}
 
 	/**
@@ -311,7 +393,7 @@ public record VFXTriggerPayload(
 	 * @param worldPos   the new world position
 	 */
 	public static VFXTriggerPayload move(final Identifier effectId, final long instanceId, final Vec3 worldPos) {
-		return new VFXTriggerPayload(PROTOCOL_VERSION, effectId, VFXAction.MOVE, 0, 0, instanceId, worldPos, List.of(), Map.of(), EasingType.LINEAR.name(), null, null, null);
+		return new VFXTriggerPayload(PROTOCOL_VERSION, effectId, VFXAction.MOVE, 0, 0, instanceId, worldPos, List.of(), List.of(), Map.of(), EasingType.LINEAR.name(), null, null, null);
 	}
 
 	@Override

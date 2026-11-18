@@ -35,6 +35,14 @@ void sendEffect(ServerPlayer player, Identifier effectId, int durationTicks, Map
 // slots in anchor order (the client tracks those entities per frame).
 void sendEffect(ServerPlayer player, Identifier effectId, int durationTicks, long instanceId, @Nullable Vec3 worldPos, List<UUID> entityUuids, Map<String, Float> overrides, @Nullable EasingType easing);
 
+// One instance, many world positions: the single instance renders at every point in `positions`
+// (empty = the ordinary single-point behaviour). This is the "tint hundreds of blocks with one
+// packet" path - one instance costs one MAX_ACTIVE_EFFECTS slot instead of one per block. The
+// list is bounded on the wire at VFXTriggerPayload.MAX_POSITIONS (4096, a packet-size bound, not
+// an instance cap) and cut with one warning on decode. sendStop(player, effectId, instanceId)
+// stops every position of the instance.
+boolean sendEffect(ServerPlayer player, Identifier effectId, long instanceId, List<Vec3> positions, Map<String, Float> overrides, @Nullable EasingType easing);
+
 // Stops the effect on the player's client (all its instances).
 void sendStop(ServerPlayer player, Identifier effectId);
 
@@ -528,13 +536,14 @@ Semantics:
 
 | Field | Type | Description |
 |---|---|---|
-| `protocolVersion` | byte | Current value — `VFXTriggerPayload.PROTOCOL_VERSION` (7). The client **silently ignores** the packet on a version mismatch (see `VFXClient.handleTrigger`), so client and server must be the same version — 7 added the optional text override below, and a 6/7 mismatch fails exactly like every earlier bump. |
+| `protocolVersion` | byte | Current value — `VFXTriggerPayload.PROTOCOL_VERSION` (8). The client **silently ignores** the packet on a version mismatch (see `VFXClient.handleTrigger`), so client and server must be the same version — 8 added the optional position list below, and a 7/8 mismatch fails exactly like every earlier bump. An **older client ignores the new version**, so it keeps its former single-point behaviour for effects it does understand. |
 | `effectId` | `Identifier` | Effect id (built-in or datapack) |
 | `action` | `VFXAction` (`PLAY`/`STOP`/`SET_PARAM`/`KEYFRAME`/`SET_EXPR`/`MOVE`) | `SET_PARAM`/`KEYFRAME` apply to **running** effect instances: `params` carries exactly one `name → value` entry, for `KEYFRAME` the frame time is in `durationTicks` (negative = start the segment at the current time and run over `|time|` ticks), the segment easing in `easing`; `SET_EXPR` uses `exprParam`+`exprSource`; `MOVE` uses `position` + `instanceId` |
 | `durationTicks` | varint | 0 = definition default, negative = persistent (only for `PLAY`) |
 | `elapsedTicks` | varint | Resume offset: how far into the timeline the effect already is (only for `PLAY`, 0 = start fresh). Used when the server re-applies effects after a reconnect, computed from the effect's original start so time spent offline counts. |
 | `params` | `Map<String, Float>` | Constant overrides, numbers only |
 | `easing` | `EasingType` (string) | |
+| `positions` | `List<Vec3>` | New in **8**. Only for `PLAY`: a runtime world-position list the single instance renders at (empty = single point). Bounded at `VFXTriggerPayload.MAX_POSITIONS` = 4096 (a packet-size bound, not an instance cap); a longer list is cut on decode with one warning. The renderer prefers this list over a runtime move position and the definition's own `positions`. |
 | `exprParam` / `exprSource` | optional strings | Only for `SET_EXPR`: the parameter name and the raw expression source |
 | `textOverride` | optional string | New in **7**. Only for `PLAY`: replaces the definition's `text.content` for this instance. Absent (null) on every other action and on every older sender, which means "use the definition's own text". Cut to 512 characters on decode, with one warning |
 

@@ -575,7 +575,7 @@ public final class EditorPreviewController {
 		// Duration 0 = the definition default (the root's authored duration); the trigger anchors
 		// the root age to the controller tick, so a seek re-anchors instead of drifting.
 		final float trigger = VFXEffectManager.get().getClock() - this.tick;
-		VFXEffectManager.get().playReplay(def, 0, trigger, id, this.contextPos, this.contextTargets, Map.of(), null, false);
+		VFXEffectManager.get().playReplay(def, 0, trigger, id, this.contextPos, this.contextTargets, List.of(), Map.of(), null, false);
 	}
 
 	/**
@@ -604,7 +604,7 @@ public final class EditorPreviewController {
 		// Anchor trigger so age == clock - trigger, then pin the exact age: the controller owns the
 		// tick, so a pause/seek never depends on the shared clock's drift.
 		final float trigger = VFXEffectManager.get().getClock() - age;
-		VFXEffectManager.get().playReplay(def, duration, trigger, id, this.contextPos, this.contextTargets, params, null, false);
+		VFXEffectManager.get().playReplay(def, duration, trigger, id, this.contextPos, this.contextTargets, List.of(), params, null, false);
 		setAge(id, age);
 	}
 

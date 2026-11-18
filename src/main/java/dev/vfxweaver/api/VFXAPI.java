@@ -738,6 +738,54 @@ public final class VFXAPI {
 	}
 
 	/**
+	 * Triggers an effect for a player as <b>one instance</b> that renders at every world position in
+	 * {@code positions}. This is the "tint hundreds of blocks with one packet" path: a single
+	 * instance with a long position list costs one {@code MAX_ACTIVE_EFFECTS} slot, instead of one
+	 * instance per block. The list is bounded on the wire at
+	 * {@link VFXTriggerPayload#MAX_POSITIONS} (a packet-size bound, not an instance cap) and cut
+	 * with one warning on decode. An empty list falls back to the ordinary single-point behaviour.
+	 * A later {@link #sendStop(ServerPlayer, Identifier, long)} with the same instance id stops
+	 * every position of the instance.
+	 *
+	 * @param player     the receiving player
+	 * @param effectId   effect id (must be registered)
+	 * @param instanceId instance id to assign (0 = client allocates)
+	 * @param positions  world positions the instance renders at (empty = single point)
+	 * @param overrides  parameter overrides (may be empty)
+	 * @param easing     easing curve (may be null to use the definition default)
+	 * @return {@code true} when the effect was known and sent
+	 */
+	public static boolean sendEffect(
+		final ServerPlayer player,
+		final Identifier effectId,
+		final long instanceId,
+		final List<Vec3> positions,
+		final Map<String, Float> overrides,
+		final @Nullable EasingType easing
+	) {
+		VFXDefinition definition = VFXDefinitionManager.get().get(effectId);
+		if (definition == null) {
+			VFXLog.warnOnce(LOGGER, "api:unknown-effect:" + effectId, "sendEffect({}) failed: unknown effect", effectId);
+			return false;
+		}
+		Map<String, Float> params = new HashMap<>();
+		for (Map.Entry<String, VFXDefinition.ParamSpec> entry : definition.getParams().entrySet()) {
+			VFXDefinition.ParamSpec spec = entry.getValue();
+			if (!spec.animated() && spec.keyframes().isEmpty() && spec.bound() == null && spec.multiply() == null && spec.exprSource() == null) {
+				params.put(entry.getKey(), spec.constant());
+			}
+		}
+		params.putAll(overrides);
+		int duration = definition.isPersistent() ? -1 : definition.getDefaultDuration();
+		EasingFunction effectiveEasing = easing != null ? EasingFunction.builtIn(easing) : definition.getDefaultEasing();
+		String wireEasing = effectiveEasing.isInline() ? "" : effectiveEasing.name();
+		VFXNetwork.sendToPlayer(player, VFXTriggerPayload.play(effectId, duration, instanceId, positions, params, wireEasing));
+		VFXServerEffects.get().record(player, effectId, duration, instanceId, null, List.of(), params, wireEasing, null);
+		VFXScoreboardSync.onEffectPlayed(player, definition, duration);
+		return true;
+	}
+
+	/**
 	 * Triggers an effect for a player with the given explicit duration and easing, without
 	 * consulting the definition registry.
 	 */
