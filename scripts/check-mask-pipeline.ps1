@@ -3,6 +3,9 @@
 #   * MaskParserCheck - the parser must reject a right-nested composition, a third custom leaf, a
 #                       second block leaf and an invalid top-level space, and must keep the
 #                       parse-time softness default on the .soft slot.
+#   * MaskSpecCheck   - every VFXMaskSpec builder variant round-trips through VFXMaskParser (leaves,
+#                       sky/depth, dome space, custom in both spaces, compositions, invert), and the
+#                       builder's own validation rejects the combinations the parser would refuse.
 #
 # Usage: powershell -ExecutionPolicy Bypass -File scripts/check-mask-pipeline.ps1
 # Exits 1 (after listing the problem) on a mismatch; 0 when the contract holds.
@@ -584,12 +587,102 @@ public final class MaskParserCheck {
 '@
 [System.IO.File]::WriteAllText($checkSrc, $checkJava, [System.Text.UTF8Encoding]::new($false))
 
+$specSrc = Join-Path $checkDir "MaskSpecCheck.java"
+$specJava = @'
+import com.google.gson.JsonObject;
+import dev.vfxweaver.mask.VFXMask;
+import dev.vfxweaver.mask.VFXMaskFill;
+import dev.vfxweaver.mask.VFXMaskSpace;
+import dev.vfxweaver.mask.VFXMaskSpec;
+
+/**
+ * Every VFXMaskSpec builder variant must produce JSON VFXMaskParser accepts, and the builder's own
+ * validation must reject the combinations the parser refuses (so a caller sees the error at
+ * buildJson() instead of a client-side "invalid mask JSON" warning).
+ */
+public final class MaskSpecCheck {
+	public static void main(final String[] args) {
+		// Every leaf family, including the two the runtime API added on top of the datapack set.
+		parses("circle", VFXMaskSpec.circle(0.4F));
+		parses("ellipse", VFXMaskSpec.ellipse(0.4F, 0.2F));
+		parses("rect", VFXMaskSpec.rect(0.3F, 0.2F));
+		parses("rect corner", VFXMaskSpec.rect(0.3F, 0.2F, 0.05F));
+		parses("polygon", VFXMaskSpec.polygon(0.3F, 6));
+		parses("sphere", VFXMaskSpec.sphere(8.0F).center(1F, 64F, 2F));
+		parses("box", VFXMaskSpec.box(4.0F, 2.0F, 6.0F));
+		parses("block", VFXMaskSpec.block(16.0F, "minecraft:stone").center(0F, 64F, 0F));
+		parses("block tag", VFXMaskSpec.blockTag(16.0F, "minecraft:logs"));
+		parses("block_list", VFXMaskSpec.blockList(new float[]{0, 64, 0}, new float[]{1, 64, 0}));
+		parses("block_list region", VFXMaskSpec.blockRegion(0, 64, 0, 3, 67, 3));
+		parses("block_list hollow", VFXMaskSpec.blockList(new float[]{0, 64, 0}).fill(VFXMaskFill.HOLLOW));
+		parses("stroke", VFXMaskSpec.circle(0.4F).fill(VFXMaskFill.STROKE).strokeWidth(0.05F));
+		parses("depth", VFXMaskSpec.depth(32.0F));
+		parses("sky", VFXMaskSpec.sky());
+		// Dome space on a 2D leaf (its centre is a literal [yaw, pitch] in degrees).
+		final VFXMask dome = parses("dome circle", VFXMaskSpec.circle(0.2F).space(VFXMaskSpace.DOME));
+		require(dome.primitives().get(0).space() == VFXMaskSpace.DOME, "dome circle space = " + dome.primitives().get(0).space());
+		// Custom leaf in both spaces: the space is explicit, so this parses without any registry.
+		parses("custom world", VFXMaskSpec.custom("vfxweaver:ringed_volume", VFXMaskSpace.WORLD));
+		parses("custom screen params", VFXMaskSpec.custom("vfxweaver:ringed_volume", VFXMaskSpace.SCREEN, 0.5F, 0.25F));
+		// Compositions and invert (left-nested, the parser's supported shape).
+		parses("union", VFXMaskSpec.circle(0.4F).union(VFXMaskSpec.circle(0.2F)));
+		parses("difference", VFXMaskSpec.circle(0.4F).difference(VFXMaskSpec.circle(0.2F)));
+		parses("intersection+invert", VFXMaskSpec.rect(0.4F, 0.4F).intersection(VFXMaskSpec.ellipse(0.3F, 0.5F)).invert());
+		parses("left-nested", VFXMaskSpec.sphere(8.0F).intersection(VFXMaskSpec.box(2F, 2F, 2F)).union(VFXMaskSpec.sphere(4.0F)));
+
+		// The builder's own validation mirrors the parser.
+		rejected("hollow on a circle", () -> VFXMaskSpec.circle(0.4F).fill(VFXMaskFill.HOLLOW).buildJson());
+		rejected("stroke without a width", () -> VFXMaskSpec.circle(0.4F).fill(VFXMaskFill.STROKE).buildJson());
+		rejected("two polygon sides", () -> VFXMaskSpec.polygon(0.3F, 2));
+		rejected("block radius above MAX_RADIUS", () -> VFXMaskSpec.block(33.0F, "minecraft:stone"));
+		rejected("block radius 0", () -> VFXMaskSpec.blockTag(0.0F, "minecraft:logs"));
+		rejected("nine custom params", () -> VFXMaskSpec.custom("vfxweaver:ringed_volume", VFXMaskSpace.SCREEN,
+			new float[]{0, 0, 0, 0, 0, 0, 0, 0, 0}));
+		rejected("dome on a sphere", () -> VFXMaskSpec.sphere(4.0F).space(VFXMaskSpace.DOME));
+		rejected("world space on a circle", () -> VFXMaskSpec.circle(0.4F).space(VFXMaskSpace.WORLD));
+		rejected("screen space on sky", () -> VFXMaskSpec.sky().space(VFXMaskSpace.SCREEN));
+		rejected("space on a composition", () -> VFXMaskSpec.circle(0.4F).union(VFXMaskSpec.circle(0.2F)).space(VFXMaskSpace.DOME));
+		rejected("nested invert", () -> VFXMaskSpec.circle(0.4F).invert().union(VFXMaskSpec.circle(0.2F)).buildJson());
+		rejected("custom dome space", () -> VFXMaskSpec.custom("vfxweaver:ringed_volume", VFXMaskSpace.DOME));
+
+		System.out.println("mask spec check OK: every builder variant parses; invalid combinations rejected at buildJson()");
+	}
+
+	private static VFXMask parses(final String name, final VFXMaskSpec spec) {
+		final JsonObject json = spec.buildJson();
+		try {
+			return VFXMask.parse("check", json);
+		} catch (final RuntimeException e) {
+			throw new AssertionError(name + " does not parse: " + json + " -> " + e.getMessage(), e);
+		}
+	}
+
+	private static void rejected(final String what, final Runnable build) {
+		try {
+			build.run();
+			throw new AssertionError(what + " was accepted; the builder must reject it");
+		} catch (final IllegalArgumentException expected) {
+			// expected
+		}
+	}
+
+	private static void require(final boolean condition, final String message) {
+		if (!condition) {
+			throw new AssertionError(message);
+		}
+	}
+}
+'@
+[System.IO.File]::WriteAllText($specSrc, $specJava, [System.Text.UTF8Encoding]::new($false))
+
 Push-Location $repoRoot
 try {
-	& $javac "@$cpFile" -d $checkDir $checkSrc
+	& $javac "@$cpFile" -d $checkDir $checkSrc $specSrc
 	if ($LASTEXITCODE -ne 0) { throw "javac failed" }
 	& $java "@$cpFile" MaskParserCheck
 	if ($LASTEXITCODE -ne 0) { throw "MaskParserCheck failed" }
+	& $java "@$cpFile" MaskSpecCheck
+	if ($LASTEXITCODE -ne 0) { throw "MaskSpecCheck failed" }
 } finally {
 	Pop-Location
 }

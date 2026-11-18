@@ -159,9 +159,14 @@ public final class VFXClientRenderHooks {
 		VFXScoreboardCache.clear();
 	}
 
-	/** Resets the server-pushed scoreboard cache when the player leaves a server. */
+	/** Resets the server-pushed scoreboard cache and any runtime mask override on leaving a server. */
 	public static void onClientDisconnect() {
-		Minecraft.getInstance().execute(VFXScoreboardCache::clear);
+		Minecraft.getInstance().execute(() -> {
+			VFXScoreboardCache.clear();
+			// A mask override was pushed by the server that just went away; keeping it would leak
+			// one session's mask into the next world, so it is dropped with the scoreboard cache.
+			VFXEffectManager.get().clearRuntimeMasks();
+		});
 	}
 
 	/** Frees the lazily allocated GPU resources on client shutdown. */

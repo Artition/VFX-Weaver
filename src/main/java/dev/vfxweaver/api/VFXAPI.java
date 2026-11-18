@@ -962,9 +962,11 @@ public final class VFXAPI {
 	 * the new mask, and the client remembers it for future plays of the same id. The JSON is the
 	 * same object a datapack file authors under {@code "mask"} (parsed through
 	 * {@code VFXMaskParser}, so it can express every family, composition, {@code invert}, fill and
-	 * numeric leaf field the format supports - build one with {@link VFXMaskSpec}). Invalid JSON is
-	 * rejected on the client with one warning and the current mask is left untouched; a
-	 * {@code null} or blank JSON removes the override and restores the authored mask.
+	 * numeric leaf field the format supports - build one with {@link VFXMaskSpec}). <b>Literals and
+	 * world bindings are supported; a graph {@code from} value is authored-only</b> and is rejected
+	 * with one warning, because a runtime mask has no definition graph to resolve it against.
+	 * Invalid JSON is rejected on the client with one warning and the current mask is left
+	 * untouched; a {@code null} or blank JSON removes the override and restores the authored mask.
 	 *
 	 * <p>This reuses no other live-edit action: it travels as {@code SET_MASK} in
 	 * {@code VFXTriggerPayload}, with the JSON in the optional trailing {@code maskJson} field.
@@ -972,40 +974,59 @@ public final class VFXAPI {
 	 * @param player   the receiving player
 	 * @param effectId effect id whose mask is overridden
 	 * @param maskJson the mask object as JSON text, or {@code null}/blank to remove the override
+	 * @return {@code true} when the payload was sent; {@code false} when the JSON exceeds
+	 *         {@link VFXTriggerPayload#MAX_MASK_JSON} (logged once, nothing is sent)
 	 */
-	public static void sendMask(final ServerPlayer player, final Identifier effectId, final @Nullable String maskJson) {
+	public static boolean sendMask(final ServerPlayer player, final Identifier effectId, final @Nullable String maskJson) {
+		if (maskJson != null && maskJson.length() > VFXTriggerPayload.MAX_MASK_JSON) {
+			VFXLog.warnOnce(LOGGER, "api:mask-too-long:" + effectId, "sendMask({}) failed: {} characters is above MAX_MASK_JSON ({})", effectId, maskJson.length(), VFXTriggerPayload.MAX_MASK_JSON);
+			return false;
+		}
 		VFXNetwork.sendToPlayer(player, VFXTriggerPayload.setMask(effectId, maskJson));
+		return true;
 	}
 
 	/**
 	 * Same as {@link #sendMask(ServerPlayer, Identifier, String)}, taking a {@link VFXMaskSpec}
-	 * builder instead of raw JSON.
+	 * builder instead of raw JSON. The spec is validated by {@link VFXMaskSpec#buildJson()}, so an
+	 * invalid combination throws {@link IllegalArgumentException} here instead of being sent.
 	 *
 	 * @param spec the mask to build and send (never {@code null})
+	 * @return {@code true} when the payload was sent
 	 */
-	public static void sendMask(final ServerPlayer player, final Identifier effectId, final VFXMaskSpec spec) {
-		sendMask(player, effectId, spec.buildJson().toString());
+	public static boolean sendMask(final ServerPlayer player, final Identifier effectId, final VFXMaskSpec spec) {
+		return sendMask(player, effectId, spec.buildJson().toString());
 	}
 
 	/**
 	 * Creates, replaces or removes an effect's runtime mask on this client (no packet) - the local
 	 * counterpart of {@link #sendMask(ServerPlayer, Identifier, String)}. Same per-effect-id scope,
-	 * same JSON contract, same validation: the override applies to every running instance of the id
-	 * and is remembered for future plays, and a {@code null}/blank JSON restores the authored mask.
+	 * same JSON contract, same validation (literals and world bindings; graph {@code from} is
+	 * authored-only); the override applies to every running instance of the id and is remembered for
+	 * future plays, and a {@code null}/blank JSON restores the authored mask.
 	 *
 	 * @param effectId effect id whose mask is overridden
 	 * @param maskJson the mask object as JSON text, or {@code null}/blank to remove the override
 	 * @return {@code true} when the mask was applied or removed (or queued for the render thread);
-	 *         {@code false} without a client or when the JSON was rejected
+	 *         {@code false} without a client, when the JSON was rejected, or when it exceeds
+	 *         {@link VFXTriggerPayload#MAX_MASK_JSON} (logged once, nothing is applied)
 	 */
 	public static boolean mask(final Identifier effectId, final @Nullable String maskJson) {
-		return localDispatcher != null && localDispatcher.setMask(effectId, maskJson);
+		if (localDispatcher == null) {
+			return false;
+		}
+		if (maskJson != null && maskJson.length() > VFXTriggerPayload.MAX_MASK_JSON) {
+			VFXLog.warnOnce(LOGGER, "api:mask-too-long:" + effectId, "mask({}) failed: {} characters is above MAX_MASK_JSON ({})", effectId, maskJson.length(), VFXTriggerPayload.MAX_MASK_JSON);
+			return false;
+		}
+		return localDispatcher.setMask(effectId, maskJson);
 	}
 
 	/**
 	 * Same as {@link #mask(Identifier, String)}, taking a {@link VFXMaskSpec} builder.
 	 *
 	 * @param spec the mask to build and apply (never {@code null})
+	 * @return {@code true} when the mask was applied or removed
 	 */
 	public static boolean mask(final Identifier effectId, final VFXMaskSpec spec) {
 		return mask(effectId, spec.buildJson().toString());

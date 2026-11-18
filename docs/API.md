@@ -88,10 +88,11 @@ void sendMaskData(ServerPlayer player, Identifier effectId, int primitive, float
 // Creates, replaces or removes the mask of an effect at runtime, overriding the definition's
 // authored (datapack) mask. The override is per effect id (all running instances of that effect for
 // that player, and every later play of it). The JSON is the exact "mask" object a datapack authors;
-// null/blank removes the override and restores the authored mask. Invalid JSON is rejected on the
-// client with one warning and the current mask is left untouched.
-void sendMask(ServerPlayer player, Identifier effectId, @Nullable String maskJson);
-void sendMask(ServerPlayer player, Identifier effectId, VFXMaskSpec spec);   // builder overload
+// null/blank removes the override and restores the authored mask. A runtime mask takes literals and
+// world bindings; a graph { "from": node } slot is authored-only and is rejected. Invalid or
+// over-long JSON is refused (logged once) and the current mask is left untouched.
+boolean sendMask(ServerPlayer player, Identifier effectId, @Nullable String maskJson);
+boolean sendMask(ServerPlayer player, Identifier effectId, VFXMaskSpec spec);   // builder overload
 
 // Adds/replaces a keyframe of a parameter of a running effect.
 // A negative timeTicks means "from here": the value the parameter has right now is pinned at the
@@ -244,10 +245,16 @@ VFXAPI.maskData(effectId, 0, values);
 `sendMask` / `mask` replace the mask a definition authored, at runtime, with the **full datapack
 mask JSON expressible** - the same object a file puts under `"mask"`, parsed by the same
 `VFXMaskParser`, so every family (screen `circle`/`ellipse`/`rect`/`polygon`, world
-`sphere`/`box`, `block`, `block_list`, a registered custom shape), every composition
-(`union`/`intersection`/`difference`, left-nested), `invert`, `fill`, `softness`, the numeric leaf
-fields, `from`/`bind` values, `field`, `volume`, `occlude` and a custom leaf's `params`/`data` all
-work exactly as in a datapack.
+`sphere`/`box`, `block`, `block_list`, `sky`, `depth`, a registered custom shape), every
+composition (`union`/`intersection`/`difference`, left-nested), `invert`, `fill`, `softness`, the
+numeric leaf fields, `bind` values, `field`, `volume`, `occlude` and a custom leaf's
+`params`/`data` all work exactly as in a datapack.
+
+**One exception: graph `from` is authored-only.** A `{ "from": "<node>" }` slot resolves against the
+definition's graph, and a runtime mask has no definition graph behind it, so such a JSON is
+**rejected with one warning** and the current mask stays - it is never rendered with the slot's
+default. Literals and world `bind` values are fully supported; animate a runtime mask with the live
+paths instead (`sendMaskMove`, `sendMaskData`, `sendSetParam`, `sendSetParamExpr`).
 
 ```java
 // Server: an override the player keeps until it is removed.
@@ -266,19 +273,26 @@ Semantics:
   coverage targets are shared per definition, so the override applies to every running instance of
   that effect id for that player, and the client remembers it for future plays of the same id (a
   later play inherits the current override). Two concurrent instances of one id cannot carry
-  different masks - if you need that, use two definitions.
+  different masks - if you need that, use two definitions. The override is dropped when the client
+  leaves the server (with the scoreboard cache), so one session's mask never leaks into the next.
 - **Removal restores the authored mask.** A `null` or blank JSON drops the override; the
   definition's own `mask` block (if any) applies again, and a definition without one goes back to
   carrying no mask pass at all.
-- **Invalid JSON changes nothing.** The JSON is parsed through `VFXMaskParser`, so an unknown shape
-  or a malformed composition is rejected with one warning per effect id and the current mask stays.
+- **Invalid JSON changes nothing.** The JSON is parsed through `VFXMaskParser`, so an unknown shape,
+  a malformed composition or a graph `from` slot is rejected with one warning per effect id and the
+  current mask stays.
+- **An over-long JSON is refused, never sent as "remove".** Above
+  `VFXTriggerPayload.MAX_MASK_JSON` (65536 characters) `sendMask` returns `false` and logs once
+  instead of putting a `null` on the wire, because `null` means "remove the override".
 - `sendMaskMove`/`sendMaskData` keep working on a runtime mask: a live edit on a `mask.p<N>.*`
   parameter wins over the override's own JSON value for that slot.
 - Changing the mask rebuilds that effect's mask targets (coverage target and block-geometry
   scratch) and its uniforms, so no coverage from the previous mask survives the swap.
 
 `VFXMaskSpec` (in `dev.vfxweaver.mask`) builds that JSON in code; every factory/modifier returns a
-new spec, and `buildJson()` returns the exact mask object:
+new spec, and `buildJson()` returns the exact mask object, validated against the parser's rules (an
+invalid combination throws `IllegalArgumentException` instead of sending JSON the client would
+reject):
 
 ```java
 VFXMaskSpec ring = VFXMaskSpec.circle(0.4F).softness(0.02F);
@@ -287,13 +301,18 @@ VFXAPI.sendMask(player, effectId, spec);            // or spec.buildJson().toStr
 ```
 
 Covered leaf families and fields: `circle(radius)`, `ellipse(radiusX, radiusY)`,
-`rect(halfWidth, halfHeight[, cornerRadius])`, `polygon(radius, sides)`, `sphere(radius)`,
-`box(halfWidth, halfHeight, halfDepth)`, `block(radius, blockIds...)`, `blockTag(radius, tag)`,
-`blockList([x,y,z]...)`, `blockRegion(x0,y0,z0,x1,y1,z1)`, `custom(shapeId[, params...])`;
-`center(x,y)` / `center(x,y,z)`, `rotation(degrees)`, `softness(w)`, `fill(VFXMaskFill)`,
-`strokeWidth(w)`, `invert()`, and the composition `union`/`intersection`/`difference`. A custom
-shape's default centre follows its registered space; override it with `center(...)`. For keys the
-builder does not name, send the JSON string directly.
+`rect(halfWidth, halfHeight[, cornerRadius])`, `polygon(radius, sides)`, `sky()`,
+`depth(distance)`, `sphere(radius)`, `box(halfWidth, halfHeight, halfDepth)`,
+`block(radius, blockIds...)`, `blockTag(radius, tag)`, `blockList([x,y,z]...)`,
+`blockRegion(x0,y0,z0,x1,y1,z1)`, `custom(shapeId, space[, params...])`; `center(x,y)` /
+`center(x,y,z)`, `space(VFXMaskSpace)` (screen or dome for the 2D leaves), `rotation(degrees)`,
+`softness(w)`, `fill(VFXMaskFill)`, `strokeWidth(w)`, `invert()`, and the composition
+`union`/`intersection`/`difference`. Builder-side validation matches the parser: `hollow` only on a
+`block_list`, `stroke` requires `strokeWidth`, `polygon` needs at least 3 sides, a block scan radius
+stays within `VFXMaskBlockSelection.MAX_RADIUS` (32 blocks), a custom leaf carries at most
+`VFXMaskSlots.MAX_LEAF_PARAMS` (8) params, and a leaf's `space` must be one its family supports.
+`custom(...)` takes the space **explicitly** (the shape registry is client-local, so a spec built on
+a server must not guess it). For keys the builder does not name, send the JSON string directly.
 
 #### Custom mask shapes (client-local)
 
@@ -619,7 +638,7 @@ Semantics:
 | `positions` | `List<Vec3>` | New in **8**. Only for `PLAY`: a runtime world-position list the single instance renders at (empty = single point). Bounded at `VFXTriggerPayload.MAX_POSITIONS` = 4096 (a packet-size bound, not an instance cap); a longer list is cut on decode with one warning. The renderer prefers this list over a runtime move position and the definition's own `positions`. |
 | `exprParam` / `exprSource` | optional strings | Only for `SET_EXPR`: the parameter name and the raw expression source |
 | `textOverride` | optional string | New in **7**. Only for `PLAY`: replaces the definition's `text.content` for this instance. Absent (null) on every other action and on every older sender, which means "use the definition's own text". Cut to 512 characters on decode, with one warning |
-| `maskJson` | optional string | New in **9**. Only for `SET_MASK`: the mask object that replaces the definition's authored mask for every running and future instance of `effectId`. Absent (null) or blank removes the override and restores the authored mask. Bounded at `VFXTriggerPayload.MAX_MASK_JSON` (65536 characters, a packet-size bound); an over-long value is **dropped** (not cut) on both ends with one warning, because a truncated JSON cannot parse |
+| `maskJson` | optional string | New in **9**. Only for `SET_MASK`: the mask object that replaces the definition's authored mask for every running and future instance of `effectId`. Absent (null) or blank removes the override and restores the authored mask; a graph `{ "from": ... }` slot is authored-only and is rejected client-side with one warning. Bounded at `VFXTriggerPayload.MAX_MASK_JSON` (65536 characters, a packet-size bound): `VFXAPI.sendMask` refuses an over-long value (`false`, one warning) and the codec only **cuts** one that reaches it as a last resort - it is never replaced by `null`, because `null` means "remove the override" |
 
 ### Serverbound: `vfxweaver:vfx_request` (`VFXRequestPayload`)
 

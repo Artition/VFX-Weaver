@@ -230,14 +230,10 @@ public class VFXClient {
 				LOGGER.warn("VFX move: effect '{}' instance {} is not running", payload.effectId(), payload.instanceId());
 			}
 		} else if (payload.action() == VFXAction.SET_MASK) {
-			// Null/blank removes the override (restores the authored mask); invalid JSON is
-			// rejected by the manager with one warning and leaves the current mask untouched.
-			// Removing an override that was never set is a valid no-op, so only a real JSON value
-			// that fails to apply is worth a log line.
-			final boolean removed = payload.maskJson() == null || payload.maskJson().isBlank();
-			if (!VFXEffectManager.get().setMask(payload.effectId(), payload.maskJson()) && !removed) {
-				LOGGER.warn("VFX set_mask: mask JSON for '{}' was rejected", payload.effectId());
-			}
+			// Null/blank removes the override (restores the authored mask). Every rejection -
+			// malformed JSON, a graph 'from' slot - is logged once by the manager itself, so no
+			// second per-packet line is written here.
+			VFXEffectManager.get().setMask(payload.effectId(), payload.maskJson());
 		} else if (payload.action() == VFXAction.SET_PARAM || payload.action() == VFXAction.KEYFRAME) {
 			if (payload.params().size() != 1) {
 				LOGGER.warn("Ignoring VFX packet: {} expects exactly one parameter, got {}", payload.action(), payload.params().size());

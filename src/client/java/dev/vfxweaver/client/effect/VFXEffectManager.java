@@ -664,6 +664,11 @@ public class VFXEffectManager {
 	 * block. Invalid JSON is rejected with one warning and the current mask is left untouched. A
 	 * {@code null} or blank JSON removes the override and restores the definition's authored mask.
 	 *
+	 * <p>A runtime mask accepts <b>literals and world bindings only</b>: a {@code { "from": node }}
+	 * slot is authored-only (a definition's graph does not exist for a mask that was never part of
+	 * the definition), so a JSON containing one is rejected instead of silently rendering the
+	 * slot's default.
+	 *
 	 * @param effectId the effect id all of whose instances get the override
 	 * @param maskJson the mask JSON object, or {@code null}/blank to remove the override
 	 * @return {@code true} when the mask was applied (or removed), {@code false} when the JSON was
@@ -692,6 +697,16 @@ public class VFXEffectManager {
 			VFXLog.warnOnce(LOGGER, "mask-invalid:" + effectId, "Ignoring invalid mask JSON for '{}': {}", effectId, e.getMessage());
 			return false;
 		}
+		// A graph input cannot be resolved for a mask that is not part of the definition (its graph
+		// is authored per definition), and silently rendering the slot's default would be a mask
+		// that is not what the caller asked for. Reject it, visibly.
+		final String graphSlot = firstGraphSlot(mask);
+		if (graphSlot != null) {
+			VFXLog.warnOnce(LOGGER, "mask-graph-slot:" + effectId,
+				"Ignoring runtime mask for '{}': slot '{}' uses {{ \"from\": ... }}, which is authored-only; a runtime mask takes literals and world bindings",
+				effectId, graphSlot);
+			return false;
+		}
 		this.runtimeMasks.put(effectId, mask);
 		for (VFXActiveEffect effect : this.active) {
 			if (effect.getId().equals(effectId)) {
@@ -699,6 +714,31 @@ public class VFXEffectManager {
 			}
 		}
 		return true;
+	}
+
+	/** The first slot name driven by a graph node, or {@code null} when every slot is a literal/binding. */
+	private static @Nullable String firstGraphSlot(final VFXMask mask) {
+		for (final VFXMask.MaskSlot slot : mask.slots().values()) {
+			if (slot.graphNode() != null) {
+				return slot.name();
+			}
+		}
+		return null;
+	}
+
+	/**
+	 * Drops every runtime mask override, restoring each definition's authored mask. Called when the
+	 * client leaves a server / unloads the world, alongside the scoreboard cache reset: an override
+	 * was pushed by one server and must not leak into the next session.
+	 */
+	public void clearRuntimeMasks() {
+		if (this.runtimeMasks.isEmpty()) {
+			return;
+		}
+		this.runtimeMasks.clear();
+		for (VFXActiveEffect effect : this.active) {
+			effect.clearMaskOverride();
+		}
 	}
 
 	/**

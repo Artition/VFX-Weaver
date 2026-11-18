@@ -77,9 +77,10 @@ public record VFXTriggerPayload(
 	/**
 	 * Wire cap on a call-time mask JSON, in characters. This is a <b>packet-size bound</b> (see
 	 * AGENTS.md): a mask JSON may carry a {@code block_list}'s {@code positions} array, which has no
-	 * cap of its own because it sizes a cached model list rather than a packet. An over-long value
-	 * is dropped on both ends with one warning instead of being cut, because a truncated JSON would
-	 * not parse and a silently corrupt mask is worse than none.
+	 * cap of its own because it sizes a cached model list rather than a packet. {@code
+	 * VFXAPI.sendMask} refuses an over-long value with one warning; the codec only cuts it as a last
+	 * resort (see {@link #OPTIONAL_MASK_JSON}) and never sends {@code null} in its place, because
+	 * {@code null} means "remove the override".
 	 */
 	public static final int MAX_MASK_JSON = 65536;
 	/**
@@ -205,26 +206,29 @@ public record VFXTriggerPayload(
 	}
 
 	/**
-	 * {@link #OPTIONAL_STRING} for the mask JSON: a value longer than {@link #MAX_MASK_JSON} is
-	 * dropped (not cut) on both ends with one warning, so one oversized mask can neither break the
-	 * send nor the stream alignment.
+	 * {@link #OPTIONAL_STRING} for the mask JSON: a value longer than {@link #MAX_MASK_JSON} is cut
+	 * on both ends with one warning. It is deliberately <b>not</b> turned into {@code null} - a
+	 * {@code null} mask means "remove the override", so dropping an oversized value would silently
+	 * undo a mask the caller wanted. A cut value is no longer valid JSON, and the client rejects it
+	 * with a warning while keeping its current mask; {@code VFXAPI.sendMask} refuses such a value
+	 * before it reaches the wire.
 	 */
 	public static final StreamCodec<ByteBuf, String> OPTIONAL_MASK_JSON = new StreamCodec<>() {
 		public String decode(final ByteBuf input) {
-			return clipMaskJson(OPTIONAL_STRING.decode(input));
+			return truncateMaskJson(OPTIONAL_STRING.decode(input));
 		}
 
 		public void encode(final ByteBuf output, final String value) {
-			OPTIONAL_STRING.encode(output, clipMaskJson(value));
+			OPTIONAL_STRING.encode(output, truncateMaskJson(value));
 		}
 	};
 
-	private static @Nullable String clipMaskJson(final @Nullable String value) {
+	private static @Nullable String truncateMaskJson(final @Nullable String value) {
 		if (value == null || value.length() <= MAX_MASK_JSON) {
 			return value;
 		}
-		VFXLog.warnOnce(LOGGER, "net:mask-json-drop", "Mask JSON is {} characters long; dropped (MAX_MASK_JSON = {})", value.length(), MAX_MASK_JSON);
-		return null;
+		VFXLog.warnOnce(LOGGER, "net:mask-json-cut", "Mask JSON is {} characters long; cut to MAX_MASK_JSON ({}) - it no longer parses and the client keeps its mask", value.length(), MAX_MASK_JSON);
+		return value.substring(0, MAX_MASK_JSON);
 	}
 
 	private static final StreamCodec<ByteBuf, TrailingStrings> TRAILING_STRINGS_CODEC = StreamCodec.composite(
@@ -438,6 +442,10 @@ public record VFXTriggerPayload(
 	/**
 	 * Creates a mask payload that replaces the effect's authored mask for every running and future
 	 * instance of that effect id, or removes the override and restores the authored mask.
+	 *
+	 * <p>A {@code null} or blank {@code maskJson} is the "remove the override" form, so an absent
+	 * value must never be encoded for an over-long one: {@code VFXAPI.sendMask} refuses a value above
+	 * {@link #MAX_MASK_JSON} and the codec cuts (never nulls) one that reaches it anyway.
 	 *
 	 * @param effectId the effect whose mask is overridden (all its instances, per player)
 	 * @param maskJson the mask JSON object (the same shape as a datapack {@code mask} block); null
