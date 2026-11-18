@@ -622,17 +622,19 @@ clear — a box around a volume rather than a filled volume. `stroke_width` is i
 leaf (default `true`; `false` is the see-through look). `solid`/`hollow` are the only fills here:
 `stroke` is rejected on this leaf, and `hollow` is rejected everywhere else.
 
-The listed blocks are read when the mask resolves, once: a block placed (or loaded) later does not
-join the mask without a re-parse of the definition or a model reload. The one exception is the very
-first read - an empty result is never cached, so a mask that starts while its chunks are still
-loading fills in as soon as the blocks arrive.
+The listed blocks are read once, when the mask resolves: a block placed (or loaded) later does not
+join the mask without a re-parse of the definition or a model reload. The one exception is an
+explicit `positions` list that resolves to nothing - that list is re-read every frame until it does,
+so a mask that starts while its chunks are still loading fills in as soon as the blocks arrive.
 
 **Limits and cost.** There is no cap on `positions`: the list is authored data, the models are
 cached and a static list costs the same two draws per frame however long it is (a very long list
-raises memory and up-front upload, not per-frame work). A `region` is capped at **65 536** blocks
-(`65536`), the per-frame vertex-buffer budget the block geometry pass is sized to — above that,
-list the positions instead. As with any block leaf the pixels cannot be checked headless.
-**Not verified in game.**
+raises memory and up-front upload, not per-frame work). The retry above is the one exception, and it
+applies **only** to an explicit `positions` list until it resolves: a `region` with no model geometry
+in it (all air, water or sky) stays cached, so a region is never re-walked per frame. A `region` is
+capped at **65 536** blocks (`65536`), the per-frame vertex-buffer budget the block geometry pass is
+sized to — above that, list the positions instead. As with any block leaf the pixels cannot be
+checked headless. **Not verified in game.**
 
 ## Showcase
 

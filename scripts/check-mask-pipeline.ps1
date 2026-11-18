@@ -194,13 +194,14 @@ if ($geometry -notmatch 'public static void beginFrame\(\)') {
 }
 # The eviction predicate itself: drop what the previous frame did not stamp. A regression to
 # "rebuild whenever the entry is older than this call" or to no eviction at all fails here.
-if ($geometry -notmatch 'lastFrame < frameIndex - 1') {
+if ($geometryCode -notmatch 'lastFrame < frameIndex - 1') {
 	$problems.Add("VFXMaskBlockGeometry.beginFrame: the eviction predicate is not 'lastFrame < frameIndex - 1'")
 }
-# An empty listed bake must not be stored, or a mask that started before its chunks loaded would
-# never fill in.
-if ($geometry -notmatch '(?s)if \(selection\.listed\(\) && blocks\.isEmpty\(\)\) \{[^}]*selectionCaches\.remove\(selection\)') {
-	$problems.Add("VFXMaskBlockGeometry.select: an empty block_list bake is cached again (the leaf never appears)")
+# An empty bake is retried only for an explicit positions list: an all-air/water region is
+# legitimately empty, and re-walking up to MAX_REGION_BLOCKS every frame would be the per-frame world
+# walk this pass exists to avoid. Matched against code only.
+if ($geometryCode -notmatch '!selection\.positions\(\)\.isEmpty\(\) && blocks\.isEmpty\(\)') {
+	$problems.Add("VFXMaskBlockGeometry.select: the empty-bake retry is not limited to an explicit positions list")
 }
 if ($post -notmatch 'VFXMaskBlockGeometry\.beginFrame\(\)') {
 	$problems.Add("VFXPostProcessingManager: the block-geometry pass is not told where a frame starts (cache never evicts)")

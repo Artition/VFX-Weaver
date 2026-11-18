@@ -187,14 +187,14 @@ public final class VFXMaskBlockGeometry {
 	 * key is the level, the model manager and the selection identity alone: an animated slot value
 	 * never invalidates it, and the baked quads are reused for as long as the definition lives.
 	 *
-	 * <p>An <b>empty</b> listed bake is deliberately not stored: a mask can start before its chunks
-	 * (or its blocks) are loaded, and a cached empty list would keep {@code matches} true forever -
-	 * the leaf would never appear until the definition re-parsed or the model manager changed. Instead
-	 * the list is re-read on the next frame, so the mask fills in as soon as the blocks arrive; the
-	 * cost of that retry is one block read per listed position per frame, and only while the bake is
-	 * empty. A scanned selection keeps caching its (possibly empty) result, because its cost model is
-	 * the sphere walk, not the bake - re-walking it every frame would be the per-frame world scan this
-	 * pass exists to avoid.
+	 * <p>An <b>empty</b> bake is not always a result worth keeping: a mask can start before its chunks
+	 * are loaded, and a cached empty list would keep {@code matches} true forever - the leaf would
+	 * never appear until the definition re-parsed or the model manager changed. So an empty bake from an
+	 * explicit {@code positions} list is not stored and the list is re-read on the next frame: the list
+	 * is author-sized (one block read per position), so the retry is cheap and self-limiting. A
+	 * {@code region} box is the opposite - it can be 65 536 blocks of air, water or sky, legitimately
+	 * empty - so its empty result <b>is</b> cached, exactly like a scanned selection's, and a region
+	 * never becomes a per-frame world walk.
 	 */
 	private static List<SelectedBlock> select(final Level level, final VFXMaskBlockSelection selection, final float[] center, final float radius) {
 		final Object modelManager = Minecraft.getInstance().getModelManager();
@@ -204,8 +204,8 @@ public final class VFXMaskBlockGeometry {
 			return cached.blocks;
 		}
 		final List<SelectedBlock> blocks = selection.listed() ? bakeListed(level, selection) : scan(level, selection, center, radius);
-		if (selection.listed() && blocks.isEmpty()) {
-			// Never cache a bake that found nothing; see the javadoc above.
+		if (!selection.positions().isEmpty() && blocks.isEmpty()) {
+			// Only an explicit position list is retried; see the javadoc above.
 			selectionCaches.remove(selection);
 			return blocks;
 		}
@@ -221,11 +221,13 @@ public final class VFXMaskBlockGeometry {
 
 	/**
 	 * Resolves an authored {@code block_list} selection: every listed position (or every position of
-	 * the region box) is read once and its baked model quads are kept, so the per-frame cost is the
-	 * vertex emission alone. The list is uncapped by design (the cost is memory, see
-	 * {@link VFXMaskBlockSelection}); duplicates are dropped so a repeated position is not baked or
-	 * drawn twice, and air / block-entity-only blocks (empty baked model) are skipped exactly as the
-	 * scan path skips them. Positions and corners go through
+	 * the region box) is read <b>once, while the bake is non-empty</b> - a cache hit costs the vertex
+	 * emission alone. The one exception is an explicit {@code positions} list that bakes to nothing: it
+	 * is re-read next frame until it resolves (see {@link #select}), because its size is the author's
+	 * and a mask can legitimately start before its blocks load. The list is uncapped by design (the
+	 * cost is memory, see {@link VFXMaskBlockSelection}); duplicates are dropped so a repeated position
+	 * is not baked or drawn twice, and air / block-entity-only blocks (empty baked model) are skipped
+	 * exactly as the scan path skips them. Positions and corners go through
 	 * {@link VFXMaskBlockSelection#blockCoordinate(float)}, the same floor the parse-time region budget
 	 * uses.
 	 */
