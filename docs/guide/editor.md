@@ -55,6 +55,14 @@ the sockets that only one mode reads carry a **`2D`** or **`3D`** badge - dimmed
 mode is not the block's current `mode`. The badge is a label, not a filter: no socket is ever hidden,
 so the node always shows the full parameter set of the type.
 
+A mask leaf is authored on the canvas too. `block_list` takes its geometry from the authored
+coordinates rather than from a centre, so the mask node carries a **`fill`** combo (`solid`/`hollow`),
+a **`positions` / `region`** text field taking either a list of `[x, y, z]` triples or one
+`[x0, y0, z0, x1, y1, z1]` box, and an **`occlude`** toggle - the selection and the flag sit beside the
+numeric `stroke_width` socket. Text that is neither a position list nor a region box is rejected and the
+leaf keeps its last valid selection. Picking `block_list` in the mask node's shape combo is enough to
+get the default leaf; see [masks](datapack/masks.md).
+
 ## Editing and live playback
 
 Every change goes to the running game through the local bridge:

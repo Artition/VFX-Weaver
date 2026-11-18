@@ -641,7 +641,7 @@ in it (all air, water or sky) stays cached, so a region is never re-walked per f
 state re-check costs one block read per listed position, which is why the list, and not the region, is
 the form that follows the world live. A `region` is capped at **65 536** blocks (`65536`), the
 per-frame vertex-buffer budget the block geometry pass is sized to — above that, list the positions
-instead. As with any block leaf the pixels cannot be checked headless. **Not verified in game.**
+instead. As with any block leaf the pixels cannot be checked headless; this leaf was **verified in game on 26.2 Fabric** (both a `positions` pad and a `region` box), and the other five nodes were not separately checked.
 
 ## Showcase
 
