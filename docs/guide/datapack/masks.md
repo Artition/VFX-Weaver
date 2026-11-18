@@ -11,6 +11,12 @@ composition (`"op": "union" | "intersection" | "difference"`) of leaves; every l
 - a **sky** leaf (the whole sky) or a 2D shape in `space: "dome"` (addressed on the sky dome);
 - a **block** leaf (the selected blocks' model geometry) or a **custom** shape (a registered composed SDF or GLSL plugin).
 
+> **The runtime API can replace an authored mask.** `VFXAPI.sendMask(player, effect, json)` and the
+> client-local `VFXAPI.mask(effect, json)` override the `mask` a definition authors, for every running
+> instance of that effect and for future plays, and a `null` or blank value restores the authored mask.
+> The [Java API](../../API.md#runtime-masks-create-replace-remove) documents the calls, the
+> `VFXMaskSpec` builder and its validation. That API path is **Not verified in game.**
+
 > **Post effects only.** A `mask` gates a **fullscreen post-processing** pass: its coverage is a
 > screen-space texture built from scene depth, and the post chain blends it into the frame. The
 > **world overlays** — `pulse_ring`, `light_beam`, `guide_line`, `particles`, `block_chain`,
