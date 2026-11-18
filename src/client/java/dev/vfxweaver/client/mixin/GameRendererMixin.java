@@ -5,15 +5,19 @@ import dev.vfxweaver.client.flashback.FlashbackCompat;
 import dev.vfxweaver.client.flashback.VFXReplayController;
 import dev.vfxweaver.client.postprocessing.VFXFrameFov;
 import dev.vfxweaver.client.postprocessing.VFXPostProcessingManager;
+import dev.vfxweaver.client.postprocessing.VFXWorldBob;
 import dev.vfxweaver.effect.VFXWorldBindings;
+import com.mojang.blaze3d.vertex.PoseStack;
 import net.minecraft.client.Camera;
 import net.minecraft.client.DeltaTracker;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.GameRenderer;
 //? if <26.1 {
-/*import net.minecraft.client.renderer.state.SkyRenderState;
+/*import net.minecraft.client.renderer.state.CameraRenderState;
+import net.minecraft.client.renderer.state.SkyRenderState;
 import net.minecraft.world.level.dimension.DimensionType;
 *///?} else {
+import net.minecraft.client.renderer.state.level.CameraRenderState;
 import net.minecraft.client.renderer.state.level.SkyRenderState;
 import net.minecraft.world.level.dimension.DimensionType;
 //?}
@@ -24,6 +28,8 @@ import org.joml.Matrix4f;
 /*import org.joml.Quaternionf;
 *///?}
 import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.Unique;
+import org.spongepowered.asm.mixin.gen.Invoker;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
@@ -38,6 +44,50 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
  */
 @Mixin(GameRenderer.class)
 public abstract class GameRendererMixin {
+	/**
+	 * Vanilla's view-bob transforms are private methods of {@code GameRenderer}; the mask has to
+	 * compose the very same pose, so they are invoked here rather than re-implemented (a re-write
+	 * would drift from vanilla the moment it changes). Only {@code 26.x} needs them: its world
+	 * projection is {@code projectionMatrix * bobPose}, while {@code 1.21.11} hands the level renderer
+	 * rotation-only matrices (its bob lives in the first-person hand path), so there is nothing for
+	 * the mask to match there.
+	 */
+	//? if >=26.1 {
+	@Invoker("bobHurt")
+	public abstract void vfxweaver$bobHurt(CameraRenderState state, PoseStack pose);
+
+	@Invoker("bobView")
+	public abstract void vfxweaver$bobView(CameraRenderState state, PoseStack pose);
+	//?}
+
+	/**
+	 * Publishes the pose the world's own projection was built with this frame ({@code proj * bob}), so
+	 * the mask can compose {@code projection * bob * viewRotation} and stay glued to the blocks while
+	 * walking. Reads the same render state the world renderer reads, and the same option flag
+	 * ({@code bobHurt} always, {@code bobView} only when View Bobbing is on), so View Bobbing off
+	 * changes nothing for the mask.
+	 */
+	//? if >=26.1 {
+	@Unique
+	private void vfxweaver$publishBobPose() {
+		final net.minecraft.client.renderer.GameRenderer renderer = Minecraft.getInstance().gameRenderer;
+		//? if <26.2 {
+		final net.minecraft.client.renderer.state.GameRenderState game = renderer.getGameRenderState();
+		//?} else {
+		/*final net.minecraft.client.renderer.state.GameRenderState game = renderer.gameRenderState();
+		*///?}
+		final CameraRenderState state = game == null || game.levelRenderState == null ? null : game.levelRenderState.cameraRenderState;
+		final PoseStack pose = new PoseStack();
+		if (state != null) {
+			vfxweaver$bobHurt(state, pose);
+			if (game.optionsRenderState.bobView) {
+				vfxweaver$bobView(state, pose);
+			}
+		}
+		VFXWorldBob.publish(pose.last().pose());
+	}
+	//?}
+
 	@Inject(
 		method = "render(Lnet/minecraft/client/DeltaTracker;Z)V",
 		at = @At(
@@ -104,6 +154,11 @@ public abstract class GameRendererMixin {
 	 */
 	private void vfxweaver$updateFrame(final Minecraft minecraft, final DeltaTracker deltaTracker) {
 		float deltaTicks = minecraft.isPaused() ? 0.0F : deltaTracker.getGameTimeDeltaTicks();
+		//? if >=26.1 {
+		// The world's own projection folds in the view bob (GameRenderer.renderLevel:
+		// projectionMatrix * bobPose); publish the same pose so the mask can match it.
+		vfxweaver$publishBobPose();
+		//?}
 		// Interpolate the player position across the current frame so player-bound overlays move
 		// smoothly instead of stepping at the 20 Hz game tick.
 		float partialTick = deltaTracker.getGameTimeDeltaPartialTick(false);

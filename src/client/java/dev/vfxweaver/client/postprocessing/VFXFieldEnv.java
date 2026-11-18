@@ -105,9 +105,13 @@ public final class VFXFieldEnv {
 			return false;
 		}
 		CAMERA.set(state.pos.x, state.pos.y, state.pos.z);
-		// projection * viewRotation, both the frame's own snapshots, then the camera translation, then
-		// invert: the exact inverse view-projection the depth buffer was rendered with.
+		// projection * bob * viewRotation, as the world's own level projection composes it: the bob
+		// pose (view bobbing, hurt tilt) is folded into the projection the level renderer binds, and
+		// leaving it out made the mask oscillate sideways against the blocks while walking. Then the
+		// camera translation, then invert: the exact inverse view-projection the depth buffer was
+		// rendered with.
 		VIEW_ROTATION_PROJECTION.set(state.projectionMatrix)
+			.mul(VFXWorldBob.pose())
 			.mul(state.viewRotationMatrix)
 			.translate(-CAMERA.x, -CAMERA.y, -CAMERA.z)
 			.invert(INVERSE);

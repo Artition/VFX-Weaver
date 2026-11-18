@@ -15,18 +15,37 @@
 // The quad UVs are absolute atlas UVs (the model bakery applies the sprite's sub-rect when it
 // packs them), so the atlas is sampled directly - no per-sprite remap here or in the fragment.
 //
-// WHY THE NUDGE. The mask draws the very geometry it masks, so its surface is coplanar with the
-// block's and the fragment stage's depth compare against the scene is decided by a few float ulps
-// that two different rasterisation paths do not agree on - which let a masked block draw over the
-// mask "sometimes". Every vertex is therefore pulled VFX_MASK_DEPTH_NUDGE blocks toward the camera
-// along its own view ray (the vertices are camera-relative, so that ray is just `Position`), which
-// puts the mask strictly in front of the surface it masks in both depth conventions and at every
-// distance, with no per-node depth maths. Two centimetres is 1/50 of a block: a wall genuinely in
-// front is a block or more away and still wins, and the projected silhouette moves by far less than
-// a pixel (the shift is along the view ray, so it only changes the scale by nudge/distance).
+// WHY THE CLIP-Z BIAS. The mask draws the very geometry it masks, so its surface is coplanar with
+// the block's and the fragment stage's depth compare against the scene would be decided by a few
+// float ulps that two different rasterisation paths do not agree on - which let a masked block draw
+// over the mask "sometimes". The mask therefore has to sit slightly in FRONT of the surface it
+// masks, and it has to do so without moving: biasing the world-space position (moving the vertices
+// toward the eye by a couple of centimetres) changes the projected silhouette as the camera moves
+// and reads as the mask sliding sideways over the blocks. So the bias is applied to the clip-space
+// depth ONLY, after the projection:
+//
+//     vec4 clip = ProjMat * vec4(Position, 1.0);
+//     clip.z -= VFX_MASK_DEPTH_BIAS * clip.w;     // standard: smaller z = nearer
+//
+// A constant NDC-z offset (`clip.z / clip.w` drops by exactly VFX_MASK_DEPTH_BIAS) with x and y
+// byte-identical to the unbiased projection - zero parallax, at any camera motion, for the life of
+// the pass. VFX_DEPTH_REVERSED (injected by VFXShaderPrograms for the whole program, see
+// include/camera.glsl) flips the sign: on 26.2 near = 1, far = 0, so a nearer fragment has a LARGER
+// z and the bias is added.
+//
+// How much: VFX_MASK_DEPTH_BIAS = 1.0e-6 in NDC z. The disagreement between the two rasterisation
+// paths is float precision in the vertices (a few 1e-7 blocks at 4 blocks distance) mapped through
+// the projection, i.e. ~1e-8 NDC, and the depth buffer stores float32, whose quantisation near z ~ 1
+// is ~6e-8 - both far below 1e-6, so the mask reliably wins at its own surface. In world terms the
+// offset grows with distance (a perspective depth is non-linear): ~0.8 mm at 4 blocks, ~2 cm at 10
+// blocks, ~0.2 blocks at 100 blocks - still under a block, so a wall one block in front stays in
+// front and keeps occluding, at every distance where a masked block is more than a pixel.
+#ifndef VFX_DEPTH_REVERSED
+#define VFX_DEPTH_REVERSED 0
+#endif
 
-#ifndef VFX_MASK_DEPTH_NUDGE
-#define VFX_MASK_DEPTH_NUDGE 0.02
+#ifndef VFX_MASK_DEPTH_BIAS
+#define VFX_MASK_DEPTH_BIAS 1.0e-6
 #endif
 
 #moj_import <minecraft:projection.glsl>
@@ -39,14 +58,14 @@ out vec2 texCoord0;
 out vec4 vertexColor;
 
 void main() {
-    vec3 nudged = Position;
-    float viewerDistance = length(Position);
-    // A vertex closer to the eye than the nudge itself (the camera inside a masked block) is left
-    // alone rather than pushed through the camera.
-    if (viewerDistance > VFX_MASK_DEPTH_NUDGE) {
-        nudged -= Position * (VFX_MASK_DEPTH_NUDGE / viewerDistance);
-    }
-    gl_Position = ProjMat * vec4(nudged, 1.0);
+    vec4 clip = ProjMat * vec4(Position, 1.0);
+    // Depth only: x/y stay exactly what the unbiased projection produced.
+#if VFX_DEPTH_REVERSED
+    clip.z += VFX_MASK_DEPTH_BIAS * clip.w;
+#else
+    clip.z -= VFX_MASK_DEPTH_BIAS * clip.w;
+#endif
+    gl_Position = clip;
 
     texCoord0 = UV0;
     vertexColor = Color;

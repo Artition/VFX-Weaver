@@ -29,19 +29,18 @@
 // The mask's own surface sits exactly where the block's surface is, so this compare used to be a
 // coin flip: two pipelines (ours and vanilla's chunk renderer) rasterise the same plane from
 // different vertex buffers and matrices, and their window depths differ by a few ulps in either
-// direction - which is what let a masked block draw over the mask "sometimes". The fix is not a
-// bigger bias here (a fixed window-space bias is a huge world distance at range and a sliver up
-// close) but a world-space nudge in the vertex stage: every vertex is pulled VFX_MASK_DEPTH_NUDGE
-// blocks toward the camera along its view ray (see world/mask_block_geometry.vsh). The mask surface
-// is then strictly in front of the block it masks, in both depth conventions and at every distance,
-// and the sliver below only has to absorb float quantisation.
+// direction - which is what let a masked block draw over the mask "sometimes". The fix is a
+// clip-space depth bias in the vertex stage (see world/mask_block_geometry.vsh): the mask's clip z is
+// pushed VFX_MASK_DEPTH_BIAS of a w toward the camera, with x and y untouched, so the mask surface is
+// strictly in front of the block it masks - in both depth conventions, at every distance, and with
+// no parallax while the camera moves. The sliver below only has to absorb float quantisation.
 //
-// Why this cannot leak a wall: a surface must be at least VFX_MASK_DEPTH_NUDGE (2 cm) in front of
-// the mask's own surface to occlude it, while anything genuinely in front - a wall - is a whole
-// block or more away, fifty times the nudge. The tolerance below (a few dozen float ulps of the
-// depth buffer) is far too small to bridge a block wherever a block's depth is representable, and
-// at the very far end, where both surfaces quantise to the same value, the compare keeps the mask,
-// which is the wanted answer: a block-sized sliver at that distance is not a wall.
+// Why this cannot leak a wall: the bias is a fraction of NDC depth, which in world terms is ~0.8 mm
+// at 4 blocks, ~2 cm at 10 blocks and still under a block at 100 - anything genuinely in front is a
+// whole block or more away and keeps occluding. The tolerance below (a few dozen float ulps of the
+// depth buffer) is far too small to bridge a block wherever a block's depth is representable, and at
+// the very far end, where both surfaces quantise to the same value, the compare keeps the mask, which
+// is the wanted answer: a block-sized sliver at that distance is not a wall.
 //
 // The comparison follows the per-node depth convention, injected as the VFX_DEPTH_REVERSED define
 // by VFXShaderPrograms (see include/camera.glsl):
@@ -57,7 +56,7 @@
 #endif
 
 // Float quantisation only (about a dozen ulps at z ~ 1, where the buffer is coarsest); the world
-// space work is done by the vertex-stage nudge, not here.
+// space margin comes from the vertex stage's clip-z bias, not from here.
 #ifndef VFX_MASK_DEPTH_EPS
 #define VFX_MASK_DEPTH_EPS 1.0e-6
 #endif
