@@ -116,8 +116,12 @@ public final class VFXMaskBlockGeometry {
 	private static long vertexBufferCapacity;
 	/** The {@code Projection} UBO (one std140 mat4), rewritten every frame by {@link #writeTransform}. */
 	private static @Nullable GpuBuffer transformUniform;
+	/** The {@code MaskDepth} UBO (one std140 vec4: the depth-linearisation a and b), rewritten per frame. */
+	private static @Nullable GpuBuffer depthLinearUniform;
 	/** CPU staging for the 64-byte matrix upload; reused so the frame allocates nothing. */
 	private static final ByteBuffer TRANSFORM_BYTES = ByteBuffer.allocateDirect(64).order(ByteOrder.nativeOrder());
+	/** CPU staging for the 16-byte MaskDepth upload; reused so the frame allocates nothing. */
+	private static final ByteBuffer DEPTH_LINEAR_BYTES = ByteBuffer.allocateDirect(16).order(ByteOrder.nativeOrder());
 
 	private VFXMaskBlockGeometry() {
 	}
@@ -492,7 +496,26 @@ public final class VFXMaskBlockGeometry {
 		}
 		final GpuBufferSlice slice = transformUniform.slice(0L, 64L);
 		encoder.writeToBuffer(slice, builder.get());
+		writeDepthLinear(encoder);
 		return slice;
+	}
+
+	/**
+	 * Writes the frame's depth-linearisation terms ({@code zNdc = a + b / distance}) into the pass's
+	 * {@code MaskDepth} UBO, taken from the <b>pure</b> projection ({@link VFXFieldEnv#depthLinearA()}).
+	 * The fragment stage turns both its own depth and the scene's into view distances with them, so the
+	 * occlusion test can use a tolerance in world blocks - the only unit in which "the same face" and "a
+	 * wall in front" are distinguishable at every distance.
+	 */
+	private static void writeDepthLinear(final CommandEncoder encoder) {
+		DEPTH_LINEAR_BYTES.clear();
+		final Std140Builder builder = Std140Builder.intoBuffer(DEPTH_LINEAR_BYTES);
+		builder.putVec4(VFXFieldEnv.depthLinearA(), VFXFieldEnv.depthLinearB(), 0.0F, 0.0F);
+		if (depthLinearUniform == null) {
+			depthLinearUniform = RenderSystem.getDevice().createBuffer(
+				() -> "vfxweaver mask depth linear", GpuBuffer.USAGE_UNIFORM | GpuBuffer.USAGE_COPY_DST, 16L);
+		}
+		encoder.writeToBuffer(depthLinearUniform.slice(0L, 16L), builder.get());
 	}
 
 	/**
@@ -636,6 +659,7 @@ public final class VFXMaskBlockGeometry {
 				// viewRotation, no translation, over the camera-relative vertices. The frame's
 				// DynamicTransforms is not touched, so the camera cannot be subtracted twice.
 				renderPass.setUniform("Projection", transform);
+				renderPass.setUniform("MaskDepth", depthLinearUniform.slice(0L, 16L));
 				// The scene depth an occluding leaf's fragments are tested against. NEAREST: a depth
 				// texture is not filterable (depth findings); the pass runs at layer 0, so the view
 				// still holds the world surface.
@@ -733,6 +757,10 @@ public final class VFXMaskBlockGeometry {
 		if (transformUniform != null) {
 			transformUniform.close();
 			transformUniform = null;
+		}
+		if (depthLinearUniform != null) {
+			depthLinearUniform.close();
+			depthLinearUniform = null;
 		}
 		if (staging != null) {
 			staging.close();

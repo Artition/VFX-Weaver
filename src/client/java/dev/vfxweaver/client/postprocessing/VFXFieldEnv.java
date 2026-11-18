@@ -44,6 +44,14 @@ public final class VFXFieldEnv {
 	private static float invWidth;
 	private static float invHeight;
 	private static boolean depthValid;
+	/**
+	 * The two constants that turn a window depth back into a view distance for this frame's
+	 * <b>pure</b> projection: {@code zNdc = a + b / distance}, so {@code distance = b / (zNdc - a)}
+	 * ({@code a = -m22}, {@code b = m32}). The mask pass compares its own depth against the scene's in
+	 * these units, which is what lets it use a tolerance in world blocks instead of an NDC epsilon.
+	 */
+	private static float depthLinearA;
+	private static float depthLinearB;
 
 	private VFXFieldEnv() {
 	}
@@ -105,6 +113,9 @@ public final class VFXFieldEnv {
 			return false;
 		}
 		CAMERA.set(state.pos.x, state.pos.y, state.pos.z);
+		// The depth linearisation comes from the PURE projection, before the bob and the rotation are
+		// folded in: only the projection row/column that maps view distance to NDC z may define it.
+		lineariseDepth(state.projectionMatrix);
 		// projection * bob * viewRotation, as the world's own level projection composes it: the bob
 		// pose (view bobbing, hurt tilt) is folded into the projection the level renderer binds, and
 		// leaving it out made the mask oscillate sideways against the blocks while walking. Then the
@@ -141,7 +152,9 @@ public final class VFXFieldEnv {
 		// rendered with - the getFov hook's captured value, modulation and fov_modifier included.
 		final float capturedFov = VFXFrameFov.get();
 		final float renderedFov = capturedFov > 0.0F ? capturedFov : Minecraft.getInstance().options.fov().get().floatValue();
-		final Matrix4f viewRotProj = Minecraft.getInstance().gameRenderer.getProjectionMatrix(renderedFov);
+		final Matrix4f projection = Minecraft.getInstance().gameRenderer.getProjectionMatrix(renderedFov);
+		lineariseDepth(projection);
+		final Matrix4f viewRotProj = new Matrix4f(projection);
 		// Same composition the world's renderLevel builds here: projection * bob, then the rotation.
 		viewRotProj.mul(VFXWorldBob.pose()).mul(new Matrix4f().rotation(new Quaternionf(camera.rotation()).conjugate()));
 		viewRotProj.translate(-CAMERA.x, -CAMERA.y, -CAMERA.z).invert(INVERSE);
@@ -164,6 +177,29 @@ public final class VFXFieldEnv {
 	/** True when the bound depth is usable this frame. */
 	public static boolean depthValid() {
 		return depthValid;
+	}
+
+	/**
+	 * Derives {@code zNdc = a + b / distance} from a perspective projection matrix
+	 * ({@code a = -m22}, {@code b = m32}), so the mask pass can compare depths in world units. Works for
+	 * both conventions because it inverts whatever matrix the frame was rendered with: only the
+	 * window-to-NDC step differs, which the shader takes from {@code VFX_DEPTH_REVERSED}.
+	 *
+	 * @param projection the frame's pure projection (no bob, no view rotation)
+	 */
+	private static void lineariseDepth(final Matrix4f projection) {
+		depthLinearA = -projection.m22();
+		depthLinearB = projection.m32();
+	}
+
+	/** The {@code a} term of {@code zNdc = a + b / distance} for this frame's projection. */
+	public static float depthLinearA() {
+		return depthLinearA;
+	}
+
+	/** The {@code b} term of {@code zNdc = a + b / distance} for this frame's projection. */
+	public static float depthLinearB() {
+		return depthLinearB;
 	}
 
 	public static Matrix4f invViewProj() {

@@ -22,49 +22,56 @@
 // A solid fill never draws the inner pass, so it reads the outer alpha directly.
 //
 // Occlusion: only when the mask's block leaf sets `"occlude": true` (the default) is that leaf's
-// geometry depth-tested against the scene. DepthSampler is the main target's depth view, sampled
-// with texelFetch so the exact pixel of this fragment is compared. A fragment farther than the
-// scene surface at that pixel (a wall in front) is discarded.
+// geometry depth-tested against the scene. DepthSampler is the main target's depth view, sampled with
+// texelFetch so the exact pixel of this fragment is compared.
 //
-// The mask's own surface sits exactly where the block's surface is, so this compare used to be a
-// coin flip: two pipelines (ours and vanilla's chunk renderer) rasterise the same plane from
-// different vertex buffers and matrices, and their window depths differ by a few ulps in either
-// direction - which is what let a masked block draw over the mask "sometimes". The fix is a
-// clip-space depth bias in the vertex stage (see world/mask_block_geometry.vsh): the mask's clip z is
-// pushed VFX_MASK_DEPTH_BIAS of a w toward the camera, with x and y untouched, so the mask surface is
-// strictly in front of the block it masks - in both depth conventions, at every distance, and with
-// no parallax while the camera moves. The sliver below only has to absorb float quantisation.
+// THE COMPARE IS IN WORLD UNITS, NOT IN DEPTH UNITS. The mask draws the very geometry it masks, so
+// its surface is coplanar with the block's; a window- or NDC-space bias can never separate the two
+// reliably - it is a sliver up close and a whole block at range, which is why the old fixed epsilon
+// flickered at coincident faces. Instead both depths are turned back into view distances with the
+// frame's own projection: for a perspective projection `zNdc = a + b / distance`, i.e.
+// `distance = b / (zNdc - a)`, with (a, b) uploaded by the CPU from the pure projection
+// (`a = -m22`, `b = m32`, see VFXFieldEnv.lineariseDepth). The mask is discarded only when it is
+// FARTHER than the scene by more than VFX_MASK_DEPTH_TOLERANCE blocks. That tolerance is the whole
+// mechanism:
+//   * a coincident face (the mask's own block) is off by sub-millimetre rounding, far inside 5 cm, so
+//     the mask always wins - no flicker, at any distance and at any angle;
+//   * a wall is a whole block (1 m) or more in front, twenty times the tolerance, so it still hides
+//     the mask wherever it is more than a sliver on screen.
+// Because the margin is a fixed distance, its behaviour does not drift with range the way an NDC
+// epsilon does.
 //
-// Why this cannot leak a wall: the bias is a fraction of NDC depth, which in world terms is ~0.8 mm
-// at 4 blocks, ~2 cm at 10 blocks and still under a block at 100 - anything genuinely in front is a
-// whole block or more away and keeps occluding. The tolerance below (a few dozen float ulps of the
-// depth buffer) is far too small to bridge a block wherever a block's depth is representable, and at
-// the very far end, where both surfaces quantise to the same value, the compare keeps the mask, which
-// is the wanted answer: a block-sized sliver at that distance is not a wall.
-//
-// The comparison follows the per-node depth convention, injected as the VFX_DEPTH_REVERSED define
-// by VFXShaderPrograms (see include/camera.glsl):
-//   * reversed (26.2, near = 1, far = 0): a fragment farther than the scene has a SMALLER
-//     gl_FragCoord.z, so discard when gl_FragCoord.z < sceneDepth - VFX_MASK_DEPTH_EPS;
-//   * standard (26.1.2 / 1.21.11, near = 0, far = 1): a fragment farther has a LARGER z, so discard
-//     when gl_FragCoord.z > sceneDepth + VFX_MASK_DEPTH_EPS.
-// On a node where the depth recipe is not trusted the CPU pass disables occlusion (emits alpha 0
-// for every block), so neither branch is taken there - see VFXPostProcessingManager /
-// VFXMaskBlockGeometry.
+// The window-to-NDC step follows the per-node depth convention, injected as the VFX_DEPTH_REVERSED
+// define by VFXShaderPrograms (see include/camera.glsl):
+//   * reversed (26.2, near = 1, far = 0): the raw depth IS NDC z;
+//   * standard (26.1.2 / 1.21.11, near = 0, far = 1): NDC z = raw * 2 - 1 (VFX_DEPTH_TO_NDC).
+// The linearisation itself is convention-free: it inverts whatever projection the frame used. A pixel
+// with no usable scene distance (sky, or a depth that does not linearise to a positive distance) is
+// not an occluder, so the mask is kept there. On a node where the depth recipe is not trusted the CPU
+// pass disables occlusion (emits alpha 0 for every block), so the branch is not taken at all - see
+// VFXPostProcessingManager / VFXMaskBlockGeometry.
 #ifndef VFX_DEPTH_REVERSED
 #define VFX_DEPTH_REVERSED 0
 #endif
 
-// Float quantisation only (about a dozen ulps at z ~ 1, where the buffer is coarsest); the world
-// space margin comes from the vertex stage's clip-z bias, not from here.
-#ifndef VFX_MASK_DEPTH_EPS
-#define VFX_MASK_DEPTH_EPS 1.0e-6
+// How much farther than the scene the mask may be and still win, in blocks. A coincident face is
+// within a millimetre; a wall is a block or more away. 5 cm sits between the two with two orders of
+// magnitude of room on the flicker side and twenty times on the wall side.
+#ifndef VFX_MASK_DEPTH_TOLERANCE
+#define VFX_MASK_DEPTH_TOLERANCE 0.05
 #endif
+
+#moj_import <vfxweaver:camera.glsl>
+#moj_import <minecraft:projection.glsl>
 
 uniform sampler2D DepthSampler;
 // The block texture atlas (minecraft:textures/atlas/blocks.png): the alpha of the listed blocks'
 // own sprites, so a cutout leaf, a plant's cross or a pane contributes where its texture does.
 uniform sampler2D BlockAtlasSampler;
+// x = a, y = b of `zNdc = a + b / distance`, uploaded from the frame's pure projection.
+layout(std140) uniform MaskDepth {
+    vec4 depthLinear;
+};
 
 in vec2 texCoord0;
 in vec4 vertexColor;
@@ -73,16 +80,26 @@ out vec4 fragColor;
 
 void main() {
     if (vertexColor.a > 0.5) {
-        float sceneDepth = texelFetch(DepthSampler, ivec2(gl_FragCoord.xy), 0).r;
+        float sceneRaw = texelFetch(DepthSampler, ivec2(gl_FragCoord.xy), 0).r;
 #if VFX_DEPTH_REVERSED
-        if (gl_FragCoord.z < sceneDepth - VFX_MASK_DEPTH_EPS) {
-            discard;
-        }
+        float maskNdc = gl_FragCoord.z;
 #else
-        if (gl_FragCoord.z > sceneDepth + VFX_MASK_DEPTH_EPS) {
-            discard;
-        }
+        float maskNdc = gl_FragCoord.z * 2.0 - 1.0;
 #endif
+        float sceneNdc = VFX_DEPTH_TO_NDC(sceneRaw);
+        float a = depthLinear.x;
+        float b = depthLinear.y;
+        // Guard the division: a pixel whose depth does not linearise to a positive distance (sky, or a
+        // degenerate projection at that sample) is not an occluder, so it cannot hide the mask.
+        float maskDivisor = maskNdc - a;
+        float sceneDivisor = sceneNdc - a;
+        if (abs(maskDivisor) > 1.0e-6 && abs(sceneDivisor) > 1.0e-6) {
+            float maskDistance = b / maskDivisor;
+            float sceneDistance = b / sceneDivisor;
+            if (maskDistance > 0.0 && sceneDistance > 0.0 && maskDistance > sceneDistance + VFX_MASK_DEPTH_TOLERANCE) {
+                discard;
+            }
+        }
     }
     float coverage = vertexColor.b > 0.5 ? texture(BlockAtlasSampler, texCoord0).a : 1.0;
     // Outer pass: R = G = the (dilated) alpha. Inner pass: R = 1 (it can only re-write the outer

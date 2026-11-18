@@ -249,7 +249,7 @@ if ($blockVertexCode -match 'ModelViewMat|dynamictransforms\.glsl') {
 if ($geometryCode -match 'setUniform\("DynamicTransforms"') {
 	$problems.Add("VFXMaskBlockGeometry: the pass overrides the frame's DynamicTransforms again (arena + camera coupling)")
 }
-if ($geometryCode -notmatch 'gl_Position = ProjMat \* vec4\(' -and $blockVertexCode -notmatch 'vec4 clip = ProjMat \* vec4\(Position, 1\.0\);') {
+if ($geometryCode -notmatch 'gl_Position = ProjMat \* vec4\(' -and $blockVertexCode -notmatch 'gl_Position = ProjMat \* vec4\(Position, 1\.0\);') {
 	$problems.Add("world/mask_block_geometry.vsh: the vertex stage does not use the pass's own Projection uniform")
 }
 if ($geometryCode -notmatch 'private static GpuBufferSlice writeTransform\(final CommandEncoder encoder\)') {
@@ -259,36 +259,46 @@ if ($geometryCode -notmatch 'renderPass\.setUniform\("Projection", transform\)')
 	$problems.Add("VFXMaskBlockGeometry: the pass does not bind its own transform as Projection")
 }
 
-# 23) The mask must win at its own surface WITHOUT moving: the bias is a clip-space depth offset, so
-#     x/y are byte-identical to the unbiased projection (a world-space nudge changes the projected
-#     silhouette as the camera moves and reads as the mask sliding over the blocks). The sign follows
-#     the node's depth convention, and the x-ray path must still skip the compare entirely.
-if ($blockVertexCode -notmatch 'VFX_MASK_DEPTH_BIAS 1\.0e-6') {
-	$problems.Add("world/mask_block_geometry.vsh: the clip-space depth bias is gone (the mask loses to its own blocks)")
+# 23) The mask must win at its own surface, and it must do so WITHOUT moving and WITHOUT a depth-unit
+#     epsilon: the compare is done in world units (view distance), so a coincident face is inside the
+#     tolerance at every range while a wall a block in front is outside it. The geometry is emitted
+#     where the block is (no nudge, no clip bias -> no parallax), and the x-ray path still skips the
+#     compare entirely.
+if ($blockVertexCode -match 'VFX_MASK_DEPTH_NUDGE|nudged|clip\.z') {
+	$problems.Add("world/mask_block_geometry.vsh: a positional/clip-space depth nudge is back (parallax or a distance-dependent bias)")
 }
-if ($blockVertexCode -match 'VFX_MASK_DEPTH_NUDGE|nudged') {
-	$problems.Add("world/mask_block_geometry.vsh: a world-space position nudge is back (that is the sideways parallax)")
+if ($blockVertexCode -notmatch 'gl_Position = ProjMat \* vec4\(Position, 1\.0\);') {
+	$problems.Add("world/mask_block_geometry.vsh: the vertices are no longer emitted untouched through the pass's Projection")
 }
-if ($blockVertexCode -notmatch '#if VFX_DEPTH_REVERSED\s*clip\.z \+= VFX_MASK_DEPTH_BIAS \* clip\.w;\s*#else\s*clip\.z -= VFX_MASK_DEPTH_BIAS \* clip\.w;') {
-	$problems.Add("world/mask_block_geometry.vsh: the bias does not follow the per-node depth convention (+= reversed, -= standard)")
+if ($blockShader -notmatch '#define VFX_MASK_DEPTH_TOLERANCE 0\.05') {
+	$problems.Add("mask_block_geometry.fsh: the world-space depth tolerance is gone (the compare needs blocks, not NDC)")
 }
-if ($blockVertexCode -notmatch '#ifndef VFX_DEPTH_REVERSED') {
-	$problems.Add("world/mask_block_geometry.vsh: the depth-convention define has no default (VFX_DEPTH_REVERSED is injected per node)")
+if ($blockShader -notmatch 'uniform MaskDepth') {
+	$problems.Add("mask_block_geometry.fsh: the depth-linearisation uniform is missing (cannot compare view distances)")
 }
-if ($blockVertexCode -match 'clip\.(x|y) *[-+]?=') {
-	$problems.Add("world/mask_block_geometry.vsh: the bias touches clip x/y (it must be depth only)")
+if ($blockShader -notmatch 'float maskDistance = b / maskDivisor;' -or $blockShader -notmatch 'float sceneDistance = b / sceneDivisor;') {
+	$problems.Add("mask_block_geometry.fsh: the compare is not done in linear view distance")
 }
-if ($blockVertexCode -notmatch 'gl_Position = clip;') {
-	$problems.Add("world/mask_block_geometry.vsh: the biased clip position is not what is emitted")
+if ($blockShader -notmatch 'maskDistance > sceneDistance \+ VFX_MASK_DEPTH_TOLERANCE') {
+	$problems.Add("mask_block_geometry.fsh: the discard does not use the world-space tolerance")
 }
-if ($blockShader -match '1\.0e-4') {
-	$problems.Add("mask_block_geometry.fsh: the fixed 1.0e-4 depth bias is back")
-}
-if ($blockShader -notmatch '#define VFX_MASK_DEPTH_EPS 1\.0e-6') {
-	$problems.Add("mask_block_geometry.fsh: the depth tolerance is not the quantisation-sized VFX_MASK_DEPTH_EPS")
+if ($blockShader -match 'VFX_MASK_DEPTH_BIAS|VFX_MASK_DEPTH_EPS|1\.0e-4') {
+	$problems.Add("mask_block_geometry.fsh: a depth-unit epsilon/bias is back (it flickers or leaks a wall)")
 }
 if ($blockShader -notmatch 'if \(vertexColor\.a > 0\.5\) \{') {
 	$problems.Add("mask_block_geometry.fsh: the x-ray path (occlude false) no longer bypasses the depth test")
+}
+if ($fieldEnvCode -notmatch 'private static void lineariseDepth\(final Matrix4f projection\)') {
+	$problems.Add("VFXFieldEnv: the depth-linearisation terms are not derived from the pure projection")
+}
+if ($fieldEnvCode -notmatch 'depthLinearA = -projection\.m22\(\)' -or $fieldEnvCode -notmatch 'depthLinearB = projection\.m32\(\)') {
+	$problems.Add("VFXFieldEnv.lineariseDepth: the (a, b) terms are not -m22 / m32")
+}
+if ($geometryCode -notmatch 'writeDepthLinear\(encoder\)') {
+	$problems.Add("VFXMaskBlockGeometry: the MaskDepth uniform is not written each frame")
+}
+if ($geometryCode -notmatch 'renderPass\.setUniform\("MaskDepth"') {
+	$problems.Add("VFXMaskBlockGeometry: the MaskDepth uniform is not bound at the draw")
 }
 
 # 24) The view-projection must include the frame's view-bob pose, in the same place vanilla puts it

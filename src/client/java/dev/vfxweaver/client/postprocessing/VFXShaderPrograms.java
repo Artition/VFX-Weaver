@@ -183,6 +183,8 @@ public final class VFXShaderPrograms {
 	// camera translation - reading it on camera-relative vertices would subtract the camera twice.
 	private static final BindGroupLayout PROJECTION_ONLY_LAYOUT = BindGroupLayout.builder()
 		.withUniform("Projection", UniformType.UNIFORM_BUFFER)
+		// The depth-linearisation terms (a, b): the fragment stage compares view distances.
+		.withUniform("MaskDepth", UniformType.UNIFORM_BUFFER)
 		.build();
 	// The block-geometry pass's texture atlas (the block_list leaf's alpha). The sampler name must
 	// match post/mask_block_geometry.fsh (`BlockAtlasSampler`).
@@ -426,6 +428,8 @@ public final class VFXShaderPrograms {
 				.withSampler("DepthSampler")
 				.withSampler("BlockAtlasSampler")
 				.withUniform("Projection", UniformType.UNIFORM_BUFFER)
+				// The depth-linearisation terms (a, b): the fragment stage compares view distances.
+				.withUniform("MaskDepth", UniformType.UNIFORM_BUFFER)
 				.withVertexFormat(DefaultVertexFormat.POSITION_TEX_COLOR, VertexFormat.Mode.TRIANGLES)
 				//?} else {
 				/*.withBindGroupLayout(PROJECTION_ONLY_LAYOUT)
