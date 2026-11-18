@@ -452,6 +452,12 @@ public final class VFXMaskBlockGeometry {
 		// view that is not this pass's own output: the main target's colour is always safe.
 		final GpuTextureView atlasBind = atlas != null ? atlas : mainTarget.getColorTextureView();
 		final boolean occlude = blockPrimitive.occlude() && depthReady;
+		// The depth compare is in linear view distance, so it needs this frame's linearisation terms.
+		// Without them an occluding mask would compare against stale numbers (or zero, which would let
+		// it paint over walls), so fail closed: the scratch was cleared above, so the mask is empty.
+		if (occlude && !VFXFieldEnv.depthLinearValid()) {
+			return;
+		}
 		final boolean hollow = textured && blockPrimitive.fill() != VFXMaskFill.SOLID;
 		// The outline width in blocks: the dilation of the outer pass (block area + outline) and, for
 		// a hollow fill, the band above the inner pass. Unbounded above by design (AGENTS.md): a huge

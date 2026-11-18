@@ -273,17 +273,43 @@ if ($blockVertexCode -notmatch 'gl_Position = ProjMat \* vec4\(Position, 1\.0\);
 if ($blockShader -notmatch '#define VFX_MASK_DEPTH_TOLERANCE 0\.05') {
 	$problems.Add("mask_block_geometry.fsh: the world-space depth tolerance is gone (the compare needs blocks, not NDC)")
 }
+# The scene depth is quantised, so its linearisation error grows with d^2: the tolerance has to grow
+# with it or coincident faces flicker again past ~200 blocks.
+if ($blockShader -notmatch '#define VFX_MASK_DEPTH_TOLERANCE_QUADRATIC 4\.0e-6') {
+	$problems.Add("mask_block_geometry.fsh: the distance-scaled part of the tolerance is gone (flicker returns at range)")
+}
+if ($blockShader -notmatch 'float tolerance = VFX_MASK_DEPTH_TOLERANCE \+ VFX_MASK_DEPTH_TOLERANCE_QUADRATIC \* sceneDistance \* sceneDistance;') {
+	$problems.Add("mask_block_geometry.fsh: the tolerance is not tolerance = 0.05 + k * d^2")
+}
+if ($blockShader -notmatch 'maskDistance > sceneDistance \+ tolerance') {
+	$problems.Add("mask_block_geometry.fsh: the discard does not use the distance-scaled tolerance")
+}
 if ($blockShader -notmatch 'uniform MaskDepth') {
 	$problems.Add("mask_block_geometry.fsh: the depth-linearisation uniform is missing (cannot compare view distances)")
 }
 if ($blockShader -notmatch 'float maskDistance = b / maskDivisor;' -or $blockShader -notmatch 'float sceneDistance = b / sceneDivisor;') {
 	$problems.Add("mask_block_geometry.fsh: the compare is not done in linear view distance")
 }
-if ($blockShader -notmatch 'maskDistance > sceneDistance \+ VFX_MASK_DEPTH_TOLERANCE') {
-	$problems.Add("mask_block_geometry.fsh: the discard does not use the world-space tolerance")
+if ($blockShader -notmatch 'maskDistance > sceneDistance \+ tolerance') {
+	$problems.Add("mask_block_geometry.fsh: the discard does not use the distance-scaled tolerance")
 }
 if ($blockShader -match 'VFX_MASK_DEPTH_BIAS|VFX_MASK_DEPTH_EPS|1\.0e-4') {
 	$problems.Add("mask_block_geometry.fsh: a depth-unit epsilon/bias is back (it flickers or leaks a wall)")
+}
+if ($blockShader -match 'minecraft:projection\.glsl') {
+	$problems.Add("mask_block_geometry.fsh: it imports projection.glsl without using ProjMat")
+}
+if ($blockShader -notmatch 'float maskNdc = VFX_DEPTH_TO_NDC\(gl_FragCoord\.z\);' -or $blockShader -notmatch 'float sceneNdc = VFX_DEPTH_TO_NDC\(sceneRaw\);') {
+	$problems.Add("mask_block_geometry.fsh: mask and scene NDC are not converted with the one VFX_DEPTH_TO_NDC path")
+}
+if ($fieldEnvCode -notmatch 'depthLinearValid = ') {
+	$problems.Add("VFXFieldEnv: no validity flag for the depth-linearisation terms (stale/zero terms disable occlusion)")
+}
+if ($fieldEnvCode -notmatch '(?s)lineariseDepth\(new Matrix4f\(VIEW_ROTATION_PROJECTION\)\.mul\(viewRotation\.invert\(\)\)\)') {
+	$problems.Add("VFXFieldEnv.liveCameraView: the >=26.1 fallback does not recompute the linearisation terms")
+}
+if ($geometryCode -notmatch '(?s)if \(occlude && !VFXFieldEnv\.depthLinearValid\(\)\) \{[^}]*return;') {
+	$problems.Add("VFXMaskBlockGeometry.render: an occluding mask is drawn without usable depth-linearisation terms")
 }
 if ($blockShader -notmatch 'if \(vertexColor\.a > 0\.5\) \{') {
 	$problems.Add("mask_block_geometry.fsh: the x-ray path (occlude false) no longer bypasses the depth test")

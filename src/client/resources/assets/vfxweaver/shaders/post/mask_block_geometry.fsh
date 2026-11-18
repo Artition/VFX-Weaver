@@ -55,14 +55,24 @@
 #endif
 
 // How much farther than the scene the mask may be and still win, in blocks. A coincident face is
-// within a millimetre; a wall is a block or more away. 5 cm sits between the two with two orders of
-// magnitude of room on the flicker side and twenty times on the wall side.
+// within a millimetre up close, but the SCENE depth we compare against is quantised: a float32 depth
+// value is worth `dd = 10 * d^2 * dz` blocks (about 1.2 cm at 100 blocks, 4.8 cm at 200, 11 cm at
+// 300), so a fixed tolerance starts flickering again past ~200 blocks. The tolerance therefore grows
+// with the square of the distance, with the quadratic term chosen to stay above that quantisation
+// error at every range: 4.0e-6 * d^2 is ~3x the 1.2e-6 * d^2 error.
+//
+// The wall case still holds: the margin reaches 1 block only at d = sqrt((1 - 0.05) / 4.0e-6) ~ 490
+// blocks, so a wall one block in front keeps occluding everywhere before that (0.21 blocks at 200,
+// 0.41 at 300), and past it a one-block gap is smaller than what this depth buffer can resolve
+// anyway.
 #ifndef VFX_MASK_DEPTH_TOLERANCE
 #define VFX_MASK_DEPTH_TOLERANCE 0.05
 #endif
+#ifndef VFX_MASK_DEPTH_TOLERANCE_QUADRATIC
+#define VFX_MASK_DEPTH_TOLERANCE_QUADRATIC 4.0e-6
+#endif
 
 #moj_import <vfxweaver:camera.glsl>
-#moj_import <minecraft:projection.glsl>
 
 uniform sampler2D DepthSampler;
 // The block texture atlas (minecraft:textures/atlas/blocks.png): the alpha of the listed blocks'
@@ -81,11 +91,9 @@ out vec4 fragColor;
 void main() {
     if (vertexColor.a > 0.5) {
         float sceneRaw = texelFetch(DepthSampler, ivec2(gl_FragCoord.xy), 0).r;
-#if VFX_DEPTH_REVERSED
-        float maskNdc = gl_FragCoord.z;
-#else
-        float maskNdc = gl_FragCoord.z * 2.0 - 1.0;
-#endif
+        // One conversion for both: the fragment's window depth and the sampled depth are in the same
+        // units, and VFX_DEPTH_TO_NDC applies the node's convention to either of them.
+        float maskNdc = VFX_DEPTH_TO_NDC(gl_FragCoord.z);
         float sceneNdc = VFX_DEPTH_TO_NDC(sceneRaw);
         float a = depthLinear.x;
         float b = depthLinear.y;
@@ -96,7 +104,8 @@ void main() {
         if (abs(maskDivisor) > 1.0e-6 && abs(sceneDivisor) > 1.0e-6) {
             float maskDistance = b / maskDivisor;
             float sceneDistance = b / sceneDivisor;
-            if (maskDistance > 0.0 && sceneDistance > 0.0 && maskDistance > sceneDistance + VFX_MASK_DEPTH_TOLERANCE) {
+            float tolerance = VFX_MASK_DEPTH_TOLERANCE + VFX_MASK_DEPTH_TOLERANCE_QUADRATIC * sceneDistance * sceneDistance;
+            if (maskDistance > 0.0 && sceneDistance > 0.0 && maskDistance > sceneDistance + tolerance) {
                 discard;
             }
         }

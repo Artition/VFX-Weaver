@@ -52,6 +52,8 @@ public final class VFXFieldEnv {
 	 */
 	private static float depthLinearA;
 	private static float depthLinearB;
+	/** False when no capture path produced usable depth-linearisation terms this frame. */
+	private static boolean depthLinearValid;
 
 	private VFXFieldEnv() {
 	}
@@ -67,6 +69,9 @@ public final class VFXFieldEnv {
 		depthValid = valid;
 		invWidth = mainTarget.width <= 0 ? 0.0F : 1.0F / mainTarget.width;
 		invHeight = mainTarget.height <= 0 ? 0.0F : 1.0F / mainTarget.height;
+		// Reset each frame: a path that cannot produce the coefficients leaves them invalid, and an
+		// occluding mask then fails closed instead of comparing against stale numbers.
+		depthLinearValid = false;
 		//? if >=26.1 {
 		if (adopt(frameCameraState()) || adopt(VFXClientRenderHooks.camera())) {
 			return;
@@ -159,7 +164,13 @@ public final class VFXFieldEnv {
 		viewRotProj.mul(VFXWorldBob.pose()).mul(new Matrix4f().rotation(new Quaternionf(camera.rotation()).conjugate()));
 		viewRotProj.translate(-CAMERA.x, -CAMERA.y, -CAMERA.z).invert(INVERSE);
 		*///?} else {
-		camera.getViewRotationProjectionMatrix(VIEW_ROTATION_PROJECTION)
+		camera.getViewRotationProjectionMatrix(VIEW_ROTATION_PROJECTION);
+		// The depth linearisation needs the PURE projection, and the matrix above is
+		// projection * viewRotation: a rotation inverts exactly, so divide it back out instead of
+		// leaving the previous frame's coefficients (which would silently disable occlusion).
+		final Matrix4f viewRotation = new Matrix4f().rotation(new Quaternionf(camera.rotation()).conjugate());
+		lineariseDepth(new Matrix4f(VIEW_ROTATION_PROJECTION).mul(viewRotation.invert()));
+		VIEW_ROTATION_PROJECTION
 			.translate(-CAMERA.x, -CAMERA.y, -CAMERA.z)
 			.invert(INVERSE);
 		//?}
@@ -190,6 +201,9 @@ public final class VFXFieldEnv {
 	private static void lineariseDepth(final Matrix4f projection) {
 		depthLinearA = -projection.m22();
 		depthLinearB = projection.m32();
+		// A degenerate projection (or a zero b) would make every distance zero and silently disable
+		// the occlusion test; the pass then fails closed instead.
+		depthLinearValid = depthLinearB != 0.0F && Float.isFinite(depthLinearA) && Float.isFinite(depthLinearB);
 	}
 
 	/** The {@code a} term of {@code zNdc = a + b / distance} for this frame's projection. */
@@ -200,6 +214,15 @@ public final class VFXFieldEnv {
 	/** The {@code b} term of {@code zNdc = a + b / distance} for this frame's projection. */
 	public static float depthLinearB() {
 		return depthLinearB;
+	}
+
+	/**
+	 * True when this frame's depth-linearisation terms are usable. False only when neither capture path
+	 * could produce them, in which case an occluding block mask is not drawn (a mask that cannot
+	 * respect the depth buffer must not paint over walls).
+	 */
+	public static boolean depthLinearValid() {
+		return depthLinearValid;
 	}
 
 	public static Matrix4f invViewProj() {
