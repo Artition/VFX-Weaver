@@ -36,10 +36,12 @@
 // How much: VFX_MASK_DEPTH_BIAS = 1.0e-6 in NDC z. The disagreement between the two rasterisation
 // paths is float precision in the vertices (a few 1e-7 blocks at 4 blocks distance) mapped through
 // the projection, i.e. ~1e-8 NDC, and the depth buffer stores float32, whose quantisation near z ~ 1
-// is ~6e-8 - both far below 1e-6, so the mask reliably wins at its own surface. In world terms the
-// offset grows with distance (a perspective depth is non-linear): ~0.8 mm at 4 blocks, ~2 cm at 10
-// blocks, ~0.2 blocks at 100 blocks - still under a block, so a wall one block in front stays in
-// front and keeps occluding, at every distance where a masked block is more than a pixel.
+// is ~6e-8 - both far below 1e-6, so the mask reliably wins at its own surface. In world terms a
+// constant NDC offset grows with the square of the distance (a perspective depth is non-linear):
+// ~0.16 mm at 4 blocks, ~1 mm at 10, ~1 cm at 30, ~0.1 block at 100 and still under a block out to
+// ~300 blocks (about 10 blocks at 1000, i.e. only at extreme range does the offset approach the size
+// of a block) - so a wall one block in front stays in front and keeps occluding wherever a masked
+// block is more than a pixel or two on screen.
 #ifndef VFX_DEPTH_REVERSED
 #define VFX_DEPTH_REVERSED 0
 #endif

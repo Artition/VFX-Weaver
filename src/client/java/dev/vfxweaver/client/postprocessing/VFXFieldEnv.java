@@ -142,7 +142,8 @@ public final class VFXFieldEnv {
 		final float capturedFov = VFXFrameFov.get();
 		final float renderedFov = capturedFov > 0.0F ? capturedFov : Minecraft.getInstance().options.fov().get().floatValue();
 		final Matrix4f viewRotProj = Minecraft.getInstance().gameRenderer.getProjectionMatrix(renderedFov);
-		viewRotProj.mul(new Matrix4f().rotation(new Quaternionf(camera.rotation()).conjugate()));
+		// Same composition the world's renderLevel builds here: projection * bob, then the rotation.
+		viewRotProj.mul(VFXWorldBob.pose()).mul(new Matrix4f().rotation(new Quaternionf(camera.rotation()).conjugate()));
 		viewRotProj.translate(-CAMERA.x, -CAMERA.y, -CAMERA.z).invert(INVERSE);
 		*///?} else {
 		camera.getViewRotationProjectionMatrix(VIEW_ROTATION_PROJECTION)

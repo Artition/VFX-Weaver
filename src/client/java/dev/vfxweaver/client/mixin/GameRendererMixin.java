@@ -47,12 +47,17 @@ public abstract class GameRendererMixin {
 	/**
 	 * Vanilla's view-bob transforms are private methods of {@code GameRenderer}; the mask has to
 	 * compose the very same pose, so they are invoked here rather than re-implemented (a re-write
-	 * would drift from vanilla the moment it changes). Only {@code 26.x} needs them: its world
-	 * projection is {@code projectionMatrix * bobPose}, while {@code 1.21.11} hands the level renderer
-	 * rotation-only matrices (its bob lives in the first-person hand path), so there is nothing for
-	 * the mask to match there.
+	 * would drift from vanilla the moment it changes). Both node lines fold the pose into the level
+	 * projection, with different signatures: {@code 26.x} passes the frame's {@code CameraRenderState},
+	 * {@code 1.21.11} a partial tick (vanilla passes {@code Camera.getPartialTickTime()}).
 	 */
-	//? if >=26.1 {
+	//? if <26.1 {
+	/*@Invoker("bobHurt")
+	public abstract void vfxweaver$bobHurt(PoseStack pose, float partialTick);
+
+	@Invoker("bobView")
+	public abstract void vfxweaver$bobView(PoseStack pose, float partialTick);
+	*///?} else {
 	@Invoker("bobHurt")
 	public abstract void vfxweaver$bobHurt(CameraRenderState state, PoseStack pose);
 
@@ -62,12 +67,26 @@ public abstract class GameRendererMixin {
 
 	/**
 	 * Publishes the pose the world's own projection was built with this frame ({@code proj * bob}), so
-	 * the mask can compose {@code projection * bob * viewRotation} and stay glued to the blocks while
-	 * walking. Reads the same render state the world renderer reads, and the same option flag
+	 * the mask can compose {@code projection * bob * rotation} and stay glued to the blocks while
+	 * walking. Uses the same inputs the world renderer uses: the frame's render state on {@code 26.x},
+	 * the camera's partial tick on {@code 1.21.11}, and the same option flag on both
 	 * ({@code bobHurt} always, {@code bobView} only when View Bobbing is on), so View Bobbing off
 	 * changes nothing for the mask.
 	 */
-	//? if >=26.1 {
+	//? if <26.1 {
+	/*@Unique
+	private void vfxweaver$publishBobPose() {
+		final Minecraft minecraft = Minecraft.getInstance();
+		// Vanilla composes this pose with the camera's own partial tick in renderLevel.
+		final float partialTick = minecraft.gameRenderer.getMainCamera().getPartialTickTime();
+		final PoseStack pose = VFXWorldBob.beginScratch();
+		vfxweaver$bobHurt(pose, partialTick);
+		if (minecraft.options.bobView().get()) {
+			vfxweaver$bobView(pose, partialTick);
+		}
+		VFXWorldBob.publishScratch();
+	}
+	*///?} else {
 	@Unique
 	private void vfxweaver$publishBobPose() {
 		final net.minecraft.client.renderer.GameRenderer renderer = Minecraft.getInstance().gameRenderer;
@@ -77,14 +96,14 @@ public abstract class GameRendererMixin {
 		/*final net.minecraft.client.renderer.state.GameRenderState game = renderer.gameRenderState();
 		*///?}
 		final CameraRenderState state = game == null || game.levelRenderState == null ? null : game.levelRenderState.cameraRenderState;
-		final PoseStack pose = new PoseStack();
+		final PoseStack pose = VFXWorldBob.beginScratch();
 		if (state != null) {
 			vfxweaver$bobHurt(state, pose);
 			if (game.optionsRenderState.bobView) {
 				vfxweaver$bobView(state, pose);
 			}
 		}
-		VFXWorldBob.publish(pose.last().pose());
+		VFXWorldBob.publishScratch();
 	}
 	//?}
 
@@ -154,11 +173,10 @@ public abstract class GameRendererMixin {
 	 */
 	private void vfxweaver$updateFrame(final Minecraft minecraft, final DeltaTracker deltaTracker) {
 		float deltaTicks = minecraft.isPaused() ? 0.0F : deltaTracker.getGameTimeDeltaTicks();
-		//? if >=26.1 {
-		// The world's own projection folds in the view bob (GameRenderer.renderLevel:
-		// projectionMatrix * bobPose); publish the same pose so the mask can match it.
+		// The world's own level projection folds in the view bob (GameRenderer.renderLevel:
+		// projectionMatrix * bobPose, on both node lines); publish the same pose so the mask can
+		// match it and stop drifting sideways while walking.
 		vfxweaver$publishBobPose();
-		//?}
 		// Interpolate the player position across the current frame so player-bound overlays move
 		// smoothly instead of stepping at the 20 Hz game tick.
 		float partialTick = deltaTracker.getGameTimeDeltaPartialTick(false);

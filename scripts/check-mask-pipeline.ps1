@@ -308,10 +308,25 @@ if ($gameRendererMixin -notmatch '@Invoker\("bobView"\)') {
 	$problems.Add("GameRendererMixin: vanilla bobView is not invoked for the mask pose")
 }
 if ($gameRendererMixin -notmatch 'optionsRenderState\.bobView') {
-	$problems.Add("GameRendererMixin: the bob pose ignores the View Bobbing option (the world checks it)")
+	$problems.Add("GameRendererMixin: the 26.x bob pose ignores the View Bobbing option (the world checks it)")
 }
-if ($gameRendererMixin -notmatch 'VFXWorldBob\.publish\(') {
-	$problems.Add("GameRendererMixin: the bob pose is never published to the mask")
+if ($gameRendererMixin -notmatch 'vfxweaver\$bobHurt\(PoseStack pose, float partialTick\)') {
+	$problems.Add("GameRendererMixin: the 1.21.11 bobHurt invoker lost its (PoseStack, float) signature")
+}
+if ($gameRendererMixin -notmatch 'getMainCamera\(\)\.getPartialTickTime\(\)') {
+	$problems.Add("GameRendererMixin: the 1.21.11 bob pose does not use the camera's partial tick (the tick the world uses)")
+}
+if ($gameRendererMixin -notmatch 'minecraft\.options\.bobView\(\)\.get\(\)') {
+	$problems.Add("GameRendererMixin: the 1.21.11 bob pose ignores the View Bobbing option")
+}
+if ($fieldEnvCode -notmatch 'viewRotProj\.mul\(VFXWorldBob\.pose\(\)\)') {
+	$problems.Add("VFXFieldEnv: the 1.21.11 view-projection does not include the bob pose")
+}
+if ($gameRendererMixin -notmatch 'VFXWorldBob\.beginScratch\(\)' -or $gameRendererMixin -notmatch 'VFXWorldBob\.publishScratch\(\)') {
+	$problems.Add("GameRendererMixin: the bob pose is not built in the reused scratch stack / not published to the mask")
+}
+if ($gameRendererMixin -match '(?s)vfxweaver\$publishBobPose\(\).*?new PoseStack\(\)') {
+	$problems.Add("GameRendererMixin: the bob pose allocates a PoseStack per frame (use VFXWorldBob.beginScratch())")
 }
 
 # 20) Draw order: the geometry must be rasterised before the coverage prepass samples the scratch, or
