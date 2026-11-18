@@ -27,6 +27,7 @@ $timeline = Read-Source (Join-Path $main "effect\VFXTimeline.java")
 $mixin = Read-Source (Join-Path $client "mixin\GameRendererMixin.java")
 $hooks = Read-Source (Join-Path $client "platform\VFXClientRenderHooks.java")
 $post = Read-Source (Join-Path $client "postprocessing\VFXPostProcessingManager.java")
+$payload = Read-Source (Join-Path $main "network\VFXTriggerPayload.java")
 $graphDemo = Read-Source (Join-Path $repoRoot "src\main\resources\data\vfxweaver\vfx\graph_demo.json")
 $graphLogicDemo = Read-Source (Join-Path $repoRoot "src\main\resources\data\vfxweaver\vfx\graph_logic_demo.json")
 
@@ -163,13 +164,13 @@ if ($flashback -notmatch 'buf\.writeUUID\(entityUuids\.get\(i\)\)') {
 if ($flashback -notmatch 'buf\.readUUID\(\)') {
 	$problems.Add("FlashbackCompat: playback does not read recorded entity UUIDs")
 }
-if ($vfxClient -notmatch 'recordServerPlay\(payload\.effectId\(\), payload\.durationTicks\(\), payload\.params\(\), payload\.easing\(\), payload\.position\(\), payload\.entityUuids\(\)\)') {
+if ($vfxClient -notmatch 'recordServerPlay\(payload\.effectId\(\), payload\.durationTicks\(\), payload\.params\(\), payload\.easing\(\), payload\.position\(\), payload\.entityUuids\(\), payload\.positions\(\)\)') {
 	$problems.Add("VFXClient: the server play record drops the position/entity UUIDs")
 }
 if ($flashback -notmatch 'isDefinitionAnimated\(definition, entry\.getKey\(\)\)') {
 	$problems.Add("FlashbackCompat: the snapshot still freezes a definition-animated parameter")
 }
-if ($controller -notmatch 'play\.entityUuids' -or $manager -notmatch 'final List<UUID> entityUuids, final Map<String, Float> params, final @Nullable EasingFunction easing, final boolean playSound') {
+if ($controller -notmatch 'play\.entityUuids' -or $manager -notmatch 'final List<UUID> entityUuids, final List<Vec3> positions, final Map<String, Float> params, final @Nullable EasingFunction easing, final boolean playSound') {
 	$problems.Add("the replay controller does not pass recorded entity UUIDs into playReplay")
 }
 
@@ -204,7 +205,7 @@ if ($vfxClientApi -notmatch 'FlashbackCompat\.recordPlay\(effectId, durationTick
 if ($vfxClientApi -notmatch '(?s)Minecraft\.getInstance\(\)\.execute\(\(\) -> \{.*?VFXEffectManager\.get\(\)\.play.*?FlashbackCompat\.recordPlay') {
 	$problems.Add("VFXClientAPI: recordPlay is not on the same render-thread hop as the play")
 }
-if ($vfxClient -notmatch 'FlashbackCompat\.recordServerPlay\(payload\.effectId\(\), payload\.durationTicks\(\), payload\.params\(\), payload\.easing\(\), payload\.position\(\), payload\.entityUuids\(\)\)') {
+if ($vfxClient -notmatch 'FlashbackCompat\.recordServerPlay\(payload\.effectId\(\), payload\.durationTicks\(\), payload\.params\(\), payload\.easing\(\), payload\.position\(\), payload\.entityUuids\(\), payload\.positions\(\)\)') {
 	$problems.Add("VFXClient: the network play path does not record into the replay")
 }
 # Every public API play entry point goes through the local dispatcher, so there is no path that
@@ -295,6 +296,23 @@ $jumpIdx = $flashback.IndexOf('resolveField(replayServerClass, "jumpToTick")')
 $enableIdx = $flashback.IndexOf('enabled = true;')
 if ($jumpIdx -lt 0 -or $enableIdx -lt 0 -or $enableIdx -lt $jumpIdx) {
 	$problems.Add("FlashbackCompat: enabled is set before the optional playback symbols are resolved")
+}
+
+# 14) The many-position play (PROTOCOL_VERSION 8) keeps its packet-size bound and its
+#     backward-compatible empty-list fallback. A future edit must not silently drop the
+#     MAX_POSITIONS cap (unbounded packet), stop using the collection codec, or make an empty
+#     list mean "no positions at all" instead of the ordinary single point.
+if ($payload -notmatch 'public static final int MAX_POSITIONS = 4096;') {
+	$problems.Add("VFXTriggerPayload: MAX_POSITIONS is no longer 4096 (the packet-size bound)")
+}
+if ($payload -notmatch 'ByteBufCodecs\.collection\(ArrayList::new, Vec3\.STREAM_CODEC, MAX_POSITIONS\)') {
+	$problems.Add("VFXTriggerPayload: the positions codec no longer uses ByteBufCodecs.collection with MAX_POSITIONS")
+}
+if ($payload -notmatch '(?s)POSITIONS_CODEC.*?declared <= 0.*?return List\.of\(\);') {
+	$problems.Add("VFXTriggerPayload: an empty positions list is no longer the single-point (List.of) fallback")
+}
+if ($manager -notmatch 'if \(!runtimePositions\.isEmpty\(\)\) \{') {
+	$problems.Add("VFXEffectManager: an empty runtime positions list no longer falls back to the definition positions")
 }
 
 Write-Host "Flashback replay clock check (static)"

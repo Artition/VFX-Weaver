@@ -51,8 +51,8 @@ public record VFXTriggerPayload(
 	private static final Logger LOGGER = LoggerFactory.getLogger("vfxweaver/payload");
 	/**
 	 * Bumped 7 -> 8 for {@code positions}: an old reader would misparse the extra list. An old
-	 * client ignores this version on receipt (see {@code VFXClient}), so it keeps its former
-	 * single-point behaviour for effects it does understand.
+	 * client drops the whole packet on a version mismatch (see {@code VFXClient}), so it renders
+	 * nothing at all until it updates rather than falling back to the single point.
 	 */
 	public static final byte PROTOCOL_VERSION = 8;
 	/**
@@ -146,12 +146,20 @@ public record VFXTriggerPayload(
 	}
 
 	/**
-	 * World-position list with the same wire shape as
-	 * {@code ByteBufCodecs.collection(ArrayList::new, Vec3.STREAM_CODEC, MAX_POSITIONS)} (a varint
-	 * count then element codecs), except that an over-long list on decode is cut to
+	 * The reference collection codec the position list is modelled on
+	 * ({@code ByteBufCodecs.collection(ArrayList::new, Vec3.STREAM_CODEC, MAX_POSITIONS)}): used to
+	 * encode (after clipping to {@link #MAX_POSITIONS}), while decode reads the same varint-count
+	 * format by hand so an over-long list is cut, not rejected.
+	 */
+	private static final StreamCodec<ByteBuf, List<Vec3>> POSITIONS_COLLECTION = ByteBufCodecs.collection(ArrayList::new, Vec3.STREAM_CODEC, MAX_POSITIONS);
+
+	/**
+	 * World-position list with the same wire shape as {@link #POSITIONS_COLLECTION} (a varint count
+	 * then element codecs), except that an over-long list on decode is cut to
 	 * {@link #MAX_POSITIONS} with one warning instead of failing the packet — a hostile or buggy
 	 * server must not disconnect the client over a too-large position list. The whole count is still
-	 * read off the buffer so the stream stays aligned; entries past the cap are dropped.
+	 * read off the buffer so the stream stays aligned; entries past the cap are dropped. An empty
+	 * list round-trips to {@link List#of()}, which the play path reads as the ordinary single point.
 	 */
 	public static final StreamCodec<ByteBuf, List<Vec3>> POSITIONS_CODEC = new StreamCodec<>() {
 		public List<Vec3> decode(final ByteBuf input) {
@@ -175,11 +183,7 @@ public record VFXTriggerPayload(
 
 		public void encode(final ByteBuf output, final List<Vec3> value) {
 			List<Vec3> list = value == null ? List.of() : value;
-			int size = Math.min(list.size(), MAX_POSITIONS);
-			ByteBufCodecs.VAR_INT.encode(output, size);
-			for (int i = 0; i < size; i++) {
-				Vec3.STREAM_CODEC.encode(output, list.get(i));
-			}
+			POSITIONS_COLLECTION.encode(output, list.size() > MAX_POSITIONS ? list.subList(0, MAX_POSITIONS) : list);
 		}
 	};
 

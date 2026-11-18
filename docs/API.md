@@ -41,6 +41,10 @@ void sendEffect(ServerPlayer player, Identifier effectId, int durationTicks, lon
 // list is bounded on the wire at VFXTriggerPayload.MAX_POSITIONS (4096, a packet-size bound, not
 // an instance cap) and cut with one warning on decode. sendStop(player, effectId, instanceId)
 // stops every position of the instance.
+// NOTE: because this overload takes a List<Vec3> in the position slot, a call that passes a
+// literal `null` for the world position is now ambiguous against the existing
+// (long instanceId, @Nullable Vec3 worldPos, ...) overload. Existing source that wrote a bare
+// `null` there must either cast (`(Vec3) null`) or keep calling the old overload.
 boolean sendEffect(ServerPlayer player, Identifier effectId, long instanceId, List<Vec3> positions, Map<String, Float> overrides, @Nullable EasingType easing);
 
 // Stops the effect on the player's client (all its instances).
@@ -536,7 +540,7 @@ Semantics:
 
 | Field | Type | Description |
 |---|---|---|
-| `protocolVersion` | byte | Current value — `VFXTriggerPayload.PROTOCOL_VERSION` (8). The client **silently ignores** the packet on a version mismatch (see `VFXClient.handleTrigger`), so client and server must be the same version — 8 added the optional position list below, and a 7/8 mismatch fails exactly like every earlier bump. An **older client ignores the new version**, so it keeps its former single-point behaviour for effects it does understand. |
+| `protocolVersion` | byte | Current value — `VFXTriggerPayload.PROTOCOL_VERSION` (8). The client **drops the whole packet** on a version mismatch (see `VFXClient.handleTrigger`), so client and server must be the same version — 8 added the optional position list below, and a 7/8 mismatch fails exactly like every earlier bump. An **older client ignores the packet entirely until it updates** — it does *not* fall back to the single point, because the version gate rejects the whole payload before any field is read. |
 | `effectId` | `Identifier` | Effect id (built-in or datapack) |
 | `action` | `VFXAction` (`PLAY`/`STOP`/`SET_PARAM`/`KEYFRAME`/`SET_EXPR`/`MOVE`) | `SET_PARAM`/`KEYFRAME` apply to **running** effect instances: `params` carries exactly one `name → value` entry, for `KEYFRAME` the frame time is in `durationTicks` (negative = start the segment at the current time and run over `|time|` ticks), the segment easing in `easing`; `SET_EXPR` uses `exprParam`+`exprSource`; `MOVE` uses `position` + `instanceId` |
 | `durationTicks` | varint | 0 = definition default, negative = persistent (only for `PLAY`) |
