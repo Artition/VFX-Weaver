@@ -1,33 +1,43 @@
 package dev.vfxweaver.client.postprocessing;
 
 import com.mojang.blaze3d.pipeline.RenderTarget;
+//? if >=26.1 {
 import dev.vfxweaver.client.platform.VFXClientRenderHooks;
+//?}
+import dev.vfxweaver.util.VFXLog;
 import net.minecraft.client.Camera;
 import net.minecraft.client.Minecraft;
 import org.joml.Matrix4f;
 import org.joml.Quaternionf;
 import org.joml.Vector3f;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Per-frame camera state used by the field program: the inverse view-projection (the verified
  * world-position recipe from the depth findings), the camera position and the target size. All
  * scratch objects are preallocated so the render path allocates nothing.
  *
- * <p>The matrices and the position come from the <b>frame's</b> {@code CameraRenderState}, which the
- * render hooks publish before the layer-0 pass: {@code projectionMatrix} and
- * {@code viewRotationMatrix} are the snapshots the world itself was rendered with, and
- * {@code viewRotationMatrix} is rotation-only by construction ({@code Camera} builds it as
- * {@code rotation(conjugate(orientation))}). Rebuilding the projection from the live camera instead
- * was wrong whenever the FOV moved (sprint, flight, jumping): {@code Camera.getViewRotationProjectionMatrix}
- * serves a cached matrix keyed by its {@code Projection}'s version, and later passes (the hand, the
- * HUD) mutate that same {@code Projection}, so the live rebuild could differ from the projection the
- * depth buffer was drawn with - and a mask drawn from it detached from the blocks. With a static FOV
- * the two coincided, which is why it only showed while the FOV stirred.
+ * <p><b>Where the matrices come from.</b> The pass runs from the layer-0 mixin hook
+ * ({@code GameRenderer.renderLevel}), which is <em>outside</em> any render-event callback - so the
+ * event-scoped {@code VFXClientRenderHooks.camera()} is {@code null} there and cannot be the primary
+ * source. Instead the frame's {@code CameraRenderState} is read straight from the game render state
+ * ({@code gameRenderState().levelRenderState.cameraRenderState}), which is the snapshot the world was
+ * rendered with: {@code projectionMatrix} (built with the frame's FOV, sprint/fly/jump modulation
+ * included) and {@code viewRotationMatrix} (rotation only by construction - {@code Camera} builds it
+ * as {@code rotation(conjugate(orientation))}). Both, and the position, therefore come from
+ * {@code pos} of the <b>same</b> state; mixing one of them with a live rebuild is what detached the
+ * mask from the blocks whenever the FOV moved.
  *
- * <p>Outside a published render event (and on 1.21.11, whose state carries no matrices) the live
- * camera is the fallback.
+ * <p>Fallbacks, in order: the camera state published by the render event (when a pass does run inside
+ * one), then the live camera. Only the {@code 1.21.11} nodes end on the live path (their state has no
+ * matrices) and they use the FOV the frame was rendered with - {@link VFXFrameFov}, captured by the
+ * {@code getFov} hook - never the unmodulated {@code options.fov()}. Reaching the live path on the
+ * {@code 26.x} nodes means the direct read failed, which is a bug rather than a state, so it warns
+ * once.
  */
 public final class VFXFieldEnv {
+	private static final Logger LOGGER = LoggerFactory.getLogger("vfxweaver/field-env");
 	private static final Matrix4f VIEW_ROTATION_PROJECTION = new Matrix4f();
 	private static final Matrix4f INVERSE = new Matrix4f();
 	private static final Vector3f CAMERA = new Vector3f();
@@ -49,31 +59,72 @@ public final class VFXFieldEnv {
 		depthValid = valid;
 		invWidth = mainTarget.width <= 0 ? 0.0F : 1.0F / mainTarget.width;
 		invHeight = mainTarget.height <= 0 ? 0.0F : 1.0F / mainTarget.height;
-		// The frame's published camera state: the same matrices and position the world was drawn with.
-		// `var` keeps the per-node class name (state.level on 26.x, state on 1.21.11) out of this file.
-		final var state = VFXClientRenderHooks.camera();
-		final Camera camera = liveCamera();
-		if (state != null) {
-			CAMERA.set(state.pos.x, state.pos.y, state.pos.z);
-		} else {
-			CAMERA.set(camera.position().x, camera.position().y, camera.position().z);
-		}
 		//? if >=26.1 {
-		// projection * viewRotation, both the frame's own snapshots, then the camera translation, then
-		// invert: this is the exact inverse view-projection the depth buffer was rendered with.
-		if (state != null && state.projectionMatrix != null && state.viewRotationMatrix != null) {
-			VIEW_ROTATION_PROJECTION.set(state.projectionMatrix)
-				.mul(state.viewRotationMatrix)
-				.translate(-CAMERA.x, -CAMERA.y, -CAMERA.z)
-				.invert(INVERSE);
+		if (adopt(frameCameraState()) || adopt(VFXClientRenderHooks.camera())) {
 			return;
 		}
 		//?}
-		// Fallback: rebuild from the live camera (1.21.11 always, and any node outside a published
-		// render event). getViewRotationProjectionMatrix returns projection * viewRotation with no
-		// translation; post-multiply translate(-cameraPos) then invert (depth findings).
+		// Fallback: the live camera. On 1.21.11 this is the only path (its camera render state carries
+		// no matrices), so its projection must use the FOV the frame was rendered with.
+		liveCameraView();
+	}
+
+	//? if >=26.1 {
+	/**
+	 * The frame's camera render state, read directly from the game render state. Not the event-scoped
+	 * hook: the post pass runs from the mixin, outside any render-event callback.
+	 *
+	 * @return the state, or {@code null} before the first extraction of the frame
+	 */
+	private static net.minecraft.client.renderer.state.level.CameraRenderState frameCameraState() {
+		//? if <26.2 {
+		return Minecraft.getInstance().gameRenderer.getGameRenderState().levelRenderState.cameraRenderState;
+		//?} else {
+		/*return Minecraft.getInstance().gameRenderer.gameRenderState().levelRenderState.cameraRenderState;
+		*///?}
+	}
+
+	/**
+	 * Takes the inverse view-projection and the camera position from one camera render state, so a
+	 * matrix can never be paired with another source's position.
+	 *
+	 * @param state the frame's state, or {@code null}
+	 * @return true when the state provided everything
+	 */
+	private static boolean adopt(final net.minecraft.client.renderer.state.level.CameraRenderState state) {
+		if (state == null || state.pos == null || state.projectionMatrix == null || state.viewRotationMatrix == null) {
+			return false;
+		}
+		CAMERA.set(state.pos.x, state.pos.y, state.pos.z);
+		// projection * viewRotation, both the frame's own snapshots, then the camera translation, then
+		// invert: the exact inverse view-projection the depth buffer was rendered with.
+		VIEW_ROTATION_PROJECTION.set(state.projectionMatrix)
+			.mul(state.viewRotationMatrix)
+			.translate(-CAMERA.x, -CAMERA.y, -CAMERA.z)
+			.invert(INVERSE);
+		return true;
+	}
+	//?}
+
+	/**
+	 * Rebuilds both the position and the projection from the live camera. getViewRotationProjectionMatrix
+	 * returns projection * viewRotation with no translation; post-multiply translate(-cameraPos) then
+	 * invert (depth findings).
+	 */
+	private static void liveCameraView() {
+		final Camera camera = liveCamera();
+		CAMERA.set(camera.position().x, camera.position().y, camera.position().z);
+		if (Minecraft.getInstance().level != null) {
+			// A masked pass in a loaded world should always have the frame's state; reaching here means
+			// the direct read came back empty, which would otherwise be a silent drift.
+			VFXLog.warnOnce(LOGGER, "fieldenv:camera-state",
+				"vfxweaver: no frame camera render state; rebuilding the camera projection from the live camera (the mask may drift while the FOV changes)");
+		}
 		//? if <26.1 {
-		/*final float renderedFov = Minecraft.getInstance().options.fov().get().floatValue();
+		/*// 1.21.11: the state has no matrices, so the projection comes from the FOV the frame was
+		// rendered with - the getFov hook's captured value, modulation and fov_modifier included.
+		final float capturedFov = VFXFrameFov.get();
+		final float renderedFov = capturedFov > 0.0F ? capturedFov : Minecraft.getInstance().options.fov().get().floatValue();
 		final Matrix4f viewRotProj = Minecraft.getInstance().gameRenderer.getProjectionMatrix(renderedFov);
 		viewRotProj.mul(new Matrix4f().rotation(new Quaternionf(camera.rotation()).conjugate()));
 		viewRotProj.translate(-CAMERA.x, -CAMERA.y, -CAMERA.z).invert(INVERSE);

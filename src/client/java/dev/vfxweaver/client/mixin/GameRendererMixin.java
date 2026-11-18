@@ -3,6 +3,7 @@ package dev.vfxweaver.client.mixin;
 import dev.vfxweaver.client.effect.VFXEffectManager;
 import dev.vfxweaver.client.flashback.FlashbackCompat;
 import dev.vfxweaver.client.flashback.VFXReplayController;
+import dev.vfxweaver.client.postprocessing.VFXFrameFov;
 import dev.vfxweaver.client.postprocessing.VFXPostProcessingManager;
 import dev.vfxweaver.effect.VFXWorldBindings;
 import net.minecraft.client.Camera;
@@ -37,15 +38,6 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
  */
 @Mixin(GameRenderer.class)
 public abstract class GameRendererMixin {
-	/**
-	 * FOV actually used for the last gameplay frame (captured by the 1.21.11 {@code getFov} hook,
-	 * including the FOV-modifier/sprint modulation). Used to rebuild the view-rotation-projection
-	 * matrix so the screen bindings follow the rendered FOV; {@code -1} means "not captured yet".
-	 * 1.21.11 only.
-	 */
-	//? if <26.1
-	/*private static float vfxweaver$lastFov = -1.0F;*/
-
 	@Inject(
 		method = "render(Lnet/minecraft/client/DeltaTracker;Z)V",
 		at = @At(
@@ -126,7 +118,8 @@ public abstract class GameRendererMixin {
 			//? if <26.1 {
 /*			// Prefer the FOV captured by the getFov hook (rendered, modulated). It may be one frame
 			// stale because getFov can run after this hook, which is still better than the base option.
-			float renderedFov = vfxweaver$lastFov > 0.0F ? vfxweaver$lastFov : minecraft.options.fov().get().floatValue();
+			float capturedFov = VFXFrameFov.get();
+			float renderedFov = capturedFov > 0.0F ? capturedFov : minecraft.options.fov().get().floatValue();
 			Matrix4f viewRotProj = minecraft.gameRenderer.getProjectionMatrix(renderedFov);
 			viewRotProj.mul(new Matrix4f().rotation(new Quaternionf(camera.rotation()).conjugate()));
 *///?} else {
@@ -235,7 +228,7 @@ public abstract class GameRendererMixin {
 		}
 		float delta = VFXEffectManager.get().getActiveFovDelta();
 		float fov = cir.getReturnValue() + delta;
-		vfxweaver$lastFov = fov;
+		VFXFrameFov.set(fov);
 		if (delta != 0.0F) {
 			cir.setReturnValue(fov);
 		}
