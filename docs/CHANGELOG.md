@@ -2,8 +2,9 @@
 
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
-**This page is the authoritative record of released mod versions.** The newest entry is the current
-mod version (`2.6.0`, read from `mod_version` in the build). Each `##` heading names a release; where
+**This page is the authoritative record of released mod versions.** The newest release entry is the
+current mod version (`2.6.0`, read from `mod_version` in the build); `Unreleased` above it holds
+changes that have not shipped yet. Each `##` heading names a release; where
 a release shipped with a guide revision the heading shows both numbers (`v1.2.0 / Guide v32`), and a
 heading titled only `Guide vN` is a guide change that shipped without a mod version bump. The two
 numbers are independent: the **mod version** is what you download, the **guide revision** is how many
