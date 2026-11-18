@@ -70,7 +70,7 @@ if ($geometry -notmatch 'VFXMaskUniforms\.slotValue\(mask, effect, slots\[0\], d
 }
 
 # 7) The block selection must be cached and its model quads resolved once.
-if ($geometry -notmatch 'private static @Nullable SelectionCache selectionCache') {
+if ($geometry -notmatch 'private static final Map<VFXMaskBlockSelection, SelectionCache> selectionCaches') {
 	$problems.Add("VFXMaskBlockGeometry: the selection cache is missing")
 }
 if ($geometry -match 'hasBlockModelGeometry\(state\)') {
@@ -163,8 +163,39 @@ if ($geometry -notmatch 'getAtlasOrThrow\(net\.minecraft\.data\.AtlasIds\.BLOCKS
 if ($geometry -notmatch 'UVPair\.unpackU\(') {
 	$problems.Add("VFXMaskBlockGeometry: the baked atlas UV is not carried to the vertex")
 }
+# The baked UV is already atlas-space (FaceBakery packs sprite.getU(localU)); re-mapping it through
+# the sprite rect the way surface_pattern must for its 0..1 datapack rect samples a sub-crop of the
+# sprite and mis-places the cutout alpha. Pin both halves: the raw unpack, and the absence of the
+# remap plus the comment that explains why.
+if ($geometry -match 'getU0\(\) *\+|getU1\(\) *-|Mth\.lerp\(|\bspriteRect') {
+	$problems.Add("VFXMaskBlockGeometry: the atlas UV is being re-mapped through the sprite rect; baked quad UVs are already atlas-space")
+}
+if ($geometry -notmatch 'the model bakery already') {
+	$problems.Add("VFXMaskBlockGeometry: the javadoc no longer states that the baked UV is already atlas-space")
+}
 if ($geometry -notmatch '(?s)if \(selection\.listed\(\)\) \{\s*return true;') {
 	$problems.Add("VFXMaskBlockGeometry.SelectionCache: a listed selection is still keyed by an animated centre/radius")
+}
+# One baked selection per mask (two masked effects must not evict each other) with a frame-scoped
+# eviction: the manager marks the frame, the pass drops what the previous frame did not use.
+if ($geometry -notmatch 'private static final Map<VFXMaskBlockSelection, SelectionCache> selectionCaches') {
+	$problems.Add("VFXMaskBlockGeometry: the selection cache is a single slot again (two block masks thrash it)")
+}
+if ($geometry -notmatch 'public static void beginFrame\(\)') {
+	$problems.Add("VFXMaskBlockGeometry: the per-frame cache eviction hook is missing")
+}
+if ($post -notmatch 'VFXMaskBlockGeometry\.beginFrame\(\)') {
+	$problems.Add("VFXPostProcessingManager: the block-geometry pass is not told where a frame starts (cache never evicts)")
+}
+# One block-coordinate convention for the parse-time region budget and the geometry walk.
+if ($selection -notmatch 'public static int blockCoordinate\(final float value\)') {
+	$problems.Add("VFXMaskBlockSelection: the shared block-coordinate convention is missing")
+}
+if ($parser -notmatch 'VFXMaskBlockSelection\.blockCoordinate\(region\[3\]\)') {
+	$problems.Add("VFXMaskParser: the region budget does not use the shared block-coordinate convention")
+}
+if ($geometry -notmatch 'VFXMaskBlockSelection\.blockCoordinate\(coordinates\[offset\]\)') {
+	$problems.Add("VFXMaskBlockGeometry: the region/position walk does not use the shared block-coordinate convention")
 }
 if (([regex]::Matches($geometry, 'drawPass\(encoder, geometry, mainTarget, program, blocks')).Count -ne 2) {
 	$problems.Add("VFXMaskBlockGeometry.render: expected exactly two drawPass calls (outer always, inner for the band)")
@@ -299,6 +330,13 @@ public final class MaskParserCheck {
 		rejected("hollow on a circle", "{\"shape\":\"circle\",\"center\":[0.5,0.5],\"fill\":\"hollow\"}");
 		rejected("stroke on a block_list", "{\"shape\":\"block_list\",\"positions\":[[0,0,0]],\"fill\":\"stroke\",\"stroke_width\":0.1}");
 		rejected("oversized block_list region", "{\"shape\":\"block_list\",\"region\":[0,0,0,4096,4096,4096]}");
+		// The block-coordinate convention is floor (the block that contains the point), and the region
+		// budget counts with it: -0.5 .. 0.5 is the two-block box -1..0, not a one-block box.
+		require(dev.vfxweaver.mask.VFXMaskBlockSelection.blockCoordinate(-0.5F) == -1, "blockCoordinate(-0.5) = " + dev.vfxweaver.mask.VFXMaskBlockSelection.blockCoordinate(-0.5F));
+		require(dev.vfxweaver.mask.VFXMaskBlockSelection.blockCoordinate(0.5F) == 0, "blockCoordinate(0.5) = " + dev.vfxweaver.mask.VFXMaskBlockSelection.blockCoordinate(0.5F));
+		final VFXMask negative = parse("{\"shape\":\"block_list\",\"region\":[-0.5,-0.5,-0.5,0.5,0.5,0.5]}");
+		require(negative.primitives().get(0).blockSelection().region()[0] == -0.5F, "a negative fractional corner is not kept for the shared floor convention");
+
 
 		System.out.println("mask parser check OK: right-nested/third-custom/second-block/bad-space rejected; block_list positions/region/hollow parsed; left-nesting and softness defaults hold");
 	}

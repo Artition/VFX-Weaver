@@ -569,9 +569,9 @@ public final class VFXMaskParser {
 					region[axis + 3] = low;
 				}
 			}
-			final double volume = ((double) Math.floor(region[3]) - Math.floor(region[0]) + 1.0)
-				* ((double) Math.floor(region[4]) - Math.floor(region[1]) + 1.0)
-				* ((double) Math.floor(region[5]) - Math.floor(region[2]) + 1.0);
+			final double volume = ((double) VFXMaskBlockSelection.blockCoordinate(region[3]) - VFXMaskBlockSelection.blockCoordinate(region[0]) + 1.0)
+				* ((double) VFXMaskBlockSelection.blockCoordinate(region[4]) - VFXMaskBlockSelection.blockCoordinate(region[1]) + 1.0)
+				* ((double) VFXMaskBlockSelection.blockCoordinate(region[5]) - VFXMaskBlockSelection.blockCoordinate(region[2]) + 1.0);
 			if (volume > VFXMaskBlockSelection.MAX_REGION_BLOCKS) {
 				throw new IllegalArgumentException("mask: block_list 'region' covers " + (long) volume + " blocks, above the "
 					+ VFXMaskBlockSelection.MAX_REGION_BLOCKS + "-block geometry budget; list the positions instead (no cap)");

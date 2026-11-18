@@ -355,7 +355,10 @@ public final class VFXPostProcessingManager {
 
 			if (layer == 0 && !maskEffects.isEmpty()) {
 				// Geometry first: a block mask's model geometry is rasterised into its scratch target,
-				// which the coverage shader then samples as that leaf's coverage.
+				// which the coverage shader then samples as that leaf's coverage. The frame marker lets
+				// the geometry pass keep one baked selection per mask and evict the ones the previous
+				// pass did not use (two masked effects must not evict each other).
+				VFXMaskBlockGeometry.beginFrame();
 				for (final Map.Entry<Identifier, VFXActiveEffect> entry : maskEffects.entrySet()) {
 					final VFXMask entryMask = entry.getValue().getMask();
 					if (entryMask != null && entryMask.hasBlockLeaf()) {

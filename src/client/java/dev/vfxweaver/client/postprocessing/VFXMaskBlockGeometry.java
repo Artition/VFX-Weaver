@@ -31,6 +31,7 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -110,7 +111,73 @@ public final class VFXMaskBlockGeometry {
 	}
 
 	/** A cached selection plus the model manager it was baked against; recomputed on a key change. */
-	private static @Nullable SelectionCache selectionCache;
+	private static final class SelectionCache {
+		private final Level level;
+		private final Object modelManager;
+		private final float centerX;
+		private final float centerY;
+		private final float centerZ;
+		private final float radius;
+		private final List<SelectedBlock> blocks;
+		private long lastFrame;
+
+		private SelectionCache(
+			final Level level,
+			final Object modelManager,
+			final float centerX,
+			final float centerY,
+			final float centerZ,
+			final float radius,
+			final List<SelectedBlock> blocks,
+			final long lastFrame
+		) {
+			this.level = level;
+			this.modelManager = modelManager;
+			this.centerX = centerX;
+			this.centerY = centerY;
+			this.centerZ = centerZ;
+			this.radius = radius;
+			this.blocks = blocks;
+			this.lastFrame = lastFrame;
+		}
+
+		private boolean matches(final Level level, final Object modelManager, final VFXMaskBlockSelection selection, final float[] center, final float radius) {
+			if (this.level != level || this.modelManager != modelManager) {
+				return false;
+			}
+			// A listed selection has no scanned region: its baked quads depend on nothing that can
+			// animate, so an animated slot must not force a rebuild every frame.
+			if (selection.listed()) {
+				return true;
+			}
+			return this.centerX == center[0] && this.centerY == center[1] && this.centerZ == center[2] && this.radius == radius;
+		}
+	}
+
+	/**
+	 * One baked selection per mask, keyed by the selection's identity (a parsed mask owns exactly one
+	 * block selection, so this is "per block mask"): two effects - or two masks of one definition -
+	 * each keep their own quads across frames instead of evicting each other the way a single static
+	 * slot did. {@link #beginFrame()} drops every entry the previous frame did not use, so the map
+	 * stays bounded by the live masked set; a level change or a resource reload invalidates the
+	 * entries through {@link #invalidateSelectionCache()} and through the level/model-manager match in
+	 * {@link SelectionCache#matches}.
+	 */
+	private static final Map<VFXMaskBlockSelection, SelectionCache> selectionCaches = new IdentityHashMap<>();
+
+	/** The frame the manager is currently drawing {@link #beginFrame()}; entries are stamped with it. */
+	private static long frameIndex;
+
+	/**
+	 * Marks the start of one frame's block-mask draws and evicts the entries the previous frame did
+	 * not use. Called once per frame by the manager before it walks the masked set, so the eviction
+	 * rule is "unused by the last full pass over the masked set", never "unused by the last call"
+	 * (which would evict mask A whenever mask B is drawn after it).
+	 */
+	public static void beginFrame() {
+		frameIndex++;
+		selectionCaches.values().removeIf(cache -> cache.lastFrame < frameIndex - 1);
+	}
 
 	/**
 	 * The matching blocks (each with its baked model quads resolved once) for the current selection.
@@ -122,18 +189,19 @@ public final class VFXMaskBlockGeometry {
 	 */
 	private static List<SelectedBlock> select(final Level level, final VFXMaskBlockSelection selection, final float[] center, final float radius) {
 		final Object modelManager = Minecraft.getInstance().getModelManager();
-		final SelectionCache cached = selectionCache;
-		if (cached != null && cached.matches(level, modelManager, selection, center, radius)) {
-			return cached.blocks();
+		SelectionCache cached = selectionCaches.get(selection);
+		if (cached == null || !cached.matches(level, modelManager, selection, center, radius)) {
+			final List<SelectedBlock> blocks = selection.listed() ? bakeListed(level, selection) : scan(level, selection, center, radius);
+			cached = new SelectionCache(level, modelManager, center[0], center[1], center[2], radius, blocks, frameIndex);
+			selectionCaches.put(selection, cached);
 		}
-		final List<SelectedBlock> blocks = selection.listed() ? bakeListed(level, selection) : scan(level, selection, center, radius);
-		selectionCache = new SelectionCache(level, modelManager, selection, center[0], center[1], center[2], radius, blocks);
-		return blocks;
+		cached.lastFrame = frameIndex;
+		return cached.blocks;
 	}
 
-	/** Drops the cached selection; called when the world/level or a resource reload makes it stale. */
+	/** Drops every cached selection; called when the world/level or a resource reload makes them stale. */
 	public static void invalidateSelectionCache() {
-		selectionCache = null;
+		selectionCaches.clear();
 	}
 
 	/**
@@ -142,15 +210,17 @@ public final class VFXMaskBlockGeometry {
 	 * vertex emission alone. The list is uncapped by design (the cost is memory, see
 	 * {@link VFXMaskBlockSelection}); duplicates are dropped so a repeated position is not baked or
 	 * drawn twice, and air / block-entity-only blocks (empty baked model) are skipped exactly as the
-	 * scan path skips them.
+	 * scan path skips them. Positions and corners go through
+	 * {@link VFXMaskBlockSelection#blockCoordinate(float)}, the same floor the parse-time region budget
+	 * uses.
 	 */
 	private static List<SelectedBlock> bakeListed(final Level level, final VFXMaskBlockSelection selection) {
 		final List<SelectedBlock> found = new ArrayList<>();
 		final Set<BlockPos> seen = new HashSet<>();
 		final float[] region = selection.region();
 		if (region != null) {
-			final BlockPos low = BlockPos.containing(region[0], region[1], region[2]);
-			final BlockPos high = BlockPos.containing(region[3], region[4], region[5]);
+			final BlockPos low = blockPos(region, 0);
+			final BlockPos high = blockPos(region, 3);
 			for (final BlockPos pos : BlockPos.betweenClosed(low, high)) {
 				final BlockPos immutable = pos.immutable();
 				if (seen.add(immutable)) {
@@ -160,12 +230,20 @@ public final class VFXMaskBlockGeometry {
 			return found;
 		}
 		for (final float[] point : selection.positions()) {
-			final BlockPos pos = BlockPos.containing(point[0], point[1], point[2]);
+			final BlockPos pos = blockPos(point, 0);
 			if (seen.add(pos)) {
 				addListed(found, level, pos);
 			}
 		}
 		return found;
+	}
+
+	/** The block position of a coordinate triple starting at {@code offset} (0 for a 3-float list). */
+	private static BlockPos blockPos(final float[] coordinates, final int offset) {
+		return new BlockPos(
+			VFXMaskBlockSelection.blockCoordinate(coordinates[offset]),
+			VFXMaskBlockSelection.blockCoordinate(coordinates[offset + 1]),
+			VFXMaskBlockSelection.blockCoordinate(coordinates[offset + 2]));
 	}
 
 	/** Bakes one listed position into {@code found} unless it is air or bakes no model geometry. */
@@ -333,21 +411,6 @@ public final class VFXMaskBlockGeometry {
 	private record SelectedBlock(BlockPos pos, List<BakedQuad> quads) {
 	}
 
-	/** The selection key plus the blocks baked against it; an exact identity/region match reuses it. */
-	private record SelectionCache(Level level, Object modelManager, VFXMaskBlockSelection selection, float centerX, float centerY, float centerZ, float radius, List<SelectedBlock> blocks) {
-		private boolean matches(final Level level, final Object modelManager, final VFXMaskBlockSelection selection, final float[] center, final float radius) {
-			if (this.level != level || this.modelManager != modelManager || this.selection != selection) {
-				return false;
-			}
-			// A listed selection has no scanned region: its baked quads depend on nothing that can
-			// animate, so an animated slot must not force a rebuild every frame.
-			if (selection.listed()) {
-				return true;
-			}
-			return this.centerX == center[0] && this.centerY == center[1] && this.centerZ == center[2] && this.radius == radius;
-		}
-	}
-
 	/** The selection radius: the leaf's bound/animated slot value, clamped to the cap. */
 	private static float blockRadius(final VFXMask mask, final VFXMaskPrimitive primitive, final VFXActiveEffect effect, final VFXMaskBlockSelection selection) {
 		final String[] slots = primitive.parameterSlots();
@@ -509,9 +572,15 @@ public final class VFXMaskBlockGeometry {
 	}
 
 	/**
-	 * One quad vertex with its baked atlas UV. The UVs are absolute (the model bakery applies the
-	 * sprite's sub-rect at bake time), so the atlas is sampled directly with no per-sprite remap.
-	 * {@code scale} grows the quad about the block centre for the dilated pass.
+	 * One quad vertex with its baked atlas UV. The UV is used <b>as is</b>: the model bakery already
+	 * packed the atlas-space coordinate, because {@code FaceBakery} applies the sprite's sub-rect
+	 * before packing ({@code UVPair.pack(sprite.getU(localU), sprite.getV(localV))} - the same
+	 * convention {@code VertexConsumer.putBulkData}/{@code putBakedQuad} rely on when vanilla draws
+	 * baked quads). Running it through {@code getU0()/getU1()} a second time - what
+	 * {@code VFXPostProcessingManager} must do for a {@code surface_pattern} texture, whose datapack
+	 * UV rect is 0..1 sprite-local - would sample a sub-crop of the sprite and mis-place its cutout
+	 * alpha, which is exactly the requirement this leaf has. {@code scale} grows the quad about the
+	 * block centre for the dilated pass.
 	 */
 	private static void emitVertex(final BufferBuilder builder, final BakedQuad quad, final int index, final int color, final float scale) {
 		final Vector3fc position = quad.position(index);

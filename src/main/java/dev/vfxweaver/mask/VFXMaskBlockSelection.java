@@ -72,4 +72,18 @@ public record VFXMaskBlockSelection(
 	public boolean listed() {
 		return !this.positions.isEmpty() || this.region != null;
 	}
+
+	/**
+	 * The block coordinate a {@code positions} entry or a {@code region} corner refers to: the block
+	 * that <b>contains</b> the point, i.e. floor - so {@code -0.5} is block {@code -1}, not {@code 0}.
+	 * The parse-time region budget and the client geometry walk both call this one method, so they
+	 * can never disagree by a block on a negative corner (the budget would then guard a different box
+	 * than the one that is drawn).
+	 *
+	 * @param value the authored coordinate
+	 * @return the block coordinate, saturating at the {@code int} range
+	 */
+	public static int blockCoordinate(final float value) {
+		return (int) Math.floor(value);
+	}
 }
