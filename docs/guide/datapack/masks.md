@@ -581,6 +581,54 @@ spheres, used by `vfxweaver:mask_custom_glsl_aura_demo`, `vfxweaver:mask_custom_
 and `vfxweaver:mask_custom_data_demo`). The plugin leaf shape is a 26.x feature; on the `1.21.11`
 node there is no shader-source hook, so a plugin leaf renders nothing there.
 
+#### The `block_list` leaf - an authored coordinate list { data-toc-label="block_list leaf" }
+
+The `block` leaf scans a sphere and filters by block id or tag. `block_list` is the opposite: the
+author names the blocks outright, in world coordinates, and there is no block-id filter — the list
+*is* the selection. Unlike a distance-field leaf its geometry is the blocks' own models, so the
+block texture atlas is sampled and cutout alpha is respected: the mask tints the leaves of a plant,
+not the invisible corners of its cube.
+
+```json
+{
+	"type": "color_grade",
+	"duration": 600,
+	"loop": true,
+	"persistent": true,
+	"params": { "screen_layer": 1, "saturation": 0.2, "tint_r": 0.6, "tint_g": 0.8, "tint_b": 1.0 },
+	"mask": {
+		"a": {
+			"shape": "block_list",
+			"positions": [[10, 64, 10], [11, 64, 10]],
+			"fill": "hollow",
+			"stroke_width": 0.2,
+			"occlude": true
+		}
+	}
+}
+```
+
+A leaf carries exactly one of `positions` (a non-empty list of `[x, y, z]` block coordinates) or
+`region` (`[x0, y0, z0, x1, y1, z1]`, an inclusive box whose corners may be in either order):
+
+```json
+{ "shape": "block_list", "region": [8, 60, 8, 12, 64, 12], "fill": "solid" }
+```
+
+`fill` takes `solid` (the default) or `hollow`. `solid` covers the block area **plus** an outline of
+`stroke_width` blocks around it; `hollow` covers only that outline, leaving the blocks themselves
+clear — a box around a volume rather than a filled volume. `stroke_width` is in blocks, defaults to
+`0.05` and is animatable like any other mask number. `occlude` behaves exactly as on the `block`
+leaf (default `true`; `false` is the see-through look). `solid`/`hollow` are the only fills here:
+`stroke` is rejected on this leaf, and `hollow` is rejected everywhere else.
+
+**Limits and cost.** There is no cap on `positions`: the list is authored data, the models are
+cached and a static list costs the same two draws per frame however long it is (a very long list
+raises memory and up-front upload, not per-frame work). A `region` is capped at **65 536** blocks
+(`65536`), the per-frame vertex-buffer budget the block geometry pass is sized to — above that,
+list the positions instead. As with any block leaf the pixels cannot be checked headless.
+**Not verified in game.**
+
 ## Showcase
 
 ### `show_mask_screen_demo`

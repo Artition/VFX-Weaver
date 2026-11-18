@@ -6438,6 +6438,47 @@
 		return node;
 	}
 
+	/** The authored selection of a block-list leaf as editable JSON text. */
+	function maskBlockSelectionText(leaf) {
+		if (leaf && Array.isArray(leaf.region)) {
+			return JSON.stringify(leaf.region);
+		}
+		return JSON.stringify(leaf && Array.isArray(leaf.positions) ? leaf.positions : [[0, 0, 0]]);
+	}
+
+	/**
+	 * Parse block-list selection text: a list of `[x, y, z]` triples (positions) or a
+	 * `[x0, y0, z0, x1, y1, z1]` six-number array (region). Returns `{positions}`/`{region}`, or
+	 * null when the text is neither (the caller keeps the field as typed).
+	 */
+	function parseMaskBlockSelection(text) {
+		var value;
+		try {
+			value = JSON.parse(String(text == null ? "" : text).trim());
+		} catch (err) {
+			return null;
+		}
+		if (!Array.isArray(value)) {
+			return null;
+		}
+		if (value.length === 6 && value.every(isFiniteNumber)) {
+			return { region: value.slice() };
+		}
+		var positions = [];
+		for (var i = 0; i < value.length; i++) {
+			var entry = value[i];
+			if (!Array.isArray(entry) || entry.length !== 3) {
+				return null;
+			}
+			var xyz = [Number(entry[0]), Number(entry[1]), Number(entry[2])];
+			if (!xyz.every(isFiniteNumber)) {
+				return null;
+			}
+			positions.push(xyz);
+		}
+		return positions.length ? { positions: positions } : null;
+	}
+
 	/**
 	 * Build a MaskLeaf node for one leaf: the shape combo, the reserved `mask.p&lt;N&gt;.*` input
 	 * sockets (one numeric field each) and their edit widgets. The sockets are the wiring point an
@@ -6465,6 +6506,53 @@
 			effect.mask = vfxir.maskFromNodeState(chain);
 			onMaskChange(tab, true);
 		}, { values: vfxir.maskShapeList(descriptor) });
+		// A block-list leaf authors its selection (positions or region), the fill and the occlude
+		// flag beside the numeric band socket. Each widget writes the leaf directly and reprojects
+		// the whole chain, so the emitted mask stays the single source of truth.
+		if (String(leaf.shape) === "block_list") {
+			node.__widgets.fill = node.addWidget("combo", "fill",
+					leaf.fill === "hollow" ? "hollow" : "solid", function (v) {
+				var target = chain.leaves[index];
+				if (!target) {
+					return;
+				}
+				target.fill = String(v) === "hollow" ? "hollow" : "solid";
+				effect.mask = vfxir.maskFromNodeState(chain);
+				onMaskChange(tab, false);
+			}, { values: ["solid", "hollow"] });
+			node.__widgets.selection = node.addWidget("text", "positions / region",
+					maskBlockSelectionText(leaf), function (v) {
+				var target = chain.leaves[index];
+				if (!target) {
+					return;
+				}
+				var parsed = parseMaskBlockSelection(v);
+				// Invalid text is rejected: the leaf keeps its last valid selection and the typed
+				// text stays in the field so it can be corrected in place.
+				if (!parsed) {
+					return;
+				}
+				if (parsed.positions) {
+					delete target.region;
+					target.positions = parsed.positions;
+				} else {
+					delete target.positions;
+					target.region = parsed.region;
+				}
+				effect.mask = vfxir.maskFromNodeState(chain);
+				onMaskChange(tab, false);
+			});
+			node.__widgets.occlude = node.addWidget("toggle", "occlude",
+					leaf.occlude === false ? 0 : 1, function (v) {
+				var target = chain.leaves[index];
+				if (!target) {
+					return;
+				}
+				target.occlude = Boolean(Number(v));
+				effect.mask = vfxir.maskFromNodeState(chain);
+				onMaskChange(tab, false);
+			});
+		}
 		// Remove this leaf; the remaining leaves keep their order and the joins are re-trimmed.
 		// The operand mapping is stashed first so survivors reconnect to their operands.
 		node.addWidget("button", "\u00D7 remove leaf", null, function () {

@@ -1526,6 +1526,40 @@ window.__vfxSelftest = function () {
 		});
 	});
 
+	test("(MASK-BL) a block_list leaf round-trips selection, fill, band and occlude", function () {
+		var leaf = VFXIR.makeMaskLeaf("block_list", VFXIR.maskShapeTable({}));
+		eq(JSON.stringify(leaf.positions), JSON.stringify([[0, 0, 0]]), "a fresh leaf starts at one block");
+		eq(leaf.fill, "solid", "solid by default");
+		eq(leaf.stroke_width, 0.05, "the default band width");
+		eq(leaf.occlude, true, "occluding by default");
+		eq(leaf.center, undefined, "a block list has no centre");
+		leaf.positions = [[1, 64, 2], [3, 64, 4]];
+		leaf.fill = "hollow";
+		leaf.stroke_width = 0.2;
+		leaf.occlude = false;
+		var mask = VFXIR.maskFromNodeState({ leaves: [leaf], ops: [] });
+		eq(mask.shape, "block_list", "shape kept");
+		eq(mask.positions.length, 2, "both positions kept");
+		eq(JSON.stringify(mask.positions[1]), JSON.stringify([3, 64, 4]), "the second block kept");
+		eq(mask.fill, "hollow", "fill kept");
+		eq(mask.stroke_width, 0.2, "stroke width kept");
+		eq(mask.occlude, false, "occlude kept");
+		// An imported block leaf keeps its own selection and gains the documented defaults.
+		var imported = VFXIR.maskFromNodeState(VFXIR.maskNodeState(
+			{ shape: "block_list", region: [0, 60, 0, 2, 62, 2], stroke_width: 0.3 }));
+		eq(JSON.stringify(imported.region), JSON.stringify([0, 60, 0, 2, 62, 2]),
+			"imported region round-trips");
+		eq(imported.fill, "solid", "a missing fill defaults to solid");
+		eq(imported.occlude, true, "a missing occlude defaults to true");
+		// The shape combo offers the id even though the schema's maskShapes omits it.
+		var listed = VFXIR.maskShapeList({ structural: { maskShapes: ["circle"] } });
+		ok(listed.indexOf("block_list") >= 0, "maskShapeList includes block_list");
+		var deduped = VFXIR.maskShapeList({ structural: { maskShapes: ["circle", "block_list"] } });
+		eq(deduped.filter(function (id) { return id === "block_list"; }).length, 1, "deduped");
+		ok(!VFXIR.maskShapeDeferred("block_list", VFXIR.maskShapeTable({})),
+			"block_list is authored, not deferred");
+	});
+
 	test("(POS1) positions + region emit parser-valid JSON on a world overlay", function () {
 		var tab = new VFXIR.Tab("beam", "light_beam");
 		tab.duration = 40;

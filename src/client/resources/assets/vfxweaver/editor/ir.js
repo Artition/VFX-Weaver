@@ -1752,7 +1752,8 @@
 		box: { space: "world", params: [["half_width", 4.0], ["half_height", 4.0], ["half_depth", 4.0]], worldOnly: true },
 		sky: { space: "dome", params: [] },
 		depth: { space: "screen", params: [["distance", 32.0]] },
-		block: { space: "world", params: [["radius", 16.0]], deferred: true, note: "block geometry" }
+		block: { space: "world", params: [["radius", 16.0]], deferred: true, note: "block geometry" },
+		block_list: { space: "world", params: [["stroke_width", 0.05]], note: "block list (atlas alpha)" }
 	};
 
 	var MASK_CENTER_SCREEN = [0.5, 0.5];
@@ -1810,10 +1811,25 @@
 		return Boolean(descriptor && descriptor.structural && descriptor.structural.supportsMask === true);
 	}
 
-	/** The shape ids the schema lists for an effect, or every editor-known id as a fallback. */
+	/**
+	 * The shape ids the editor offers: every id the schema lists plus every editor-known id, so a
+	 * shape the schema's `maskShapes` omits (a sentinel like `block_list`, or a shape whose kind is
+	 * not an enum) still appears in the shape combo. Deduped, schema order first.
+	 */
 	function maskShapeList(descriptor) {
 		var list = descriptor && descriptor.structural ? descriptor.structural.maskShapes : null;
-		return Array.isArray(list) && list.length ? list.slice() : Object.keys(MASK_SHAPES);
+		var out = [];
+		var seen = {};
+		function add(id) {
+			var key = String(id);
+			if (!Object.prototype.hasOwnProperty.call(seen, key)) {
+				seen[key] = true;
+				out.push(key);
+			}
+		}
+		(Array.isArray(list) ? list : []).forEach(add);
+		Object.keys(MASK_SHAPES).forEach(add);
+		return out;
 	}
 
 	/* ---- Non-post structural options (design §13.4) ------------------- */
@@ -2281,11 +2297,45 @@
 	function makeMaskLeaf(shape, table) {
 		var id = String(shape || "circle");
 		var def = maskShapeDefIn(table, id);
+		// A block-list leaf has no centre (the geometry sits at the authored coordinates) and
+		// carries its selection + fill beside the params instead.
+		if (id === "block_list") {
+			var blockLeaf = { shape: id, positions: [[0, 0, 0]], fill: "solid",
+				stroke_width: 0.05, occlude: true };
+			if (def) {
+				def.params.forEach(function (param) { blockLeaf[param[0]] = param[1]; });
+			}
+			return blockLeaf;
+		}
 		var space = def && def.space ? def.space : "screen";
 		var leaf = { shape: id, center: maskCenterDefaults(space).slice(0, maskCenterArity(space)) };
 		if (def) {
 			def.params.forEach(function (param) { leaf[param[0]] = param[1]; });
 		}
+		return leaf;
+	}
+
+	/** Whether a leaf is authored as a block-list selection. */
+	function isBlockListLeaf(leaf) {
+		return Boolean(leaf && String(leaf.shape) === "block_list");
+	}
+
+	/**
+	 * Normalise one block-list leaf for the emitted mask: fill defaults to `solid`, the band to
+	 * 0.05 blocks and `occlude` to true, so a hand-written or imported leaf always compiles to the
+	 * parser's full contract. Other leaves pass through untouched.
+	 */
+	function maskNormalizeLeaf(leaf) {
+		if (!isBlockListLeaf(leaf)) {
+			return leaf;
+		}
+		if (leaf.fill !== "solid" && leaf.fill !== "hollow") {
+			leaf.fill = "solid";
+		}
+		if (!isFiniteNumber(Number(leaf.stroke_width))) {
+			leaf.stroke_width = 0.05;
+		}
+		leaf.occlude = leaf.occlude == null ? true : Boolean(leaf.occlude);
 		return leaf;
 	}
 
@@ -2306,9 +2356,10 @@
 		if (!list.length) {
 			return null;
 		}
-		var acc = JSON.parse(JSON.stringify(list[0]));
+		var acc = maskNormalizeLeaf(JSON.parse(JSON.stringify(list[0])));
 		for (var i = 0; i < list.length - 1; i++) {
-			acc = { op: (ops && ops[i]) || "union", a: acc, b: JSON.parse(JSON.stringify(list[i + 1])) };
+			acc = { op: (ops && ops[i]) || "union", a: acc,
+				b: maskNormalizeLeaf(JSON.parse(JSON.stringify(list[i + 1]))) };
 		}
 		if (invert) {
 			acc.invert = true;

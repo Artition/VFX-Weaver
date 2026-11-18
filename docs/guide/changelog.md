@@ -5,8 +5,11 @@ documentation changed. A guide revision is not a mod version — the two numbers
 released mod versions are recorded on the **[mod Changelog](../CHANGELOG.md)** instead. Where a guide
 revision shipped with a release, the entry says so (for example `v47 — released as 2.0.0`).
 
-Current guide revision: **v87**. Mod version it documents: **2.6.0**. Which jar
+Current guide revision: **v88**. Mod version it documents: **2.6.0**. Which jar
 to download is in the [download table](../index.md#download).
+
+### v88 - documents 2.6.0
+- **The [masks](datapack/masks.md) page documents the `block_list` leaf.** A leaf that masks exactly the block coordinates it names - `positions` or an inclusive `region` - instead of scanning a sphere and filtering by block id. The page gives the JSON example and the fields: `fill: "solid"` (default) covers the block area plus an outline of `stroke_width` blocks while `hollow` covers only that outline (the one leaf that accepts `hollow`), `stroke_width` is in blocks, defaults to `0.05` and animates, and `occlude` behaves as on the `block` leaf. It states that the block texture atlas is sampled, so cutout alpha (leaves, plants, glass) is respected; that `positions` has no cap (the models are cached, so a static list costs two draws per frame); and that a `region` is capped at **65 536** blocks, the block-geometry vertex-buffer budget. The page's pixels cannot be checked headless. **Not verified in game.**
 
 ### v87 - documents 2.6.0
 - **2.6.0 release: `text_overlay` now ships on all six nodes, and the editor documents how to author it.** The release carries the `text_overlay` effect on every (Minecraft line, loader) node - 26.2, 26.1.2 and 1.21.11, Fabric and NeoForge - in **both** modes: `world` draws the block in the world and `flat` draws it on the HUD, the HUD path no longer being 26.2-only. The [text_overlay](effects/text/text-overlay.md) page documents the block in full, including the HUD exit that runs on the same body as the world fall. The [editor page](editor.md) documents what the visual editor offers for it: a **Text** panel on a `text_overlay` node (a `content` textarea plus the `mode`/`font`/`align`/`anchor`/`split` selects, with the editor's own dropdowns rather than the browser's native popups) and the **`2D`**/**`3D`** badges on the mode-only sockets.
