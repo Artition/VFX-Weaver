@@ -21,6 +21,7 @@ $customShape = Read-Source (Join-Path $main "mask\VFXCustomShape.java")
 $registry = Read-Source (Join-Path $main "mask\VFXShapeRegistry.java")
 $uniforms = Read-Source (Join-Path $client "postprocessing\VFXMaskUniforms.java")
 $geometry = Read-Source (Join-Path $client "postprocessing\VFXMaskBlockGeometry.java")
+$fieldEnv = Read-Source (Join-Path $client "postprocessing\VFXFieldEnv.java")
 $variants = Read-Source (Join-Path $client "postprocessing\VFXMaskShaderVariants.java")
 $post = Read-Source (Join-Path $client "postprocessing\VFXPostProcessingManager.java")
 $fill = Read-Source (Join-Path $main "mask\VFXMaskFill.java")
@@ -263,6 +264,29 @@ if ($geometryPass -lt 0 -or $coveragePass -lt 0 -or $geometryPass -gt $coverageP
 	$problems.Add("VFXPostProcessingManager: the block-geometry draw does not run before the coverage prepass")
 }
 
+# 22) The camera must come from the frame's published CameraRenderState, not the live camera: the live
+#     projection can differ whenever the FOV moves (its cached matrix is keyed to a Projection that
+#     later passes mutate), and a mask drawn from it detaches from the blocks. The state's
+#     viewRotationMatrix is rotation-only (Camera builds it from the orientation quaternion), so
+#     projection * viewRotation * T(-pos) is the frame's own inverse view-projection.
+if ($fieldEnv -notmatch 'VFXClientRenderHooks\.camera\(\)') {
+	$problems.Add("VFXFieldEnv: the frame camera state is not read (the live camera cannot match a moving FOV)")
+}
+if ($fieldEnv -notmatch 'state\.projectionMatrix') {
+	$problems.Add("VFXFieldEnv: the projection is not taken from the frame camera state")
+}
+if ($fieldEnv -notmatch 'state\.viewRotationMatrix') {
+	$problems.Add("VFXFieldEnv: the view rotation is not taken from the frame camera state")
+}
+if ($fieldEnv -notmatch 'VIEW_ROTATION_PROJECTION\.set\(state\.projectionMatrix\)\s*\.mul\(state\.viewRotationMatrix\)') {
+	$problems.Add("VFXFieldEnv: the frame matrices are not composed as projection * viewRotation")
+}
+if ($fieldEnv -notmatch 'CAMERA\.set\(state\.pos\.x, state\.pos\.y, state\.pos\.z\)') {
+	$problems.Add("VFXFieldEnv: the camera position is not taken from the same camera state as the matrices")
+}
+if ($fieldEnv -notmatch 'getViewRotationProjectionMatrix\(') {
+	$problems.Add("VFXFieldEnv: the live-camera fallback is gone (no matrices outside a published render event)")
+}
 # 21) A live positions list re-checks its own coordinates: the bake stores each listed state and any
 #     difference re-bakes, so a placed/removed/changed block reaches the mask without a re-parse.
 if ($geometryCode -notmatch 'private static boolean statesChanged\(final Level level, final VFXMaskBlockSelection selection, final BlockState\[\] states\)') {
