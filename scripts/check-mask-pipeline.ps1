@@ -28,6 +28,11 @@ $selection = Read-Source (Join-Path $main "mask\VFXMaskBlockSelection.java")
 $blockShader = Read-Source (Join-Path $repoRoot "src\client\resources\assets\vfxweaver\shaders\post\mask_block_geometry.fsh")
 $coverage = Read-Source (Join-Path $repoRoot "src\client\resources\assets\vfxweaver\shaders\post\mask_coverage.fsh")
 
+# The geometry source with its comment lines removed, for the pins that must match code and not the
+# javadoc prose that explains the same contract (the UV javadoc names the vanilla bake calls on
+# purpose, so a plain text pin would trip on its own documentation).
+$geometryCode = (($geometry -split "\r?\n") | Where-Object { $_ -notmatch '^\s*(\*|//)' }) -join "`n"
+
 $problems = New-Object System.Collections.Generic.List[string]
 
 # 1) Animated softness: the writer must read the .soft slot, not the parse-time default.
@@ -165,9 +170,12 @@ if ($geometry -notmatch 'UVPair\.unpackU\(') {
 }
 # The baked UV is already atlas-space (FaceBakery packs sprite.getU(localU)); re-mapping it through
 # the sprite rect the way surface_pattern must for its 0..1 datapack rect samples a sub-crop of the
-# sprite and mis-places the cutout alpha. Pin both halves: the raw unpack, and the absence of the
-# remap plus the comment that explains why.
-if ($geometry -match 'getU0\(\) *\+|getU1\(\) *-|Mth\.lerp\(|\bspriteRect') {
+# sprite and mis-places the cutout alpha. Pin both halves: the raw unpack, and the absence of any
+# sprite-rect remap. Every remap form needs the rect from somewhere, so forbidding the accessors (and
+# the lerp helper, and naming the sprite type at all) catches `getU0() + u * du`, a local `u0/u1`
+# pair, `sprite.getU(u)` and a stored sprite alike. Matched against code only, so the javadoc that
+# spells the rect out in prose does not trip it.
+if ($geometryCode -match 'getU0|getU1|getV0|getV1|\.getU\(|\.getV\(|Mth\.lerp\(|spriteRect|TextureAtlasSprite') {
 	$problems.Add("VFXMaskBlockGeometry: the atlas UV is being re-mapped through the sprite rect; baked quad UVs are already atlas-space")
 }
 if ($geometry -notmatch 'the model bakery already') {
@@ -183,6 +191,16 @@ if ($geometry -notmatch 'private static final Map<VFXMaskBlockSelection, Selecti
 }
 if ($geometry -notmatch 'public static void beginFrame\(\)') {
 	$problems.Add("VFXMaskBlockGeometry: the per-frame cache eviction hook is missing")
+}
+# The eviction predicate itself: drop what the previous frame did not stamp. A regression to
+# "rebuild whenever the entry is older than this call" or to no eviction at all fails here.
+if ($geometry -notmatch 'lastFrame < frameIndex - 1') {
+	$problems.Add("VFXMaskBlockGeometry.beginFrame: the eviction predicate is not 'lastFrame < frameIndex - 1'")
+}
+# An empty listed bake must not be stored, or a mask that started before its chunks loaded would
+# never fill in.
+if ($geometry -notmatch '(?s)if \(selection\.listed\(\) && blocks\.isEmpty\(\)\) \{[^}]*selectionCaches\.remove\(selection\)') {
+	$problems.Add("VFXMaskBlockGeometry.select: an empty block_list bake is cached again (the leaf never appears)")
 }
 if ($post -notmatch 'VFXMaskBlockGeometry\.beginFrame\(\)') {
 	$problems.Add("VFXPostProcessingManager: the block-geometry pass is not told where a frame starts (cache never evicts)")

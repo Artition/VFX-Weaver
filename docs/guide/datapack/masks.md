@@ -622,6 +622,11 @@ clear — a box around a volume rather than a filled volume. `stroke_width` is i
 leaf (default `true`; `false` is the see-through look). `solid`/`hollow` are the only fills here:
 `stroke` is rejected on this leaf, and `hollow` is rejected everywhere else.
 
+The listed blocks are read when the mask resolves, once: a block placed (or loaded) later does not
+join the mask without a re-parse of the definition or a model reload. The one exception is the very
+first read - an empty result is never cached, so a mask that starts while its chunks are still
+loading fills in as soon as the blocks arrive.
+
 **Limits and cost.** There is no cap on `positions`: the list is authored data, the models are
 cached and a static list costs the same two draws per frame however long it is (a very long list
 raises memory and up-front upload, not per-frame work). A `region` is capped at **65 536** blocks

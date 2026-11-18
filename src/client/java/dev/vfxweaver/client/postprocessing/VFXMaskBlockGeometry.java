@@ -186,16 +186,31 @@ public final class VFXMaskBlockGeometry {
 	 * resource reload replaces the model manager. A listed selection has no region to scan, so its
 	 * key is the level, the model manager and the selection identity alone: an animated slot value
 	 * never invalidates it, and the baked quads are reused for as long as the definition lives.
+	 *
+	 * <p>An <b>empty</b> listed bake is deliberately not stored: a mask can start before its chunks
+	 * (or its blocks) are loaded, and a cached empty list would keep {@code matches} true forever -
+	 * the leaf would never appear until the definition re-parsed or the model manager changed. Instead
+	 * the list is re-read on the next frame, so the mask fills in as soon as the blocks arrive; the
+	 * cost of that retry is one block read per listed position per frame, and only while the bake is
+	 * empty. A scanned selection keeps caching its (possibly empty) result, because its cost model is
+	 * the sphere walk, not the bake - re-walking it every frame would be the per-frame world scan this
+	 * pass exists to avoid.
 	 */
 	private static List<SelectedBlock> select(final Level level, final VFXMaskBlockSelection selection, final float[] center, final float radius) {
 		final Object modelManager = Minecraft.getInstance().getModelManager();
 		SelectionCache cached = selectionCaches.get(selection);
-		if (cached == null || !cached.matches(level, modelManager, selection, center, radius)) {
-			final List<SelectedBlock> blocks = selection.listed() ? bakeListed(level, selection) : scan(level, selection, center, radius);
-			cached = new SelectionCache(level, modelManager, center[0], center[1], center[2], radius, blocks, frameIndex);
-			selectionCaches.put(selection, cached);
+		if (cached != null && cached.matches(level, modelManager, selection, center, radius)) {
+			cached.lastFrame = frameIndex;
+			return cached.blocks;
 		}
-		cached.lastFrame = frameIndex;
+		final List<SelectedBlock> blocks = selection.listed() ? bakeListed(level, selection) : scan(level, selection, center, radius);
+		if (selection.listed() && blocks.isEmpty()) {
+			// Never cache a bake that found nothing; see the javadoc above.
+			selectionCaches.remove(selection);
+			return blocks;
+		}
+		cached = new SelectionCache(level, modelManager, center[0], center[1], center[2], radius, blocks, frameIndex);
+		selectionCaches.put(selection, cached);
 		return cached.blocks;
 	}
 
@@ -576,7 +591,7 @@ public final class VFXMaskBlockGeometry {
 	 * packed the atlas-space coordinate, because {@code FaceBakery} applies the sprite's sub-rect
 	 * before packing ({@code UVPair.pack(sprite.getU(localU), sprite.getV(localV))} - the same
 	 * convention {@code VertexConsumer.putBulkData}/{@code putBakedQuad} rely on when vanilla draws
-	 * baked quads). Running it through {@code getU0()/getU1()} a second time - what
+	 * baked quads). Running the packed value through the sprite's U/V rect a second time - what
 	 * {@code VFXPostProcessingManager} must do for a {@code surface_pattern} texture, whose datapack
 	 * UV rect is 0..1 sprite-local - would sample a sub-crop of the sprite and mis-place its cutout
 	 * alpha, which is exactly the requirement this leaf has. {@code scale} grows the quad about the
