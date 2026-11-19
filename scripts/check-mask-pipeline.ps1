@@ -536,9 +536,15 @@ if (-not $mcJar) {
 	Write-Error "mask pipeline check: the 26.1.2 minecraft merged jar was not found under $loomCache."
 	exit 1
 }
-$jars = (Get-ChildItem (Join-Path $env:USERPROFILE ".gradle\caches\modules-2\files-2.1") -Recurse -Filter *.jar -ErrorAction SilentlyContinue |
-	Where-Object { $_.FullName -notmatch 'dev\.vfxweaver|maven\.modrinth' } |
-	ForEach-Object { $_.FullName.Replace('\', '/') }) -join ';'
+$jarFiles = Get-ChildItem (Join-Path $env:USERPROFILE ".gradle\caches\modules-2\files-2.1") -Recurse -Filter *.jar -ErrorAction SilentlyContinue |
+	Where-Object { $_.FullName -notmatch 'dev\.vfxweaver|maven\.modrinth' }
+# VFXDefinitionManager.registerLocal -> StrictJsonParser needs Gson >= 2.11 (JsonReader#setStrictness).
+# Several versions are cached and an old 2.10.1 can win the classpath, so put the newest first.
+$gsonFirst = @($jarFiles | Where-Object { $_.Name -match '^gson-[\d.]+\.jar$' } |
+	Sort-Object { [version]([regex]::Match($_.Name, '^gson-([\d.]+)\.jar$').Groups[1].Value) } -Descending |
+	ForEach-Object { $_.FullName.Replace('\', '/') })
+$jars = (@($gsonFirst) + @($jarFiles | Where-Object { $_.Name -notmatch '^gson-[\d.]+\.jar$' } |
+	ForEach-Object { $_.FullName.Replace('\', '/') })) -join ';'
 
 $checkDir = Join-Path $env:TEMP "vfxweaver-mask-check"
 New-Item -ItemType Directory -Force -Path $checkDir | Out-Null
@@ -777,6 +783,7 @@ import dev.vfxweaver.api.VFXAPI;
 import dev.vfxweaver.mask.VFXMask;
 import dev.vfxweaver.mask.VFXMaskParser;
 import dev.vfxweaver.network.VFXTriggerPayload;
+import dev.vfxweaver.resource.VFXDefinitionManager;
 import io.netty.buffer.Unpooled;
 import io.netty.handler.codec.DecoderException;
 import java.util.ArrayList;
@@ -868,7 +875,13 @@ public final class MaskWireCheck {
 			"the 10199 per-instance positions did not round-trip with float precision");
 		require(posEncodedBytes < (1 << 20), "encoded play payload is " + posEncodedBytes + " bytes (>= 1 MiB)");
 
-		// 8. An over-budget position list is refused before send, with nothing sent.
+		// 8. An over-budget position list is refused before send, with nothing sent. Register a valid
+		// definition first: otherwise "unknown effect" would make sendEffect return false regardless
+		// of the budget guard, and this assertion would prove nothing.
+		require(VFXDefinitionManager.get().registerLocal(
+			Map.of(TEST_ID, "{\"type\":\"camera_shake\"}")).isEmpty(), "the test definition did not register");
+		require(VFXDefinitionManager.get().get(TEST_ID) != null,
+			"the registered test definition is not visible to sendEffect");
 		final int tooMany = VFXTriggerPayload.MAX_WIRE_POSITION_BYTES / 12 + 1;
 		final List<Vec3> overBudget = java.util.Collections.nCopies(tooMany, new Vec3(0, 0, 0));
 		require(VFXTriggerPayload.wireProblem(null, overBudget) != null,
