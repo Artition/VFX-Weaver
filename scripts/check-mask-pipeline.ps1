@@ -14,6 +14,7 @@ $ErrorActionPreference = "Stop"
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $main = Join-Path $repoRoot "src\main\java\dev\vfxweaver"
 $client = Join-Path $repoRoot "src\client\java\dev\vfxweaver\client"
+$wirePath = Join-Path $main "network\MaskWire.java"
 
 function Read-Source([string]$path) { return [System.IO.File]::ReadAllText($path) }
 
@@ -436,6 +437,16 @@ if ($geometryCode -notmatch 'level\.getBlockState\(blockPos\(positions\.get\(i\)
 if ($geometryCode -notmatch 'states\[i\] = level\.getBlockState\(pos\)') {
 	$problems.Add("VFXMaskBlockGeometry.bakeListed: the listed states are not recorded (air included)")
 }
+
+# 25) The wire helper: the fail-closed marker and the split/join entry points must stay present.
+function Require-Pattern([string]$path, [string]$pattern, [string]$why) {
+	if (-not (Test-Path $path)) { $script:problems.Add("missing file: $path"); return }
+	$text = Get-Content -Raw -Path $path
+	if ($text -notmatch $pattern) { $script:problems.Add("$([IO.Path]::GetFileName($path)): $why") }
+}
+Require-Pattern $wirePath 'static final String MARKER = "@wire:"' "the fail-closed wire marker is gone"
+Require-Pattern $wirePath 'static Split split\(' "MaskWire.split is gone"
+Require-Pattern $wirePath 'static String join\(' "MaskWire.join is gone"
 
 Write-Host "Mask pipeline check (static)"
 if ($problems.Count -gt 0) {
