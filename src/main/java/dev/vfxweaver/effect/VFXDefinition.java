@@ -10,6 +10,7 @@ import dev.vfxweaver.field.VFXSurfaceSelection;
 import dev.vfxweaver.graph.VFXGraph;
 import dev.vfxweaver.graph.VFXSubgraphExpander;
 import dev.vfxweaver.mask.VFXMask;
+import dev.vfxweaver.network.VFXTriggerPayload;
 import dev.vfxweaver.util.VFXLog;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -409,8 +410,12 @@ public class VFXDefinition {
 		return EasingFunction.parseJson(element);
 	}
 
-	/** Safety cap on parsed positions per effect (external input, see AGENTS.md). */
-	private static final int MAX_POSITIONS = 4096;
+	/**
+	 * Safety cap on parsed positions per effect (external input, see AGENTS.md). The real limit is
+	 * the sync packet: positions are lifted into 12-byte float triples under
+	 * {@link VFXTriggerPayload#MAX_WIRE_POSITION_BYTES}, so this is just that budget in positions.
+	 */
+	private static final int MAX_POSITIONS = VFXTriggerPayload.MAX_WIRE_POSITION_BYTES / 12;
 
 	/**
 	 * Parses the {@code positions}/{@code region} declarations into the ordered static position

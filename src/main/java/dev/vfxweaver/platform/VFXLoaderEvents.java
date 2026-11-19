@@ -6,10 +6,13 @@ import dev.vfxweaver.command.VFXCommand;
 import dev.vfxweaver.effect.VFXCurveManager;
 import dev.vfxweaver.effect.VFXScoreboardSync;
 import dev.vfxweaver.effect.VFXServerEffects;
+import dev.vfxweaver.network.MaskWire;
 import dev.vfxweaver.network.VFXSyncPayload;
 import dev.vfxweaver.resource.VFXBlockParticleManager;
 import dev.vfxweaver.resource.VFXDefinitionManager;
 import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import net.minecraft.commands.CommandBuildContext;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
@@ -197,10 +200,20 @@ public final class VFXLoaderEvents {
 	 * @param player the receiving player
 	 */
 	private static void sendSync(final ServerPlayer player) {
+		final Map<Identifier, String> definitions = new HashMap<>();
+		final Map<Identifier, List<float[]>> positionBlobs = new HashMap<>();
+		for (final Map.Entry<Identifier, String> entry : VFXDefinitionManager.get().getRawDefinitions().entrySet()) {
+			final MaskWire.Split split = MaskWire.splitDefinition(entry.getValue());
+			definitions.put(entry.getKey(), split.json());
+			if (!split.blobs().isEmpty()) {
+				positionBlobs.put(entry.getKey(), split.blobs());
+			}
+		}
 		VFXNetwork.sendToPlayer(player, new VFXSyncPayload(
 			VFXSyncPayload.PROTOCOL_VERSION,
-			new HashMap<>(VFXDefinitionManager.get().getRawDefinitions()),
-			new HashMap<>(VFXCurveManager.get().getRawCurves())
+			definitions,
+			new HashMap<>(VFXCurveManager.get().getRawCurves()),
+			positionBlobs
 		));
 	}
 

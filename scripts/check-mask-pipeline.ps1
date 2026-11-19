@@ -19,6 +19,10 @@ $client = Join-Path $repoRoot "src\client\java\dev\vfxweaver\client"
 $wirePath = Join-Path $main "network\MaskWire.java"
 $payloadPath = Join-Path $main "network\VFXTriggerPayload.java"
 $apiPath = Join-Path $main "api\VFXAPI.java"
+$syncPath = Join-Path $main "network\VFXSyncPayload.java"
+$loaderPath = Join-Path $main "platform\VFXLoaderEvents.java"
+$clientPath = Join-Path $client "VFXClient.java"
+$definitionPath = Join-Path $main "effect\VFXDefinition.java"
 
 function Read-Source([string]$path) { return [System.IO.File]::ReadAllText($path) }
 
@@ -468,6 +472,13 @@ if ($payloadText -notmatch 'public static final int MAX_MASK_JSON = MAX_WIRE_JSO
 Require-Pattern $apiPath 'VFXTriggerPayload\.wireProblem\(maskJson\)' "sendMask no longer checks the wire budget"
 if ($apiText -match 'MAX_MASK_JSON') { throw "VFXAPI still references the removed MAX_MASK_JSON constant" }
 
+# 28) Task 6: vfx_sync lifts top-level definition positions through a v3 protocol.
+Require-Pattern $syncPath 'PROTOCOL_VERSION = 3' "the sync protocol version was not bumped"
+Require-Pattern $syncPath 'positionBlobs' "definitions cannot carry lifted positions"
+Require-Pattern $loaderPath 'MaskWire' "sendSync does not split the definition JSON"
+Require-Pattern $clientPath 'positionBlobs' "handleSync does not restore definition positions"
+Require-Pattern $definitionPath 'MAX_POSITIONS = VFXTriggerPayload\.MAX_WIRE_POSITION_BYTES / 12' "the authored position cap still truncates large definitions"
+
 Write-Host "Mask pipeline check (static)"
 if ($problems.Count -gt 0) {
 	$problems | ForEach-Object { Write-Host "  - $_" }
@@ -882,9 +893,105 @@ public final class MaskWireCheck {
 '@
 [System.IO.File]::WriteAllText($wireCheckSrc, $wireCheckJava, [System.Text.UTF8Encoding]::new($false))
 
+$syncCheckSrc = Join-Path $checkDir "SyncWireCheck.java"
+$syncCheckJava = @'
+import com.google.gson.JsonArray;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
+import dev.vfxweaver.effect.VFXDefinition;
+import dev.vfxweaver.network.MaskWire;
+import dev.vfxweaver.network.VFXSyncPayload;
+import io.netty.buffer.ByteBuf;
+import io.netty.buffer.Unpooled;
+import java.util.Map;
+import net.minecraft.resources.Identifier;
+
+/**
+ * The vfx_sync contract: a 10199-position block_tint definition survives the sync codec after a
+ * split/join, the server-side parse does not truncate it, and an old-version packet is skipped.
+ */
+public final class SyncWireCheck {
+	private static final Identifier TEST_ID = Identifier.fromNamespaceAndPath("vfxweaver", "test_tint");
+
+	public static void main(final String[] args) {
+		final String json = buildBigTint(10199);
+
+		// send: lift the definition's top-level positions (the authored parse cap must keep all of them)
+		final MaskWire.Split split = MaskWire.splitDefinition(json);
+		final VFXSyncPayload payload = new VFXSyncPayload(VFXSyncPayload.PROTOCOL_VERSION,
+			Map.of(TEST_ID, split.json()), Map.of(), Map.of(TEST_ID, split.blobs()));
+
+		// wire
+		final ByteBuf buf = Unpooled.buffer();
+		VFXSyncPayload.STREAM_CODEC.encode(buf, payload);
+		require(buf.readableBytes() < (1 << 20), "encoded payload is " + buf.readableBytes() + " bytes (>= 1 MiB)");
+		final VFXSyncPayload decoded = VFXSyncPayload.STREAM_CODEC.decode(buf);
+		require(decoded.protocolVersion() == VFXSyncPayload.PROTOCOL_VERSION,
+			"decoded version = " + decoded.protocolVersion());
+
+		// receive: restore before the parse guard
+		final String restored = MaskWire.joinDefinition(
+			decoded.definitions().get(TEST_ID), decoded.positionBlobs().get(TEST_ID));
+		require(JsonParser.parseString(restored).getAsJsonObject().getAsJsonArray("positions").get(0)
+			.getAsJsonArray().get(0).getAsFloat() == -5000.5F, "the exact float coordinate did not survive the wire");
+
+		final VFXDefinition original = parse(json);
+		final VFXDefinition after = parse(restored);
+		require(original.getPositions().size() == 10199,
+			"original position count = " + original.getPositions().size() + ", want 10199");
+		require(original.getPositions().equals(after.getPositions()), "the 10199 position arrays differ after sync");
+
+		// the three-argument constructor still compiles and defaults to an empty blob map
+		final VFXSyncPayload plain = new VFXSyncPayload(VFXSyncPayload.PROTOCOL_VERSION, Map.of(), Map.of());
+		require(plain.positionBlobs().isEmpty(), "the three-argument constructor did not default to empty blobs");
+
+		// an old-version payload is skipped (no DecoderException), buffer fully consumed
+		final ByteBuf current = Unpooled.buffer();
+		VFXSyncPayload.STREAM_CODEC.encode(current, payload);
+		final byte[] bytes = new byte[current.readableBytes()];
+		current.readBytes(bytes);
+		final ByteBuf old = Unpooled.buffer();
+		old.writeByte(2);
+		old.writeBytes(bytes);
+		final VFXSyncPayload sentinel = VFXSyncPayload.STREAM_CODEC.decode(old);
+		require(sentinel.protocolVersion() == 2, "version-mismatch sentinel version = " + sentinel.protocolVersion());
+		require(old.readableBytes() == 0, "version mismatch did not consume the buffer");
+
+		System.out.println("sync wire check OK: 10199 block_tint positions round-trip; three-arg ctor / version-skip hold");
+	}
+
+	private static String buildBigTint(final int count) {
+		final JsonObject root = new JsonObject();
+		root.addProperty("type", "block_tint");
+		root.addProperty("duration", 200);
+		final JsonArray array = new JsonArray();
+		for (int i = 0; i < count; i++) {
+			final JsonArray point = new JsonArray();
+			point.add(i - 5000.5F);
+			point.add((i % 7) + 0.25F);
+			point.add(-100.5F - i);
+			array.add(point);
+		}
+		root.add("positions", array);
+		return root.toString();
+	}
+
+	private static VFXDefinition parse(final String json) {
+		return VFXDefinition.parse(TEST_ID, JsonParser.parseString(json).getAsJsonObject());
+	}
+
+	private static void require(final boolean condition, final String message) {
+		if (!condition) {
+			throw new AssertionError(message);
+		}
+	}
+}
+'@
+[System.IO.File]::WriteAllText($syncCheckSrc, $syncCheckJava, [System.Text.UTF8Encoding]::new($false))
+
 Push-Location $repoRoot
 try {
-	& $javac "@$cpFile" -d $checkDir $checkSrc $specSrc $wireCheckSrc
+	& $javac "@$cpFile" -d $checkDir $checkSrc $specSrc $wireCheckSrc $syncCheckSrc
 	if ($LASTEXITCODE -ne 0) { throw "javac failed" }
 	& $java "@$cpFile" MaskParserCheck
 	if ($LASTEXITCODE -ne 0) { throw "MaskParserCheck failed" }
@@ -892,6 +999,8 @@ try {
 	if ($LASTEXITCODE -ne 0) { throw "MaskSpecCheck failed" }
 	& $java "@$cpFile" MaskWireCheck
 	if ($LASTEXITCODE -ne 0) { throw "MaskWireCheck failed" }
+	& $java "@$cpFile" SyncWireCheck
+	if ($LASTEXITCODE -ne 0) { throw "SyncWireCheck failed" }
 } finally {
 	Pop-Location
 }

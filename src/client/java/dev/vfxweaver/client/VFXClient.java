@@ -21,6 +21,7 @@ import dev.vfxweaver.effect.EasingFunction;
 import dev.vfxweaver.effect.VFXCurveManager;
 import dev.vfxweaver.effect.VFXWorldBindings;
 import dev.vfxweaver.mask.VFXShapeRegistry;
+import dev.vfxweaver.network.MaskWire;
 import dev.vfxweaver.network.VFXAction;
 import dev.vfxweaver.network.VFXScoreboardPayload;
 import dev.vfxweaver.network.VFXSyncPayload;
@@ -28,6 +29,7 @@ import dev.vfxweaver.network.VFXTriggerPayload;
 import dev.vfxweaver.platform.VFXNetwork;
 import dev.vfxweaver.resource.VFXDefinitionManager;
 import dev.vfxweaver.util.VFXSettings;
+import java.util.HashMap;
 import java.util.Map;
 //? if fabric {
 import net.fabricmc.api.ClientModInitializer;
@@ -38,6 +40,7 @@ import net.neoforged.fml.common.Mod;*/
 //?}
 import net.minecraft.client.Minecraft;
 import net.minecraft.network.chat.Component;
+import net.minecraft.resources.Identifier;
 import net.minecraft.util.Util;
 import net.minecraft.world.scores.Objective;
 import net.minecraft.world.scores.ReadOnlyScoreInfo;
@@ -195,7 +198,12 @@ public class VFXClient {
 			return;
 		}
 		VFXCurveManager.get().applySynced(payload.curves());
-		VFXDefinitionManager.get().applySynced(payload.definitions());
+		final Map<Identifier, String> definitions = new HashMap<>();
+		for (final Map.Entry<Identifier, String> entry : payload.definitions().entrySet()) {
+			definitions.put(entry.getKey(),
+				MaskWire.joinDefinition(entry.getValue(), payload.positionBlobs().get(entry.getKey())));
+		}
+		VFXDefinitionManager.get().applySynced(definitions);
 		LOGGER.debug("Received VFX sync: {} definitions, {} curves", payload.definitions().size(), payload.curves().size());
 	}
 
