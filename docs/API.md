@@ -281,9 +281,22 @@ Semantics:
 - **Invalid JSON changes nothing.** The JSON is parsed through `VFXMaskParser`, so an unknown shape,
   a malformed composition or a graph `from` slot is rejected with one warning per effect id and the
   current mask stays.
-- **An over-long JSON is refused, never sent as "remove".** Above
-  `VFXTriggerPayload.MAX_MASK_JSON` (65536 characters) `sendMask` returns `false` and logs once
-  instead of putting a `null` on the wire, because `null` means "remove the override".
+- **A mask that cannot fit one packet is refused, never sent as "remove".** `sendMask` checks the
+  whole mask with `VFXTriggerPayload.wireProblem` before sending. A `block_list`'s `positions`
+  arrays are not sent as JSON numbers: each `[x,y,z]` triple travels as a compact 12-byte `float`
+  triple in a binary tail of the **same single `vfx_trigger` packet**, so thousands of blocks no
+  longer hit the UTF-8 string codec's character limit. The JSON keeps a fail-closed `"@wire:N"`
+  marker where each array was; the client restores the triples before `VFXMaskParser.parse`, so a
+  marker it cannot restore leaves the mask invalid and the old mask stays. The remaining string is
+  bounded by `MAX_WIRE_JSON` = 32767 characters (the encoded UTF-8 byte count is checked too) and
+  the position tail by `MAX_WIRE_POSITION_BYTES` = 1 MiB - 192 KiB. An unfit mask returns `false`
+  and logs once instead of putting a `null` on the wire, because `null` means "remove the
+  override". `MAX_MASK_JSON` remains only as a deprecated alias of `MAX_WIRE_JSON`.
+- **Caller API unchanged; wire version 10.** The `sendMask`/`mask` signatures and `VFXMaskSpec`
+  are unchanged - only the encoding changed. This is `VFXTriggerPayload.PROTOCOL_VERSION` 10: an
+  old-version packet is skipped rather than crashing decode (the version byte is read first, the
+  rest of the buffer is skipped, and a sentinel is returned that the client drops at its existing
+  version check), so mismatched versions are ignored until both sides are updated.
 - `sendMaskMove`/`sendMaskData` keep working on a runtime mask: a live edit on a `mask.p<N>.*`
   parameter wins over the override's own JSON value for that slot.
 - Changing the mask rebuilds that effect's mask targets (coverage target and block-geometry
@@ -638,7 +651,7 @@ Semantics:
 
 | Field | Type | Description |
 |---|---|---|
-| `protocolVersion` | byte | Current value — `VFXTriggerPayload.PROTOCOL_VERSION` (9). The client **drops the whole packet** on a version mismatch (see `VFXClient.handleTrigger`), so client and server must be the same version — 8 added the optional position list below, 9 the optional mask JSON, and a mismatch fails exactly like every earlier bump. An **older client ignores the packet entirely until it updates** — it does *not* fall back to the single point, because the version gate rejects the whole payload before any field is read. |
+| `protocolVersion` | byte | Current value — `VFXTriggerPayload.PROTOCOL_VERSION` (10; 8 added the optional position list below, 9 the optional mask JSON, 10 carries `block_list` positions as float triples). On a version mismatch the packet is **skipped, not crashed**: `decode` reads the version byte first, skips the rest of the buffer and returns a sentinel that the client drops at its existing version check (see `VFXClient.handleTrigger`), so client and server must be the same version. An **older client ignores the packet entirely until it updates** — it does *not* fall back to the single point, and no decode error or disconnect is raised. |
 | `effectId` | `Identifier` | Effect id (built-in or datapack) |
 | `action` | `VFXAction` (`PLAY`/`STOP`/`SET_PARAM`/`KEYFRAME`/`SET_EXPR`/`MOVE`/`SET_MASK`) | `SET_PARAM`/`KEYFRAME` apply to **running** effect instances: `params` carries exactly one `name → value` entry, for `KEYFRAME` the frame time is in `durationTicks` (negative = start the segment at the current time and run over `|time|` ticks), the segment easing in `easing`; `SET_EXPR` uses `exprParam`+`exprSource`; `MOVE` uses `position` + `instanceId`; `SET_MASK` uses `maskJson` (all instances of the effect id, and future plays) |
 | `durationTicks` | varint | 0 = definition default, negative = persistent (only for `PLAY`) |
@@ -648,7 +661,7 @@ Semantics:
 | `positions` | `List<Vec3>` | New in **8**. Only for `PLAY`: a runtime world-position list the single instance renders at (empty = single point). Bounded at `VFXTriggerPayload.MAX_POSITIONS` = 4096 (a packet-size bound, not an instance cap); a longer list is cut on decode with one warning. The renderer prefers this list over a runtime move position and the definition's own `positions`. |
 | `exprParam` / `exprSource` | optional strings | Only for `SET_EXPR`: the parameter name and the raw expression source |
 | `textOverride` | optional string | New in **7**. Only for `PLAY`: replaces the definition's `text.content` for this instance. Absent (null) on every other action and on every older sender, which means "use the definition's own text". Cut to 512 characters on decode, with one warning |
-| `maskJson` | optional string | New in **9**. Only for `SET_MASK`: the mask object that replaces the definition's authored mask for every running and future instance of `effectId`. Absent (null) or blank removes the override and restores the authored mask; a graph `{ "from": ... }` slot is authored-only and is rejected client-side with one warning. Bounded at `VFXTriggerPayload.MAX_MASK_JSON` (65536 characters, a packet-size bound): `VFXAPI.sendMask` refuses an over-long value (`false`, one warning) and the codec only **cuts** one that reaches it as a last resort - it is never replaced by `null`, because `null` means "remove the override" |
+| `maskJson` | optional string | New in **9**. Only for `SET_MASK`: the mask object that replaces the definition's authored mask for every running and future instance of `effectId`. Absent (null) or blank removes the override and restores the authored mask; a graph `{ "from": ... }` slot is authored-only and is rejected client-side with one warning. Since **10** a `block_list`'s `positions` are lifted out as 12-byte `float` triples in a binary tail of this same packet, the JSON keeping a fail-closed `"@wire:N"` marker that the client restores before parsing. Limits: `MAX_WIRE_JSON` = 32767 characters (plus a UTF-8 byte check) and `MAX_WIRE_POSITION_BYTES` = 1 MiB - 192 KiB; `VFXAPI.sendMask` refuses an unfit mask (`false`, one warning) and the value is never replaced by `null`, because `null` means "remove the override". `MAX_MASK_JSON` is kept only as a deprecated alias of `MAX_WIRE_JSON`. |
 
 ### Serverbound: `vfxweaver:vfx_request` (`VFXRequestPayload`)
 
