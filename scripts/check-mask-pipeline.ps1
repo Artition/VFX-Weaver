@@ -457,7 +457,10 @@ Require-Pattern $payloadPath 'MAX_WIRE_JSON = 32767' "the string limit is not ti
 Require-Pattern $payloadPath 'MAX_WIRE_POSITION_BYTES = \(1 << 20\) - 192 \* 1024' "the binary position budget is gone"
 Require-Pattern $payloadPath 'PROTOCOL_VERSION = 10' "protocol version was not bumped"
 Require-Pattern $payloadPath 'ByteBufUtil\.utf8MaxBytes\(split\.json\(\)\)' "wireProblem does not check the UTF-8 byte count"
-if ($payloadText -match 'MAX_MASK_JSON|truncateMaskJson') { throw "the old oversized JSON path is still present" }
+if ($payloadText -match 'truncateMaskJson') { throw "the old oversized JSON path is still present" }
+# The only MAX_MASK_JSON left in the payload must be the deprecated source-compatibility alias.
+if ([regex]::Matches($payloadText, 'MAX_MASK_JSON').Count -ne 1) { throw "MAX_MASK_JSON must appear exactly once, as the deprecated alias" }
+if ($payloadText -notmatch 'public static final int MAX_MASK_JSON = MAX_WIRE_JSON;') { throw "the deprecated MAX_MASK_JSON alias is gone" }
 
 # 27) The API: sendMask must refuse masks that cannot fit one packet, with no MAX_MASK_JSON left.
 Require-Pattern $apiPath 'VFXTriggerPayload\.wireProblem\(maskJson\)' "sendMask no longer checks the wire budget"

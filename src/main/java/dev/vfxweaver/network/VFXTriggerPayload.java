@@ -86,6 +86,11 @@ public record VFXTriggerPayload(
 	 */
 	public static final int MAX_WIRE_JSON = 32767;
 	/**
+	 * @deprecated use {@link #MAX_WIRE_JSON}; kept so older integrations recompile unchanged.
+	 */
+	@Deprecated
+	public static final int MAX_MASK_JSON = MAX_WIRE_JSON;
+	/**
 	 * Byte budget for the lifted position blobs: the 1 MiB custom-payload cap minus headroom for the
 	 * other fields in the packet. This is a <b>packet-size bound</b> (see AGENTS.md), not a cap on the
 	 * number of blocks a mask may hold. Large values may raise overdraw but are never hard-clamped.
