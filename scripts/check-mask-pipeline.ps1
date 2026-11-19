@@ -15,6 +15,7 @@ $repoRoot = Split-Path -Parent $PSScriptRoot
 $main = Join-Path $repoRoot "src\main\java\dev\vfxweaver"
 $client = Join-Path $repoRoot "src\client\java\dev\vfxweaver\client"
 $wirePath = Join-Path $main "network\MaskWire.java"
+$payloadPath = Join-Path $main "network\VFXTriggerPayload.java"
 
 function Read-Source([string]$path) { return [System.IO.File]::ReadAllText($path) }
 
@@ -31,6 +32,7 @@ $variants = Read-Source (Join-Path $client "postprocessing\VFXMaskShaderVariants
 $post = Read-Source (Join-Path $client "postprocessing\VFXPostProcessingManager.java")
 $fill = Read-Source (Join-Path $main "mask\VFXMaskFill.java")
 $selection = Read-Source (Join-Path $main "mask\VFXMaskBlockSelection.java")
+$payloadText = Read-Source $payloadPath
 $blockShader = Read-Source (Join-Path $repoRoot "src\client\resources\assets\vfxweaver\shaders\post\mask_block_geometry.fsh")
 $blockVertexShader = Read-Source (Join-Path $repoRoot "src\client\resources\assets\vfxweaver\shaders\world\mask_block_geometry.vsh")
 $coverage = Read-Source (Join-Path $repoRoot "src\client\resources\assets\vfxweaver\shaders\post\mask_coverage.fsh")
@@ -447,6 +449,12 @@ function Require-Pattern([string]$path, [string]$pattern, [string]$why) {
 Require-Pattern $wirePath 'static final String MARKER = "@wire:"' "the fail-closed wire marker is gone"
 Require-Pattern $wirePath 'static Split split\(' "MaskWire.split is gone"
 Require-Pattern $wirePath 'static String join\(' "MaskWire.join is gone"
+
+# 26) The payload codec: honest wire bounds, the bumped protocol version and no old truncation path.
+Require-Pattern $payloadPath 'MAX_WIRE_JSON = 32767' "the string limit is not tied to STRING_UTF8"
+Require-Pattern $payloadPath 'MAX_WIRE_POSITION_BYTES = \(1 << 20\) - 192 \* 1024' "the binary position budget is gone"
+Require-Pattern $payloadPath 'PROTOCOL_VERSION = 10' "protocol version was not bumped"
+if ($payloadText -match 'MAX_MASK_JSON|truncateMaskJson') { throw "the old oversized JSON path is still present" }
 
 Write-Host "Mask pipeline check (static)"
 if ($problems.Count -gt 0) {

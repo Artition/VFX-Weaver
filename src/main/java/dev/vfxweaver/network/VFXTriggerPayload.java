@@ -4,12 +4,14 @@ import dev.vfxweaver.effect.EasingFunction;
 import dev.vfxweaver.effect.EasingType;
 import dev.vfxweaver.util.VFXLog;
 import io.netty.buffer.ByteBuf;
+import io.netty.handler.codec.DecoderException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import net.minecraft.network.RegistryFriendlyByteBuf;
+import net.minecraft.network.VarInt;
 import net.minecraft.network.codec.ByteBufCodecs;
 import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
@@ -51,12 +53,14 @@ public record VFXTriggerPayload(
 ) implements CustomPacketPayload {
 	private static final Logger LOGGER = LoggerFactory.getLogger("vfxweaver/payload");
 	/**
-	 * Bumped 8 -> 9 for {@code maskJson}: an old reader would not consume the trailing string and
-	 * would fail to decode. An old client drops the whole packet on a version mismatch (see
-	 * {@code VFXClient}), which is exactly the desired behaviour for a mask override it cannot
-	 * apply.
+	 * Bumped 9 -> 10 for the mask wire format: the trailing mask JSON now carries its
+	 * {@code block_list} positions as a compact binary blob after the string, so an old reader would
+	 * not consume those bytes and would fail to decode. An old client drops the whole packet on a
+	 * version mismatch (see {@code VFXClient}), which is exactly the desired behaviour for a mask
+	 * override it cannot apply. The payload codec peeks this version first and skips the rest of the
+	 * buffer on a mismatch instead of throwing a decode error.
 	 */
-	public static final byte PROTOCOL_VERSION = 9;
+	public static final byte PROTOCOL_VERSION = 10;
 	/**
 	 * Safety cap on the number of parameters a play packet may carry (server input, see AGENTS.md).
 	 * Raised from 32 to 256 for per-leaf mask dynamic data: a mask may hold eight leaves and two
@@ -75,14 +79,36 @@ public record VFXTriggerPayload(
 	 */
 	public static final int MAX_TEXT_OVERRIDE = 512;
 	/**
-	 * Wire cap on a call-time mask JSON, in characters. This is a <b>packet-size bound</b> (see
-	 * AGENTS.md): a mask JSON may carry a {@code block_list}'s {@code positions} array, which has no
-	 * cap of its own because it sizes a cached model list rather than a packet. {@code
-	 * VFXAPI.sendMask} refuses an over-long value with one warning; the codec only cuts it as a last
-	 * resort (see {@link #OPTIONAL_MASK_JSON}) and never sends {@code null} in its place, because
-	 * {@code null} means "remove the override".
+	 * Character cap tied to {@code ByteBufCodecs.STRING_UTF8}/{@code Utf8String.write}: a JSON string
+	 * longer than this cannot be written to the wire at all. Large {@code block_list} position arrays
+	 * are lifted out of the JSON by {@link MaskWire} before this bound is checked.
 	 */
-	public static final int MAX_MASK_JSON = 65536;
+	public static final int MAX_WIRE_JSON = 32767;
+	/**
+	 * Byte budget for the lifted position blobs: the 1 MiB custom-payload cap minus headroom for the
+	 * other fields in the packet. This is a <b>packet-size bound</b> (see AGENTS.md), not a cap on the
+	 * number of blocks a mask may hold. Large values may raise overdraw but are never hard-clamped.
+	 */
+	public static final int MAX_WIRE_POSITION_BYTES = (1 << 20) - 192 * 1024;
+
+	/** null = the mask fits; otherwise the reason to refuse it before sending. */
+	public static @Nullable String wireProblem(final String maskJson) {
+		if (maskJson.contains(MaskWire.MARKER)) {
+			return "mask JSON contains reserved '" + MaskWire.MARKER + "'";
+		}
+		final MaskWire.Split split = MaskWire.split(maskJson);
+		long bytes = 0;
+		for (final float[] blob : split.blobs()) {
+			bytes += 4L * blob.length;
+		}
+		if (split.json().length() > MAX_WIRE_JSON) {
+			return "mask JSON without positions is " + split.json().length() + " chars (max " + MAX_WIRE_JSON + ")";
+		}
+		if (bytes > MAX_WIRE_POSITION_BYTES) {
+			return "positions take " + bytes + " bytes (max " + MAX_WIRE_POSITION_BYTES + ")";
+		}
+		return null;
+	}
 	/**
 	 * Cap on the number of world positions one play packet may carry, mirroring
 	 * {@code VFXDefinition.MAX_POSITIONS}. This is a <b>packet-size bound</b> (8192 positions would
@@ -206,30 +232,55 @@ public record VFXTriggerPayload(
 	}
 
 	/**
-	 * {@link #OPTIONAL_STRING} for the mask JSON: a value longer than {@link #MAX_MASK_JSON} is cut
-	 * on both ends with one warning. It is deliberately <b>not</b> turned into {@code null} - a
-	 * {@code null} mask means "remove the override", so dropping an oversized value would silently
-	 * undo a mask the caller wanted. A cut value is no longer valid JSON, and the client rejects it
-	 * with a warning while keeping its current mask; {@code VFXAPI.sendMask} refuses such a value
-	 * before it reaches the wire.
+	 * The mask JSON as an optional string plus a compact binary tail of {@code block_list} positions.
+	 * The JSON keeps a fail-closed {@code @wire:N} marker where the arrays were; the client restores
+	 * the float triples before parsing. A {@code null} mask ("remove override") is encoded as just
+	 * the absent-string marker with no blob count following it, which {@link #decode} mirrors.
 	 */
 	public static final StreamCodec<ByteBuf, String> OPTIONAL_MASK_JSON = new StreamCodec<>() {
 		public String decode(final ByteBuf input) {
-			return truncateMaskJson(OPTIONAL_STRING.decode(input));
+			final String json = OPTIONAL_STRING.decode(input);
+			if (json == null) {
+				return null;
+			}
+			final int count = VarInt.read(input);
+			if (count < 0 || count > input.readableBytes()) {
+				throw new DecoderException("mask wire: bad array count " + count);
+			}
+			final List<float[]> blobs = new ArrayList<>(count);
+			for (int i = 0; i < count; i++) {
+				final int positions = VarInt.read(input);
+				if (positions < 0 || 12L * positions > input.readableBytes()) {
+					throw new DecoderException("mask wire: bad position count " + positions);
+				}
+				final float[] flat = new float[positions * 3];
+				for (int j = 0; j < flat.length; j++) {
+					flat[j] = input.readFloat();
+				}
+				blobs.add(flat);
+			}
+			return MaskWire.join(json, blobs);
 		}
 
 		public void encode(final ByteBuf output, final String value) {
-			OPTIONAL_STRING.encode(output, truncateMaskJson(value));
+			if (value == null) {
+				OPTIONAL_STRING.encode(output, null); // null = remove override
+				return;
+			}
+			final MaskWire.Split split = MaskWire.split(value);
+			final boolean fits = wireProblem(value) == null; // last line of defence
+			OPTIONAL_STRING.encode(output, fits ? split.json()
+					: split.json().substring(0, Math.min(split.json().length(), MAX_WIRE_JSON)));
+			final List<float[]> blobs = fits ? split.blobs() : List.of();
+			VarInt.write(output, blobs.size());
+			for (final float[] blob : blobs) {
+				VarInt.write(output, blob.length / 3);
+				for (final float coordinate : blob) {
+					output.writeFloat(coordinate);
+				}
+			}
 		}
 	};
-
-	private static @Nullable String truncateMaskJson(final @Nullable String value) {
-		if (value == null || value.length() <= MAX_MASK_JSON) {
-			return value;
-		}
-		VFXLog.warnOnce(LOGGER, "net:mask-json-cut", "Mask JSON is {} characters long; cut to MAX_MASK_JSON ({}) - it no longer parses and the client keeps its mask", value.length(), MAX_MASK_JSON);
-		return value.substring(0, MAX_MASK_JSON);
-	}
 
 	private static final StreamCodec<ByteBuf, TrailingStrings> TRAILING_STRINGS_CODEC = StreamCodec.composite(
 		OPTIONAL_STRING,
@@ -243,7 +294,7 @@ public record VFXTriggerPayload(
 		TrailingStrings::new
 	);
 
-	public static final StreamCodec<RegistryFriendlyByteBuf, VFXTriggerPayload> STREAM_CODEC = StreamCodec.composite(
+	private static final StreamCodec<RegistryFriendlyByteBuf, VFXTriggerPayload> COMPOSITE_CODEC = StreamCodec.composite(
 		ByteBufCodecs.BYTE,
 		VFXTriggerPayload::protocolVersion,
 		Identifier.STREAM_CODEC,
@@ -273,6 +324,36 @@ public record VFXTriggerPayload(
 			trailingStrings.exprParam(), trailingStrings.exprSource(), trailingStrings.textOverride(), trailingStrings.maskJson()
 		)
 	);
+
+	private static final Identifier VERSION_MISMATCH_ID =
+			Identifier.fromNamespaceAndPath("vfxweaver", "__protocol_mismatch");
+
+	/**
+	 * Peeks the protocol version before decoding the fourteen fields. A payload from an older client
+	 * carries a shape this codec cannot read, so on a mismatch the rest of the buffer is skipped and a
+	 * sentinel returned: {@code VFXClient.handleTrigger} already drops any payload whose version
+	 * differs, so the skip is silent instead of a decode error that would disconnect the client.
+	 */
+	public static final StreamCodec<RegistryFriendlyByteBuf, VFXTriggerPayload> STREAM_CODEC =
+			new StreamCodec<>() {
+				@Override
+				public VFXTriggerPayload decode(final RegistryFriendlyByteBuf input) {
+					input.markReaderIndex();
+					final byte version = input.readByte();
+					if (version != PROTOCOL_VERSION) {
+						input.skipBytes(input.readableBytes());
+						return new VFXTriggerPayload(version, VERSION_MISMATCH_ID, VFXAction.STOP,
+								0, 0, 0L, null, List.of(), List.of(), Map.of(), "linear", null, null, null, null);
+					}
+					input.resetReaderIndex();
+					return COMPOSITE_CODEC.decode(input);
+				}
+
+				@Override
+				public void encode(final RegistryFriendlyByteBuf output, final VFXTriggerPayload value) {
+					COMPOSITE_CODEC.encode(output, value);
+				}
+			};
 
 	/** Groups the optional trailing strings for {@link #TRAILING_STRINGS_CODEC}. */
 	private TrailingStrings trailingStrings() {
@@ -444,8 +525,8 @@ public record VFXTriggerPayload(
 	 * instance of that effect id, or removes the override and restores the authored mask.
 	 *
 	 * <p>A {@code null} or blank {@code maskJson} is the "remove the override" form, so an absent
-	 * value must never be encoded for an over-long one: {@code VFXAPI.sendMask} refuses a value above
-	 * {@link #MAX_MASK_JSON} and the codec cuts (never nulls) one that reaches it anyway.
+	 * value must never be encoded for an over-long one: {@code VFXAPI.sendMask} refuses a value that
+	 * fails {@link #wireProblem(String)} and the codec never sends {@code null} in its place.
 	 *
 	 * @param effectId the effect whose mask is overridden (all its instances, per player)
 	 * @param maskJson the mask JSON object (the same shape as a datapack {@code mask} block); null
