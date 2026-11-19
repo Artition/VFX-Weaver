@@ -974,13 +974,16 @@ public final class VFXAPI {
 	 * @param player   the receiving player
 	 * @param effectId effect id whose mask is overridden
 	 * @param maskJson the mask object as JSON text, or {@code null}/blank to remove the override
-	 * @return {@code true} when the payload was sent; {@code false} when the JSON exceeds
-	 *         {@link VFXTriggerPayload#MAX_MASK_JSON} (logged once, nothing is sent)
+	 * @return {@code true} when the payload was sent; {@code false} when the mask cannot fit in one
+	 *         packet (logged once, nothing is sent)
 	 */
 	public static boolean sendMask(final ServerPlayer player, final Identifier effectId, final @Nullable String maskJson) {
-		if (maskJson != null && maskJson.length() > VFXTriggerPayload.MAX_MASK_JSON) {
-			VFXLog.warnOnce(LOGGER, "api:mask-too-long:" + effectId, "sendMask({}) failed: {} characters is above MAX_MASK_JSON ({})", effectId, maskJson.length(), VFXTriggerPayload.MAX_MASK_JSON);
-			return false;
+		if (maskJson != null) {
+			final String reason = VFXTriggerPayload.wireProblem(maskJson);
+			if (reason != null) {
+				VFXLog.warnOnce(LOGGER, "api:mask-wire:" + effectId, "sendMask({}) failed: {}", effectId, reason);
+				return false;
+			}
 		}
 		VFXNetwork.sendToPlayer(player, VFXTriggerPayload.setMask(effectId, maskJson));
 		return true;
@@ -1008,15 +1011,10 @@ public final class VFXAPI {
 	 * @param effectId effect id whose mask is overridden
 	 * @param maskJson the mask object as JSON text, or {@code null}/blank to remove the override
 	 * @return {@code true} when the mask was applied or removed (or queued for the render thread);
-	 *         {@code false} without a client, when the JSON was rejected, or when it exceeds
-	 *         {@link VFXTriggerPayload#MAX_MASK_JSON} (logged once, nothing is applied)
+	 *         {@code false} without a client or when the JSON was rejected
 	 */
 	public static boolean mask(final Identifier effectId, final @Nullable String maskJson) {
 		if (localDispatcher == null) {
-			return false;
-		}
-		if (maskJson != null && maskJson.length() > VFXTriggerPayload.MAX_MASK_JSON) {
-			VFXLog.warnOnce(LOGGER, "api:mask-too-long:" + effectId, "mask({}) failed: {} characters is above MAX_MASK_JSON ({})", effectId, maskJson.length(), VFXTriggerPayload.MAX_MASK_JSON);
 			return false;
 		}
 		return localDispatcher.setMask(effectId, maskJson);
