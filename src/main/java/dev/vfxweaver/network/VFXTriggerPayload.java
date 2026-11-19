@@ -4,6 +4,7 @@ import dev.vfxweaver.effect.EasingFunction;
 import dev.vfxweaver.effect.EasingType;
 import dev.vfxweaver.util.VFXLog;
 import io.netty.buffer.ByteBuf;
+import io.netty.buffer.ByteBufUtil;
 import io.netty.handler.codec.DecoderException;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -103,6 +104,13 @@ public record VFXTriggerPayload(
 		}
 		if (split.json().length() > MAX_WIRE_JSON) {
 			return "mask JSON without positions is " + split.json().length() + " chars (max " + MAX_WIRE_JSON + ")";
+		}
+		// Utf8String.write enforces the encoded byte count as well as the char count: a non-ASCII
+		// JSON under MAX_WIRE_JSON chars can still overflow the STRING_UTF8 limit at encode time.
+		if (ByteBufUtil.utf8MaxBytes(split.json())
+				> ByteBufUtil.utf8MaxBytes(MAX_WIRE_JSON)) {
+			return "mask JSON without positions takes " + ByteBufUtil.utf8MaxBytes(split.json())
+					+ " UTF-8 bytes (max " + ByteBufUtil.utf8MaxBytes(MAX_WIRE_JSON) + ")";
 		}
 		if (bytes > MAX_WIRE_POSITION_BYTES) {
 			return "positions take " + bytes + " bytes (max " + MAX_WIRE_POSITION_BYTES + ")";

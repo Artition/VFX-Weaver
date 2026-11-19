@@ -454,6 +454,7 @@ Require-Pattern $wirePath 'static String join\(' "MaskWire.join is gone"
 Require-Pattern $payloadPath 'MAX_WIRE_JSON = 32767' "the string limit is not tied to STRING_UTF8"
 Require-Pattern $payloadPath 'MAX_WIRE_POSITION_BYTES = \(1 << 20\) - 192 \* 1024' "the binary position budget is gone"
 Require-Pattern $payloadPath 'PROTOCOL_VERSION = 10' "protocol version was not bumped"
+Require-Pattern $payloadPath 'ByteBufUtil\.utf8MaxBytes\(split\.json\(\)\)' "wireProblem does not check the UTF-8 byte count"
 if ($payloadText -match 'MAX_MASK_JSON|truncateMaskJson') { throw "the old oversized JSON path is still present" }
 
 Write-Host "Mask pipeline check (static)"
