@@ -38,9 +38,9 @@ void sendEffect(ServerPlayer player, Identifier effectId, int durationTicks, lon
 // One instance, many world positions: the single instance renders at every point in `positions`
 // (empty = the ordinary single-point behaviour). This is the "tint hundreds of blocks with one
 // packet" path - one instance costs one MAX_ACTIVE_EFFECTS slot instead of one per block. The
-// list is bounded on the wire at VFXTriggerPayload.MAX_POSITIONS (4096, a packet-size bound, not
-// an instance cap) and cut with one warning on decode. sendStop(player, effectId, instanceId)
-// stops every position of the instance.
+// list travels as three floats per point and shares VFXTriggerPayload.MAX_WIRE_POSITION_BYTES
+// (1 MiB - 192 KiB) with lifted mask blobs; an over-budget call is refused (returns false, nothing
+// sent) rather than cut. sendStop(player, effectId, instanceId) stops every position of the instance.
 // NOTE: because this overload takes a List<Vec3> in the position slot, a call that passes a
 // literal `null` for the world position is now ambiguous against the existing
 // (long instanceId, @Nullable Vec3 worldPos, ...) overload. Existing source that wrote a bare
@@ -651,14 +651,14 @@ Semantics:
 
 | Field | Type | Description |
 |---|---|---|
-| `protocolVersion` | byte | Current value — `VFXTriggerPayload.PROTOCOL_VERSION` (10; 8 added the optional position list below, 9 the optional mask JSON, 10 carries `block_list` positions as float triples). On a version mismatch the packet is **skipped, not crashed**: `decode` reads the version byte first, skips the rest of the buffer and returns a sentinel that the client drops at its existing version check (see `VFXClient.handleTrigger`), so client and server must be the same version. An **older client ignores the packet entirely until it updates** — it does *not* fall back to the single point, and no decode error or disconnect is raised. |
+| `protocolVersion` | byte | Current value — `VFXTriggerPayload.PROTOCOL_VERSION` (10; 8 added the optional position list below, 9 the optional mask JSON, 10 carries `block_list` positions and per-instance positions as float triples). On a version mismatch the packet is **skipped, not crashed**: `decode` reads the version byte first, skips the rest of the buffer and returns a sentinel that the client drops at its existing version check (see `VFXClient.handleTrigger`), so client and server must be the same version. An **older client ignores the packet entirely until it updates** — it does *not* fall back to the single point, and no decode error or disconnect is raised. |
 | `effectId` | `Identifier` | Effect id (built-in or datapack) |
 | `action` | `VFXAction` (`PLAY`/`STOP`/`SET_PARAM`/`KEYFRAME`/`SET_EXPR`/`MOVE`/`SET_MASK`) | `SET_PARAM`/`KEYFRAME` apply to **running** effect instances: `params` carries exactly one `name → value` entry, for `KEYFRAME` the frame time is in `durationTicks` (negative = start the segment at the current time and run over `|time|` ticks), the segment easing in `easing`; `SET_EXPR` uses `exprParam`+`exprSource`; `MOVE` uses `position` + `instanceId`; `SET_MASK` uses `maskJson` (all instances of the effect id, and future plays) |
 | `durationTicks` | varint | 0 = definition default, negative = persistent (only for `PLAY`) |
 | `elapsedTicks` | varint | Resume offset: how far into the timeline the effect already is (only for `PLAY`, 0 = start fresh). Used when the server re-applies effects after a reconnect, computed from the effect's original start so time spent offline counts. |
 | `params` | `Map<String, Float>` | Constant overrides, numbers only |
 | `easing` | `EasingType` (string) | |
-| `positions` | `List<Vec3>` | New in **8**. Only for `PLAY`: a runtime world-position list the single instance renders at (empty = single point). Bounded at `VFXTriggerPayload.MAX_POSITIONS` = 4096 (a packet-size bound, not an instance cap); a longer list is cut on decode with one warning. The renderer prefers this list over a runtime move position and the definition's own `positions`. |
+| `positions` | `List<Vec3>` | New in **8**. Only for `PLAY`: a runtime world-position list the single instance renders at (empty = single point). Carried as three `float`s per point (12 bytes); it shares the `VFXTriggerPayload.MAX_WIRE_POSITION_BYTES` budget with lifted mask blobs, and an over-budget call is refused by the API before send (no silent truncation). The renderer prefers this list over a runtime move position and the definition's own `positions`. |
 | `exprParam` / `exprSource` | optional strings | Only for `SET_EXPR`: the parameter name and the raw expression source |
 | `textOverride` | optional string | New in **7**. Only for `PLAY`: replaces the definition's `text.content` for this instance. Absent (null) on every other action and on every older sender, which means "use the definition's own text". Cut to 512 characters on decode, with one warning |
 | `maskJson` | optional string | New in **9**. Only for `SET_MASK`: the mask object that replaces the definition's authored mask for every running and future instance of `effectId`. Absent (null) or blank removes the override and restores the authored mask; a graph `{ "from": ... }` slot is authored-only and is rejected client-side with one warning. Since **10** a `block_list`'s `positions` are lifted out as 12-byte `float` triples in a binary tail of this same packet, the JSON keeping a fail-closed `"@wire:N"` marker that the client restores before parsing. Limits: `MAX_WIRE_JSON` = 32767 characters (plus a UTF-8 byte check) and `MAX_WIRE_POSITION_BYTES` = 1 MiB - 192 KiB; `VFXAPI.sendMask` refuses an unfit mask (`false`, one warning) and the value is never replaced by `null`, because `null` means "remove the override". `MAX_MASK_JSON` is kept only as a deprecated alias of `MAX_WIRE_JSON`. |

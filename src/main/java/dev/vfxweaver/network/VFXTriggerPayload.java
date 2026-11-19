@@ -97,25 +97,41 @@ public record VFXTriggerPayload(
 	 */
 	public static final int MAX_WIRE_POSITION_BYTES = (1 << 20) - 192 * 1024;
 
+	/** Wire bytes for a per-instance position list: three floats (12 bytes) per point. */
+	static long positionWireBytes(final List<Vec3> positions) {
+		return 12L * positions.size();
+	}
+
 	/** null = the mask fits; otherwise the reason to refuse it before sending. */
 	public static @Nullable String wireProblem(final String maskJson) {
-		if (maskJson.contains(MaskWire.MARKER)) {
-			return "mask JSON contains reserved '" + MaskWire.MARKER + "'";
-		}
-		final MaskWire.Split split = MaskWire.split(maskJson);
-		long bytes = 0;
-		for (final float[] blob : split.blobs()) {
-			bytes += 4L * blob.length;
-		}
-		if (split.json().length() > MAX_WIRE_JSON) {
-			return "mask JSON without positions is " + split.json().length() + " chars (max " + MAX_WIRE_JSON + ")";
-		}
-		// Utf8String.write enforces the encoded byte count as well as the char count: a non-ASCII
-		// JSON under MAX_WIRE_JSON chars can still overflow the STRING_UTF8 limit at encode time.
-		if (ByteBufUtil.utf8MaxBytes(split.json())
-				> ByteBufUtil.utf8MaxBytes(MAX_WIRE_JSON)) {
-			return "mask JSON without positions takes " + ByteBufUtil.utf8MaxBytes(split.json())
-					+ " UTF-8 bytes (max " + ByteBufUtil.utf8MaxBytes(MAX_WIRE_JSON) + ")";
+		return wireProblem(maskJson, null);
+	}
+
+	/**
+	 * Combined packet-budget check: lifted mask blob bytes and per-instance position bytes share
+	 * {@link #MAX_WIRE_POSITION_BYTES}. null = everything fits; otherwise the reason to refuse it
+	 * before sending. A null mask (no override) and a null/empty position list both cost nothing.
+	 */
+	public static @Nullable String wireProblem(final @Nullable String maskJson, final @Nullable List<Vec3> positions) {
+		long bytes = positions == null ? 0L : positionWireBytes(positions);
+		if (maskJson != null) {
+			if (maskJson.contains(MaskWire.MARKER)) {
+				return "mask JSON contains reserved '" + MaskWire.MARKER + "'";
+			}
+			final MaskWire.Split split = MaskWire.split(maskJson);
+			for (final float[] blob : split.blobs()) {
+				bytes += 4L * blob.length;
+			}
+			if (split.json().length() > MAX_WIRE_JSON) {
+				return "mask JSON without positions is " + split.json().length() + " chars (max " + MAX_WIRE_JSON + ")";
+			}
+			// Utf8String.write enforces the encoded byte count as well as the char count: a non-ASCII
+			// JSON under MAX_WIRE_JSON chars can still overflow the STRING_UTF8 limit at encode time.
+			if (ByteBufUtil.utf8MaxBytes(split.json())
+					> ByteBufUtil.utf8MaxBytes(MAX_WIRE_JSON)) {
+				return "mask JSON without positions takes " + ByteBufUtil.utf8MaxBytes(split.json())
+						+ " UTF-8 bytes (max " + ByteBufUtil.utf8MaxBytes(MAX_WIRE_JSON) + ")";
+			}
 		}
 		if (bytes > MAX_WIRE_POSITION_BYTES) {
 			return "positions take " + bytes + " bytes (max " + MAX_WIRE_POSITION_BYTES + ")";
@@ -123,13 +139,12 @@ public record VFXTriggerPayload(
 		return null;
 	}
 	/**
-	 * Cap on the number of world positions one play packet may carry, mirroring
-	 * {@code VFXDefinition.MAX_POSITIONS}. This is a <b>packet-size bound</b> (8192 positions would
-	 * need ~200 KiB), not a cap on how many instances may run: one instance renders every position
-	 * in this list, so a single packet can tint hundreds of blocks well under
-	 * {@code MAX_ACTIVE_EFFECTS}. A longer list is cut on decode with one warning.
+	 * Decode-side safety bound on the number of world positions one play packet may carry, derived
+	 * from the packet byte budget (12 bytes per float-triple position). This is a <b>packet-size
+	 * bound</b>, not a cap on how many instances may run: the real limit is the shared
+	 * {@link #MAX_WIRE_POSITION_BYTES} budget checked before send by {@link #wireProblem(String, List)}.
 	 */
-	public static final int MAX_POSITIONS = 4096;
+	public static final int MAX_POSITIONS = MAX_WIRE_POSITION_BYTES / 12;
 	public static final Type<VFXTriggerPayload> TYPE = new Type<>(Identifier.fromNamespaceAndPath("vfxweaver", "vfx_trigger"));
 
 	public static final StreamCodec<ByteBuf, VFXAction> ACTION_CODEC = ByteBufCodecs.BYTE.map(VFXAction::fromId, VFXAction::getId);
@@ -196,46 +211,43 @@ public record VFXTriggerPayload(
 	}
 
 	/**
-	 * The reference collection codec the position list is modelled on
-	 * ({@code ByteBufCodecs.collection(ArrayList::new, Vec3.STREAM_CODEC, MAX_POSITIONS)}): used to
-	 * encode (after clipping to {@link #MAX_POSITIONS}), while decode reads the same varint-count
-	 * format by hand so an over-long list is cut, not rejected.
+	 * Per-instance world positions on the wire as three raw {@code float}s per point (12 bytes, half
+	 * of {@code Vec3.STREAM_CODEC}'s 24). Decode guards the declared count against the readable
+	 * bytes so a corrupt count cannot overrun the buffer; the packet byte budget itself is checked
+	 * before send by {@link #wireProblem(String, List)} (no silent truncation). An empty list decodes
+	 * to {@link List#of()}, the ordinary single-point behaviour.
 	 */
-	private static final StreamCodec<ByteBuf, List<Vec3>> POSITIONS_COLLECTION = ByteBufCodecs.collection(ArrayList::new, Vec3.STREAM_CODEC, MAX_POSITIONS);
-
-	/**
-	 * World-position list with the same wire shape as {@link #POSITIONS_COLLECTION} (a varint count
-	 * then element codecs), except that an over-long list on decode is cut to
-	 * {@link #MAX_POSITIONS} with one warning instead of failing the packet — a hostile or buggy
-	 * server must not disconnect the client over a too-large position list. The whole count is still
-	 * read off the buffer so the stream stays aligned; entries past the cap are dropped. An empty
-	 * list round-trips to {@link List#of()}, which the play path reads as the ordinary single point.
-	 */
-	public static final StreamCodec<ByteBuf, List<Vec3>> POSITIONS_CODEC = new StreamCodec<>() {
+	private static final StreamCodec<ByteBuf, List<Vec3>> POSITIONS_COLLECTION = new StreamCodec<>() {
+		@Override
 		public List<Vec3> decode(final ByteBuf input) {
-			int declared = ByteBufCodecs.VAR_INT.decode(input);
-			if (declared <= 0) {
+			final int count = VarInt.read(input);
+			if (count < 0 || 12L * count > input.readableBytes()) {
+				throw new DecoderException("positions wire: bad count " + count);
+			}
+			if (count == 0) {
 				return List.of();
 			}
-			int kept = Math.min(declared, MAX_POSITIONS);
-			List<Vec3> out = new ArrayList<>(kept);
-			for (int i = 0; i < declared; i++) {
-				Vec3 value = Vec3.STREAM_CODEC.decode(input);
-				if (i < kept) {
-					out.add(value);
-				}
-			}
-			if (declared > MAX_POSITIONS) {
-				VFXLog.warnOnce(LOGGER, "net:positions-clip", "Play packet carries {} positions; cut to MAX_POSITIONS ({})", declared, MAX_POSITIONS);
+			final List<Vec3> out = new ArrayList<>(count);
+			for (int i = 0; i < count; i++) {
+				out.add(new Vec3(input.readFloat(), input.readFloat(), input.readFloat()));
 			}
 			return out;
 		}
 
+		@Override
 		public void encode(final ByteBuf output, final List<Vec3> value) {
-			List<Vec3> list = value == null ? List.of() : value;
-			POSITIONS_COLLECTION.encode(output, list.size() > MAX_POSITIONS ? list.subList(0, MAX_POSITIONS) : list);
+			final List<Vec3> list = value == null ? List.of() : value;
+			VarInt.write(output, list.size());
+			for (final Vec3 point : list) {
+				output.writeFloat((float) point.x());
+				output.writeFloat((float) point.y());
+				output.writeFloat((float) point.z());
+			}
 		}
 	};
+
+	/** Public name of {@link #POSITIONS_COLLECTION} used by the composite payload codec. */
+	public static final StreamCodec<ByteBuf, List<Vec3>> POSITIONS_CODEC = POSITIONS_COLLECTION;
 
 	/**
 	 * The four optional trailing strings, composed on their own: {@link StreamCodec#composite} has
@@ -466,7 +478,8 @@ public record VFXTriggerPayload(
 	/**
 	 * Full play factory: every optional anchor ({@code position}, {@code entityUuids},
 	 * {@code positions}) plus the resume offset and text override. The position list is carried as
-	 * {@link #POSITIONS_CODEC} and cut to {@link #MAX_POSITIONS} on decode.
+	 * {@link #POSITIONS_CODEC} (three floats per point); an over-budget list is refused by the API
+	 * before send rather than silently cut.
 	 *
 	 * @param positions world positions one instance renders at (empty = single-point behaviour)
 	 */

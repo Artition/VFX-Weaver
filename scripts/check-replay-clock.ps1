@@ -299,16 +299,16 @@ if ($jumpIdx -lt 0 -or $enableIdx -lt 0 -or $enableIdx -lt $jumpIdx) {
 }
 
 # 14) The many-position play (PROTOCOL_VERSION 8) keeps its packet-size bound and its
-#     backward-compatible empty-list fallback. A future edit must not silently drop the
-#     MAX_POSITIONS cap (unbounded packet), stop using the collection codec, or make an empty
-#     list mean "no positions at all" instead of the ordinary single point.
-if ($payload -notmatch 'public static final int MAX_POSITIONS = 4096;') {
-	$problems.Add("VFXTriggerPayload: MAX_POSITIONS is no longer 4096 (the packet-size bound)")
+#     backward-compatible empty-list fallback. Task 7 switched the wire from Vec3.STREAM_CODEC (24
+#     bytes) to three floats (12 bytes), derived the bound from the packet budget and dropped the
+#     silent truncation; an over-budget call is now refused by the API before send.
+if ($payload -notmatch 'public static final int MAX_POSITIONS = MAX_WIRE_POSITION_BYTES / 12;') {
+	$problems.Add("VFXTriggerPayload: MAX_POSITIONS is not derived from the packet byte budget")
 }
-if ($payload -notmatch 'ByteBufCodecs\.collection\(ArrayList::new, Vec3\.STREAM_CODEC, MAX_POSITIONS\)') {
-	$problems.Add("VFXTriggerPayload: the positions codec no longer uses ByteBufCodecs.collection with MAX_POSITIONS")
+if ($payload -notmatch 'output\.writeFloat\(\(float\) point\.x\(\)\)') {
+	$problems.Add("VFXTriggerPayload: the positions codec no longer writes three floats per point")
 }
-if ($payload -notmatch '(?s)POSITIONS_CODEC.*?declared <= 0.*?return List\.of\(\);') {
+if ($payload -notmatch '(?s)POSITIONS_COLLECTION.*?count == 0.*?return List\.of\(\);') {
 	$problems.Add("VFXTriggerPayload: an empty positions list is no longer the single-point (List.of) fallback")
 }
 if ($manager -notmatch 'if \(!runtimePositions\.isEmpty\(\)\) \{') {

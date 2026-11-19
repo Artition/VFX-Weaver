@@ -742,9 +742,10 @@ public final class VFXAPI {
 	 * Triggers an effect for a player as <b>one instance</b> that renders at every world position in
 	 * {@code positions}. This is the "tint hundreds of blocks with one packet" path: a single
 	 * instance with a long position list costs one {@code MAX_ACTIVE_EFFECTS} slot, instead of one
-	 * instance per block. The list is bounded on the wire at
-	 * {@link VFXTriggerPayload#MAX_POSITIONS} (a packet-size bound, not an instance cap) and cut
-	 * with one warning on decode. An empty list falls back to the ordinary single-point behaviour.
+	 * instance per block. The list travels as three floats per point and shares the
+	 * {@link VFXTriggerPayload#MAX_WIRE_POSITION_BYTES} packet budget; an over-budget call is refused
+	 * (returns {@code false}, nothing sent) rather than silently cut. An empty list falls back to the
+	 * ordinary single-point behaviour.
 	 * A later {@link #sendStop(ServerPlayer, Identifier, long)} with the same instance id stops
 	 * every position of the instance.
 	 *
@@ -764,6 +765,11 @@ public final class VFXAPI {
 		final Map<String, Float> overrides,
 		final @Nullable EasingType easing
 	) {
+		final String reason = VFXTriggerPayload.wireProblem(null, positions);
+		if (reason != null) {
+			VFXLog.warnOnce(LOGGER, "api:positions-wire:" + effectId, "sendEffect({}) failed: {}", effectId, reason);
+			return false;
+		}
 		VFXDefinition definition = VFXDefinitionManager.get().get(effectId);
 		if (definition == null) {
 			VFXLog.warnOnce(LOGGER, "api:unknown-effect:" + effectId, "sendEffect({}) failed: unknown effect", effectId);

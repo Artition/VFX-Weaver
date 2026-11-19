@@ -479,6 +479,14 @@ Require-Pattern $loaderPath 'MaskWire' "sendSync does not split the definition J
 Require-Pattern $clientPath 'positionBlobs' "handleSync does not restore definition positions"
 Require-Pattern $definitionPath 'MAX_POSITIONS = VFXTriggerPayload\.MAX_WIRE_POSITION_BYTES / 12' "the authored position cap still truncates large definitions"
 
+# 29) Task 7: per-instance positions travel as three floats, no silent truncation, shared budget.
+Require-Pattern $payloadPath 'new Vec3\(input\.readFloat\(\), input\.readFloat\(\), input\.readFloat\(\)\)' "instance positions no longer decode as three floats"
+Require-Pattern $payloadPath 'output\.writeFloat\(\(float\) point\.x\(\)\)' "instance positions no longer encode as three floats"
+if ($payloadText -match 'subList\(0, MAX_POSITIONS\)') { throw "the silent position truncation is still present" }
+Require-Pattern $payloadPath '12L \* positions\.size\(\)' "the position byte cost is missing from the wire budget"
+Require-Pattern $payloadPath 'MAX_POSITIONS = MAX_WIRE_POSITION_BYTES / 12' "the position cap is not packet-derived"
+Require-Pattern $apiPath 'wireProblem\(null, positions\)' "sendEffect does not refuse over-budget position lists"
+
 Write-Host "Mask pipeline check (static)"
 if ($problems.Count -gt 0) {
 	$problems | ForEach-Object { Write-Host "  - $_" }
@@ -771,17 +779,21 @@ import dev.vfxweaver.mask.VFXMaskParser;
 import dev.vfxweaver.network.VFXTriggerPayload;
 import io.netty.buffer.Unpooled;
 import io.netty.handler.codec.DecoderException;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import net.minecraft.core.RegistryAccess;
 import net.minecraft.network.RegistryFriendlyByteBuf;
 import net.minecraft.network.VarInt;
 import net.minecraft.resources.Identifier;
+import net.minecraft.world.phys.Vec3;
 
 /**
  * The mask wire contract: a 10199-block override survives STREAM_CODEC with exact float coordinates,
  * null removes the override, a bad marker fails closed, a corrupt count throws, an over-limit JSON is
- * refused before send, and an old-version payload is skipped with a sentinel.
+ * refused before send, and an old-version payload is skipped with a sentinel. It also round-trips a
+ * 10199-point per-instance position list as three floats and refuses an over-budget list.
  */
 public final class MaskWireCheck {
 	private static final Identifier TEST_ID = Identifier.fromNamespaceAndPath("vfxweaver", "test");
@@ -840,7 +852,31 @@ public final class MaskWireCheck {
 		require(sentinel.protocolVersion() == 8, "version-mismatch sentinel version = " + sentinel.protocolVersion());
 		require(old.readableBytes() == 0, "version mismatch did not consume the buffer");
 
-		System.out.println("mask wire check OK: 10199 float positions round-trip; null / bad-marker / corrupt-count / over-limit / version-skip hold");
+		// 7. Task 7: 10199 per-instance positions round-trip as three floats (12 bytes) per point.
+		final List<Vec3> manyPositions = new ArrayList<>(10199);
+		for (int i = 0; i < 10199; i++) {
+			manyPositions.add(new Vec3(i - 5000.5F, (i % 7) + 0.25F, -100.5F - i));
+		}
+		final RegistryFriendlyByteBuf posBuf = new RegistryFriendlyByteBuf(Unpooled.buffer(), RegistryAccess.EMPTY);
+		VFXTriggerPayload.STREAM_CODEC.encode(posBuf,
+			VFXTriggerPayload.play(TEST_ID, 200, 7L, manyPositions, Map.of(), "linear"));
+		final int posEncodedBytes = posBuf.readableBytes();
+		final List<Vec3> restoredPositions = VFXTriggerPayload.STREAM_CODEC.decode(posBuf).positions();
+		require(restoredPositions.size() == 10199,
+			"per-instance position count = " + restoredPositions.size() + ", want 10199");
+		require(equalVec3s(manyPositions, restoredPositions),
+			"the 10199 per-instance positions did not round-trip with float precision");
+		require(posEncodedBytes < (1 << 20), "encoded play payload is " + posEncodedBytes + " bytes (>= 1 MiB)");
+
+		// 8. An over-budget position list is refused before send, with nothing sent.
+		final int tooMany = VFXTriggerPayload.MAX_WIRE_POSITION_BYTES / 12 + 1;
+		final List<Vec3> overBudget = java.util.Collections.nCopies(tooMany, new Vec3(0, 0, 0));
+		require(VFXTriggerPayload.wireProblem(null, overBudget) != null,
+			"an over-budget position list was not refused by wireProblem");
+		require(!VFXAPI.sendEffect(null, TEST_ID, 0L, overBudget, Map.of(), null),
+			"sendEffect accepted an over-budget position list");
+
+		System.out.println("mask wire check OK: 10199 float positions round-trip; null / bad-marker / corrupt-count / over-limit / version-skip / 10199-instance-positions / over-budget hold");
 	}
 
 	private static String buildBigMask(final int count) {
@@ -862,6 +898,17 @@ public final class MaskWireCheck {
 		if (a.size() != b.size()) return false;
 		for (int i = 0; i < a.size(); i++) {
 			if (!Arrays.equals(a.get(i), b.get(i))) return false;
+		}
+		return true;
+	}
+
+	private static boolean equalVec3s(final List<Vec3> a, final List<Vec3> b) {
+		if (a.size() != b.size()) return false;
+		for (int i = 0; i < a.size(); i++) {
+			final Vec3 left = a.get(i), right = b.get(i);
+			if (Double.compare(left.x(), right.x()) != 0
+				|| Double.compare(left.y(), right.y()) != 0
+				|| Double.compare(left.z(), right.z()) != 0) return false;
 		}
 		return true;
 	}
