@@ -49,7 +49,7 @@ public class VFXEffectManager {
 	private static final Logger LOGGER = LoggerFactory.getLogger("vfxweaver/effects");
 	private static final VFXEffectManager INSTANCE = new VFXEffectManager();
 	private static final int MAX_COLLECTION_DEPTH = 4;
-	private static final int MAX_ACTIVE_EFFECTS = 64;
+	private static final int MAX_ACTIVE_EFFECTS = 2048;
 	private static final int MAX_SCHEDULED_EFFECTS = 128;
 	private static final int MAX_DURATION_TICKS = 20 * 60 * 60; // 1 real hour, safety cap on server-supplied duration
 	/** Timeline duration used for an id that resolves a type but has no definition (no default to read). */

@@ -663,6 +663,14 @@ Semantics:
 | `textOverride` | optional string | New in **7**. Only for `PLAY`: replaces the definition's `text.content` for this instance. Absent (null) on every other action and on every older sender, which means "use the definition's own text". Cut to 512 characters on decode, with one warning |
 | `maskJson` | optional string | New in **9**. Only for `SET_MASK`: the mask object that replaces the definition's authored mask for every running and future instance of `effectId`. Absent (null) or blank removes the override and restores the authored mask; a graph `{ "from": ... }` slot is authored-only and is rejected client-side with one warning. Since **10** a `block_list`'s `positions` are lifted out as 12-byte `float` triples in a binary tail of this same packet, the JSON keeping a fail-closed `"@wire:N"` marker that the client restores before parsing. Limits: `MAX_WIRE_JSON` = 32767 characters (plus a UTF-8 byte check) and `MAX_WIRE_POSITION_BYTES` = 1 MiB - 192 KiB; `VFXAPI.sendMask` refuses an unfit mask (`false`, one warning) and the value is never replaced by `null`, because `null` means "remove the override". `MAX_MASK_JSON` is kept only as a deprecated alias of `MAX_WIRE_JSON`. |
 
+### Clientbound: `vfxweaver:vfx_sync` (`VFXSyncPayload`)
+
+Datapack definitions with large `positions` arrays (e.g. `block_tint`/`block_outline`) are synced as
+12-byte binary `float` triples in a `positionBlobs` field instead of inside the definition JSON string,
+so the server no longer truncates them at 4096 positions and the `STRING_UTF8` ceiling is avoided.
+`VFXSyncPayload.PROTOCOL_VERSION` is 3; a version-mismatched client skips the packet rather than
+crashing on decode, so client and server must match. **Not verified in game.**
+
 ### Serverbound: `vfxweaver:vfx_request` (`VFXRequestPayload`)
 
 Lets a client mod ask the server to play an effect through the definition registry. Fields: `protocolVersion` (must match `VFXTriggerPayload.PROTOCOL_VERSION`), `effectId`, `broadcast` (boolean), `instanceId` (long, 0 = allocate), `worldPos` (optional `Vec3`), `params` (max `VFXTriggerPayload.MAX_PARAMS` = 256), `easing` (built-in easing name string).

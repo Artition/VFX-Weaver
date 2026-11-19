@@ -102,6 +102,9 @@ Require-Pattern $specPath 'withContent\(' "VFXTextSpec has no withContent()"
 Require-Pattern $managerPath 'withContent\(' "VFXEffectManager no longer applies the override with withContent()"
 Require-Pattern $commandPath 'MAX_TEXT_OVERRIDE' "the command no longer caps the text override"
 
+# --- the active-effect cap (Task 8): raising it is an explicit owner decision ---------------------
+Require-Pattern $managerPath 'MAX_ACTIVE_EFFECTS = 2048' "the active-effect cap was not raised"
+
 if ($failures.Count -gt 0) {
 	$failures | ForEach-Object { "FAIL  $_" }
 	exit 1

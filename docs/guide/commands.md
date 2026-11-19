@@ -18,7 +18,9 @@ autocompletes.
 ```
 
 Repeated `/vfx play` of the same effect **does not replace** the playing instance - it adds another
-independent one (several dents on screen at once). Up to 64 effects play at once in total.
+independent one (several dents on screen at once). Up to 2048 effects play at once in total. This is
+a ceiling, not a target: every simultaneous effect adds render work (overdraw), so more live effects
+cost more to draw.
 
 ## `/vfx playat <effect> <x> <y> <z> [{[...]}] [players]`
 

@@ -101,7 +101,7 @@ The reflection targets a version-dependent API, so each playback symbol (`Flashb
 
 | Constant | Value | Where |
 |---|---|---|
-| `MAX_ACTIVE_EFFECTS` | 64 | `VFXEffectManager` — on overflow the oldest active is removed, with a warning in the log |
+| `MAX_ACTIVE_EFFECTS` | 2048 | `VFXEffectManager` — on overflow the oldest active is removed, with a warning in the log; a higher ceiling costs more overdraw |
 | `MAX_SCHEDULED_EFFECTS` | 128 | `VFXEffectManager` — extra collection children are dropped |
 | `MAX_COLLECTION_DEPTH` | 4 | `VFXEffectManager` — deeper nested collections are ignored |
 | `MAX_TRACKED_PLAYERS` | 256 | `VFXServerEffects` — distinct players with remembered effects; the least recently touched is evicted |
