@@ -6,6 +6,8 @@
 #   * MaskSpecCheck   - every VFXMaskSpec builder variant round-trips through VFXMaskParser (leaves,
 #                       sky/depth, dome space, custom in both spaces, compositions, invert), and the
 #                       builder's own validation rejects the combinations the parser would refuse.
+#   * MaskWireCheck   - the mask wire codec round-trips a 10199-block override with exact float
+#                       coordinates; null / bad-marker / corrupt-count / over-limit / version-skip hold.
 #
 # Usage: powershell -ExecutionPolicy Bypass -File scripts/check-mask-pipeline.ps1
 # Exits 1 (after listing the problem) on a mismatch; 0 when the contract holds.
@@ -747,14 +749,149 @@ public final class MaskSpecCheck {
 '@
 [System.IO.File]::WriteAllText($specSrc, $specJava, [System.Text.UTF8Encoding]::new($false))
 
+$wireCheckSrc = Join-Path $checkDir "MaskWireCheck.java"
+$wireCheckJava = @'
+import com.google.gson.JsonArray;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
+import dev.vfxweaver.api.VFXAPI;
+import dev.vfxweaver.mask.VFXMask;
+import dev.vfxweaver.mask.VFXMaskParser;
+import dev.vfxweaver.network.VFXTriggerPayload;
+import io.netty.buffer.Unpooled;
+import io.netty.handler.codec.DecoderException;
+import java.util.Arrays;
+import java.util.List;
+import net.minecraft.core.RegistryAccess;
+import net.minecraft.network.RegistryFriendlyByteBuf;
+import net.minecraft.network.VarInt;
+import net.minecraft.resources.Identifier;
+
+/**
+ * The mask wire contract: a 10199-block override survives STREAM_CODEC with exact float coordinates,
+ * null removes the override, a bad marker fails closed, a corrupt count throws, an over-limit JSON is
+ * refused before send, and an old-version payload is skipped with a sentinel.
+ */
+public final class MaskWireCheck {
+	private static final Identifier TEST_ID = Identifier.fromNamespaceAndPath("vfxweaver", "test");
+
+	public static void main(final String[] args) {
+		final String json = buildBigMask(10199);
+
+		// 1. 10199 positions (fractional and negative) round-trip with exact float coordinates.
+		final RegistryFriendlyByteBuf buf = new RegistryFriendlyByteBuf(Unpooled.buffer(), RegistryAccess.EMPTY);
+		VFXTriggerPayload.STREAM_CODEC.encode(buf, VFXTriggerPayload.setMask(TEST_ID, json));
+		final int encodedBytes = buf.readableBytes();
+		final VFXTriggerPayload decoded = VFXTriggerPayload.STREAM_CODEC.decode(buf);
+		final VFXMask original = VFXMaskParser.parse("test", JsonParser.parseString(json).getAsJsonObject());
+		final VFXMask restored = VFXMaskParser.parse("test", JsonParser.parseString(decoded.maskJson()).getAsJsonObject());
+		final List<float[]> before = original.primitives().stream().filter(p -> p.blockSelection() != null)
+				.findFirst().orElseThrow().blockSelection().positions();
+		final List<float[]> after = restored.primitives().stream().filter(p -> p.blockSelection() != null)
+				.findFirst().orElseThrow().blockSelection().positions();
+		require(before.size() == 10199, "position count = " + before.size() + ", want 10199");
+		require(equalPositions(before, after), "the 10199 float positions did not round-trip exactly");
+		require(encodedBytes < (1 << 20), "encoded payload is " + encodedBytes + " bytes (>= 1 MiB)");
+
+		// 2. null ("remove override") round-trips as null.
+		final RegistryFriendlyByteBuf nullBuf = new RegistryFriendlyByteBuf(Unpooled.buffer(), RegistryAccess.EMPTY);
+		VFXTriggerPayload.STREAM_CODEC.encode(nullBuf, VFXTriggerPayload.setMask(TEST_ID, null));
+		require(VFXTriggerPayload.STREAM_CODEC.decode(nullBuf).maskJson() == null, "null mask did not round-trip");
+
+		// 3. An out-of-range marker fails closed: decode does not throw, the marker stays, the parser rejects.
+		final String badMarker = "{\"shape\":\"block_list\",\"positions\":\"@wire:99\"}";
+		final RegistryFriendlyByteBuf badBuf = new RegistryFriendlyByteBuf(Unpooled.buffer(), RegistryAccess.EMPTY);
+		VFXTriggerPayload.STREAM_CODEC.encode(badBuf, VFXTriggerPayload.setMask(TEST_ID, badMarker));
+		final VFXTriggerPayload badDecoded = VFXTriggerPayload.STREAM_CODEC.decode(badBuf);
+		require(badDecoded.maskJson() != null && badDecoded.maskJson().contains("@wire:99"),
+				"the bad marker was not left in place for a fail-closed parse");
+		rejected("bad marker restored JSON", badDecoded.maskJson());
+
+		// 4. A corrupt VarInt blob count throws DecoderException.
+		final RegistryFriendlyByteBuf corrupt = new RegistryFriendlyByteBuf(Unpooled.buffer(), RegistryAccess.EMPTY);
+		VFXTriggerPayload.OPTIONAL_STRING.encode(corrupt, "{\"shape\":\"block_list\",\"positions\":\"@wire:0\"}");
+		VarInt.write(corrupt, -1); // corrupt: negative blob count
+		throwsDecoderException("corrupt VarInt count", () -> VFXTriggerPayload.OPTIONAL_MASK_JSON.decode(corrupt));
+
+		// 5. sendMask refuses an over-limit JSON that has no positions to lift.
+		final String overLimit = "{\"shape\":\"circle\",\"center\":[0.5,0.5],\"pad\":\"" + "x".repeat(40000) + "\"}";
+		require(!VFXAPI.sendMask(null, TEST_ID, overLimit), "sendMask accepted an over-limit JSON without positions");
+
+		// 6. An old-version payload is skipped: a sentinel with the old version, buffer fully consumed.
+		final RegistryFriendlyByteBuf current = new RegistryFriendlyByteBuf(Unpooled.buffer(), RegistryAccess.EMPTY);
+		VFXTriggerPayload.STREAM_CODEC.encode(current, VFXTriggerPayload.setMask(TEST_ID, json));
+		final byte[] bytes = new byte[current.readableBytes()];
+		current.readBytes(bytes);
+		final RegistryFriendlyByteBuf old = new RegistryFriendlyByteBuf(Unpooled.buffer(), RegistryAccess.EMPTY);
+		old.writeByte(8);
+		old.writeBytes(bytes);
+		final VFXTriggerPayload sentinel = VFXTriggerPayload.STREAM_CODEC.decode(old);
+		require(sentinel.protocolVersion() == 8, "version-mismatch sentinel version = " + sentinel.protocolVersion());
+		require(old.readableBytes() == 0, "version mismatch did not consume the buffer");
+
+		System.out.println("mask wire check OK: 10199 float positions round-trip; null / bad-marker / corrupt-count / over-limit / version-skip hold");
+	}
+
+	private static String buildBigMask(final int count) {
+		final JsonObject root = new JsonObject();
+		root.addProperty("shape", "block_list");
+		final JsonArray array = new JsonArray();
+		for (int i = 0; i < count; i++) {
+			final JsonArray point = new JsonArray();
+			point.add(i - 5000.5F);
+			point.add((i % 7) + 0.25F);
+			point.add(-100.5F - i);
+			array.add(point);
+		}
+		root.add("positions", array);
+		return root.toString();
+	}
+
+	private static boolean equalPositions(final List<float[]> a, final List<float[]> b) {
+		if (a.size() != b.size()) return false;
+		for (int i = 0; i < a.size(); i++) {
+			if (!Arrays.equals(a.get(i), b.get(i))) return false;
+		}
+		return true;
+	}
+
+	private static void rejected(final String what, final String json) {
+		try {
+			VFXMaskParser.parse("test", JsonParser.parseString(json).getAsJsonObject());
+			throw new AssertionError(what + " was accepted; it must throw");
+		} catch (final IllegalArgumentException expected) {
+			// expected
+		}
+	}
+
+	private static void throwsDecoderException(final String what, final Runnable decode) {
+		try {
+			decode.run();
+			throw new AssertionError(what + " did not throw DecoderException");
+		} catch (final DecoderException expected) {
+			// expected
+		}
+	}
+
+	private static void require(final boolean condition, final String message) {
+		if (!condition) {
+			throw new AssertionError(message);
+		}
+	}
+}
+'@
+[System.IO.File]::WriteAllText($wireCheckSrc, $wireCheckJava, [System.Text.UTF8Encoding]::new($false))
+
 Push-Location $repoRoot
 try {
-	& $javac "@$cpFile" -d $checkDir $checkSrc $specSrc
+	& $javac "@$cpFile" -d $checkDir $checkSrc $specSrc $wireCheckSrc
 	if ($LASTEXITCODE -ne 0) { throw "javac failed" }
 	& $java "@$cpFile" MaskParserCheck
 	if ($LASTEXITCODE -ne 0) { throw "MaskParserCheck failed" }
 	& $java "@$cpFile" MaskSpecCheck
 	if ($LASTEXITCODE -ne 0) { throw "MaskSpecCheck failed" }
+	& $java "@$cpFile" MaskWireCheck
+	if ($LASTEXITCODE -ne 0) { throw "MaskWireCheck failed" }
 } finally {
 	Pop-Location
 }
