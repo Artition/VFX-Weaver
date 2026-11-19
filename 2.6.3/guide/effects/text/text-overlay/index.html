@@ -1,0 +1,4638 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="A client-side VFX library/API for Minecraft on Fabric and NeoForge: screen post-processing, camera shake, world overlays, entity effects, datapack-defined effects, network triggers and a public Java API.">
+      
+      
+      
+        <link rel="canonical" href="https://artition.github.io/VFX-Weaver/2.6.3/guide/effects/text/text-overlay/">
+      
+      
+        <link rel="prev" href="../../world/block-chain/">
+      
+      
+        <link rel="next" href="../../entity/entity-tint/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>text_overlay - VFX Weaver</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../../../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../../../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("../../../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#text_overlay" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../../../.." title="VFX Weaver" class="md-header__button md-logo" aria-label="VFX Weaver" data-md-component="logo">
+      
+  <img src="../../../../assets/images/logo.png" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            VFX Weaver
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              text_overlay
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m14.3 16-.7-2h-3.2l-.7 2H7.8L11 7h2l3.2 9zM20 8.69V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12zm-9.15 3.96h2.3L12 9z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_2" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to system preference"  type="radio" name="__palette" id="__palette_2">
+    
+      <label class="md-header__button md-icon" title="Switch to system preference" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/Artition/VFX-Weaver" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    Artition/VFX-Weaver
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../../../.." title="VFX Weaver" class="md-nav__button md-logo" aria-label="VFX Weaver" data-md-component="logo">
+      
+  <img src="../../../../assets/images/logo.png" alt="logo">
+
+    </a>
+    VFX Weaver
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/Artition/VFX-Weaver" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    Artition/VFX-Weaver
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting started
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../showcase-datapack/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Showcase datapack
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../compositions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Composition: RIFT
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../first-datapack/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Your first datapack
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../editor/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Visual node editor
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Effects
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Effects
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_7_2" id="__nav_7_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Screen post-processing
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_7_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Screen post-processing
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../screen/chromatic-aberration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    chromatic_aberration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../screen/color-grade/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    color_grade
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../screen/distortion/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    distortion
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../screen/dent/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    dent
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../screen/gradient-map/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    gradient_map
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../screen/posterize/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    posterize
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../screen/blur/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    blur
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../screen/pixelate/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    pixelate
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../screen/hue-isolation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    hue_isolation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../screen/vignette/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    vignette
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../screen/screen-flash/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    screen_flash
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../screen/motion-blur/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    motion_blur
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../screen/bloom/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    bloom
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../screen/film-grain/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    film_grain
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../screen/scanlines/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    scanlines
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../screen/halftone/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    halftone
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../screen/ink/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ink
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../screen/comic/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    comic
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../screen/accent-glow/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    accent_glow
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../screen/depth-of-field/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    depth_of_field
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../screen/letterbox/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    letterbox
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../screen/invert/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    invert
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../screen/vortex/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    vortex
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../screen/speed-lines/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    speed_lines
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../screen/slice-shift/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    slice_shift
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../screen/noise-warp/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    noise_warp
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../screen/solarize/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    solarize
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../screen/double-vision/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    double_vision
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../screen/eyelids/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    eyelids
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../screen/iris-wipe/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    iris_wipe
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../screen/digital-glitch/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    digital_glitch
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../screen/vhs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    vhs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../screen/datamosh/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    datamosh
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../screen/torn-edge/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    torn_edge
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../screen/spectral/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    spectral
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../screen/hex-grid/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    hex_grid
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../screen/shockwave/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    shockwave
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../screen/afterimage/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    afterimage
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../screen/stop-motion/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    stop_motion
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../screen/surface-pattern/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    surface_pattern
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../screen/sky-pattern/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sky_pattern
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../screen/screen-image/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    screen_image
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_7_3" id="__nav_7_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    World overlays
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_7_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    World overlays
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../world/block-tint/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    block_tint
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../world/block-outline/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    block_outline
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../world/light-beam/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    light_beam
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../world/pulse-ring/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    pulse_ring
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../world/guide-line/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    guide_line
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../world/particles/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    particles
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../world/block-chain/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    block_chain
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7_4" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_7_4" id="__nav_7_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Text
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_7_4_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_7_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Text
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    text_overlay
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    text_overlay
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#the-text-block" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The text block
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#setting-the-text-at-play-time" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Setting the text at play time
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Setting the text at play time">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#dynamic-text-comes-from-macros-not-from-this-mod" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Dynamic text comes from macros, not from this mod
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#params" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Params
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Params">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#where-the-block-stands" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Where the block stands
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-the-block-faces-and-how-it-is-lit" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What the block faces, and how it is lit
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#showing-the-back-of-a-pinned-block" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Showing the back of a pinned block
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-two-exits" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The two exits
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-scramble-transitions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The scramble transitions
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#example" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Example
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Example">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#dragging-a-landed-hud-line-sideways" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Dragging a landed HUD line sideways
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#code" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Code
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#see-also" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        See also
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_7_5" id="__nav_7_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Entity effects
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_7_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Entity effects
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../entity/entity-tint/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    entity_tint
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../entity/entity-outline/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    entity_outline
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../entity/entity-displace/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    entity_displace
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_7_6" id="__nav_7_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Audio
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_7_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Audio
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../audio/hum/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    hum
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../audio/noise/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    noise
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../audio/heartbeat/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    heartbeat
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../audio/volume-duck/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    volume_duck
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7_7" >
+        
+          
+          <label class="md-nav__link" for="__nav_7_7" id="__nav_7_7_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Camera and misc
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_7_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Camera and misc
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../misc/camera-shake/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    camera_shake
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../misc/camera-roll/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    camera_roll
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../misc/fov-modifier/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    fov_modifier
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../misc/fog-modifier/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    fog_modifier
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7_8" >
+        
+          
+          <label class="md-nav__link" for="__nav_7_8" id="__nav_7_8_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Desktop windows
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_7_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Desktop windows
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../window/custom-windows/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    window_create / window_control
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7_9" >
+        
+          
+          <label class="md-nav__link" for="__nav_7_9" id="__nav_7_9_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Collections
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_7_9_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7_9">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Collections
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../collection/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    collection
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../commands/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Commands
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../recipes/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Triggering effects
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_10" >
+        
+          
+          <label class="md-nav__link" for="__nav_10" id="__nav_10_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Datapack
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_10_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_10">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Datapack
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../datapack/format/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Format
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../datapack/params/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Animating a param
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../datapack/expr/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Expressions (expr)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../datapack/graph/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Value graphs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../datapack/fields/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Per-pixel fields
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../datapack/masks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Masks
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_10_7" >
+        
+          
+          <label class="md-nav__link" for="__nav_10_7" id="__nav_10_7_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Custom particles
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_10_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_10_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Custom particles
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../datapack/particles/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Block and item particles
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../datapack/sparks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Spark presets
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../changelog/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Guide changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../../API/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Java API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../../ARCHITECTURE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../../CHANGELOG/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#the-text-block" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The text block
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#setting-the-text-at-play-time" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Setting the text at play time
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Setting the text at play time">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#dynamic-text-comes-from-macros-not-from-this-mod" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Dynamic text comes from macros, not from this mod
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#params" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Params
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Params">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#where-the-block-stands" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Where the block stands
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-the-block-faces-and-how-it-is-lit" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What the block faces, and how it is lit
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#showing-the-back-of-a-pinned-block" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Showing the back of a pinned block
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-two-exits" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The two exits
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-scramble-transitions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The scramble transitions
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#example" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Example
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Example">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#dragging-a-landed-hud-line-sideways" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Dragging a landed HUD line sideways
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#code" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Code
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#see-also" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        See also
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="text_overlay">text_overlay<a class="headerlink" href="#text_overlay" title="Permanent link">&para;</a></h1>
+<p><code>type: "text_overlay"</code></p>
+<p>Puts authored text on the game frame or into the world. In <code>world</code> mode every character is its own
+client-side <code>TextDisplay</code> standing where you put the block; in <code>flat</code> mode the same laid-out block is
+drawn onto the HUD with the game's own font. The line can be revealed character by character and then
+leave - by fading in place, or by coming apart and falling.</p>
+<p><strong>Runs on every supported version.</strong> One implementation, with the only per-version differences being
+internal: the entity type constant and the client-local entity id on 26.2, and the GUI class
+(<code>GuiGraphicsExtractor</code> from 26.1, <code>GuiGraphics</code> on 1.21.11) for the HUD layer. Params, modes and
+behaviour are the same everywhere.</p>
+<p><strong>Verified in game, and what is not.</strong> On <strong>26.2 Fabric</strong>, in game: the world block renders and takes
+its place in the world, <code>flat</code> draws on the HUD, <code>reveal</code> and the <code>scramble</code> transients play, a
+falling line bounces and comes to rest, the back of a pinned block is its mirror image, and <code>billboard</code>
+and <code>brightness</code> behave as described. <strong>Not yet looked at in game:</strong> the 26.1.2 and 1.21.11 nodes
+(the port compiles and is deployed, but no one has run it), the <code>word</code> and <code>block</code> split modes, and an
+animated <code>gravity_angle</code>. Treat those as the code's behaviour, not as a promise about the pixels.</p>
+<h2 id="the-text-block">The <code>text</code> block<a class="headerlink" href="#the-text-block" title="Permanent link">&para;</a></h2>
+<p>The string and the shape of the block are <strong>structural</strong>, so they live in a top-level <code>text</code> object
+(next to <code>type</code>, never inside <code>params</code>):</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Default</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>content</code></td>
+<td>string</td>
+<td>— (required)</td>
+<td>The line(s) to draw. <code>\n</code> is a hard break; blank content is rejected</td>
+</tr>
+<tr>
+<td><code>mode</code></td>
+<td>string</td>
+<td><code>flat</code></td>
+<td><code>flat</code> draws the block on the HUD, <code>world</code> puts the characters in the world. Selects the render path, so it cannot animate</td>
+</tr>
+<tr>
+<td><code>split</code></td>
+<td>string</td>
+<td><code>char</code></td>
+<td>What one <strong>unit</strong> is - one display entity in <code>world</code>, one animated step in both modes: <code>char</code> is one per character, <code>word</code> one per word (a space only advances the cursor, it is never a unit of its own), <code>block</code> one for the whole text, newlines included. Every animation - reveal, scramble, exit schedule, fall, spin and the flat drift - runs <strong>per unit</strong>, so a coarse split reveals, decodes, drops and spins whole words or the whole block instead of letters. Structural: it decides how many entities the block becomes, so it cannot animate</td>
+</tr>
+<tr>
+<td><code>font</code></td>
+<td>string</td>
+<td><code>default</code></td>
+<td>Only the game's own font exists. The name is lower-cased and must be <code>default</code> or <code>minecraft:default</code>; <strong>any other value is rejected at parse time</strong>, so the definition fails to load instead of drawing something else (a resource-pack font is not supported yet)</td>
+</tr>
+<tr>
+<td><code>align</code></td>
+<td>string</td>
+<td><code>center</code></td>
+<td>Horizontal placement of the <strong>whole block</strong>, shifted by the width of its <strong>widest line</strong>: <code>left</code> leaves it where it was laid out, <code>center</code> moves it left by half that width, <code>right</code> by the whole width. Lines are not aligned against each other</td>
+</tr>
+<tr>
+<td><code>anchor</code></td>
+<td>string</td>
+<td><code>center</code></td>
+<td>Which point of the block sits on the anchor position, read <strong>vertically only</strong>: <code>top</code>/<code>top_left</code>/<code>top_right</code> put the top of the block on it, <code>left</code>/<code>center</code>/<code>right</code> its middle, <code>bottom</code>/<code>bottom_left</code>/<code>bottom_right</code> its bottom</td>
+</tr>
+</tbody>
+</table>
+<p><strong><code>align</code> and <code>anchor</code> are not a nine-way placement grid.</strong> The renderer reads only the vertical part
+of <code>anchor</code> (the top names shift by <code>0</code>, the middle names by <code>-height / 2</code>, the bottom names by
+<code>-height</code>), so its three horizontal variants are the same placement: <strong><code>top_left</code> draws exactly like
+<code>top_right</code>, and <code>left</code>, <code>center</code> and <code>right</code> all draw the same</strong>. The sideways half of the name is
+simply not read - where the block sits horizontally comes from <code>align</code> alone, and <code>align</code> shifts the
+whole block by the width of the widest line rather than aligning each line by its own width.</p>
+<p><strong><code>split</code> changes what a step of the animation is, and what an entity is.</strong> With the default <code>char</code>
+the block decodes, wipes and falls letter by letter; <code>word</code> makes every word one piece, so its
+letters appear, scramble and leave together; <code>block</code> makes the whole text one piece, so the reveal is
+all-or-nothing and the block falls or fades as a single body. In <code>char</code> and <code>word</code> the layout does
+not change - the characters are still measured and placed by the mod, so a line reads the same in
+both settings - only the granularity of the animation does. In <code>world</code> mode a <code>block</code> unit is one
+display entity holding the content with its newlines, handed <code>wrap_width</code> as the display's own line
+width (vanilla's default of 200 font pixels when wrapping is off), so <strong>vanilla breaks the lines
+itself</strong>, including an over-long word, which it splits mid-word. The unit is measured with the same
+<code>Font.split</code> call at that same width, so its line count matches what the display draws, and <code>flat</code>
+draws those same lines - a <code>block</code> therefore wraps identically in both modes, and its height (the
+<code>anchor</code>) matches the drawn block. A unit is also pinned to its own left edge
+in the display's style flags (<code>FLAG_ALIGN_LEFT</code>), so vanilla draws it from the point the mod placed it
+at instead of centring it on that point and drifting it left by half its width: every <code>word</code> and
+<code>block</code> unit, a one-letter word included (its narrow glyph would otherwise sit half a cell left of its
+slot), and a multi-glyph unit in <code>char</code> mode. A single character in <code>char</code> mode fills its own cell and
+needs no bit.</p>
+<p><strong><code>split</code> trades animation detail for entities.</strong> <code>world</code> mode spawns <strong>one entity per unit</strong>, so
+<code>word</code> and <code>block</code> cut the entity count of a long line instead of adding a feature: a 30-word line is
+30 entities in <code>word</code> mode and one in <code>block</code>. The glyph cap does not move with it - <code>MAX_CHARS</code> (256)
+still bounds the characters that are drawn at all, so in <code>char</code> and <code>word</code> a longer text keeps its
+leading characters and drops the tail. A unit is spawned whole or not at all, so a <code>block</code> longer
+than that is dropped entirely, and the warning names whichever of the two happened. <code>flat</code> mode
+spawns nothing; there the split only decides how the block animates.</p>
+<p><strong>The block is structural, and at play time only <code>content</code> can be replaced.</strong> <code>mode</code>, <code>font</code>, <code>split</code>,
+<code>align</code> and <code>anchor</code> are layout decisions that always come from the file; the words can be chosen per
+call, through the optional <code>text "&lt;string&gt;"</code> argument described below. Every <em>param</em> is still a
+number, so <code>setParam</code> and the param map never carry a string, and there is still no way to change a
+line while it is running.</p>
+<p><strong>In the visual editor the block has its own panel.</strong> A <code>text_overlay</code> node's inspector shows a
+<strong>Text</strong> section - a <code>content</code> textarea plus <code>mode</code>, <code>font</code>, <code>align</code>, <code>anchor</code> and <code>split</code> selects
+populated from the schema, so the five structural spellings cannot drift from the parser. A fresh
+node is created with <code>Text</code> and the defaults above already in its block, so it compiles before the
+panel is ever opened; an imported block is shown as it was written and reaches the editor's model
+only on the first edit, so a definition nobody touches exports byte for byte. The
+mode-only param sockets carry a badge on the canvas: <strong><code>2D</code></strong> on <code>x</code>/<code>y</code>/<code>angle</code>, <strong><code>3D</code></strong> on
+<code>pos_x</code>/<code>pos_y</code>/<code>pos_z</code>, <code>rot_x</code>/<code>rot_y</code>/<code>rot_z</code>, <code>billboard</code>, <code>brightness</code>, <code>two_sided</code> and
+<code>through_blocks</code>, dimmed when the badge's mode is not the block's current <code>mode</code>. Nothing is hidden -
+a dimmed badge only says the value is read in the other mode.</p>
+<h2 id="setting-the-text-at-play-time">Setting the text at play time<a class="headerlink" href="#setting-the-text-at-play-time" title="Permanent link">&para;</a></h2>
+<p><code>/vfx play</code>, <code>/vfx playat</code> and <code>/vfx playentity</code> take an optional <code>text "&lt;string&gt;"</code> argument that
+replaces the definition's <code>content</code> for that one call:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>/vfx play       &lt;effect&gt; text "&lt;string&gt;" [&lt;params&gt;] [&lt;targets&gt;]
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>/vfx playat     &lt;effect&gt; &lt;pos&gt; text "&lt;string&gt;" [&lt;params&gt;] [&lt;targets&gt;]
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>/vfx playentity &lt;effect&gt; text "&lt;string&gt;" [&lt;targets&gt;] [&lt;players&gt;]
+</code></pre></div>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>/vfx play vfx_demos:notice text "The gate is closed" @a
+</code></pre></div>
+<p>What it does and does not do:</p>
+<ul>
+<li><strong>Only <code>content</code> changes.</strong> <code>mode</code>, <code>font</code>, <code>split</code>, <code>align</code> and <code>anchor</code> still come from the
+  definition, so one definition keeps its layout and gets a different sentence per call.</li>
+<li><strong>It is per target, not broadcast.</strong> The trigger payload is already sent per player, so two calls
+  can show two players different strings - or the same call can carry one string to all of them.</li>
+<li><strong>An empty string means "not given".</strong> A blank override is dropped rather than applied, so
+  <code>text ""</code> cannot blank a definition by accident.</li>
+<li><strong>Two caps, in series.</strong> The wire carries at most 512 characters (<code>MAX_TEXT_OVERRIDE</code>); longer input
+  is cut there with one warning. The renderer's own 256-glyph cap still applies afterwards, so a
+  512-character override still draws at most 256 characters.</li>
+<li><strong>A definition with no <code>text</code> block ignores the override</strong>, with one warning per effect id: there is
+  no <code>mode</code> to draw in, and inventing a default would hide an authoring mistake. The same is true,
+  silently, of a non-text effect that receives one.</li>
+<li><strong>It is read once, when the instance is created.</strong> A running line cannot tick from "3" to "2"; live
+  text would need a new packet action and a pool key that tolerates a changing string.</li>
+<li><strong>One line only.</strong> The command language has no escape for a newline, so an override is a single
+  line; multi-line text stays in the definition's <code>content</code>.</li>
+<li><strong>Nothing else moves.</strong> <code>reveal</code>, <code>exit</code>, <code>exit_at</code>, <code>scale</code>, <code>pos_*</code> and the rest are params and
+  keep animating exactly as before.</li>
+</ul>
+<h3 id="dynamic-text-comes-from-macros-not-from-this-mod">Dynamic text comes from macros, not from this mod<a class="headerlink" href="#dynamic-text-comes-from-macros-not-from-this-mod" title="Permanent link">&para;</a></h3>
+<p>Once the string is an argument, the <em>server</em> chooses it - and vanilla already knows how to compose
+command arguments, so a scoreboard value or a player name needs nothing from this effect:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a># ns:notice.mcfunction
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>$vfx play my_ns:notice text "$(msg)" @a
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a># anywhere else, per player
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>execute store result storage ns:args kills int 1 run scoreboard players get @s kills
+<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a>data modify storage ns:args msg set value "$(player) closed the gate"
+<a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a>function ns:notice with storage ns:args
+</code></pre></div>
+<p>That is why the effect has no <code>%score:kills%</code> template language of its own: it would be a second,
+worse version of datapack macros. Two things stay out of reach, and are worth saying plainly: a
+string that changes <strong>while</strong> the effect runs, and <strong>client-only</strong> data - what the player is looking
+at, their FOV, their own GUI scale - which the server cannot see and therefore cannot put into an
+argument.</p>
+<h2 id="params">Params<a class="headerlink" href="#params" title="Permanent link">&para;</a></h2>
+<p>Everything else is an <strong>ordinary param</strong>, so it takes the whole <a href="../../../datapack/params/">param spec</a>
+surface - constant, <code>start</code>/<code>end</code>, <code>keyframes</code>, <code>bind</code>, <code>expr</code>, the <code>/vfx play</code> param-map and live
+<code>setParam</code>:</p>
+<table>
+<thead>
+<tr>
+<th>Param</th>
+<th>Default</th>
+<th>Animatable</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>x</code></td>
+<td>0.5</td>
+<td>yes (<code>flat</code> only)</td>
+<td>Anchor X as a fraction of the GUI width</td>
+</tr>
+<tr>
+<td><code>y</code></td>
+<td>0.5</td>
+<td>yes (<code>flat</code> only)</td>
+<td>Anchor Y as a fraction of the GUI height</td>
+</tr>
+<tr>
+<td><code>pos_x</code></td>
+<td>0</td>
+<td>yes (<code>world</code> only)</td>
+<td>Block origin, world X - the absolute fallback, ignored when the effect has a slot (see <a href="#where-the-block-stands">Where the block stands</a>)</td>
+</tr>
+<tr>
+<td><code>pos_y</code></td>
+<td>0</td>
+<td>yes (<code>world</code> only)</td>
+<td>Block origin, world Y, measured the same way</td>
+</tr>
+<tr>
+<td><code>pos_z</code></td>
+<td>0</td>
+<td>yes (<code>world</code> only)</td>
+<td>Block origin, world Z, measured the same way</td>
+</tr>
+<tr>
+<td><code>scale</code></td>
+<td>1</td>
+<td>yes</td>
+<td>Size of the whole block, and it multiplies <strong>both</strong> the glyph and the spacing between characters, so the ratio of a line is kept at every value. In <code>world</code> mode the block is laid out in font pixels and one font pixel is about a <strong>twentieth of a block</strong> (vanilla's text-display renderer scales a glyph by <code>0.025</code> before drawing it), so <code>scale: 1</code> gives letters a few tenths of a block tall and a dozen-character line roughly a block wide. <code>flat</code> multiplies the laid-out offsets by it and then, per character, pushes a pose, translates it to the glyph's centre, rotates it, calls <code>pose.scale(scale, scale)</code> and draws the glyph at 1.0 inside it - so the 2D block is a scaled pose like any other, not a larger font size. The layout is measured at unit scale, so animating <code>scale</code> never respawns anything</td>
+</tr>
+<tr>
+<td><code>line_height</code></td>
+<td>1.2</td>
+<td>sampled, see below</td>
+<td>Line spacing as a multiple of <code>scale</code></td>
+</tr>
+<tr>
+<td><code>wrap_width</code></td>
+<td>0</td>
+<td>sampled, see below</td>
+<td>Soft wrap: a line breaks at a space once the next word would pass this width (in the block's own units). <code>0</code> = only <code>\n</code> breaks</td>
+</tr>
+<tr>
+<td><code>alpha</code></td>
+<td>1</td>
+<td><strong>not read yet</strong></td>
+<td>Would be an overall opacity multiplier; the renderer does not read it - use <code>reveal</code> and the effect's own fade</td>
+</tr>
+<tr>
+<td><code>color_r</code></td>
+<td>1</td>
+<td>yes</td>
+<td>Base colour, red (each channel is clamped <code>0..1</code>)</td>
+</tr>
+<tr>
+<td><code>color_g</code></td>
+<td>1</td>
+<td>yes</td>
+<td>Base colour, green</td>
+</tr>
+<tr>
+<td><code>color_b</code></td>
+<td>1</td>
+<td>yes</td>
+<td>Base colour, blue</td>
+</tr>
+<tr>
+<td><code>gradient</code></td>
+<td>0</td>
+<td><strong>not read yet</strong></td>
+<td>Would ramp the line from <code>color_*</code> to <code>gradient_*</code></td>
+</tr>
+<tr>
+<td><code>gradient_r</code></td>
+<td>1</td>
+<td><strong>not read yet</strong></td>
+<td>Second colour of that ramp, red</td>
+</tr>
+<tr>
+<td><code>gradient_g</code></td>
+<td>0.6</td>
+<td><strong>not read yet</strong></td>
+<td>Second colour of that ramp, green</td>
+</tr>
+<tr>
+<td><code>gradient_b</code></td>
+<td>0.3</td>
+<td><strong>not read yet</strong></td>
+<td>Second colour of that ramp, blue</td>
+</tr>
+<tr>
+<td><code>shadow</code></td>
+<td>1</td>
+<td>yes</td>
+<td><code>&gt;= 0.5</code> draws the drop shadow under the glyphs, <code>&lt; 0.5</code> draws them flat</td>
+</tr>
+<tr>
+<td><code>brightness</code></td>
+<td>15</td>
+<td>yes (<code>world</code> only)</td>
+<td>Light the glyphs are drawn in, the block-display convention: <code>-1</code> = the <strong>world light</strong> at the text's own position, so the line darkens in a shadow like a block; <code>0..15</code> = an override of <strong>both</strong> block and sky light at that level (packed as a <code>Brightness</code> of <code>(level, level)</code>), so <code>15</code> is full-bright and <code>0</code> is nearly black. Floored at <code>-1</code> and clamped to <code>15</code> because that is the light-level range itself, not a cap on an authored value. Re-applied per frame, but written to the entities only when the level changed, so it animates</td>
+</tr>
+<tr>
+<td><code>outline</code></td>
+<td>0</td>
+<td><strong>not read yet</strong></td>
+<td>Would be the outline width</td>
+</tr>
+<tr>
+<td><code>outline_r</code></td>
+<td>0</td>
+<td><strong>not read yet</strong></td>
+<td>Outline colour, red</td>
+</tr>
+<tr>
+<td><code>outline_g</code></td>
+<td>0</td>
+<td><strong>not read yet</strong></td>
+<td>Outline colour, green</td>
+</tr>
+<tr>
+<td><code>outline_b</code></td>
+<td>0</td>
+<td><strong>not read yet</strong></td>
+<td>Outline colour, blue</td>
+</tr>
+<tr>
+<td><code>reveal</code></td>
+<td>1</td>
+<td>yes</td>
+<td>Fraction of the <strong>units</strong> that are shown, <code>0..1</code>: unit <code>i</code> is opaque while <code>i &lt; reveal * count</code>, and the one unit at the boundary is caught mid-fade, so a keyframe from <code>0</code> to <code>1</code> is a typewriter in <code>char</code> mode and a word-by-word (or all-at-once) wipe otherwise</td>
+</tr>
+<tr>
+<td><code>scramble</code></td>
+<td>0</td>
+<td>yes</td>
+<td>Intensity of the decode, clamped <code>0..1</code>: at <code>0</code> every frame is the frame it would be without it, and any value above <code>0</code> makes the characters inside the two scramble windows (see <a href="#the-scramble-transitions">The scramble transitions</a>) draw a noise glyph instead of their own, at that opacity</td>
+</tr>
+<tr>
+<td><code>scramble_rate</code></td>
+<td>15</td>
+<td>yes</td>
+<td>Noise swaps per second. The swap number is <code>floor(age * scramble_rate)</code>, so the glyph changes at most that often; floored at <code>0</code>, <strong>no upper limit</strong> (a huge rate swaps on every frame)</td>
+</tr>
+<tr>
+<td><code>scramble_band</code></td>
+<td>4</td>
+<td>yes</td>
+<td>How many <strong>units</strong> <strong>ahead of</strong> the <code>reveal</code> frontier show noise, with the noise fading out towards the far end of the band. <code>0</code> turns the reveal half off, <strong>no upper limit</strong> (a huge band scrambles the whole tail of the line)</td>
+</tr>
+<tr>
+<td><code>scramble_time</code></td>
+<td>0.35</td>
+<td>yes</td>
+<td>Seconds <strong>before</strong> a unit detaches during which it shows noise instead of its own glyph, so the exit reads as a decode. Floored at <code>0</code>, <strong>no upper limit</strong> (a long window just scrambles longer)</td>
+</tr>
+<tr>
+<td><code>per_char_anim</code></td>
+<td>0</td>
+<td><strong>not read yet</strong></td>
+<td>Would pick an animation for characters as they appear (<code>0</code> none, <code>1</code> rise, <code>2</code> wave, <code>3</code> tilt)</td>
+</tr>
+<tr>
+<td><code>stagger</code></td>
+<td>0</td>
+<td><strong>not read yet</strong></td>
+<td>Would be the delay between characters for <code>per_char_anim</code></td>
+</tr>
+<tr>
+<td><code>exit</code></td>
+<td>0</td>
+<td>yes</td>
+<td>Float code, clamped <code>0..1</code>: <code>&lt; 0.5</code> fades in place, <code>&gt;= 0.5</code> falls</td>
+</tr>
+<tr>
+<td><code>exit_at</code></td>
+<td>-1</td>
+<td>yes</td>
+<td>Seconds from the start of the effect when the <strong>first</strong> unit starts leaving. Negative = the text never leaves on its own and stays until the effect is stopped</td>
+</tr>
+<tr>
+<td><code>exit_stagger</code></td>
+<td>0</td>
+<td>yes</td>
+<td>Seconds between one unit leaving and the next one</td>
+</tr>
+<tr>
+<td><code>exit_speed</code></td>
+<td>0</td>
+<td>yes</td>
+<td>Initial <strong>upward</strong> speed of a leaving character, multiplied by a per-character jitter in <code>0.85..1.15</code>: blocks/s in <code>world</code>, screen heights/s in <code>flat</code>, so the same value moves the block the same fraction of the frame at any GUI scale. Gravity brings the letter back; a negative value throws it down instead</td>
+</tr>
+<tr>
+<td><code>spread</code></td>
+<td>0.6</td>
+<td>yes (<code>world</code> only)</td>
+<td>Horizontal scatter of a falling unit, in blocks/s, picked from a hash of the instance id and its index so the letters of one line fan out instead of dropping straight down. The cheap fall is a 2D model, so it reads the <strong>X</strong> draw and drops the Z one (<code>flat</code> still folds both, since its drift is folded into the frame). It seeds the body's velocity when the unit detaches; the air friction <code>friction</code> bleeds it off from there. <strong>No upper limit</strong> - a large value simply scatters them further</td>
+</tr>
+<tr>
+<td><code>gravity</code></td>
+<td>18</td>
+<td>yes</td>
+<td>Acceleration added to every falling body on every tick: blocks/s² in <code>world</code>, screen heights/s² in <code>flat</code>. Read in the block-particle unit (a multiple of its per-tick gravity step, i.e. <code>400 * GRAVITY_STEP</code> per second squared), so the two engines agree on what <code>18</code> means. It is the <strong>length</strong> of the acceleration: <code>gravity_angle</code> picks the direction, and both modes run the same integrator. On the HUD the same authored number is scaled by <strong><code>1/8</code></strong> (one screen stands in for roughly eight of the world drops it was tuned for) before the seconds-to-ticks conversion, so the default <code>18</code> reaches <code>2.25</code> screen heights per second squared and crosses a frame in about <strong><code>0.8 s</code></strong> - <code>9</code> takes about twice as long - while a smaller value is the knob for a slower, longer fall. Floored at <code>1e-3</code> so it cannot divide by zero. <strong>No upper limit</strong> - a huge value just makes the drop instant</td>
+</tr>
+<tr>
+<td><code>gravity_angle</code></td>
+<td>0</td>
+<td>yes</td>
+<td>Direction of <code>gravity</code>, degrees, <strong>clockwise on the screen</strong>: <code>0</code> = down, <code>90</code> = right, <code>180</code> = up, <code>270</code> = left, and any value in between or beyond it (it is not wrapped or clamped). The acceleration is the vector <code>gravity * (sin(angle), cos(angle))</code>, so a <code>90</code> in <code>world</code> pulls along +X and the letters slide along the floor they land on, and a <code>90</code> in <code>flat</code> pulls towards the right edge of the frame. It is <strong>animatable and read every tick</strong>, so animating it <strong>bends</strong> the trajectory of a letter already in the air instead of only changing where the next one falls. <strong>No bounds at all</strong> - it is an angle</td>
+</tr>
+<tr>
+<td><code>spin_x</code></td>
+<td>0</td>
+<td>yes</td>
+<td>Angular velocity of a leaving character, degrees/s: the vector <code>(spin_x, spin_y, spin_z)</code> is an axis whose <strong>length is the speed</strong>, multiplied by the same per-character jitter so letters do not rotate together. The body has one angle, so the axis only supplies the speed - the glyph always turns about <strong>its own plane normal</strong>, which keeps it readable instead of edge-on. The horizontal drift adds its own roll on top (see <a href="#the-two-exits">The two exits</a>)</td>
+</tr>
+<tr>
+<td><code>spin_y</code></td>
+<td>0</td>
+<td>yes</td>
+<td>Same, Y component - it contributes to the <strong>speed</strong> only, in both modes</td>
+</tr>
+<tr>
+<td><code>spin_z</code></td>
+<td>0</td>
+<td>yes</td>
+<td>Same, Z component. Also the seed a <code>flat</code> character is turned by, which turns about Z only - its rate is this seed plus the roll of the sideways drift over the glyph's half-height, the same rule the <code>world</code> body uses (see <a href="#the-two-exits">The two exits</a>)</td>
+</tr>
+<tr>
+<td><code>tumble</code></td>
+<td>0</td>
+<td>yes</td>
+<td><code>&gt;= 0.5</code> takes the <strong>direction</strong> of the roll from the per-character jitter, so the letters turn opposite ways instead of as one sheet, while <code>|spin|</code> stays the speed - in <code>world</code> and in <code>flat</code> alike. The axis is no longer per-character: the cheap body has a single angle about the glyph's own plane normal, so there is one axis for all of them. Clamped <code>0..1</code></td>
+</tr>
+<tr>
+<td><code>collision</code></td>
+<td>1</td>
+<td>yes</td>
+<td><code>&gt;= 0.5</code> lets a falling character stop on a surface, <code>&lt; 0.5</code> lets it fall straight through. In <code>world</code> this is the <strong>one raycast</strong> taken when the unit detaches: with it on, the ground is found once and the unit lands on it; with it off, there is no floor and the unit keeps falling. In <code>flat</code> it is the <strong>frame as a box</strong>: on, the bottom edge is the floor, the top edge the ceiling and the sides are walls the letter rebounds off; off, there is no edge at all and it leaves the picture. Clamped <code>0..1</code></td>
+</tr>
+<tr>
+<td><code>bounce</code></td>
+<td>0.15</td>
+<td>yes</td>
+<td>Restitution of the <strong>one</strong> rebound the landing gets, <code>0..1</code>: the velocity into the surface is reflected and scaled by it on the first touch only, so <code>0</code> lands dead, <code>0.15</code> gives a small hop, and <code>1</code> reflects it in full - which with <code>friction</code> at <code>1</code> is a body that never settles and is only ended by the release guarantees. The same restitution is applied to a rebound off a <code>flat</code> frame edge, so a letter thrown at the side of the HUD comes back instead of leaving the picture</td>
+</tr>
+<tr>
+<td><code>friction</code></td>
+<td>0.94</td>
+<td>yes</td>
+<td>Per-tick air drag <strong>and</strong> the share of the horizontal drift kept on a contact, <code>0..1</code>, <code>1</code> = no drag - the block-particle default is the same <code>0.94</code>. It is what makes a landing glyph stop skidding so the body can be declared resting, and set too close to <code>1</code> a drifting unit slides for ever, never settles and so never starts its fade. Clamped <code>0..1</code> because it is a fraction, not a size. Both modes read it: the <code>flat</code> body is the same integrator</td>
+</tr>
+<tr>
+<td><code>hold</code></td>
+<td>0</td>
+<td>yes</td>
+<td>Seconds a unit stays <strong>fully opaque after it comes to rest</strong>, before its fade starts: the tick the body reports <strong>resting</strong> plus <code>hold</code> is when the opacity begins to fall. A duration, so <strong>no upper limit</strong>; floored at <code>0</code>, because a negative value would run the fade backwards. In <code>flat</code> the rest is the bottom edge, reached when the bounces have died down. It is the fall exit's wait - a fade exit has no rest to hold on</td>
+</tr>
+<tr>
+<td><code>fade_out</code></td>
+<td>0.5</td>
+<td>yes</td>
+<td>Seconds the fade takes once it has started. <strong><code>0</code> means never fade</strong>: the character stays fully opaque until the effect stops instead of vanishing at the instant it settles (or detaches). Above <code>0</code> the division is floored at <code>1e-4</code>, so a tiny non-zero value is a very fast fade and only <code>0</code> is read as "keep it"</td>
+</tr>
+<tr>
+<td><code>rot_x</code></td>
+<td>0</td>
+<td>yes</td>
+<td>Baseline orientation of the whole block, degrees. This is the <code>billboard: 0</code> (auto) rule: with <code>rot_x</code>, <code>rot_y</code> and <code>rot_z</code> all at zero the block is a <strong>billboard facing the camera</strong>, so it is readable from any side; setting any of the three pins it in world orientation</td>
+</tr>
+<tr>
+<td><code>rot_y</code></td>
+<td>0</td>
+<td>yes</td>
+<td>Baseline orientation of the whole block, degrees, Y. It takes part in the billboard rule above: any non-zero value pins the block in the world</td>
+</tr>
+<tr>
+<td><code>rot_z</code></td>
+<td>0</td>
+<td>yes (<code>world</code> only)</td>
+<td>Baseline orientation of the whole block, degrees, Z. <code>flat</code> turns about Z with <code>angle</code> and <code>spin_z</code> instead, so this is not read there. It is part of the <code>billboard: 0</code> auto rule in <code>world</code>: only while all three are zero does the block face the camera</td>
+</tr>
+<tr>
+<td><code>angle</code></td>
+<td>0</td>
+<td>yes (<code>flat</code> only)</td>
+<td>Turns the whole block about its anchor, degrees</td>
+</tr>
+<tr>
+<td><code>billboard</code></td>
+<td>0</td>
+<td>sampled, see below (<code>world</code> only)</td>
+<td>Float code for how the block follows the camera, mapped straight onto the display's billboard constraint: <code>0</code> = <strong>auto</strong>, <code>1</code> = <strong>fixed</strong>, <code>2</code> = <strong>center</strong>, <code>3</code> = <strong>vertical</strong>, <code>4</code> = <strong>horizontal</strong>. <code>0</code> is the rule this effect always used - see <a href="#what-the-block-faces-and-how-it-is-lit">What the block faces, and how it is lit</a>. Read once per display at spawn, so changing it needs a respawn</td>
+</tr>
+<tr>
+<td><code>two_sided</code></td>
+<td>1</td>
+<td>sampled, see below (<code>world</code> only)</td>
+<td><code>&gt;= 0.5</code> (the default) spawns a <strong>second display per unit that is the mirror image of the first</strong>: its origin is the original position plus the block rotation applied to <code>(unitWidth, 0, 0)</code> - one advance for a character, the measured width for a word, the widest line for a block - it carries <strong>the same block rotation as the original</strong>, and its transformation scale has a <strong>negative X</strong> (<code>-scale, scale, scale</code>), so its text runs from the far edge back to the original origin. That scale mirrors the glyph and flips the triangle winding, so the copy covers exactly the same rectangle and is drawn only from behind: the <strong>back of the sign</strong>, the letter reversed, never a readable second copy - and not through blocks, because the plane is drawn once per side. <code>&lt; 0.5</code> spawns no twin at all, a strictly one-sided decal. Used only when the resolved <code>billboard</code> is not <code>center</code>, because a <code>center</code> billboard already faces you from every side - see <a href="#showing-the-back-of-a-pinned-block">Showing the back of a pinned block</a>. Read at spawn; each twin counts against the 256-display cap and is released with its unit</td>
+</tr>
+<tr>
+<td><code>through_blocks</code></td>
+<td>0</td>
+<td>yes (<code>world</code> only)</td>
+<td><code>&gt;= 0.5</code> ORs vanilla's <code>FLAG_SEE_THROUGH</code> into every unit's flags, so the <strong>same quads</strong> are drawn from both sides - the physical back of a letter, a mirror image rather than a readable second copy. It is <strong>off by default</strong> and stays as the option for text that should be seen through walls: see-through is exactly vanilla's x-ray mode, so the text is then <strong>drawn through terrain</strong> - a line behind a hill is visible through it. <code>&lt; 0.5</code> (the default) draws each quad on its one side, and the back of a pinned block comes from its <code>two_sided</code> twin instead</td>
+</tr>
+</tbody>
+</table>
+<p>Notes on the numbers:</p>
+<ul>
+<li><strong><code>wrap_width</code> and <code>line_height</code> are sampled when the block is laid out</strong> - at spawn in <code>world</code>
+  mode, on the first measurement in <code>flat</code> mode, where the measured layout is then cached per effect
+  instance. <code>billboard</code> and <code>two_sided</code> are sampled the same way, at spawn, because a display's
+  billboard constraint and the number of entities belong to the block rather than to a frame.
+  Animating any of them mid-flight changes nothing until the block is rebuilt; every other param -
+  <code>through_blocks</code> and <code>shadow</code> included - is read again every frame.</li>
+<li><strong>No upper limits on the motion.</strong> <code>gravity</code>, <code>gravity_angle</code>, <code>exit_speed</code>, <code>spread</code>, <code>spin_*</code>,
+  <code>scale</code>, <code>pos_*</code> and the delays accept any value: a huge <code>gravity</code> or <code>exit_speed</code> just makes the
+  drop instant, a huge <code>spin_*</code> makes the letter a blur, a huge <code>hold</code> just keeps the letters
+  standing, and any <code>gravity_angle</code> is only a direction - it is not wrapped, so <code>450</code> means <code>90</code>.
+  Only the lower
+  guards that avoid degenerate maths are applied (<code>gravity &gt;= 1e-3</code>, <code>hold &gt;= 0</code>, and the <code>1e-4</code> floor
+  on the division when <code>fade_out</code> is above <code>0</code>), plus the <code>0..1</code> fractions listed in the table. The three
+  scramble shapes follow the same rule: <code>scramble_rate</code>, <code>scramble_band</code> and <code>scramble_time</code> have only
+  floors (<code>&gt;= 0</code>) and no ceiling, and <code>scramble</code> itself is the one bounded value, an intensity read
+  as <code>0..1</code>.</li>
+<li><strong>The block is laid out by the mod, not by Minecraft.</strong> <code>\n</code> always breaks; with <code>wrap_width</code> set,
+  the block also breaks at spaces. Each character gets its own rest position, which is what makes the
+  per-unit reveal and the per-unit fall possible. The one exception is a <code>block</code> unit in <code>world</code> mode:
+  the whole text is one display entity and vanilla lays it out at that width.</li>
+<li><strong><code>world</code> mode is one entity per unit.</strong> <code>split</code> decides the count: <code>char</code> is one per character,
+  <code>word</code> one per word, <code>block</code> one for the whole text. A block longer than 256 characters keeps its
+  leading characters and drops the tail, with one warning per definition - the cap is on glyphs, not
+  on entities, so it holds in every split. A two-sided block (the default in a pinned mode) spends
+  <strong>two</strong> display entities per unit, and those twins count against the 256-entity cap too. <code>flat</code>
+  mode draws no entities at all.</li>
+<li><strong>Opacity is three things multiplied</strong>: <code>reveal</code> (per unit), the exit fade (per unit) and
+  the effect's own weight - so <code>duration</code>/<code>fade_ticks</code> fade the whole block in and out on top of
+  everything else, and stopping the effect never pops the text.</li>
+<li><strong>Only <code>world</code> has a finished state.</strong> Once every unit has faded out, its entities are
+  released; when the effect loops or is replayed the block is rebuilt from the definition. A block
+  with <code>fade_out: 0</code> never gets there and leaks nothing: its characters are released when the effect
+  stops being active or the level changes, and a looping effect reuses them. <code>flat</code> has
+  no finished state at all: it draws from a layout cached per instance and keeps drawing - with
+  nothing visible - until the effect stops being active, which is when <code>VFXClientRenderHooks</code> prunes
+  that cache entry.</li>
+<li><strong>This is not a screen effect.</strong> There is no <code>screen_layer</code> and no <code>order</code> - nothing is composited
+  over the frame; <code>flat</code> text is drawn on the HUD after the post passes. <code>region</code> is not read.</li>
+<li><strong>A <code>text</code> block that is missing renders nothing, and says so once.</strong> The definition is rejected at
+  parse time when <code>text</code> or <code>text.content</code> is absent or blank, and an effect that reaches the renderer
+  without a block warns once through the log.</li>
+</ul>
+<h3 id="where-the-block-stands">Where the block stands<a class="headerlink" href="#where-the-block-stands" title="Permanent link">&para;</a></h3>
+<p><code>world</code> mode hangs the block from the effect's <strong>first world slot</strong>: a runtime move position wins,
+otherwise the first <code>positions</code> entry, otherwise the first entity anchor resolved to where that entity
+is right now. When a slot is present, that slot <strong>is</strong> the origin and <code>pos_x</code>/<code>pos_y</code>/<code>pos_z</code> are
+<strong>ignored</strong> - a played-at position wins over the authored coordinates instead of adding to them, which
+is the rule every other world effect follows - and only the <strong>first</strong> slot is used (one pool of
+characters per slot is not implemented; extra slots are ignored). A definition with <strong>no</strong> slot (no
+move, no <code>positions</code>, no anchor) keeps the old <strong>absolute</strong> coordinates, so nothing that already
+exists moves. An entity anchor whose entity is untracked this frame (dead, out of range, not
+spawned yet) resolves to no slot, and the block draws nothing that frame, exactly like every other
+world effect.</p>
+<p><code>flat</code> mode does not read slots or <code>pos_*</code>: it is placed by <code>x</code>/<code>y</code> on the frame.</p>
+<h3 id="what-the-block-faces-and-how-it-is-lit">What the block faces, and how it is lit<a class="headerlink" href="#what-the-block-faces-and-how-it-is-lit" title="Permanent link">&para;</a></h3>
+<p><code>billboard</code> turns the orientation rule into a choice instead of a consequence of <code>rot_*</code>. It is the
+float code of the display's own billboard constraint, and it is read <strong>once per display</strong>, so changing
+it changes nothing until the block is rebuilt:</p>
+<ul>
+<li><strong><code>0</code> (default) is auto</strong>, and it is the rule this effect has always used: with <code>rot_x</code>, <code>rot_y</code> and
+  <code>rot_z</code> all at zero the block <strong>faces the camera</strong>; setting <strong>any</strong> of the three pins it in world
+  orientation. So the common case - a title you have not rotated - stays readable from every side, and
+  the moment you author a rotation you get exactly that rotation with no surprise turn.</li>
+<li><strong><code>1</code> is fixed</strong>: the block never turns, and <code>rot_*</code> still rotates it. Use it to say "world
+  orientation" with no rotation at all.</li>
+<li><strong><code>2</code> is center</strong>: the block always turns to face you, but <code>rot_*</code> still rotates its glyphs about
+  the anchor - the whole quad follows the camera, the line inside it keeps your rotation.</li>
+<li><strong><code>3</code> is vertical</strong>: it turns about Y to face you but never tilts, so the line stays upright and
+  reads from any horizontal direction.</li>
+<li><strong><code>4</code> is horizontal</strong>: it stays level in the world's plane and tilts with your pitch, the way text
+  lying on the floor reads when you look down at it.</li>
+</ul>
+<p><code>brightness</code> decides the light the glyphs are drawn in, with exactly the block-particle convention:
+<strong><code>-1</code> means the world light</strong> at the text's own position, so the line darkens in a shadow the way a
+block-display does, and <strong><code>0..15</code> overrides both the block and the sky light</strong> with that level - the
+light is packed as <code>Brightness(level, level)</code>, so <code>15</code> is full-bright and <code>0</code> is nearly black. The
+default is <code>15</code>, because a title is usually meant to be readable in a dark room; set <code>-1</code> when the
+text should belong to the place it stands in. It is re-applied every frame and written to the
+entities only when the level changes, so a keyframed <code>brightness</code> pulses without touching a standing
+line.</p>
+<p>Both params are <strong><code>world</code> only</strong>: <code>flat</code> text is drawn in GUI space, where the camera and the world
+light do not exist.</p>
+<h3 id="showing-the-back-of-a-pinned-block">Showing the back of a pinned block<a class="headerlink" href="#showing-the-back-of-a-pinned-block" title="Permanent link">&para;</a></h3>
+<p>A text display draws its glyphs on a <strong>single-sided</strong> quad, so a block pinned in world orientation is
+invisible from behind. The default is a <strong>two-sided sign</strong>: two displays per unit, the second a
+mirrored copy of the first - from behind the letters read reversed, like the back of a physical sign.</p>
+<ul>
+<li><strong><code>two_sided: 1</code> (the default): a mirrored copy behind every unit.</strong> Every unit of a block whose
+  resolved <code>billboard</code> is not <code>center</code> spawns a <strong>twin</strong> carrying the same text, flags, alignment,
+  brightness and rotation. The twin is <strong>glued</strong>, not placed beside the original: a unit's text runs
+  from its origin along the block's local <strong>+X</strong> by its own width - the advance for a character, the
+  measured width for a word, the widest line for a block - so the twin's origin is <em>the original
+  position plus the block rotation applied to <code>(unitWidth, 0, 0)</code></em>. Its rotation is <strong>the same block
+  rotation the original gets</strong>, and the mirror comes from its transformation scale, <strong><code>(-scale, scale,
+  scale)</code></strong>: a negative X scale has a <strong>negative determinant</strong>, which mirrors the glyph along X and
+  flips the triangle winding. The flipped winding is what makes the copy <strong>culled from the front and
+  drawn only from behind</strong>, and the shifted origin is what makes the mirrored quad, which now runs
+  backwards from where it stands, cover <strong>exactly the same rectangle</strong> as the original. So a viewer in
+  front reads the original, and a viewer behind reads the same letters <strong>reversed</strong> - the back of a
+  physical sign, a mirror image, never a readable second front. Nothing is drawn through terrain: each
+  plane is drawn on its one side, so a block behind a hill is hidden by it, like any other world
+  geometry. A single-character unit is the one case that needs no shift, and the maths says the
+  special case still holds under a mirror: vanilla draws that quad centred, spanning
+  <code>[-width/2, +width/2]</code> about its origin, and a mirror about that same origin maps the interval onto
+  itself - the twin lands on the identical cell.</li>
+<li><strong>The pair is one object.</strong> Both copies are driven by <strong>exactly the same rotation each frame</strong> -
+  block rotation, then spin, then tumble - and share the exit displacement, the floor, the opacity, the
+  brightness and the release, so a falling or tumbling pair never separates and neither copy outlives
+  the other. They are also written by the same change detection: a standing line writes neither copy and
+  a decode touches both where it touched one. The cost is honest and stated: a pinned block spends
+  <strong>two display entities per unit</strong>, so it reaches the 256-display cap at half the units and the
+  warning says <code>two_sided</code> is why. It is skipped when the resolved <code>billboard</code> is <code>center</code>, because a
+  centre billboard already turns its quad to face the camera from every side and a twin would only
+  double the entities for nothing.</li>
+<li><strong><code>two_sided: 0</code>: a one-sided decal.</strong> One display per unit, visible from the front, gone from
+  behind. The cheapest state, and the one to pick for a block that is meant to have a front.</li>
+<li><strong><code>through_blocks: 1</code> (off by default): vanilla's x-ray mode, kept as an option.</strong> The flag is one bit
+  of vanilla's display style, ORed in next to the shadow bit, so the renderer submits each unit's
+  quads from <strong>both sides</strong> - the physical back of the same quad, a mirror image with the word running
+  right to left - at any rotation, including while the block tumbles. No second entity is spawned. It
+  is <strong>not</strong> a substitute for <code>two_sided</code>: this is vanilla's see-through mode, and that mode also draws
+  the text <strong>through terrain</strong>, so a line standing behind a hill is still visible through it, and
+  nothing in the mod separates the two. Use it for text meant to be seen through walls, with
+  <code>two_sided: 0</code> when the twin is not wanted as well.</li>
+</ul>
+<h2 id="the-two-exits">The two exits<a class="headerlink" href="#the-two-exits" title="Permanent link">&para;</a></h2>
+<p><code>exit</code> picks one of two ways for the units to leave, and it is a float code: <code>0</code> is a <strong>fade</strong>, <code>1</code> is
+a <strong>fall</strong>.</p>
+<ul>
+<li><strong>Fade (<code>exit: 0</code>).</strong> Unit <code>i</code> starts fading at <code>exit_at + i * exit_stagger</code> seconds and is gone
+  <code>fade_out</code> seconds later. Nothing moves; only the opacity falls. There is no rest in a fade, so
+  <code>hold</code> is not read by it.</li>
+<li><strong>Fall (<code>exit: 1</code>).</strong> The same schedule detaches the units, and a detached unit stops being an
+  offset from the clock and becomes a <strong>body</strong>: two offsets, two velocities, an angle and an angular
+  velocity, the state a 2D character-physics pass (MusicSubtitles' <code>SubtitleBubble$CharPhysics</code>)
+  keeps, lifted into the world. It is seeded with the rest pose the letter stood in, with its
+  velocity (<code>exit_speed</code> plus a sideways <code>spread</code>) and its spin (<code>spin_x</code>/<code>spin_y</code>/<code>spin_z</code> as a
+  length, <code>tumble</code> picking the direction per unit) and stepped <strong>once per client tick</strong>: gravity is
+  added to the vertical velocity, <code>friction</code> multiplies <strong>both</strong> velocities, the offsets are
+  integrated by them, and the angle advances by the roll - which is the authored spin plus
+  <code>drift / radius</code> radians per block travelled, so a letter rolls over its own half-height the way
+  the drift would roll it, capped so a hard throw cannot spin it absurdly. The displays are drawn at
+  the interpolation between the last two ticks, so 20 Hz physics still looks smooth.</li>
+</ul>
+<p>The only thing the body knows about the world is the <strong>Y it lands on</strong>, and it learns it <strong>once</strong>,
+  when the unit detaches: one downward <code>level.clip</code> raycast (32 blocks, collider blocks only - a
+  plant or a torch is not a floor) from where the letter stood. When the glyph reaches that Y it
+  touches down, the vertical velocity is reflected once and scaled by <code>bounce</code>, the horizontal drift
+  is damped by <code>friction</code>, and the roll stops - a letter lying on the ground does not keep turning.
+  The next contact, the one after that single rebound, <strong>pins</strong> the body: from there it gets no
+  gravity and no vertical integration at all and simply holds the floor, so a landed letter lies
+  still instead of being pushed a tick's worth of fall below the surface and snapped back up every
+  frame. It rests <strong>two centimetres above</strong> the surface it hit (<code>0.02</code> blocks) rather than in it:
+  landing exactly in the surface plane would put the glyph coplanar with the block's top face and
+  make it shimmer with z-fighting. The body then comes to rest <strong>on its own</strong>: after four consecutive
+  ticks under the rest thresholds its motion is zeroed and its pose frozen, and whatever angle it has
+  is the final one.</p>
+<p><strong>The honest limit of that model</strong>: the letter lands on the ground <strong>under the spot it detached
+  over</strong> and never looks at the terrain again. It cannot tip over an edge, slide down a slope, be
+  stopped by a wall, bounce off a step or tumble into a gap - a letter dropped just past the lip of
+  a cliff still lands at the cliff's own height, and one that drifts over a hole lands on the column
+  it started on. That is the trade for a fall that costs six floats and one raycast per unit instead
+  of a world query for every corner on every tick, with up to 256 units in a block. Everything else
+  still holds: the scatter, the spin, the single rebound, the air drag and the four-tick rest.</p>
+<p><strong>Opacity has three stages, and only three:</strong></p>
+<ul>
+<li><strong>Opaque while it falls.</strong> A unit in the air is drawn at full opacity, however long the drop takes.</li>
+<li><strong><code>hold</code> seconds at full opacity once it has come to rest.</strong> The clock for it starts at the tick the
+  body reports <strong>resting</strong> - the letter has already stopped by then - so <code>hold: 2</code> is two seconds of
+  a crisp, opaque glyph lying where it fell. <code>0</code> (the default) starts the fade on that tick.</li>
+<li><strong>Then <code>fade_out</code> seconds of fade.</strong> Unit opacity is
+  <code>1 - clamp01((since - rest - hold) / fade_out)</code>, so a larger value is a longer, softer dissolve.</li>
+</ul>
+<p>A body that can never land is still released, not left hanging: with <code>collision</code> on but a fall out of
+the world, <code>bounce: 1</code> or a <code>friction</code> almost at <code>1</code>, the body never rests, so the same <code>hold</code> and
+<code>fade_out</code> ramp starts from the first of two moments - it fell <strong>below the level's own minimum build
+height</strong> (plus an eight-block margin), where there is no surface left to catch it, or <strong>ten seconds</strong>
+have passed since it detached without it coming to rest. Both are release guarantees, not gameplay
+limits: a real fall, however long, is still inside the build range and lands long before either
+fires. The block always reaches zero and is released; no unit stays spawned and fully opaque until
+someone stops the effect.</p>
+<p><strong><code>exit_at</code> and <code>exit_stagger</code> are the <em>when</em>, and they are separate from all of that.</strong> Unit <code>i</code>
+detaches at <code>exit_at + i * exit_stagger</code>, so a stagger above <code>0</code> takes the line apart letter by letter
+instead of all at once. <code>exit_at</code> is <code>-1</code> by default, which means the block never leaves on its own
+and stands until the effect is stopped.</p>
+<p><code>fade_out: 0</code> is the fourth state, and the one for letters that must not go anywhere: it means
+<strong>never fade</strong>, not "vanish instantly". The unit stays fully opaque until the effect stops, so a fall
+with <code>hold</code> and <code>fade_out: 0</code> is a pile of letters that simply stays. Nothing leaks: a <code>world</code> block
+that never reaches zero keeps its display entities and they are released when the effect stops being
+active or the level changes, and a looping effect reuses them, <code>since</code> turning negative again and the
+standing line coming back at full opacity. A non-zero <code>fade_out</code> still always reaches zero, and a
+fully faded <code>world</code> block releases its entities right there (<code>flat</code> has no entities to release).</p>
+<p><strong>A free fall never comes to rest.</strong> With nothing to land on - <code>collision: 0</code>, or a drop into open
+air - the body is never declared resting, so <code>hold</code> never starts and the fade begins the moment the
+unit detaches: <code>fade_out</code> decides whether it disappears on the way down. Unless <code>fade_out</code> is <code>0</code>:
+then there is no fade at all and the letter keeps falling, fully opaque, until the effect stops.</p>
+<p><code>collision</code> is the same switch in both modes; only the surface differs:</p>
+<ul>
+<li><strong>3D (<code>world</code>) collision is one raycast under the letter.</strong> With <code>collision: 1</code> the unit's
+  detach does a single downward <code>level.clip</code> against the level's <strong>collider</strong> blocks, 32 blocks
+  deep, and that Y is the floor it lands on. It costs one raycast per unit, once, and nothing per
+  tick - which is what makes a 256-unit block affordable. The price is stated in <a href="#the-two-exits">The two
+  exits</a>: the glyph lands on the ground under the column it detached over, so it
+  does not follow a slope, does not tip over an edge and cannot be stopped by a wall. A unit whose
+  column has nothing within 32 blocks has <strong>no floor</strong>: it keeps falling, and the release guarantees
+  below end it. <code>collision: 0</code> skips the raycast entirely and the text falls straight through the
+  ground.</li>
+<li><strong>2D (<code>flat</code>) collision is the frame.</strong> The picture <em>is</em> the world there: the bottom edge of the game
+  window is the floor, the two sides are walls and the top edge is a ceiling, and <code>collision: 0</code> lets
+  a unit leave the picture and fade where it went.</li>
+</ul>
+<p>That second half is the code, not only the design: <strong>both exits run in both modes, and the fade
+schedule is one timeline.</strong> <code>flat</code> reads the same <code>exit_at</code> + <code>index * exit_stagger</code> schedule, the same
+<code>exit</code> code, the same <code>hold</code> and the same <code>fade_out</code>; what differs is the space the motion is measured
+in. A <code>flat</code> fall moves the unit in <strong>screen heights</strong> - <code>exit_speed</code> is screen heights per second and
+<code>gravity</code> screen heights per second squared scaled by <code>1/8</code> (one screen is roughly eight world
+drops), multiplied by the GUI height - so GUI scale 2 and GUI scale 4 put the text in the same place
+at the same moment. <code>gravity_angle</code> turns that pull, and
+because the angle is read on every tick an animated turn <strong>bends</strong> a letter that is already in the
+air: <code>0</code> is down, <code>90</code> is right, and the acceleration is the vector
+<code>gravity * (sin(angle), cos(angle))</code> in both modes - in the world <code>90</code> therefore pulls along +X and
+the letters slide along the floor they land on, on the HUD it drags them towards the right edge of the
+frame. The HUD's y grows <strong>downwards</strong>, so the same vector is applied with the sign of its y component
+flipped, and a <strong>positive <code>exit_speed</code> still launches the letter upward first</strong>; it falls back from
+there.</p>
+<p><strong>The <code>flat</code> exit is the same body as the world one, in screen pixels.</strong> A unit that detaches is handed
+to the same <code>VFXTextBody</code> - same integrator, same step gate, same interpolation between ticks - with
+the four edges of the frame for its world: the bottom edge is the floor, the top edge the ceiling and
+the two sides are walls, each inset by the unit's own half-size so a landed letter stands on the frame
+with its box. It therefore inherits the whole physics for free: it <strong>lands on the bottom edge</strong>,
+rebounds once by <code>bounce</code>, is damped by <code>friction</code> on contact, comes to rest under the same four-still-
+ticks rule, and is <strong>stopped and bounced back by the sides and the top</strong> instead of being folded by a
+formula. <code>collision: 0</code> still means no edge at all: the body is bounded by nothing and the letter
+leaves the picture, fading on the way out. <code>hold</code> and <code>fade_out</code> start from the tick the body reports
+resting - which is now genuinely "the bounces have died down", not a solved impact time. <code>flat</code> turns a
+unit about its own centre, the only axis a 2D pose has, by the body's own roll: a seed from
+<code>spin_x</code>/<code>spin_y</code>/<code>spin_z</code> (signed per unit by <code>tumble</code>, in radians per tick) <strong>plus the sideways speed
+over the glyph's own half-height</strong>, capped at the same <code>0.5</code> rad/tick the world body uses. So a letter
+thrown sideways spins faster, and neither a hard drift nor a tall frame can spin a glyph absurdly.
+<code>rot_x</code>, <code>rot_y</code> and <code>rot_z</code> stay <code>world</code>-only, the block's own turn comes from <code>angle</code>, and
+<code>exit_stagger</code>, <code>collision</code>, <code>bounce</code>, <code>friction</code> and <code>gravity_angle</code> mean the same thing in both
+modes.</p>
+<p><strong>Neither exit is a closed form of the clock any more, and that is deliberate.</strong> A changing
+acceleration has no closed form: an animated <code>gravity_angle</code> - or an animated <code>gravity</code> - is integrated
+tick by tick, because the point of it is that a turn mid-fall bends the trajectory. So the flat path
+accumulates the same per-tick state the world path always did: a replay <strong>from the effect's start</strong>
+matches the first run frame for frame - the same seeds, the same floor, the same order - while jumping
+into the middle of a run does not reproduce the same arrangement, because the motion that decided where
+each glyph stopped never happened. That is the trade the block particles make too, and it is stated
+here rather than hidden. The fade, the reveal and the scramble stay pure functions of the clock.</p>
+<h2 id="the-scramble-transitions">The scramble transitions<a class="headerlink" href="#the-scramble-transitions" title="Permanent link">&para;</a></h2>
+<p><code>scramble</code> above <code>0</code> turns both transitions into a <strong>decode</strong>: instead of appearing and disappearing
+as themselves, the units pass through noise. Four params, and only <code>scramble</code> is a plain switch
+with an intensity - the other three shape the two windows it opens.</p>
+<ul>
+<li><strong>The reveal band.</strong> Unit <code>i</code> is <code>i - reveal * count</code> units ahead of the reveal frontier.
+  While it is fewer than <code>scramble_band</code> units ahead, it draws a noise glyph, and the noise fades
+  out towards the far end of the band - full at the frontier, nothing at <code>scramble_band</code>. So the tail
+  of the line reads as machine noise that decodes as the wipe sweeps over it, and the moment the
+  frontier passes a unit it snaps back to itself. The band is computed from <code>reveal</code> alone; no
+  history is kept, so seeking to the middle of the wipe lands on the frame that wipe has.</li>
+<li><strong>The exit window.</strong> For the <code>scramble_time</code> seconds before a unit's own detach time
+  (<code>exit_at + index * exit_stagger</code>), it shows noise instead of its own text, at the full <code>scramble</code>
+  opacity, and then leaves by whichever exit is set - still falling or fading as itself, so the last
+  thing you read before it goes is a scrap of noise rather than the text.</li>
+</ul>
+<p><strong>The noise is a fixed pool</strong>: <code>A-Z 0-9</code> plus <code>#$%&amp;*+=-&lt;&gt;/?</code> - no lowercase, so a decode reads as
+machine output rather than as text that happens to be wrong. The glyph is a hash of the instance id,
+the unit index and the swap number, and the swap number is the clock read as
+<code>floor(age * scramble_rate)</code>: the same tick therefore always draws the same glyph, so a replay
+matches the first run and a screenshot can be compared against it frame for frame. Nothing is
+accumulated - both windows and the glyph are pure functions of the clock and the params.</p>
+<p>It works on <strong>both transitions</strong> (a revealed line decodes in, a leaving unit decodes out) and in
+<strong>both modes</strong>. The <code>world</code> path rewrites a display's text only when the text it should show actually
+changed, so a decode costs what a standing line costs; the <code>flat</code> path draws one noise glyph in the
+unit's own box - so a swap never shifts it sideways, and a whole word or block decodes as one piece -
+and costs no more than a plain frame either. A unit that is scrambled replaces <strong>both</strong> its text and
+its opacity: the band units are visible at the noise's opacity instead of waiting at zero, which
+is why the tail lights up as the sweep reaches it.</p>
+<p>With <code>scramble</code> at <code>0</code> the effect is exactly what it was before, so a definition that does not ask for
+a decode is unaffected.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="p">{</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="w">    </span><span class="nt">"params"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="w">        </span><span class="nt">"reveal"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">"start"</span><span class="p">:</span><span class="w"> </span><span class="mf">0.0</span><span class="p">,</span><span class="w"> </span><span class="nt">"end"</span><span class="p">:</span><span class="w"> </span><span class="mf">1.0</span><span class="w"> </span><span class="p">},</span>
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="w">        </span><span class="nt">"scramble"</span><span class="p">:</span><span class="w"> </span><span class="mf">1.0</span><span class="p">,</span>
+<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="w">        </span><span class="nt">"scramble_rate"</span><span class="p">:</span><span class="w"> </span><span class="mf">15.0</span><span class="p">,</span>
+<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="w">        </span><span class="nt">"scramble_band"</span><span class="p">:</span><span class="w"> </span><span class="mf">4.0</span><span class="p">,</span>
+<a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a><span class="w">        </span><span class="nt">"exit_at"</span><span class="p">:</span><span class="w"> </span><span class="mf">3.0</span><span class="p">,</span>
+<a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a><span class="w">        </span><span class="nt">"exit_stagger"</span><span class="p">:</span><span class="w"> </span><span class="mf">0.04</span><span class="p">,</span>
+<a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a><span class="w">        </span><span class="nt">"scramble_time"</span><span class="p">:</span><span class="w"> </span><span class="mf">0.4</span><span class="p">,</span>
+<a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a><span class="w">        </span><span class="nt">"exit"</span><span class="p">:</span><span class="w"> </span><span class="mf">1.0</span>
+<a id="__codelineno-3-11" name="__codelineno-3-11" href="#__codelineno-3-11"></a><span class="w">    </span><span class="p">}</span>
+<a id="__codelineno-3-12" name="__codelineno-3-12" href="#__codelineno-3-12"></a><span class="p">}</span>
+</code></pre></div>
+<h2 id="example">Example<a class="headerlink" href="#example" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="p">{</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="w">    </span><span class="nt">"type"</span><span class="p">:</span><span class="w"> </span><span class="s2">"text_overlay"</span><span class="p">,</span>
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="w">    </span><span class="nt">"duration"</span><span class="p">:</span><span class="w"> </span><span class="mi">160</span><span class="p">,</span>
+<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="w">    </span><span class="nt">"persistent"</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
+<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="w">    </span><span class="nt">"text"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="w">        </span><span class="nt">"content"</span><span class="p">:</span><span class="w"> </span><span class="s2">"First frame\nbuilt by a datapack"</span><span class="p">,</span>
+<a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a><span class="w">        </span><span class="nt">"mode"</span><span class="p">:</span><span class="w"> </span><span class="s2">"world"</span><span class="p">,</span>
+<a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a><span class="w">        </span><span class="nt">"split"</span><span class="p">:</span><span class="w"> </span><span class="s2">"char"</span><span class="p">,</span>
+<a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a><span class="w">        </span><span class="nt">"align"</span><span class="p">:</span><span class="w"> </span><span class="s2">"center"</span><span class="p">,</span>
+<a id="__codelineno-4-10" name="__codelineno-4-10" href="#__codelineno-4-10"></a><span class="w">        </span><span class="nt">"anchor"</span><span class="p">:</span><span class="w"> </span><span class="s2">"center"</span>
+<a id="__codelineno-4-11" name="__codelineno-4-11" href="#__codelineno-4-11"></a><span class="w">    </span><span class="p">},</span>
+<a id="__codelineno-4-12" name="__codelineno-4-12" href="#__codelineno-4-12"></a><span class="w">    </span><span class="nt">"params"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-4-13" name="__codelineno-4-13" href="#__codelineno-4-13"></a><span class="w">        </span><span class="nt">"pos_x"</span><span class="p">:</span><span class="w"> </span><span class="mf">100.5</span><span class="p">,</span>
+<a id="__codelineno-4-14" name="__codelineno-4-14" href="#__codelineno-4-14"></a><span class="w">        </span><span class="nt">"pos_y"</span><span class="p">:</span><span class="w"> </span><span class="mf">72.0</span><span class="p">,</span>
+<a id="__codelineno-4-15" name="__codelineno-4-15" href="#__codelineno-4-15"></a><span class="w">        </span><span class="nt">"pos_z"</span><span class="p">:</span><span class="w"> </span><span class="mf">200.5</span><span class="p">,</span>
+<a id="__codelineno-4-16" name="__codelineno-4-16" href="#__codelineno-4-16"></a><span class="w">        </span><span class="nt">"scale"</span><span class="p">:</span><span class="w"> </span><span class="mf">2.0</span><span class="p">,</span>
+<a id="__codelineno-4-17" name="__codelineno-4-17" href="#__codelineno-4-17"></a><span class="w">        </span><span class="nt">"reveal"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">"start"</span><span class="p">:</span><span class="w"> </span><span class="mf">0.0</span><span class="p">,</span><span class="w"> </span><span class="nt">"end"</span><span class="p">:</span><span class="w"> </span><span class="mf">1.0</span><span class="w"> </span><span class="p">},</span>
+<a id="__codelineno-4-18" name="__codelineno-4-18" href="#__codelineno-4-18"></a><span class="w">        </span><span class="nt">"exit_at"</span><span class="p">:</span><span class="w"> </span><span class="mf">5.0</span><span class="p">,</span>
+<a id="__codelineno-4-19" name="__codelineno-4-19" href="#__codelineno-4-19"></a><span class="w">        </span><span class="nt">"exit_stagger"</span><span class="p">:</span><span class="w"> </span><span class="mf">0.04</span><span class="p">,</span>
+<a id="__codelineno-4-20" name="__codelineno-4-20" href="#__codelineno-4-20"></a><span class="w">        </span><span class="nt">"exit"</span><span class="p">:</span><span class="w"> </span><span class="mf">1.0</span><span class="p">,</span>
+<a id="__codelineno-4-21" name="__codelineno-4-21" href="#__codelineno-4-21"></a><span class="w">        </span><span class="nt">"collision"</span><span class="p">:</span><span class="w"> </span><span class="mf">1.0</span>
+<a id="__codelineno-4-22" name="__codelineno-4-22" href="#__codelineno-4-22"></a><span class="w">    </span><span class="p">}</span>
+<a id="__codelineno-4-23" name="__codelineno-4-23" href="#__codelineno-4-23"></a><span class="p">}</span>
+</code></pre></div>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>/vfx play vfx_demos:my_text_overlay
+</code></pre></div>
+<p>Author it in <strong>your own</strong> namespace (<code>vfx_demos:</code> above) - a pack that writes <code>vfxweaver:&lt;name&gt;</code>
+would shadow a built-in rather than add one.</p>
+<h3 id="dragging-a-landed-hud-line-sideways">Dragging a landed HUD line sideways<a class="headerlink" href="#dragging-a-landed-hud-line-sideways" title="Permanent link">&para;</a></h3>
+<p>The angle is animatable, so a line can fall first and be pulled across the frame afterwards. This one
+falls onto the bottom edge of the HUD, then <code>gravity_angle</code> turns from <code>0</code> to <code>90</code> while the letters
+are already there: the body keeps them pinned to the floor and the horizontal part of the gravity
+drags them right, until the right edge of the frame stops them.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="p">{</span>
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="w">    </span><span class="nt">"type"</span><span class="p">:</span><span class="w"> </span><span class="s2">"text_overlay"</span><span class="p">,</span>
+<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="w">    </span><span class="nt">"duration"</span><span class="p">:</span><span class="w"> </span><span class="mi">120</span><span class="p">,</span>
+<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="w">    </span><span class="nt">"persistent"</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
+<a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a><span class="w">    </span><span class="nt">"text"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">"content"</span><span class="p">:</span><span class="w"> </span><span class="s2">"DRAGGED"</span><span class="p">,</span><span class="w"> </span><span class="nt">"mode"</span><span class="p">:</span><span class="w"> </span><span class="s2">"flat"</span><span class="p">,</span><span class="w"> </span><span class="nt">"split"</span><span class="p">:</span><span class="w"> </span><span class="s2">"char"</span><span class="p">,</span><span class="w"> </span><span class="nt">"anchor"</span><span class="p">:</span><span class="w"> </span><span class="s2">"center"</span><span class="w"> </span><span class="p">},</span>
+<a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a><span class="w">    </span><span class="nt">"params"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a><span class="w">        </span><span class="nt">"x"</span><span class="p">:</span><span class="w"> </span><span class="mf">0.5</span><span class="p">,</span>
+<a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a><span class="w">        </span><span class="nt">"y"</span><span class="p">:</span><span class="w"> </span><span class="mf">0.15</span><span class="p">,</span>
+<a id="__codelineno-6-9" name="__codelineno-6-9" href="#__codelineno-6-9"></a><span class="w">        </span><span class="nt">"scale"</span><span class="p">:</span><span class="w"> </span><span class="mf">2.0</span><span class="p">,</span>
+<a id="__codelineno-6-10" name="__codelineno-6-10" href="#__codelineno-6-10"></a><span class="w">        </span><span class="nt">"reveal"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">"start"</span><span class="p">:</span><span class="w"> </span><span class="mf">0.0</span><span class="p">,</span><span class="w"> </span><span class="nt">"end"</span><span class="p">:</span><span class="w"> </span><span class="mf">1.0</span><span class="w"> </span><span class="p">},</span>
+<a id="__codelineno-6-11" name="__codelineno-6-11" href="#__codelineno-6-11"></a><span class="w">        </span><span class="nt">"exit_at"</span><span class="p">:</span><span class="w"> </span><span class="mf">1.0</span><span class="p">,</span>
+<a id="__codelineno-6-12" name="__codelineno-6-12" href="#__codelineno-6-12"></a><span class="w">        </span><span class="nt">"exit_stagger"</span><span class="p">:</span><span class="w"> </span><span class="mf">0.03</span><span class="p">,</span>
+<a id="__codelineno-6-13" name="__codelineno-6-13" href="#__codelineno-6-13"></a><span class="w">        </span><span class="nt">"exit"</span><span class="p">:</span><span class="w"> </span><span class="mf">1.0</span><span class="p">,</span>
+<a id="__codelineno-6-14" name="__codelineno-6-14" href="#__codelineno-6-14"></a><span class="w">        </span><span class="nt">"gravity"</span><span class="p">:</span><span class="w"> </span><span class="mf">6.0</span><span class="p">,</span>
+<a id="__codelineno-6-15" name="__codelineno-6-15" href="#__codelineno-6-15"></a><span class="w">        </span><span class="nt">"gravity_angle"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-6-16" name="__codelineno-6-16" href="#__codelineno-6-16"></a><span class="w">            </span><span class="nt">"keyframes"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<a id="__codelineno-6-17" name="__codelineno-6-17" href="#__codelineno-6-17"></a><span class="w">                </span><span class="p">{</span><span class="w"> </span><span class="nt">"time"</span><span class="p">:</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="nt">"value"</span><span class="p">:</span><span class="w"> </span><span class="mf">0.0</span><span class="w"> </span><span class="p">},</span>
+<a id="__codelineno-6-18" name="__codelineno-6-18" href="#__codelineno-6-18"></a><span class="w">                </span><span class="p">{</span><span class="w"> </span><span class="nt">"time"</span><span class="p">:</span><span class="w"> </span><span class="mi">40</span><span class="p">,</span><span class="w"> </span><span class="nt">"value"</span><span class="p">:</span><span class="w"> </span><span class="mf">0.0</span><span class="w"> </span><span class="p">},</span>
+<a id="__codelineno-6-19" name="__codelineno-6-19" href="#__codelineno-6-19"></a><span class="w">                </span><span class="p">{</span><span class="w"> </span><span class="nt">"time"</span><span class="p">:</span><span class="w"> </span><span class="mi">60</span><span class="p">,</span><span class="w"> </span><span class="nt">"value"</span><span class="p">:</span><span class="w"> </span><span class="mf">90.0</span><span class="w"> </span><span class="p">},</span>
+<a id="__codelineno-6-20" name="__codelineno-6-20" href="#__codelineno-6-20"></a><span class="w">                </span><span class="p">{</span><span class="w"> </span><span class="nt">"time"</span><span class="p">:</span><span class="w"> </span><span class="mi">120</span><span class="p">,</span><span class="w"> </span><span class="nt">"value"</span><span class="p">:</span><span class="w"> </span><span class="mf">90.0</span><span class="w"> </span><span class="p">}</span>
+<a id="__codelineno-6-21" name="__codelineno-6-21" href="#__codelineno-6-21"></a><span class="w">            </span><span class="p">]</span>
+<a id="__codelineno-6-22" name="__codelineno-6-22" href="#__codelineno-6-22"></a><span class="w">        </span><span class="p">},</span>
+<a id="__codelineno-6-23" name="__codelineno-6-23" href="#__codelineno-6-23"></a><span class="w">        </span><span class="nt">"friction"</span><span class="p">:</span><span class="w"> </span><span class="mf">0.9</span><span class="p">,</span>
+<a id="__codelineno-6-24" name="__codelineno-6-24" href="#__codelineno-6-24"></a><span class="w">        </span><span class="nt">"bounce"</span><span class="p">:</span><span class="w"> </span><span class="mf">0.2</span><span class="p">,</span>
+<a id="__codelineno-6-25" name="__codelineno-6-25" href="#__codelineno-6-25"></a><span class="w">        </span><span class="nt">"collision"</span><span class="p">:</span><span class="w"> </span><span class="mf">1.0</span><span class="p">,</span>
+<a id="__codelineno-6-26" name="__codelineno-6-26" href="#__codelineno-6-26"></a><span class="w">        </span><span class="nt">"hold"</span><span class="p">:</span><span class="w"> </span><span class="mf">0.2</span><span class="p">,</span>
+<a id="__codelineno-6-27" name="__codelineno-6-27" href="#__codelineno-6-27"></a><span class="w">        </span><span class="nt">"fade_out"</span><span class="p">:</span><span class="w"> </span><span class="mf">0.5</span>
+<a id="__codelineno-6-28" name="__codelineno-6-28" href="#__codelineno-6-28"></a><span class="w">    </span><span class="p">}</span>
+<a id="__codelineno-6-29" name="__codelineno-6-29" href="#__codelineno-6-29"></a><span class="p">}</span>
+</code></pre></div>
+<h2 id="code">Code<a class="headerlink" href="#code" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>/vfx play vfx_demos:show_text_overlay
+</code></pre></div>
+<p>Tuning it without editing the file - every param can be overridden at play time. The param map is
+<code>{[name:value],[name:value],...}</code>: square brackets around each pair, a comma between pairs, all of it
+inside braces:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>/vfx play vfx_demos:show_text_overlay {[scale:8],[spread:1],[billboard:1],[through_blocks:1],[fade_out:0]}
+<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>/vfx play vfx_demos:show_text_overlay {[scale:8],[hold:2],[fade_out:2]}
+<a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a>/vfx play vfx_demos:show_text_overlay {[scale:8],[scramble:1],[scramble_rate:8],[scramble_band:6]}
+<a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a>/vfx playat vfx_demos:show_text_overlay 100 66 200 text "Area 2" {[scale:12],[brightness:15]}
+</code></pre></div>
+<p>Its datapack definition:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="p">{</span>
+<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="w">    </span><span class="nt">"type"</span><span class="p">:</span><span class="w"> </span><span class="s2">"text_overlay"</span><span class="p">,</span>
+<a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a><span class="w">    </span><span class="nt">"duration"</span><span class="p">:</span><span class="w"> </span><span class="mi">160</span><span class="p">,</span>
+<a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a><span class="w">    </span><span class="nt">"easing"</span><span class="p">:</span><span class="w"> </span><span class="s2">"ease_in_out_cubic"</span><span class="p">,</span>
+<a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a><span class="w">    </span><span class="nt">"persistent"</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
+<a id="__codelineno-9-6" name="__codelineno-9-6" href="#__codelineno-9-6"></a><span class="w">    </span><span class="nt">"loop"</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
+<a id="__codelineno-9-7" name="__codelineno-9-7" href="#__codelineno-9-7"></a><span class="w">    </span><span class="nt">"fade_ticks"</span><span class="p">:</span><span class="w"> </span><span class="mi">12</span><span class="p">,</span>
+<a id="__codelineno-9-8" name="__codelineno-9-8" href="#__codelineno-9-8"></a><span class="w">    </span><span class="nt">"text"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-9-9" name="__codelineno-9-9" href="#__codelineno-9-9"></a><span class="w">        </span><span class="nt">"content"</span><span class="p">:</span><span class="w"> </span><span class="s2">"VFX WEAVER"</span><span class="p">,</span>
+<a id="__codelineno-9-10" name="__codelineno-9-10" href="#__codelineno-9-10"></a><span class="w">        </span><span class="nt">"mode"</span><span class="p">:</span><span class="w"> </span><span class="s2">"world"</span><span class="p">,</span>
+<a id="__codelineno-9-11" name="__codelineno-9-11" href="#__codelineno-9-11"></a><span class="w">        </span><span class="nt">"split"</span><span class="p">:</span><span class="w"> </span><span class="s2">"char"</span><span class="p">,</span>
+<a id="__codelineno-9-12" name="__codelineno-9-12" href="#__codelineno-9-12"></a><span class="w">        </span><span class="nt">"align"</span><span class="p">:</span><span class="w"> </span><span class="s2">"center"</span><span class="p">,</span>
+<a id="__codelineno-9-13" name="__codelineno-9-13" href="#__codelineno-9-13"></a><span class="w">        </span><span class="nt">"anchor"</span><span class="p">:</span><span class="w"> </span><span class="s2">"center"</span>
+<a id="__codelineno-9-14" name="__codelineno-9-14" href="#__codelineno-9-14"></a><span class="w">    </span><span class="p">},</span>
+<a id="__codelineno-9-15" name="__codelineno-9-15" href="#__codelineno-9-15"></a><span class="w">    </span><span class="nt">"params"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-9-16" name="__codelineno-9-16" href="#__codelineno-9-16"></a><span class="w">        </span><span class="nt">"pos_x"</span><span class="p">:</span><span class="w"> </span><span class="mf">2000.0</span><span class="p">,</span>
+<a id="__codelineno-9-17" name="__codelineno-9-17" href="#__codelineno-9-17"></a><span class="w">        </span><span class="nt">"pos_y"</span><span class="p">:</span><span class="w"> </span><span class="mf">102.5</span><span class="p">,</span>
+<a id="__codelineno-9-18" name="__codelineno-9-18" href="#__codelineno-9-18"></a><span class="w">        </span><span class="nt">"pos_z"</span><span class="p">:</span><span class="w"> </span><span class="mf">2001.0</span><span class="p">,</span>
+<a id="__codelineno-9-19" name="__codelineno-9-19" href="#__codelineno-9-19"></a><span class="w">        </span><span class="nt">"scale"</span><span class="p">:</span><span class="w"> </span><span class="mf">1.5</span><span class="p">,</span>
+<a id="__codelineno-9-20" name="__codelineno-9-20" href="#__codelineno-9-20"></a><span class="w">        </span><span class="nt">"color_r"</span><span class="p">:</span><span class="w"> </span><span class="mf">1.0</span><span class="p">,</span>
+<a id="__codelineno-9-21" name="__codelineno-9-21" href="#__codelineno-9-21"></a><span class="w">        </span><span class="nt">"color_g"</span><span class="p">:</span><span class="w"> </span><span class="mf">0.92</span><span class="p">,</span>
+<a id="__codelineno-9-22" name="__codelineno-9-22" href="#__codelineno-9-22"></a><span class="w">        </span><span class="nt">"color_b"</span><span class="p">:</span><span class="w"> </span><span class="mf">0.62</span><span class="p">,</span>
+<a id="__codelineno-9-23" name="__codelineno-9-23" href="#__codelineno-9-23"></a><span class="w">        </span><span class="nt">"reveal"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">"keyframes"</span><span class="p">:</span><span class="w"> </span><span class="p">[{</span><span class="w"> </span><span class="nt">"time"</span><span class="p">:</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="nt">"value"</span><span class="p">:</span><span class="w"> </span><span class="mf">0.0</span><span class="w"> </span><span class="p">},</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">"time"</span><span class="p">:</span><span class="w"> </span><span class="mi">40</span><span class="p">,</span><span class="w"> </span><span class="nt">"value"</span><span class="p">:</span><span class="w"> </span><span class="mf">1.0</span><span class="w"> </span><span class="p">},</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">"time"</span><span class="p">:</span><span class="w"> </span><span class="mi">160</span><span class="p">,</span><span class="w"> </span><span class="nt">"value"</span><span class="p">:</span><span class="w"> </span><span class="mf">1.0</span><span class="w"> </span><span class="p">}]</span><span class="w"> </span><span class="p">},</span>
+<a id="__codelineno-9-24" name="__codelineno-9-24" href="#__codelineno-9-24"></a><span class="w">        </span><span class="nt">"scramble"</span><span class="p">:</span><span class="w"> </span><span class="mf">1.0</span><span class="p">,</span>
+<a id="__codelineno-9-25" name="__codelineno-9-25" href="#__codelineno-9-25"></a><span class="w">        </span><span class="nt">"scramble_rate"</span><span class="p">:</span><span class="w"> </span><span class="mf">15.0</span><span class="p">,</span>
+<a id="__codelineno-9-26" name="__codelineno-9-26" href="#__codelineno-9-26"></a><span class="w">        </span><span class="nt">"scramble_band"</span><span class="p">:</span><span class="w"> </span><span class="mf">4.0</span><span class="p">,</span>
+<a id="__codelineno-9-27" name="__codelineno-9-27" href="#__codelineno-9-27"></a><span class="w">        </span><span class="nt">"scramble_time"</span><span class="p">:</span><span class="w"> </span><span class="mf">0.4</span><span class="p">,</span>
+<a id="__codelineno-9-28" name="__codelineno-9-28" href="#__codelineno-9-28"></a><span class="w">        </span><span class="nt">"exit_at"</span><span class="p">:</span><span class="w"> </span><span class="mf">5.0</span><span class="p">,</span>
+<a id="__codelineno-9-29" name="__codelineno-9-29" href="#__codelineno-9-29"></a><span class="w">        </span><span class="nt">"exit_stagger"</span><span class="p">:</span><span class="w"> </span><span class="mf">0.04</span><span class="p">,</span>
+<a id="__codelineno-9-30" name="__codelineno-9-30" href="#__codelineno-9-30"></a><span class="w">        </span><span class="nt">"exit"</span><span class="p">:</span><span class="w"> </span><span class="mf">1.0</span><span class="p">,</span>
+<a id="__codelineno-9-31" name="__codelineno-9-31" href="#__codelineno-9-31"></a><span class="w">        </span><span class="nt">"spin_x"</span><span class="p">:</span><span class="w"> </span><span class="mf">90.0</span><span class="p">,</span>
+<a id="__codelineno-9-32" name="__codelineno-9-32" href="#__codelineno-9-32"></a><span class="w">        </span><span class="nt">"spin_z"</span><span class="p">:</span><span class="w"> </span><span class="mf">30.0</span><span class="p">,</span>
+<a id="__codelineno-9-33" name="__codelineno-9-33" href="#__codelineno-9-33"></a><span class="w">        </span><span class="nt">"collision"</span><span class="p">:</span><span class="w"> </span><span class="mf">1.0</span><span class="p">,</span>
+<a id="__codelineno-9-34" name="__codelineno-9-34" href="#__codelineno-9-34"></a><span class="w">        </span><span class="nt">"bounce"</span><span class="p">:</span><span class="w"> </span><span class="mf">0.2</span><span class="p">,</span>
+<a id="__codelineno-9-35" name="__codelineno-9-35" href="#__codelineno-9-35"></a><span class="w">        </span><span class="nt">"fade_out"</span><span class="p">:</span><span class="w"> </span><span class="mf">0.4</span>
+<a id="__codelineno-9-36" name="__codelineno-9-36" href="#__codelineno-9-36"></a><span class="w">    </span><span class="p">}</span>
+<a id="__codelineno-9-37" name="__codelineno-9-37" href="#__codelineno-9-37"></a><span class="p">}</span>
+</code></pre></div>
+<p>The demo decodes the title in over the first two seconds - the characters ahead of the reveal frontier
+show noise for <code>scramble_band</code> places - holds it, then scrambles each letter for <code>scramble_time</code>
+before it detaches, drops it onto the platform at <code>y 100</code> where it lands, hops and fades, and the loop
+starts again.</p>
+<h2 id="see-also">See also<a class="headerlink" href="#see-also" title="Permanent link">&para;</a></h2>
+<ul>
+<li><a href="../../">Effects index</a> - the shared fields and how to read an effect page.</li>
+<li><a href="../../../datapack/format/">Datapack format</a> - definition fields and structural blocks.</li>
+<li><a href="../../../datapack/params/">Animating a param</a> - keyframes, <code>start</code>/<code>end</code>, <code>expr</code>, <code>bind</code>.</li>
+<li><a href="../../screen/screen-image/">screen_image</a> - the other page with a structural block instead of
+  animatable params.</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+  <script>var tabs=__md_get("__tabs");if(Array.isArray(tabs))e:for(var set of document.querySelectorAll(".tabbed-set")){var labels=set.querySelector(".tabbed-labels");for(var tab of tabs)for(var label of labels.getElementsByTagName("label"))if(label.innerText.trim()===tab){var input=document.getElementById(label.htmlFor);input.checked=!0;continue e}}</script>
+
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      Authored by Artition &middot; MIT licensed
+    </div>
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+      <div class="md-progress" data-md-component="progress" role="progressbar"></div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../../../..", "features": ["navigation.instant", "navigation.instant.progress", "navigation.sections", "navigation.top", "navigation.tracking", "toc.follow", "search.suggest", "search.highlight", "content.code.copy", "content.tabs.link"], "search": "../../../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"alias": true, "default": "latest", "provider": "mike"}}</script>
+    
+    
+      <script src="../../../../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>
